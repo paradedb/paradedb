@@ -22,9 +22,6 @@ use crate::schema::SearchConfig;
 use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
-use thiserror::Error;
-
-use serde::{Deserialize, Deserializer, Serialize};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
@@ -32,12 +29,10 @@ const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 macro_rules! rank_bm25_fn {
     ($func_name:ident, $key_type:ty) => {
         #[pg_extern(name = "rank_bm25")]
-        pub fn $func_name(
-            key: $key_type, alias: default!(Option<String>, "NULL")
-        ) -> f32 {
+        pub fn $func_name(key: $key_type, alias: default!(Option<String>, "NULL")) -> f32 {
             rank_bm25_impl(TantivyValue::try_from(key).unwrap(), alias)
         }
-    }
+    };
 }
 
 // #[pg_extern]
@@ -72,9 +67,16 @@ macro_rules! highlight_fn {
             max_num_chars: default!(Option<i32>, "NULL"),
             alias: default!(Option<String>, "NULL"),
         ) -> String {
-            highlight_impl(TantivyValue::try_from(key).unwrap(), field, prefix, postfix, max_num_chars, alias)
+            highlight_impl(
+                TantivyValue::try_from(key).unwrap(),
+                field,
+                prefix,
+                postfix,
+                max_num_chars,
+                alias,
+            )
         }
-    }
+    };
 }
 
 highlight_fn!(highlight_i8, i8);

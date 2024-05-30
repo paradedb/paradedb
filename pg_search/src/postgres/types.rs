@@ -4,15 +4,16 @@ use crate::postgres::datetime::{
     pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value,
 };
 use ordered_float::OrderedFloat;
-use pgrx::{FromDatum, PgBuiltInOids, PgOid};
 use pgrx::pg_sys::Datum;
-use thiserror::Error;
+use pgrx::pg_sys::Oid;
+use pgrx::{FromDatum, PgBuiltInOids, PgOid};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::{Deserialize, Deserializer};
 use serde_json::Map;
 use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
 use std::fmt;
+use std::hash::{Hash, Hasher};
+use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TantivyValue(pub tantivy::schema::OwnedValue);
@@ -22,43 +23,97 @@ impl TantivyValue {
         self.0.clone()
     }
 
-    pub unsafe fn try_from_datum_array(datum: Datum, oid: PgOid) -> Result<Vec<Self>, TantivyValueError> {
+    pub unsafe fn try_from_datum_array(
+        datum: Datum,
+        oid: PgOid,
+    ) -> Result<Vec<Self>, TantivyValueError> {
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                    let array: pgrx::Array<Datum> =
-                        pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
-                    array.iter().flatten().map(|element_datum| TantivyValue::try_from(String::from_datum(element_datum, false).ok_or(TantivyValueError::DatumDeref)?)).collect()
+                    let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?;
+                    array
+                        .iter()
+                        .flatten()
+                        .map(|element_datum| {
+                            TantivyValue::try_from(
+                                String::from_datum(element_datum, false)
+                                    .ok_or(TantivyValueError::DatumDeref)?,
+                            )
+                        })
+                        .collect()
                 }
-                _ => panic!("no array")
-            }
-            _ => panic!("no array")
+                _ => Err(TantivyValueError::UnsupportedArrayOid(oid.value())),
+            },
+            _ => Err(TantivyValueError::InvalidOid),
         }
     }
 
     pub unsafe fn try_from_datum(datum: Datum, oid: PgOid) -> Result<Self, TantivyValueError> {
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => TantivyValue::try_from(bool::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::INT2OID => TantivyValue::try_from(i16::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::INT4OID => TantivyValue::try_from(i32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::INT8OID => TantivyValue::try_from(i64::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::OIDOID => TantivyValue::try_from(u32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::FLOAT4OID => TantivyValue::try_from(f32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::FLOAT8OID => TantivyValue::try_from(f64::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::NUMERICOID => TantivyValue::try_from(pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => TantivyValue::try_from(String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::JSONOID => TantivyValue::try_from(pgrx::JsonString::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::JSONBOID => TantivyValue::try_from(pgrx::JsonB::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::DATEOID => TantivyValue::try_from(pgrx::datum::Date::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::TIMESTAMPOID => TantivyValue::try_from(pgrx::datum::Timestamp::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::TIMESTAMPTZOID => TantivyValue::try_from(pgrx::datum::TimestampWithTimeZone::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::TIMEOID => TantivyValue::try_from(pgrx::datum::Time::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::TIMETZOID => TantivyValue::try_from(pgrx::datum::TimeWithTimeZone::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                PgBuiltInOids::UUIDOID => TantivyValue::try_from(pgrx::datum::Uuid::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?),
-                unsupported => panic!("unsupported value"),
+                PgBuiltInOids::BOOLOID => TantivyValue::try_from(
+                    bool::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::INT2OID => TantivyValue::try_from(
+                    i16::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::INT4OID => TantivyValue::try_from(
+                    i32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::INT8OID => TantivyValue::try_from(
+                    i64::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::OIDOID => TantivyValue::try_from(
+                    u32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::FLOAT4OID => TantivyValue::try_from(
+                    f32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::FLOAT8OID => TantivyValue::try_from(
+                    f64::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::NUMERICOID => TantivyValue::try_from(
+                    pgrx::AnyNumeric::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => TantivyValue::try_from(
+                    String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::JSONOID => TantivyValue::try_from(
+                    pgrx::JsonString::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::JSONBOID => TantivyValue::try_from(
+                    pgrx::JsonB::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::DATEOID => TantivyValue::try_from(
+                    pgrx::datum::Date::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TIMESTAMPOID => TantivyValue::try_from(
+                    pgrx::datum::Timestamp::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TIMESTAMPTZOID => TantivyValue::try_from(
+                    pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TIMEOID => TantivyValue::try_from(
+                    pgrx::datum::Time::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TIMETZOID => TantivyValue::try_from(
+                    pgrx::datum::TimeWithTimeZone::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::UUIDOID => TantivyValue::try_from(
+                    pgrx::datum::Uuid::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
-            _ => panic!("invalid oid"),
+            _ => Err(TantivyValueError::InvalidOid),
         }
     }
 }
@@ -76,6 +131,15 @@ pub enum TantivyValueError {
 
     #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),
+
+    #[error("Cannot convert oid of InvalidOid to TantivyValue")]
+    InvalidOid,
+
+    #[error("Cannot convert builtin oid of {0} to TantivyValue")]
+    UnsupportedOid(Oid),
+
+    #[error("Cannot convert builtin array oid of {0} to TantivyValue")]
+    UnsupportedArrayOid(Oid),
 }
 
 impl fmt::Display for TantivyValue {
@@ -86,9 +150,13 @@ impl fmt::Display for TantivyValue {
             tantivy::schema::OwnedValue::I64(i64) => write!(f, "{}", i64),
             tantivy::schema::OwnedValue::F64(f64) => write!(f, "{}", f64),
             tantivy::schema::OwnedValue::Bool(bool) => write!(f, "{}", bool),
-            tantivy::schema::OwnedValue::Date(datetime) => write!(f, "{}", datetime.into_primitive().to_string()),
-            tantivy::schema::OwnedValue::Bytes(bytes) => write!(f, "{}", String::from_utf8(bytes.clone()).unwrap()),
-            tantivy::schema::OwnedValue::Object(json) => write!(f, "json object"),
+            tantivy::schema::OwnedValue::Date(datetime) => {
+                write!(f, "{}", datetime.into_primitive().to_string())
+            }
+            tantivy::schema::OwnedValue::Bytes(bytes) => {
+                write!(f, "{}", String::from_utf8(bytes.clone()).unwrap())
+            }
+            tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
             _ => panic!("tantivy owned value not supported"),
         }
     }
@@ -118,43 +186,43 @@ impl PartialOrd for TantivyValue {
                 } else {
                     None
                 }
-            },
+            }
             tantivy::schema::OwnedValue::U64(u64) => {
                 if let tantivy::schema::OwnedValue::U64(other_u64) = other.tantivy_schema_value() {
                     u64.partial_cmp(&other_u64)
                 } else {
                     None
                 }
-            },
+            }
             tantivy::schema::OwnedValue::I64(i64) => {
                 if let tantivy::schema::OwnedValue::I64(other_i64) = other.tantivy_schema_value() {
                     i64.partial_cmp(&other_i64)
                 } else {
                     None
                 }
-            },
+            }
             tantivy::schema::OwnedValue::F64(f64) => {
                 if let tantivy::schema::OwnedValue::F64(other_f64) = other.tantivy_schema_value() {
                     f64.partial_cmp(&other_f64)
                 } else {
                     None
                 }
-            },
+            }
             tantivy::schema::OwnedValue::Bool(bool) => {
                 if let tantivy::schema::OwnedValue::Bool(other_bool) = other.tantivy_schema_value() {
                     bool.partial_cmp(&other_bool)
                 } else {
                     None
                 }
-            },
+            }
             tantivy::schema::OwnedValue::Date(datetime) => {
                 if let tantivy::schema::OwnedValue::Date(other_datetime) = other.tantivy_schema_value() {
                     datetime.partial_cmp(&other_datetime)
                 } else {
                     None
                 }
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
 }
@@ -164,19 +232,9 @@ impl Serialize for TantivyValue {
     where
         S: Serializer,
     {
-        // match self.tantivy_schema_value() {
-        //     tantivy::schema::OwnedValue::Str(string) => serializer.serialize_str(&string),
-        //     tantivy::schema::OwnedValue::U64(u64) => serializer.serialize_u64(u64),
-        //     tantivy::schema::OwnedValue::I64(i64) => serializer.serialize_i64(i64),
-        //     tantivy::schema::OwnedValue::F64(f64) => serializer.serialize_f64(f64),
-        //     tantivy::schema::OwnedValue::Bool(bool) => serializer.serialize_bool(bool),
-        //     tantivy::schema::OwnedValue::Date(datetime) => serializer.serialize_str(&self.to_string()),
-        //     tantivy::schema::OwnedValue::Bytes(bytes) => serializer.serialize_str(&self.to_string()),
-        //     _ => panic!("tantivy owned value not supported"),
-        // }
-        let mut rgb = serializer.serialize_struct("TantivyValue", 1)?;
-        rgb.serialize_field("val", &self.0)?;
-        rgb.end()
+        let mut ser = serializer.serialize_struct("TantivyValue", 1)?;
+        ser.serialize_field("val", &self.0)?;
+        ser.end()
     }
 }
 
@@ -271,6 +329,14 @@ impl TryFrom<f64> for TantivyValue {
     }
 }
 
+impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
+    type Error = TantivyValueError;
+
+    fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
+        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val.try_into()?)))
+    }
+}
+
 impl TryFrom<bool> for TantivyValue {
     type Error = TantivyValueError;
 
@@ -283,7 +349,9 @@ impl TryFrom<pgrx::JsonString> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonString) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Object(serde_json::from_str::<Map<String, serde_json::Value>>(&val.0)?)))
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Object(
+            serde_json::from_str::<Map<String, serde_json::Value>>(&val.0)?,
+        )))
     }
 }
 
@@ -291,7 +359,9 @@ impl TryFrom<pgrx::JsonB> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonB) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Object(serde_json::from_slice::<Map<String, serde_json::Value>>(&serde_json::to_vec(&val.0)?)?)))
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Object(
+            serde_json::from_slice::<Map<String, serde_json::Value>>(&serde_json::to_vec(&val.0)?)?,
+        )))
     }
 }
 
@@ -338,7 +408,7 @@ impl TryFrom<pgrx::TimestampWithTimeZone> for TantivyValue {
 impl TryFrom<pgrx::AnyArray> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::AnyArray) -> Result<Self, Self::Error> {
+    fn try_from(_val: pgrx::AnyArray) -> Result<Self, Self::Error> {
         Err(TantivyValueError::TermNotImplemented("array".to_string()))
     }
 }
@@ -346,7 +416,7 @@ impl TryFrom<pgrx::AnyArray> for TantivyValue {
 impl TryFrom<pgrx::pg_sys::BOX> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::pg_sys::BOX) -> Result<Self, Self::Error> {
+    fn try_from(_val: pgrx::pg_sys::BOX) -> Result<Self, Self::Error> {
         Err(TantivyValueError::TermNotImplemented("box".to_string()))
     }
 }
@@ -354,7 +424,7 @@ impl TryFrom<pgrx::pg_sys::BOX> for TantivyValue {
 impl TryFrom<pgrx::pg_sys::Point> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::pg_sys::Point) -> Result<Self, Self::Error> {
+    fn try_from(_val: pgrx::pg_sys::Point) -> Result<Self, Self::Error> {
         Err(TantivyValueError::TermNotImplemented("point".to_string()))
     }
 }
@@ -362,7 +432,7 @@ impl TryFrom<pgrx::pg_sys::Point> for TantivyValue {
 impl TryFrom<pgrx::pg_sys::ItemPointerData> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::pg_sys::ItemPointerData) -> Result<Self, Self::Error> {
+    fn try_from(_val: pgrx::pg_sys::ItemPointerData) -> Result<Self, Self::Error> {
         Err(TantivyValueError::TermNotImplemented("tid".to_string()))
     }
 }
@@ -370,63 +440,65 @@ impl TryFrom<pgrx::pg_sys::ItemPointerData> for TantivyValue {
 impl TryFrom<pgrx::Inet> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Inet) -> Result<Self, Self::Error> {
+    fn try_from(_val: pgrx::Inet) -> Result<Self, Self::Error> {
         Err(TantivyValueError::TermNotImplemented("inet".to_string()))
-    }
-}
-
-impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
-    type Error = TantivyValueError;
-
-    fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val.try_into()?)))
     }
 }
 
 impl TryFrom<pgrx::Range<i32>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Range<i32>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::TermNotImplemented("int4 range".to_string()))
+    fn try_from(_val: pgrx::Range<i32>) -> Result<Self, Self::Error> {
+        Err(TantivyValueError::TermNotImplemented(
+            "int4 range".to_string(),
+        ))
     }
 }
 
 impl TryFrom<pgrx::Range<i64>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Range<i64>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::TermNotImplemented("int8 range".to_string()))
+    fn try_from(_val: pgrx::Range<i64>) -> Result<Self, Self::Error> {
+        Err(TantivyValueError::TermNotImplemented(
+            "int8 range".to_string(),
+        ))
     }
 }
 
 impl TryFrom<pgrx::Range<pgrx::AnyNumeric>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Range<pgrx::AnyNumeric>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::TermNotImplemented("nuemric range".to_string()))
+    fn try_from(_val: pgrx::Range<pgrx::AnyNumeric>) -> Result<Self, Self::Error> {
+        Err(TantivyValueError::TermNotImplemented(
+            "nuemric range".to_string(),
+        ))
     }
 }
 
 impl TryFrom<pgrx::Range<pgrx::Date>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Range<pgrx::Date>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::TermNotImplemented("date range".to_string()))
+    fn try_from(_val: pgrx::Range<pgrx::Date>) -> Result<Self, Self::Error> {
+        Err(TantivyValueError::TermNotImplemented(
+            "date range".to_string(),
+        ))
     }
 }
 
 impl TryFrom<pgrx::Range<pgrx::Timestamp>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Range<pgrx::Timestamp>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::TermNotImplemented("timestamp range".to_string()))
+    fn try_from(_val: pgrx::Range<pgrx::Timestamp>) -> Result<Self, Self::Error> {
+        Err(TantivyValueError::TermNotImplemented(
+            "timestamp range".to_string(),
+        ))
     }
 }
 
 impl TryFrom<pgrx::Range<pgrx::TimestampWithTimeZone>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Range<pgrx::TimestampWithTimeZone>) -> Result<Self, Self::Error> {
+    fn try_from(_val: pgrx::Range<pgrx::TimestampWithTimeZone>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::TermNotImplemented(
             "timestamp with time zone range".to_string(),
         ))

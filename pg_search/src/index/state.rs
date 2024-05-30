@@ -77,7 +77,10 @@ impl SearchStateManager {
             .ok_or(SearchStateError::AliasLookup(alias))
     }
 
-    pub fn get_score(key: TantivyValue, alias: Option<SearchAlias>) -> Result<Score, SearchStateError> {
+    pub fn get_score(
+        key: TantivyValue,
+        alias: Option<SearchAlias>,
+    ) -> Result<Score, SearchStateError> {
         let manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;

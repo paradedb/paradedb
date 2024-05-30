@@ -19,12 +19,11 @@ use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
 use crate::postgres::datetime::{
-    pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value, pgrx_timestamp_to_tantivy_value,
-    pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value,
+    pgrx_date_to_tantivy_value, pgrx_timestamp_to_tantivy_value, pgrx_timestamptz_to_tantivy_value,
 };
+use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;
-use crate::postgres::types::TantivyValue;
 use crate::schema::ToString;
 use core::panic;
 use std::ops::Bound;
@@ -459,7 +458,9 @@ macro_rules! term_fn {
             if let Some(value) = value {
                 SearchQueryInput::Term {
                     field,
-                    value: TantivyValue::try_from(value).unwrap().tantivy_schema_value(),
+                    value: TantivyValue::try_from(value)
+                        .unwrap()
+                        .tantivy_schema_value(),
                 }
             } else {
                 panic!("no value provided to term query")
@@ -471,13 +472,12 @@ macro_rules! term_fn {
 macro_rules! term_fn_unsupported {
     ($func_name:ident, $value_type:ty, $term_type:literal) => {
         #[pg_extern(name = "term", immutable, parallel_safe)]
+        #[allow(unused)]
         pub fn $func_name(
             field: default!(Option<String>, "NULL"),
             value: default!(Option<$value_type>, "NULL"),
         ) -> SearchQueryInput {
-            unimplemented!(
-                "{} in term query not implemented", $term_type
-            )
+            unimplemented!("{} in term query not implemented", $term_type)
         }
     };
 }
@@ -511,7 +511,11 @@ term_fn_unsupported!(int8range, pgrx::Range<i64>, "int8 range");
 term_fn_unsupported!(numrange, pgrx::Range<pgrx::AnyNumeric>, "numeric range");
 term_fn_unsupported!(daterange, pgrx::Range<pgrx::Date>, "date range");
 term_fn_unsupported!(tsrange, pgrx::Range<pgrx::Timestamp>, "timestamp range");
-term_fn_unsupported!(tstzrange, pgrx::Range<pgrx::TimestampWithTimeZone>, "timstamp ranges with time zone");
+term_fn_unsupported!(
+    tstzrange,
+    pgrx::Range<pgrx::TimestampWithTimeZone>,
+    "timstamp ranges with time zone"
+);
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(

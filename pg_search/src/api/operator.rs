@@ -55,7 +55,9 @@ fn search_tantivy(
     let hash_set = &cached.1;
     let key_field_name = &search_config.key_field;
 
-    let key_field_value = match unsafe { TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid())) } {
+    let key_field_value = match unsafe {
+        TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
+    } {
         Err(err) => panic!("no value present in key_field {key_field_name} in tuple: {err}"),
         Ok(value) => value,
     };

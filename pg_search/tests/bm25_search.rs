@@ -249,9 +249,7 @@ fn uuid(mut conn: PgConnection) {
     )"#
     .execute(&mut conn);
 
-    let rows: Vec<(i32,)> =
-        r#"SELECT * FROM uuid_table.search('some_text:some')"#
-            .fetch(&mut conn);
+    let rows: Vec<(i32,)> = r#"SELECT * FROM uuid_table.search('some_text:some')"#.fetch(&mut conn);
 
     assert_eq!(rows.len(), 10);
 }

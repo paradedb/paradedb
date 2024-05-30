@@ -82,7 +82,7 @@ Note: This benchmark pulls the entire 100 million-row ClickBench dataset in Parq
 You can run the benchmarks via the `cargo-paradedb` tool with:
 
 ```bash
-cargo paradedb bench hits run
+cargo paradedb bench hits run -f
 ```
 
 The benchmark tool will look for a `DATABASE_URL` environment variable for a running Postgres instance. You can also pass the url directly with the `--url` option.

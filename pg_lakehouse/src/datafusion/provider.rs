@@ -15,7 +15,7 @@ use crate::schema::attribute::*;
 use super::format::*;
 use super::session::*;
 
-struct ObjectStoreUrl(pub Url);
+pub struct ObjectStoreUrl(pub Url);
 
 impl AsRef<Url> for ObjectStoreUrl {
     fn as_ref(&self) -> &Url {

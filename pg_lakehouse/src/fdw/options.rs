@@ -67,8 +67,8 @@ impl ServerOptions {
 
 pub trait ForeignOptions {
     fn table_options(&self) -> Result<HashMap<String, String>, OptionsError>;
-    #[allow(dead_code)]
     fn server_options(&self) -> Result<HashMap<String, String>, OptionsError>;
+    fn user_mapping_options(&self) -> Result<HashMap<String, String>, OptionsError>;
 }
 
 impl ForeignOptions for PgRelation {
@@ -93,6 +93,18 @@ impl ForeignOptions for PgRelation {
         let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
 
         Ok(server_options)
+    }
+
+    fn user_mapping_options(&self) -> Result<HashMap<String, String>, OptionsError> {
+        if !self.is_foreign_table() {
+            return Ok(HashMap::new());
+        }
+
+        let foreign_table = unsafe { pg_sys::GetForeignTable(self.oid()) };
+        let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+        let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
+
+        Ok(user_mapping_options)
     }
 }
 

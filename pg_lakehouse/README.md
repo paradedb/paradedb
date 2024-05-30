@@ -91,9 +91,9 @@ Note: If `path` points to a directory of partitioned files, it should end in a `
 
 Note: Column names must be wrapped in double quotes to preserve uppercase letters. This is because DataFusion is case-sensitive and Postgres' foreign table column names must match the foreign table's column names exactly.
 
-## Query Acceleration
+## Shared Preload Libraries
 
-This extension uses Postgres hooks to intercept and push queries down to DataFusion. In order to enable these hooks, the extension must be added to `shared_preload_libraries` inside `postgresql.conf`.
+Because this extension uses Postgres hooks to intercept and push queries down to DataFusion, it is **very important** that it is added to `shared_preload_libraries` inside `postgresql.conf`.
 
 ```bash
 # Inside postgresql.conf

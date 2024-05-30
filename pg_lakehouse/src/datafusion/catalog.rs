@@ -10,7 +10,9 @@ use thiserror::Error;
 
 use crate::schema::attribute::SchemaError;
 
+use super::context::ContextError;
 use super::provider::TableProviderError;
+use super::session::SessionError;
 
 #[derive(Clone)]
 pub struct LakehouseCatalog {
@@ -96,6 +98,9 @@ impl CatalogProviderList for LakehouseCatalogList {
 #[derive(Error, Debug)]
 pub enum CatalogError {
     #[error(transparent)]
+    ContextError(#[from] ContextError),
+
+    #[error(transparent)]
     DataFusionError(#[from] DataFusionError),
 
     #[error(transparent)]
@@ -120,7 +125,13 @@ pub enum CatalogError {
     SchemaError(#[from] SchemaError),
 
     #[error(transparent)]
+    SessionError(#[from] SessionError),
+
+    #[error(transparent)]
     TableProviderError(#[from] TableProviderError),
+
+    #[error(transparent)]
+    UrlParseError(#[from] url::ParseError),
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),

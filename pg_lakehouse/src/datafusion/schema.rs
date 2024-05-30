@@ -13,6 +13,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
+use url::Url;
 
 use crate::fdw::handler::*;
 use crate::fdw::options::*;
@@ -21,6 +22,7 @@ use crate::schema::attribute::*;
 use super::catalog::CatalogError;
 use super::format::*;
 use super::provider::*;
+use super::session::*;
 
 #[derive(Clone)]
 pub struct LakehouseSchemaProvider {
@@ -63,6 +65,27 @@ impl LakehouseSchemaProvider {
                         )
                     })
                     .collect();
+
+                let url = Url::parse(path)?;
+                let context = Session::session_context()?;
+
+                if context
+                    .runtime_env()
+                    .object_store(ObjectStoreUrl(url.clone()))
+                    .is_err()
+                {
+                    let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+                    let fdw_handler = FdwHandler::from(foreign_table);
+                    let server_options = pg_relation.server_options()?;
+                    let user_mapping_options = pg_relation.user_mapping_options()?;
+                    register_object_store(
+                        fdw_handler,
+                        &url,
+                        TableFormat::from(format),
+                        server_options,
+                        user_mapping_options,
+                    )?;
+                }
 
                 let provider = match TableFormat::from(format) {
                     TableFormat::None => task::block_on(create_listing_provider(path, extension))?,

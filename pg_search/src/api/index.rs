@@ -468,6 +468,20 @@ macro_rules! term_fn {
     };
 }
 
+macro_rules! term_fn_unsupported {
+    ($func_name:ident, $value_type:ty, $term_type:literal) => {
+        #[pg_extern(name = "term", immutable, parallel_safe)]
+        pub fn $func_name(
+            field: default!(Option<String>, "NULL"),
+            value: default!(Option<$value_type>, "NULL"),
+        ) -> SearchQueryInput {
+            unimplemented!(
+                "{} in term query not implemented", $term_type
+            )
+        }
+    };
+}
+
 // Generate functions for each type
 term_fn!(term_bytes, Vec<u8>);
 term_fn!(term_str, String);
@@ -478,26 +492,26 @@ term_fn!(term_i64, i64);
 term_fn!(term_f32, f32);
 term_fn!(term_f64, f64);
 term_fn!(term_bool, bool);
-term_fn!(json, pgrx::Json);
-term_fn!(jsonb, pgrx::JsonB);
 term_fn!(date, pgrx::Date);
 term_fn!(time, pgrx::Time);
 term_fn!(timestamp, pgrx::Timestamp);
 term_fn!(time_with_time_zone, pgrx::TimeWithTimeZone);
 term_fn!(timestamp_with_time_zome, pgrx::TimestampWithTimeZone);
-term_fn!(anyarray, pgrx::AnyArray);
-term_fn!(pg_box, pgrx::pg_sys::BOX);
-term_fn!(point, pgrx::pg_sys::Point);
-term_fn!(tid, pgrx::pg_sys::ItemPointerData);
-term_fn!(inet, pgrx::Inet);
 term_fn!(numeric, pgrx::AnyNumeric);
-term_fn!(int4range, pgrx::Range<i32>);
-term_fn!(int8range, pgrx::Range<i64>);
-term_fn!(numrange, pgrx::Range<pgrx::AnyNumeric>);
-term_fn!(daterange, pgrx::Range<pgrx::Date>);
-term_fn!(tsrange, pgrx::Range<pgrx::Timestamp>);
-term_fn!(tstzrange, pgrx::Range<pgrx::TimestampWithTimeZone>);
 term_fn!(uuid, pgrx::Uuid);
+term_fn_unsupported!(json, pgrx::Json, "json");
+term_fn_unsupported!(jsonb, pgrx::JsonB, "jsonb");
+term_fn_unsupported!(anyarray, pgrx::AnyArray, "array");
+term_fn_unsupported!(pg_box, pgrx::pg_sys::BOX, "box");
+term_fn_unsupported!(point, pgrx::pg_sys::Point, "point");
+term_fn_unsupported!(tid, pgrx::pg_sys::ItemPointerData, "tid");
+term_fn_unsupported!(inet, pgrx::Inet, "inet");
+term_fn_unsupported!(int4range, pgrx::Range<i32>, "int4 range");
+term_fn_unsupported!(int8range, pgrx::Range<i64>, "int8 range");
+term_fn_unsupported!(numrange, pgrx::Range<pgrx::AnyNumeric>, "numeric range");
+term_fn_unsupported!(daterange, pgrx::Range<pgrx::Date>, "date range");
+term_fn_unsupported!(tsrange, pgrx::Range<pgrx::Timestamp>, "timestamp range");
+term_fn_unsupported!(tstzrange, pgrx::Range<pgrx::TimestampWithTimeZone>, "timstamp ranges with time zone");
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(

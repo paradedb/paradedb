@@ -399,7 +399,7 @@ impl SearchState {
                     // This iterator contains the results after limit + offset are applied.
                     let ctid = self.ctid_value(doc_address);
                     SearchStateManager::set_result(
-                        score.key,
+                        score.key.clone(),
                         score.bm25,
                         doc_address,
                         self.config.alias.clone(),
@@ -426,7 +426,7 @@ impl SearchState {
                     // This iterator contains the results after limit + offset are applied.
                     let (key, ctid) = self.key_and_ctid_value(doc_address);
                     SearchStateManager::set_result(
-                        key,
+                        key.clone(),
                         score,
                         doc_address,
                         self.config.alias.clone(),

@@ -130,18 +130,24 @@ jobs:
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-
-          subscription-manager repos --enable=rhel-7-server-optional-rpms
-
           dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl
 
       - name: Install extra RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
+          # Download and install EPEL release package
           wget https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
           sudo dnf install -y ./epel-release-latest-9.noarch.rpm
           sudo dnf update -y
-          sudo dnf install -y perl-IPC-Run
+
+          # Install necessary build tools and Perl CPAN
+          sudo dnf install -y perl-CPAN perl-App-cpanminus gcc make
+
+          # Install IPC::Run Perl module via CPAN
+          sudo cpanm --force IPC::Run
+
+          # # Install PostgreSQL development package
+          # sudo dnf install -y postgresql16-devel
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

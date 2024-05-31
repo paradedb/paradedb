@@ -130,11 +130,7 @@ jobs:
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-          if [ "${{ matrix.arch }}" == "amd64" ]; then
-            subscription-manager repos --enable codeready-builder-for-rhel-9-x86_64-rpms
-          else
-            subscription-manager repos --enable codeready-builder-for-rhel-9-aarch64-rpms
-          fi
+          dnf --enablerepo=codeready-builder-for-rhel-8-rhui-rpms install perl-IPC-Run -y
 
           dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl
 

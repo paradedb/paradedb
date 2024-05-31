@@ -123,14 +123,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Install extra RHEL Dependencies
-        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
-        run: |
-          wget https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-          sudo dnf install ./epel-release-latest-9.noarch.rpm
-          sudo dnf update
-          sudo dnf install perl-IPC-Run
-
       - name: Install Debian Dependencies
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
@@ -139,6 +131,14 @@ jobs:
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
           dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl
+
+      - name: Install extra RHEL Dependencies
+        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
+        run: |
+          wget https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+          sudo dnf install ./epel-release-latest-9.noarch.rpm
+          sudo dnf update
+          sudo dnf install perl-IPC-Run
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

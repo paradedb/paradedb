@@ -35,11 +35,11 @@
 
 ## Motivation
 
-Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Querying this data by moving it into a cloud data warehouse or operating a new query engine is expensive and time consuming. The goal of `pg_lakehouse` is to enable this data to be queried directly from Postgres. This eliminates the need for new infrastructure, loss of data freshness, data movement, and non-Postgres dialects of other query engines.
+Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Querying this data by moving it into a cloud data warehouse or operating a new query engine is expensive and time-consuming. The goal of `pg_lakehouse` is to enable this data to be queried directly from Postgres. This eliminates the need for new infrastructure, loss of data freshness, data movement, and non-Postgres dialects of other query engines.
 
 `pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs like `aws_s3` have existed in the Postgres extension ecosystem, these FDWs suffer from two limitations:
 
-1. Lack of support for most object stores, file, and table formats
+1. Lack of support for most object stores, files, and table formats
 2. Too slow over large datasets to be a viable analytical engine
 
 `pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats (thanks to [OpenDAL](https://github.com/apache/opendal)) and by being very fast (thanks to [DataFusion](https://github.com/apache/datafusion)).
@@ -138,6 +138,18 @@ rustup default <version>
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.
 
 Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
+
+### Install Other Dependencies
+
+Before compiling the extension, you'll need to have the following dependencies installed.
+
+```bash
+# macOS
+brew install make gcc pkg-config openssl
+
+# Ubuntu
+sudo apt-get install -y make gcc pkg-config libssl-dev
+```
 
 ### Install Postgres
 

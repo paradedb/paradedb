@@ -51,11 +51,11 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 
 ## Deploying ParadeDB
 
-ParadeDB and its extensions are available as commercial software for installation on self-hosted Postgres deployment, and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
+ParadeDB and its extensions are available as commercial software for installation on self-hosted Postgres deployment and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
 
 ### Extensions
 
-You can find pre-packaged releases for all ParadeDB extensions for both Postgres 15 and Postgres 16 on Ubuntu 22.04 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). We officially support Postgres 12 and above, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
+You can find prebuilt binaries for all ParadeDB extensions on Debian 11, 12 and Ubuntu 22.04 for Postgres 14, 15 and 16 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). We officially support Postgres 12 and above, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
 For official support on non-Debian-based systems, please [contact us by email](mailto:sales@paradedb.com).
 

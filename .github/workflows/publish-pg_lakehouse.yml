@@ -154,13 +154,13 @@ jobs:
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       # TODO: Add telemetry to pg_lakehouse
-      # We set USE_GENERIC_CPU to build universal binaries for arm CPUs. This reduces performance, but is necessary as we don't know
-      # what CPU architecture the user will be running on. For the most optimized build, users should build the extension directly on
-      # their target machine, or use our Docker image.
+      # We remove the native CPU optimization for the build, as we don't know what CPU architecture the user will be running our
+      # prebuilt binaries on. This reduces performance, but is necessary for compatibility. For the most optimized build, users should
+      # build the extension directly on their target machine, or use our Docker image.
       - name: Package pg_lakehouse Extension with pgrx
         working-directory: pg_lakehouse/
         run: |
-          sed -i '/\[target\.\x27cfg(target_arch = "arm")\x27\]/a rustflags = ["-Ctarget-cpu=generic"]' ../.cargo/config.toml || echo -e '[target.\x27cfg(target_arch = "arm")\x27]\nrustflags = ["-Ctarget-cpu=generic"]' >> ../.cargo/config.toml
+          sed -i '/# Global settings - optimize for the native CPU for all targets./,/\[build\]/d; /rustflags = \["-Ctarget-cpu=native"\]/d' ../.cargo/config.toml
           cargo pgrx package --features telemetry
 
       - name: Create .deb Package

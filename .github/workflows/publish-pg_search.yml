@@ -111,10 +111,10 @@ jobs:
             image: redhat/ubi9:latest
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: redhat/ubi9:latest
-            pg_version: 16
-            arch: arm64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: redhat/ubi9:latest
+          #   pg_version: 16
+          #   arch: arm64
 
           # TODO: Add Ubuntu 20.04, RedHat UBI 8, and RedHat UBI 9
           # TODO: Maybe consider removing debian-slim for regular debian, and removing manual apt downloads
@@ -202,13 +202,8 @@ jobs:
           fi
           sudo dnf -y install $REPO_URL
 
-          echo "Download GPG key"
-          sudo wget -O /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG-96
-          echo "test1"
           sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
-          echo "test2"
           sudo dnf clean all
-          echo "test3"
 
           sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
           sudo /usr/pgsql-${{ matrix.pg_version }}/bin/postgresql-${{ matrix.pg_version }}-setup initdb

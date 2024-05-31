@@ -124,16 +124,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Debian Dependencies
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
-        run: dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl
-
-      - name: Install additional RHEL deps
-        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
+          # Install dependencies
+          dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl
+
+          # Add Oracle Linux 9 repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol9.repo > /dev/null <<EOF
           [ol9_baseos_latest]
           name=Oracle Linux 9 BaseOS Latest (\$basearch)
@@ -157,6 +157,7 @@ jobs:
           enabled=1
           EOF
 
+          # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
           wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol9 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
           sudo dnf install -y epel-release
 
@@ -232,6 +233,7 @@ jobs:
           cargo pgrx package --features icu
 
       - name: Create .deb Package
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: |
           # Create installable package
           mkdir archive
@@ -271,6 +273,84 @@ jobs:
           sudo chown -R root:root ${package_dir}
           sudo chmod -R 755 ${package_dir}
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
+
+      - name: Create .rpm Package
+        if: ${{ matrix.image == 'redhat/ubi8' || matrix.image == 'redhat/ubi9:latest' }}
+        run: |
+          # Create installable package
+          mkdir archive
+          cp `find target/release -type f -name "pg_search*"` archive
+          package_dir=pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
+          rpm_package_name=pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
+            
+          # Copy files into directory structure
+          mkdir -p ${package_dir}/usr/lib64/pgsql
+          mkdir -p ${package_dir}/var/lib/pgsql
+          cp archive/*.so ${package_dir}/usr/lib64/pgsql
+          cp archive/*.control ${package_dir}/var/lib/pgsql
+          cp archive/*.sql ${package_dir}/var/lib/pgsql
+
+          # Symlinks to copy files into directory structure
+          mkdir -p ${package_dir}/usr/pgsql-${{ matrix.pg_version }}/lib
+          mkdir -p ${package_dir}/usr/share/pgsql/${{ matrix.pg_version }}/extension
+          cp archive/*.so ${package_dir}/usr/pgsql-${{ matrix.pg_version }}/lib
+          cp archive/*.control ${package_dir}/usr/share/pgsql/${{ matrix.pg_version }}/extension
+          cp archive/*.sql ${package_dir}/usr/share/pgsql/${{ matrix.pg_version }}/extension
+
+
+            # Create SPEC file
+            mkdir -p ${package_dir}/SPECS
+            spec_file=${package_dir}/SPECS/pg_search.spec
+            rpm_version=${{ steps.version.outputs.version }}
+            cat <<EOF > $spec_file
+            Name:           pg_search
+            Version:        ${deb_version}
+            Release:        1%{?dist}
+            Summary:        Full-text search for PostgreSQL using BM25
+            License:        
+            URL:            https://example.com
+            Source0:        %{name}-%{version}.tar.gz
+            
+            Requires:       postgresql${{ matrix.pg_version }}
+
+            %description
+            Full-text search for PostgreSQL using BM25.
+
+            %prep
+
+            %build
+
+            %install
+            install -d %{buildroot}/usr/lib64/pgsql
+            install -d %{buildroot}/var/lib/pgsql
+            install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib
+            install -d %{buildroot}/usr/share/pgsql/${{ matrix.pg_version }}/extension
+            install -m 755 ${package_dir}/usr/lib64/pgsql/* %{buildroot}/usr/lib64/pgsql
+            install -m 644 ${package_dir}/var/lib/pgsql/* %{buildroot}/var/lib/pgsql
+            install -m 755 ${package_dir}/usr/pgsql-${{ matrix.pg_version }}/lib/* %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib
+            install -m 644 ${package_dir}/usr/share/pgsql/${{ matrix.pg_version }}/extension/* %{buildroot}/usr/share/pgsql/${{ matrix.pg_version }}/extension
+
+            %files
+            /usr/lib64/pgsql/*
+            /var/lib/pgsql/*
+            /usr/pgsql-${{ matrix.pg_version }}/lib/*
+            /usr/share/pgsql/${{ matrix.pg_version }}/extension/*
+
+            %changelog
+            * Fri May 31 2024 ParadeDB <support@paradedb.com> - ${deb_version}-1
+            - Initial package
+            EOF
+
+            # Create tarball
+            tar -czvf ${package_dir}.tar.gz -C ${package_dir} .
+
+            # Build .rpm package
+            rpmbuild -ba $spec_file --define "_sourcedir ${package_dir}" --define "_rpmdir ${package_dir}" --define "_builddir ${package_dir}" --define "_srcrpmdir ${package_dir}" --define "_specdir ${package_dir}"
+
+            # Move .rpm package to a specific directory
+            mv ${package_dir}/x86_64/${rpm_package_name} ${package_dir}/
+
+            echo "RPM package created: ${package_dir}/${rpm_package_name}"
 
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL

@@ -12,6 +12,7 @@ docker/.docker_cache_dev/
 
 # SSH
 *.pem
+*.json
 
 # Code coverage
 *.profraw

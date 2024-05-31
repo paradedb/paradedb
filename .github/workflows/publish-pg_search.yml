@@ -136,9 +136,9 @@ jobs:
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
           wget https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-          sudo dnf install ./epel-release-latest-9.noarch.rpm
-          sudo dnf update
-          sudo dnf install perl-IPC-Run
+          sudo dnf install -y ./epel-release-latest-9.noarch.rpm
+          sudo dnf update -y
+          sudo dnf install -y perl-IPC-Run
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

@@ -145,11 +145,9 @@ impl SchemaProvider for LakehouseSchemaProvider {
         'life1: 'async_trait,
     {
         Box::pin(async move {
-            let table = self
-                .table_impl(table_name)
-                .unwrap_or_else(|err| panic!("{}", err));
-
-            Ok(Some(table))
+            self.table_impl(table_name)
+                .map(Some)
+                .map_err(|err| DataFusionError::Execution(err.to_string()))
         })
     }
 

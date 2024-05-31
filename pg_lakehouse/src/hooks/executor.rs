@@ -2,6 +2,7 @@ use async_std::task;
 use datafusion::common::arrow::array::RecordBatch;
 use datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
+use std::ffi::CStr;
 use thiserror::Error;
 
 use crate::datafusion::context::ContextError;
@@ -31,26 +32,28 @@ pub fn executor_run(
 ) -> Result<(), ExecutorHookError> {
     let ps = query_desc.plannedstmt;
     let rtable = unsafe { (*ps).rtable };
-    let pg_query = PgQuery::try_from(query_desc.clone())?;
+    let query = get_current_query(ps, unsafe { CStr::from_ptr(query_desc.sourceText) })?;
+    let query_type = get_query_type(ps);
 
-    // Only use this hook for deltalake tables
-    // Allow INSERTs to go through
     if rtable.is_null()
         || query_desc.operation != pg_sys::CmdType_CMD_SELECT
-        || pg_query.query_type() != QueryType::DataFusion
+        || query_type != QueryType::DataFusion
         // Tech Debt: Find a less hacky way to let COPY go through
-        || pg_query.text().to_lowercase().starts_with("copy")
+        || query.to_lowercase().starts_with("copy")
     {
         prev_hook(query_desc, direction, count, execute_once);
         return Ok(());
     }
 
     // Parse the query into a LogicalPlan
-    match LogicalPlan::try_from(QueryString(&pg_query.text())) {
+    match LogicalPlan::try_from(QueryString(&query)) {
         Ok(logical_plan) => {
             // Don't intercept any DDL or DML statements
             match logical_plan {
-                LogicalPlan::Ddl(_) | LogicalPlan::Dml(_) => {
+                LogicalPlan::Ddl(_)
+                | LogicalPlan::Dml(_)
+                | LogicalPlan::Explain(_)
+                | LogicalPlan::Analyze(_) => {
                     prev_hook(query_desc, direction, count, execute_once);
                     return Ok(());
                 }

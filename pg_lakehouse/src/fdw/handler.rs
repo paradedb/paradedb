@@ -56,6 +56,13 @@ impl From<*mut pg_sys::ForeignServer> for FdwHandler {
     }
 }
 
+impl From<*mut pg_sys::ForeignTable> for FdwHandler {
+    fn from(table: *mut pg_sys::ForeignTable) -> Self {
+        let server = unsafe { pg_sys::GetForeignServer((*table).serverid) };
+        FdwHandler::from(server)
+    }
+}
+
 pub fn register_object_store(
     handler: FdwHandler,
     url: &Url,

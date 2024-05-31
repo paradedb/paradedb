@@ -124,6 +124,7 @@ impl S3 {
         self.put_batch(bucket, key, &batch).await
     }
 
+    #[allow(dead_code)]
     pub async fn put_directory(&self, bucket: &str, path: &str, dir: &Path) -> Result<()> {
         fn upload_files(
             client: aws_sdk_s3::Client,

@@ -130,24 +130,13 @@ jobs:
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
+          if [ "${{ matrix.arch }}" == "amd64" ]; then
+            subscription-manager repos --enable codeready-builder-for-rhel-9-x86_64-rpms
+          else
+            subscription-manager repos --enable codeready-builder-for-rhel-9-aarch64-rpms
+          fi
+
           dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl
-
-      - name: Install extra RHEL Dependencies
-        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
-        run: |
-          # Download and install EPEL release package
-          wget https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-          sudo dnf install -y ./epel-release-latest-9.noarch.rpm
-          sudo dnf update -y
-
-          # Install necessary build tools and Perl CPAN
-          sudo dnf install -y perl-CPAN perl-App-cpanminus gcc make
-
-          # Install IPC::Run Perl module via CPAN
-          sudo cpanm --force IPC::Run
-
-          # # Install PostgreSQL development package
-          # sudo dnf install -y postgresql16-devel
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -184,9 +173,15 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         if: ${{ matrix.image == 'redhat/ubi8' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-          sudo dnf -y install https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+          if [ "${{ matrix.arch }}" == "amd64" ]; then
+            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+          else
+            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-aarch64/pgdg-redhat-repo-latest.noarch.rpm"
+          fi
+          sudo dnf -y install $REPO_URL
           sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
           sudo dnf clean all
+
           sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
           sudo /usr/pgsql-${{ matrix.pg_version }}/bin/postgresql-${{ matrix.pg_version }}-setup initdb
           sudo systemctl enable postgresql-${{ matrix.pg_version }}

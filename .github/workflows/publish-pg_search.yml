@@ -130,6 +130,9 @@ jobs:
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
+
+          subscription-manager repos --enable=rhel-7-server-optional-rpms
+
           dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl
 
       - name: Install extra RHEL Dependencies

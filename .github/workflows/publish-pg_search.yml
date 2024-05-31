@@ -126,8 +126,10 @@ jobs:
       - name: Install extra RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-          dnf install epel-release
-          dnf update
+          wget https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+          sudo dnf install ./epel-release-latest-9.noarch.rpm
+          sudo dnf update
+          sudo dnf install perl-IPC-Run
 
       - name: Install Debian Dependencies
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}

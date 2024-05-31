@@ -214,7 +214,13 @@ jobs:
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search/
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+        run: |
+          if [[ "${{ matrix.image }}" == "redhat/ubi8" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
+            PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+          else
+            PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          fi
+          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
       # We remove the native CPU optimization for the build, as we don't know what CPU architecture the user will be running our
       # prebuilt binaries on. This reduces performance, but is necessary for compatibility. For the most optimized build, users should

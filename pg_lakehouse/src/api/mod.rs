@@ -34,7 +34,7 @@ extension_sql!(
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn connect_table(fcinfo: pg_sys::FunctionCallInfo) {
-    connect_table_impl(fcinfo).unwrap_or_else(|err| {
+    task::block_on(connect_table_impl(fcinfo)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -98,10 +98,10 @@ async fn arrow_schema_impl(
 }
 
 #[inline]
-fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ApiError> {
+async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ApiError> {
     let table_name: String =
         unsafe { fcinfo::pg_getarg(fcinfo, 0).ok_or(ApiError::TableNameNotFound)? };
-    let _ = task::block_on(get_table_source(table_name.into()))?;
+    let _ = get_table_source(table_name.into()).await?;
 
     Ok(())
 }

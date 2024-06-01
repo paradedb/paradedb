@@ -5501,7 +5501,7 @@ dependencies = [
 
 [[package]]
 name = "pg_lakehouse"
-version = "0.7.4"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "async-std",
@@ -5514,7 +5514,6 @@ dependencies = [
  "futures",
  "object_store",
  "object_store_opendal",
- "once_cell",
  "opendal",
  "pgrx",
  "pgrx-tests",

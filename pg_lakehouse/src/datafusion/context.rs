@@ -78,8 +78,7 @@ impl ContextProvider for QueryContext {
     }
 }
 
-#[inline]
-async fn get_table_source(
+pub async fn get_table_source(
     reference: TableReference<'_>,
 ) -> Result<Arc<dyn TableSource>, ContextError> {
     let catalog_name = Session::catalog_name()?;
@@ -88,6 +87,7 @@ async fn get_table_source(
     match schema_name {
         Some(schema_name) => {
             // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
+            let _ = Session::schema_provider(schema_name)?;
             get_source(&catalog_name, schema_name, reference.table())
         }
         None => {

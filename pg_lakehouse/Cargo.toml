@@ -21,6 +21,7 @@ pg_test = []
 anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
+dashmap = "5.5.3"
 datafusion = { version = "37.1.0", features = ["avro"] }
 deltalake = { version = "0.17.3", features = [
   "datafusion",
@@ -30,6 +31,7 @@ deltalake = { version = "0.17.3", features = [
 ] }
 object_store = { version = "0.9.1", features = ["aws", "http"] }
 object_store_opendal = { git = "https://github.com/apache/opendal.git", rev = "79ab57f" }
+once_cell = "1.19.0"
 opendal = { git = "https://github.com/apache/opendal.git", features = [
   "services-azblob",
   "services-azdls",

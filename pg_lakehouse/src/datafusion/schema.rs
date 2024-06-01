@@ -67,17 +67,13 @@ impl LakehouseSchemaProvider {
                     .collect();
 
                 let url = Url::parse(path)?;
-                let context = Session::session_context()?;
 
-                if context
-                    .runtime_env()
-                    .object_store(ObjectStoreUrl(url.clone()))
-                    .is_err()
-                {
+                if !Session::object_store_registry().contains_url(&url) {
                     let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
                     let fdw_handler = FdwHandler::from(foreign_table);
                     let server_options = pg_relation.server_options()?;
                     let user_mapping_options = pg_relation.user_mapping_options()?;
+
                     register_object_store(
                         fdw_handler,
                         &url,

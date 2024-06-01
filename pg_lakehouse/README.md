@@ -79,6 +79,9 @@ CREATE FOREIGN TABLE trips (
 SERVER s3_server
 OPTIONS (path 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet', extension 'parquet');
 
+-- Optional: Pre-establish the S3 connection
+CALL connect_table('trips');
+
 -- Success! Now you can query the remote Parquet file like a regular Postgres table
 SELECT COUNT(*) FROM trips;
   count
@@ -102,7 +105,7 @@ shared_preload_libraries = 'pg_lakehouse'
 
 ## Inspecting the Foreign Schema
 
-The `arrow_schema` function displays the schema of a foreign table. This function is useful for verifying that the server and table credentials you've provided are valid. If the connection is successful and `pg_lakehouse` is able to read the foreign data, a table will be returned with the [Arrow schema](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html) of the foreign table. Otherwise, an empty table will be returned or an error will be thrown.
+The `arrow_schema` function displays the schema of a foreign table. This can help you decide what Postgres types to assign to each column of the foreign table. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT`, `VARCHAR`, or `BPCHAR` column. If an incompatible Postgres type is chosen, querying the table will fail.
 
 ```sql
 SELECT * FROM arrow_schema(
@@ -112,7 +115,19 @@ SELECT * FROM arrow_schema(
 );
 ```
 
-You can also use this function to decide what Postgres types to assign to each column of the foreign table. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT`, `VARCHAR`, or `BPCHAR` column. If an incompatible Postgres type is chosen, querying the table will fail.
+## Connecting to the Foreign Server
+
+The first query to a foreign server in a new Postgres connection may be slower than subsequent queries. This is partially due to the fact that `pg_lakehouse` must first establish a connection with the foreign server before executing the query. To address this, the
+`connect_table` function can be used to pre-establish a connection to the foreign server.
+
+```sql
+CALL connect_table('trips');
+-- schema.table is also accepted
+CALL connect_table('public.trips');
+```
+
+This function is also useful for verifying that the server and table credentials you've provided are valid. If the connection is
+unsucessful, an error message will be returned.
 
 ## Connect an Object Store
 

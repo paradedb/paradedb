@@ -61,12 +61,10 @@ pub unsafe fn row_to_search_document(
         nulls.as_mut_ptr(),
     );
 
-    let mut dropped = 0;
     let mut document = schema.new_document();
     for (attno, attribute) in tupdesc.iter().enumerate() {
         // Skip attributes that have been dropped.
         if attribute.is_dropped() {
-            dropped += 1;
             continue;
         }
         // Skip attributes that have null values.
@@ -94,7 +92,7 @@ pub unsafe fn row_to_search_document(
             (attribute_type_oid, false)
         };
 
-        let datum = datums[attno - dropped];
+        let datum = datums[attno];
 
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {

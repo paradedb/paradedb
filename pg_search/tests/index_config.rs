@@ -80,6 +80,58 @@ fn prevent_duplicate(mut conn: PgConnection) {
 }
 
 #[rstest]
+async fn drop_column(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE f_table (
+        id SERIAL PRIMARY KEY,
+        category TEXT
+    );
+
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        fkey INTEGER REFERENCES f_table ON UPDATE CASCADE ON DELETE RESTRICT,
+        fulltext TEXT
+    );
+
+    INSERT INTO f_table (category) VALUES ('cat_a'), ('cat_b'), ('cat_c');
+    INSERT INTO test_table (fkey, fulltext) VALUES (1, 'abc'), (1, 'def'), (2, 'ghi'), (3, 'jkl');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        index_name => 'test_index',
+        schema_name => 'public',
+        table_name => 'test_table',
+        key_field => 'id',
+        text_fields => '{fulltext: {}}'
+    );
+
+    CALL paradedb.drop_bm25('test_index');
+    ALTER TABLE test_table DROP COLUMN fkey;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        index_name => 'test_index',
+        schema_name => 'public',
+        table_name => 'test_table',
+        key_field => 'id',
+        text_fields => '{fulltext: {}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> =
+        "SELECT name, field_type FROM test_index.schema()".fetch(&mut conn);
+
+    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[1], ("fulltext".into(), "Str".into()));
+    assert_eq!(rows[2], ("id".into(), "I64".into()));
+}
+
+#[rstest]
 fn default_text_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);

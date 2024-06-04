@@ -68,15 +68,20 @@ impl AzdlsUserMappingOption {
     }
 }
 
-impl TryFrom<ServerOptions> for Azdls {
+impl TryFrom<ObjectStoreConfig> for Azdls {
     type Error = ContextError;
 
-    fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
+    fn try_from(options: ObjectStoreConfig) -> Result<Self, Self::Error> {
         let server_options = options.server_options();
         let url = options.url();
+        let format = options.format().clone();
         let user_mapping_options = options.user_mapping_options();
 
         let mut builder = Azdls::default();
+
+        if format == TableFormat::Delta {
+            builder.root(url.path());
+        }
 
         if let Some(filesystem) = url.host_str() {
             builder.filesystem(filesystem);
@@ -105,14 +110,15 @@ impl TryFrom<ServerOptions> for Azdls {
 impl BaseFdw for AzdlsFdw {
     fn register_object_store(
         url: &Url,
-        _format: TableFormat,
+        format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
         let context = Session::session_context()?;
 
-        let builder = Azdls::try_from(ServerOptions::new(
+        let builder = Azdls::try_from(ObjectStoreConfig::new(
             url,
+            format,
             server_options.clone(),
             user_mapping_options.clone(),
         ))?;

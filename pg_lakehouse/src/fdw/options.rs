@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 use url::Url;
 
+use crate::datafusion::format::TableFormat;
+
 pub enum TableOption {
     Path,
     Extension,
@@ -33,23 +35,30 @@ impl TableOption {
 }
 
 #[derive(Clone, Debug)]
-pub struct ServerOptions {
+pub struct ObjectStoreConfig {
     url: Url,
+    format: TableFormat,
     server_options: HashMap<String, String>,
     user_mapping_options: HashMap<String, String>,
 }
 
-impl ServerOptions {
+impl ObjectStoreConfig {
     pub fn new(
         url: &Url,
+        format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Self {
         Self {
             url: url.clone(),
+            format,
             server_options,
             user_mapping_options,
         }
+    }
+
+    pub fn format(&self) -> &TableFormat {
+        &self.format
     }
 
     pub fn server_options(&self) -> &HashMap<String, String> {

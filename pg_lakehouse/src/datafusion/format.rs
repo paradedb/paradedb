@@ -8,7 +8,7 @@ use thiserror::Error;
 #[derive(Clone, Debug)]
 pub struct FileExtension(pub String);
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum TableFormat {
     None,
     Delta,

@@ -76,10 +76,10 @@ impl AmazonUserMappingOption {
     }
 }
 
-impl TryFrom<ServerOptions> for S3 {
+impl TryFrom<ObjectStoreConfig> for S3 {
     type Error = ContextError;
 
-    fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
+    fn try_from(options: ObjectStoreConfig) -> Result<Self, Self::Error> {
         let url = options.url();
         let server_options = options.server_options();
         let user_mapping_options = options.user_mapping_options();
@@ -133,14 +133,15 @@ impl TryFrom<ServerOptions> for S3 {
 impl BaseFdw for S3Fdw {
     fn register_object_store(
         url: &Url,
-        _format: TableFormat,
+        format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
         let context = Session::session_context()?;
 
-        let builder = S3::try_from(ServerOptions::new(
+        let builder = S3::try_from(ObjectStoreConfig::new(
             url,
+            format,
             server_options.clone(),
             user_mapping_options.clone(),
         ))?;

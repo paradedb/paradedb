@@ -313,7 +313,7 @@ jobs:
           Version:        ${rpm_version}
           Release:        1%{?dist}
           Summary:        Full-text search for PostgreSQL using BM25
-          License:        
+          License:        GNU Affero General Public License v3.0
           URL:            https://example.com
           Source0:        %{name}-%{version}.tar.gz
 

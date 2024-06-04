@@ -6,7 +6,13 @@ mod schema;
 
 use hooks::LakehouseHook;
 use pgrx::*;
-// use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
+use shared::{
+    gucs::PostgresGlobalGucSettings,
+    telemetry::{setup_telemetry_background_worker, ParadeExtension},
+};
+
+// A static variable is required to host grand unified configuration settings.
+pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
 
 pg_module_magic!();
 
@@ -19,8 +25,9 @@ pub extern "C" fn _PG_init() {
         register_hook(&mut EXTENSION_HOOK)
     };
 
-    // TODO: Re-enable once we reconfigure telemetry to not write to the file system
-    // setup_telemetry_background_worker(ParadeExtension::PgLakehouse);
+    GUCS.init("pg_lakehouse");
+
+    setup_telemetry_background_worker(ParadeExtension::PgLakehouse);
 }
 
 #[cfg(test)]

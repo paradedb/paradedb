@@ -1,9 +1,7 @@
+use anyhow::Result;
 use serde_json::json;
 
-use super::{
-    event::TelemetryEvent, TelemetryConfigStore, TelemetryConnection, TelemetryError,
-    TelemetryStore,
-};
+use super::{event::TelemetryEvent, TelemetryConfigStore, TelemetryConnection, TelemetryStore};
 
 struct PosthogConnection {
     api_key: String,
@@ -30,7 +28,7 @@ pub struct PosthogStore {
 }
 
 impl TelemetryStore for PosthogStore {
-    fn get_connection(&self) -> Result<Box<dyn TelemetryConnection>, TelemetryError> {
+    fn get_connection(&self) -> Result<Box<dyn TelemetryConnection>> {
         Ok(Box::new(PosthogConnection::new(
             &self.config_store.telemetry_api_key()?,
             &self.config_store.telemetry_host_url()?,
@@ -39,23 +37,23 @@ impl TelemetryStore for PosthogStore {
 }
 
 impl TelemetryConnection for PosthogConnection {
-    fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
+    fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<()> {
+        let mut properties = serde_json::to_value(event)?;
+        properties["commit_sha"] = serde_json::to_value(event.commit_sha())?;
+
         let data = json!({
             "api_key": self.api_key,
             "event": event.name(),
             "distinct_id": uuid,
-            "properties": {
-                "commit_sha": event.commit_sha(),
-                "telemetry_data": serde_json::to_value(event).map_err(TelemetryError::ToJson)?,
-            },
+            "properties": properties,
         });
 
         self.client
             .post(self.endpoint())
             .header("Content-Type", "application/json")
             .body(data.to_string())
-            .send()
-            .map(|_| ())
-            .map_err(TelemetryError::from)
+            .send()?;
+
+        Ok(())
     }
 }

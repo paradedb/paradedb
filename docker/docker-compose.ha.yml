@@ -23,7 +23,7 @@ services:
       POSTGRESQL_REPLICATION_MODE: master
       POSTGRESQL_REPLICATION_USER: myreplicationuser
       POSTGRESQL_REPLICATION_PASSWORD: myreplicationpassword
-      PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
+      TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
     ports:
       - "5432:5432"
     volumes:
@@ -44,7 +44,7 @@ services:
       POSTGRESQL_REPLICATION_PASSWORD: myreplicationpassword
       POSTGRESQL_MASTER_HOST: paradedb-primary
       POSTGRESQL_MASTER_PORT_NUMBER: 5432
-      PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
+      TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
 
 volumes:
   paradedb_primary_data:

@@ -48,7 +48,7 @@ impl AzblobServerOption {
     pub fn is_required(&self) -> bool {
         match self {
             Self::EncryptionAlgorithm => false,
-            Self::Endpoint => false,
+            Self::Endpoint => true,
         }
     }
 

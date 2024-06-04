@@ -45,7 +45,7 @@ impl AzdlsServerOption {
 
     pub fn is_required(&self) -> bool {
         match self {
-            Self::Endpoint => false,
+            Self::Endpoint => true,
         }
     }
 

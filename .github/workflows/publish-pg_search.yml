@@ -131,7 +131,7 @@ jobs:
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
           # Install dependencies
-          dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl
+          dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq rpm-build
 
           # Add Oracle Linux 9 repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol9.repo > /dev/null <<EOF

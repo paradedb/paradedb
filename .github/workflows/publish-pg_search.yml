@@ -170,14 +170,16 @@ jobs:
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
             if [ -n "${GITHUB_REF#refs/tags/v}" ]; then
-              echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+              VERSION=${GITHUB_REF#refs/tags/v}
             else
               # If there is no tag and no provided version, it's a test run and we set a dummy version
-              echo "version=0.0.0" >> $GITHUB_OUTPUT
+              VERSION="0.0.0"
             fi
           else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=${{ github.event.inputs.version }}
           fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
           if [ -x "$(command -v lsb_release)" ]; then
             DISTRO=$(echo "$(lsb_release -is)" | tr '[:upper:]' '[:lower:]')
@@ -243,7 +245,7 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pg_search*"` archive
-          package_dir=pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
+          package_dir=pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -262,7 +264,7 @@ jobs:
           # Create control file (package name cannot have underscore)
           mkdir -p ${package_dir}/DEBIAN
           touch ${package_dir}/DEBIAN/control
-          deb_version=${{ steps.version.outputs.version }}
+          deb_version=${{ steps.version.outputs.tag_version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
           echo 'Package: pg-search' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
@@ -285,8 +287,8 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pg_search*"` archive
-          package_dir=pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
-          rpm_package_name=pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
+          package_dir=pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
+          rpm_package_name=pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
             
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib64/pgsql
@@ -305,7 +307,7 @@ jobs:
           # Create SPEC file
           mkdir -p ${package_dir}/SPECS
           spec_file=${package_dir}/SPECS/pg_search.spec
-          rpm_version=${{ steps.version.outputs.version }}
+          rpm_version=${{ steps.version.outputs.tag_version }}
           cat <<EOF > $spec_file
           Name:           pg_search
           Version:        ${deb_version}
@@ -359,7 +361,7 @@ jobs:
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
-        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
+        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
       - name: Upload pg_search .deb to GitHub Release
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
@@ -367,8 +369,8 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-          asset_name: pg_search-v${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: pg_search-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
 
       - name: Upload pg_search .rpm to GitHub Release
         if: ${{ matrix.image == 'redhat/ubi8' || matrix.image == 'redhat/ubi9:latest' }}
@@ -376,5 +378,5 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
-          asset_name: pg_search-v${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
+          asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
+          asset_name: pg_search-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm

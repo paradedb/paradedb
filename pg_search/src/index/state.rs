@@ -179,7 +179,8 @@ impl SearchStateManager {
         doc_address: DocAddress,
         alias: Option<SearchAlias>,
     ) -> Result<(), SearchStateError> {
-        pgrx::info!("set_result key {:?} score {:?}", key, score);
+        // THIS PRINT CAUSES TESTS TO CRASH
+        // pgrx::info!("set_result key {:?} score {:?}", key, score);
         let mut manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;

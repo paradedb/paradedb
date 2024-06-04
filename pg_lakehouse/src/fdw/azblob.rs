@@ -48,7 +48,7 @@ impl AzblobServerOption {
     pub fn is_required(&self) -> bool {
         match self {
             Self::EncryptionAlgorithm => false,
-            Self::Endpoint => false,
+            Self::Endpoint => true,
         }
     }
 
@@ -81,15 +81,20 @@ impl AzblobUserMappingOption {
     }
 }
 
-impl TryFrom<ServerOptions> for Azblob {
+impl TryFrom<ObjectStoreConfig> for Azblob {
     type Error = ContextError;
 
-    fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
+    fn try_from(options: ObjectStoreConfig) -> Result<Self, Self::Error> {
         let server_options = options.server_options();
         let url = options.url();
+        let format = options.format().clone();
         let user_mapping_options = options.user_mapping_options();
 
         let mut builder = Azblob::default();
+
+        if format == TableFormat::Delta {
+            builder.root(url.path());
+        }
 
         if let Some(connection_string) =
             user_mapping_options.get(AzblobUserMappingOption::ConnectionString.as_str())
@@ -154,14 +159,15 @@ impl TryFrom<ServerOptions> for Azblob {
 impl BaseFdw for AzblobFdw {
     fn register_object_store(
         url: &Url,
-        _format: TableFormat,
+        format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
         let context = Session::session_context()?;
 
-        let builder = Azblob::try_from(ServerOptions::new(
+        let builder = Azblob::try_from(ObjectStoreConfig::new(
             url,
+            format,
             server_options.clone(),
             user_mapping_options.clone(),
         ))?;

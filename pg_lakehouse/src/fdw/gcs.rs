@@ -83,10 +83,10 @@ impl GcsUserMappingOption {
     }
 }
 
-impl TryFrom<ServerOptions> for Gcs {
+impl TryFrom<ObjectStoreConfig> for Gcs {
     type Error = ContextError;
 
-    fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
+    fn try_from(options: ObjectStoreConfig) -> Result<Self, Self::Error> {
         let server_options = options.server_options();
         let url = options.url();
         let user_mapping_options = options.user_mapping_options();
@@ -140,14 +140,15 @@ impl TryFrom<ServerOptions> for Gcs {
 impl BaseFdw for GcsFdw {
     fn register_object_store(
         url: &Url,
-        _format: TableFormat,
+        format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
         let context = Session::session_context()?;
 
-        let builder = Gcs::try_from(ServerOptions::new(
+        let builder = Gcs::try_from(ObjectStoreConfig::new(
             url,
+            format,
             server_options.clone(),
             user_mapping_options.clone(),
         ))?;

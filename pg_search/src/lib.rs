@@ -53,12 +53,10 @@ pub fn setup_background_workers() {
         .set_library("pg_search")
         // The argument will be unused. You just need to pass something.
         .set_argument(0.into_datum())
-        // Necessary for using plog!.
-        // Also, it doesn't seem like bgworkers will start without this.
+        // It doesn't seem like bgworkers will start without this.
         .enable_spi_access()
         // RecoveryFinished is the last available stage for bgworker startup.
-        // We wait until as late as possible so that we can make sure the
-        // paradedb.logs table is created, for the sake of using plog!.
+        // Allows time for all boostrapped tables to be created.
         .set_start_time(bgworkers::BgWorkerStartTime::RecoveryFinished)
         .load();
 
@@ -74,8 +72,7 @@ pub fn setup_background_workers() {
         .set_library("pg_search")
         // The argument will be unused. You just need to pass something.
         .set_argument(0.into_datum())
-        // Necessary for using plog!.
-        // Also, it doesn't seem like bgworkers will start without this.
+        // It doesn't seem like bgworkers will start without this.
         .enable_spi_access()
         .load();
 }

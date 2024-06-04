@@ -74,12 +74,10 @@ pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
         .set_library(&extension.name())
         // We pass the extension name to retrieve the associated data directory to read telemetry data from.
         .set_argument((extension as i32).into_datum())
-        // Necessary for using plog!.
-        // Also, it doesn't seem like bgworkers will start without this.
+        // It doesn't seem like bgworkers will start without this.
         .enable_spi_access()
         // RecoveryFinished is the last available stage for bgworker startup.
-        // We wait until as late as possible so that we can make sure the
-        // paradedb.logs table is created, for the sake of using plog!.
+        // Allows time for all boostrapped tables to be created.
         .set_start_time(bgworkers::BgWorkerStartTime::RecoveryFinished)
         .load();
 }

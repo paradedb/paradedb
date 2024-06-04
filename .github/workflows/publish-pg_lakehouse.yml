@@ -131,7 +131,12 @@ jobs:
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            if [ -n "${GITHUB_REF#refs/tags/v}" ]; then
+              echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            else
+              # If there is no tag and no provided version, it's a test run and we set a dummy version
+              echo "version=0.0.0" >> $GITHUB_OUTPUT
+            fi
           else
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           fi

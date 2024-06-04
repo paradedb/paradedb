@@ -69,6 +69,7 @@
       "url": "changelog"
     }
   ],
+  "versions": ["Current Version: 0.7.4"],
   "navigation": [
     {
       "group": "Documentation",

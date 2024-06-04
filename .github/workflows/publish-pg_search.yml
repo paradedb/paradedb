@@ -310,7 +310,7 @@ jobs:
           rpm_version=${{ steps.version.outputs.tag_version }}
           cat <<EOF > $spec_file
           Name:           pg_search
-          Version:        ${deb_version}
+          Version:        ${rpm_version}
           Release:        1%{?dist}
           Summary:        Full-text search for PostgreSQL using BM25
           License:        

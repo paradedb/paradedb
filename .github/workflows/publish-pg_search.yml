@@ -328,7 +328,7 @@ jobs:
           EOF
 
           echo "Copying pg_search binaries to RPM build directory..."
-          cp `find target/release/pg_search-${{ matrix.pg_version }} -type f -name "pg_search*"` archive/SOURCES/pg_search_${{ matrix.pg_version }}
+          cp `find target/release -type f -name "pg_search*"` archive/SOURCES/pg_search_${{ matrix.pg_version }}
 
           echo "Building RPM package..."
           cd archive/SPECS/

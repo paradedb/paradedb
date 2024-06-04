@@ -221,4 +221,4 @@ jobs:
       - name: Test Packaging pg_search
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
         working-directory: pg_search/
-        run: cargo clean && cargo pgrx package --features "icu telemetry"
+        run: cargo clean && cargo pgrx package --features icu

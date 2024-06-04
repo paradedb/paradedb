@@ -161,7 +161,7 @@ jobs:
         working-directory: pg_lakehouse/
         run: |
           sed -i '/# Global settings - optimize for the native CPU for all targets./,/\[build\]/d; /rustflags = \["-Ctarget-cpu=native"\]/d' ../.cargo/config.toml
-          cargo pgrx package --features telemetry
+          cargo pgrx package
 
       - name: Create .deb Package
         run: |

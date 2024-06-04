@@ -2,19 +2,16 @@ use pgrx::{GucContext, GucFlags, GucRegistry, GucSetting};
 
 pub trait GlobalGucSettings {
     fn telemetry_enabled(&self) -> bool;
-    fn logs_enabled(&self) -> bool;
 }
 
 pub struct PostgresGlobalGucSettings {
     telemetry: GucSetting<bool>,
-    logs: GucSetting<bool>,
 }
 
 impl PostgresGlobalGucSettings {
     pub const fn new() -> Self {
         Self {
             telemetry: GucSetting::<bool>::new(true),
-            logs: GucSetting::<bool>::new(false),
         }
     }
 
@@ -32,16 +29,6 @@ impl PostgresGlobalGucSettings {
             GucContext::Userset,
             GucFlags::default(),
         );
-
-        // logs
-        GucRegistry::define_bool_guc(
-            &format!("paradedb.{extension_name}_logs"),
-            "Enable logging to the paradedb.logs table?",
-            "This incurs some overhead, so only recommended when debugging.",
-            &self.logs,
-            GucContext::Userset,
-            GucFlags::default(),
-        );
     }
 }
 
@@ -56,9 +43,5 @@ impl GlobalGucSettings for PostgresGlobalGucSettings {
         // If TELEMETRY is not 'true' at compile time, then we will never enable.
         // This is useful for test builds and CI.
         option_env!("TELEMETRY") == Some("true") && self.telemetry.get()
-    }
-
-    fn logs_enabled(&self) -> bool {
-        self.logs.get()
     }
 }

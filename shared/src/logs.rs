@@ -14,6 +14,7 @@ extension_sql!(
     BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables
                    WHERE schemaname = 'paradedb' AND tablename = 'logs') THEN
+        CREATE SCHEMA IF NOT EXISTS paradedb;
         CREATE TABLE paradedb.logs (
             id SERIAL PRIMARY KEY,
             timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),

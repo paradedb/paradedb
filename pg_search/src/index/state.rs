@@ -81,14 +81,21 @@ impl SearchStateManager {
         key: TantivyValue,
         alias: Option<SearchAlias>,
     ) -> Result<Score, SearchStateError> {
+        pgrx::info!("get_score for {:?}", key);
         let manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;
-        let (score, _) = manager
-            .result_map
+        pgrx::info!("manager done");
+        let result_map = &manager.result_map;
+        pgrx::info!("result_map: {:?}", result_map);
+        let (score, _) = result_map
             .get(&alias.unwrap_or_default())
-            .and_then(|inner_map| inner_map.get(&key))
+            .and_then(|inner_map| {
+                pgrx::info!("inner_map: {:?}", inner_map);
+                inner_map.get(&key)
+            })
             .ok_or(SearchStateError::DocLookup(key))?;
+        pgrx::info!("score done");
 
         Ok(*score)
     }
@@ -172,6 +179,7 @@ impl SearchStateManager {
         doc_address: DocAddress,
         alias: Option<SearchAlias>,
     ) -> Result<(), SearchStateError> {
+        pgrx::info!("set_result key {:?} score {:?}", key, score);
         let mut manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;
@@ -296,6 +304,7 @@ impl SearchState {
             let schema = self.schema.clone();
             let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
                 move |segment_reader: &tantivy::SegmentReader| -> Box<dyn FnMut(tantivy::DocId, Score) -> SearchIndexScore> {
+                    log::debug!("segment_reader: {:?}", segment_reader);
                     let fast_fields = segment_reader
                         .fast_fields();
 
@@ -348,8 +357,8 @@ impl SearchState {
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 let mut tok_str: String = Default::default();
-                                // TODO: not really sure what the first argument should be here
                                 key_field_reader.ord_to_str(doc.into(), &mut tok_str).expect("no string!!");
+                                log::debug!("doc: {:?} tok_str: {:?}", doc, tok_str);
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: TantivyValue(tok_str.into()),

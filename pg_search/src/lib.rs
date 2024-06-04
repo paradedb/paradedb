@@ -51,6 +51,8 @@ pub unsafe extern "C" fn _PG_init() {
     postgres::options::init();
     GUCS.init("pg_search");
 
+    simple_logging::log_to_file("/Users/Suriya/Documents/parade/test.log", log::LevelFilter::Debug);
+
     // Set up the writer bgworker shared state.
     pg_shmem_init!(WRITER_GLOBAL);
 

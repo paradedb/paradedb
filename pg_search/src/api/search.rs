@@ -42,6 +42,7 @@ pub fn rank_bm25_impl(key: TantivyValue, alias: default!(Option<String>, "NULL")
 }
 
 // TODO: set a list of key supported pgrx key types and auto-generate all the sub-fns for it (repeat for highlight)
+rank_bm25_fn!(rank_bool, bool);
 rank_bm25_fn!(rank_i8, i8);
 rank_bm25_fn!(rank_i16, i16);
 rank_bm25_fn!(rank_i32, i32);

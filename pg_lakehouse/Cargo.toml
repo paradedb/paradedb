@@ -29,6 +29,7 @@ deltalake = { version = "0.17.3", features = [
   "gcs",
   "azure",
 ] }
+futures-lite = "2.3.0"
 object_store = { version = "0.9.1", features = ["aws", "http"] }
 object_store_opendal = { git = "https://github.com/apache/opendal.git", rev = "79ab57f" }
 opendal = { git = "https://github.com/apache/opendal.git", features = [

@@ -1,15 +1,17 @@
+use async_std::stream::StreamExt;
 use async_std::task;
 use datafusion::common::arrow::array::RecordBatch;
+use datafusion::common::DataFusionError;
 use datafusion::logical_expr::LogicalPlan;
+use futures_lite::future::race;
 use pgrx::*;
 use signal_hook::consts::signal::*;
 use signal_hook_async_std::Signals;
 use std::ffi::CStr;
 use thiserror::Error;
 
-use crate::datafusion::context::ContextError;
 use crate::datafusion::plan::QueryString;
-use crate::datafusion::session::Session;
+use crate::datafusion::session::*;
 use crate::schema::cell::*;
 
 use super::query::*;
@@ -62,12 +64,8 @@ pub fn executor_run(
                 _ => {}
             };
 
-            let signals = Signals::new(&[SIGTERM, SIGINT, SIGQUIT])?;
-            let handle = signals.handle();
-
-            let batches = task::block_on(async {
-                async_std::future::race(await_signals(signals), get_datafusion_batches(logical_plan)).await;
-            });
+            let batches =
+                task::block_on(race(await_cancel(), get_datafusion_batches(logical_plan)));
 
             // Execute SELECT
             match batches {
@@ -92,7 +90,7 @@ pub fn executor_run(
 #[inline]
 async fn get_datafusion_batches(
     logical_plan: LogicalPlan,
-) -> Result<Option<Vec<RecordBatch>>, ContextError> {
+) -> Result<Option<Vec<RecordBatch>>, ExecutorHookError> {
     // Execute the logical plan and collect the resulting batches
     let context = Session::session_context()?;
     let dataframe = context.execute_logical_plan(logical_plan).await?;
@@ -100,9 +98,10 @@ async fn get_datafusion_batches(
 }
 
 #[inline]
-async fn await_signals(mut signals: Signals) -> Option<()> {
+async fn await_cancel() -> Result<Option<Vec<RecordBatch>>, ExecutorHookError> {
+    let mut signals = Signals::new([SIGTERM, SIGINT, SIGQUIT])?;
     signals.next().await;
-    None
+    Ok(None)
 }
 
 #[inline]
@@ -171,10 +170,16 @@ fn write_batches_to_slots(
 #[derive(Error, Debug)]
 pub enum ExecutorHookError {
     #[error(transparent)]
-    ContextError(#[from] ContextError),
+    DataFusionError(#[from] DataFusionError),
 
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    SessionError(#[from] SessionError),
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),

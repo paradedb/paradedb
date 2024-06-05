@@ -2,6 +2,8 @@ use async_std::task;
 use datafusion::common::arrow::array::RecordBatch;
 use datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
+use signal_hook::consts::signal::*;
+use signal_hook_async_std::Signals;
 use std::ffi::CStr;
 use thiserror::Error;
 
@@ -60,9 +62,17 @@ pub fn executor_run(
                 _ => {}
             };
 
+            let signals = Signals::new(&[SIGTERM, SIGINT, SIGQUIT])?;
+            let handle = signals.handle();
+
+            let batches = task::block_on(async {
+                async_std::future::race(await_signals(signals), get_datafusion_batches(logical_plan)).await;
+            });
+
             // Execute SELECT
-            match task::block_on(get_datafusion_batches(logical_plan)) {
-                Ok(batches) => write_batches_to_slots(query_desc, batches)?,
+            match batches {
+                Ok(Some(batches)) => write_batches_to_slots(query_desc, batches)?,
+                Ok(None) => return Ok(()),
                 Err(err) => {
                     fallback_warning!(err.to_string());
                     prev_hook(query_desc, direction, count, execute_once);
@@ -82,11 +92,17 @@ pub fn executor_run(
 #[inline]
 async fn get_datafusion_batches(
     logical_plan: LogicalPlan,
-) -> Result<Vec<RecordBatch>, ContextError> {
+) -> Result<Option<Vec<RecordBatch>>, ContextError> {
     // Execute the logical plan and collect the resulting batches
     let context = Session::session_context()?;
     let dataframe = context.execute_logical_plan(logical_plan).await?;
-    Ok(dataframe.collect().await?)
+    Ok(Some(dataframe.collect().await?))
+}
+
+#[inline]
+async fn await_signals(mut signals: Signals) -> Option<()> {
+    signals.next().await;
+    None
 }
 
 #[inline]

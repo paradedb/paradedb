@@ -40,8 +40,8 @@ impl Default for PostgresGlobalGucSettings {
 
 impl GlobalGucSettings for PostgresGlobalGucSettings {
     fn telemetry_enabled(&self) -> bool {
-        // If TELEMETRY is not 'true' at compile time, then we will never enable.
+        // If PARADEDB_TELEMETRY is not 'true' at compile time, then we will never enable.
         // This is useful for test builds and CI.
-        option_env!("TELEMETRY") == Some("true") && self.telemetry.get()
+        option_env!("PARADEDB_TELEMETRY") == Some("true") && self.telemetry.get()
     }
 }

@@ -18,7 +18,7 @@ services:
       POSTGRESQL_PASSWORD: mypassword
       POSTGRESQL_DATABASE: mydatabase
       POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
-      TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
+      PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
     ports:
       - "5432:5432"
     volumes:

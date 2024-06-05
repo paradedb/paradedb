@@ -146,7 +146,7 @@ jobs:
         run: |
           # Variables (we disable telemetry to avoid skewing the user metrics with CI runs)
           BASE_RELEASE="0.6.0"
-          TELEMETRY=false
+          PARADEDB_TELEMETRY=false
 
           echo ""
           echo "Enabling code coverage..."

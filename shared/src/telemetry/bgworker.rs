@@ -93,8 +93,8 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     let extension_name = extension.name();
 
     // If telemetry is not enabled at compile time, return early.
-    if option_env!("TELEMETRY") != Some("true") {
-        pgrx::log!("TELEMETRY var not set at compile time for {extension_name}");
+    if option_env!("PARADEDB_TELEMETRY") != Some("true") {
+        pgrx::log!("PARADEDB_TELEMETRY var not set at compile time for {extension_name}");
         return;
     }
 

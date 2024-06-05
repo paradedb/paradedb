@@ -1,3 +1,4 @@
+use async_std::stream::StreamExt;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::CatalogProvider;
@@ -5,7 +6,10 @@ use datafusion::common::DataFusionError;
 use datafusion::prelude::DataFrame;
 use datafusion::sql::TableReference;
 use deltalake::DeltaTableError;
+use futures_lite::future::race;
 use pgrx::*;
+use signal_hook::consts::signal::*;
+use signal_hook_async_std::Signals;
 use std::collections::HashMap;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
@@ -100,8 +104,7 @@ pub trait BaseFdw {
                     .num_rows()
         {
             self.set_current_batch_index(0);
-            let next_batch = self.get_next_batch().await?;
-
+            let next_batch = race(await_cancel(), self.get_next_batch()).await?;
             if next_batch.is_none() {
                 return Ok(None);
             }
@@ -144,6 +147,13 @@ impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
     }
 }
 
+#[inline]
+async fn await_cancel() -> Result<Option<RecordBatch>, BaseFdwError> {
+    let mut signals = Signals::new([SIGTERM, SIGINT, SIGQUIT])?;
+    signals.next().await;
+    Ok(None)
+}
+
 #[derive(Error, Debug)]
 pub enum BaseFdwError {
     #[error(transparent)]
@@ -163,6 +173,9 @@ pub enum BaseFdwError {
 
     #[error(transparent)]
     FormatError(#[from] FormatError),
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
 
     #[error(transparent)]
     OptionsError(#[from] supabase_wrappers::options::OptionsError),

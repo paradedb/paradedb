@@ -21,13 +21,13 @@ Sparse vectors can be searched using L2 distance, cosine distance, or inner prod
 
 ```sql
 -- L2 distance
-SELECT * FROM mock_items ORDER BY embedding <-> '{1:3,3:1,5:2}/5' LIMIT 5;
+SELECT * FROM items ORDER BY embedding <-> '{1:3,3:1,5:2}/5' LIMIT 5;
 
 -- Cosine distance
-SELECT * FROM mock_items ORDER BY embedding <=> '{1:3,3:1,5:2}/5' LIMIT 5;
+SELECT * FROM items ORDER BY embedding <=> '{1:3,3:1,5:2}/5' LIMIT 5;
 
 -- Inner product
-SELECT * FROM mock_items ORDER BY embedding <#> '{1:3,3:1,5:2}/5' LIMIT 5;
+SELECT * FROM items ORDER BY embedding <#> '{1:3,3:1,5:2}/5' LIMIT 5;
 ```
 
 Under the hood, ParadeDB uses `pgvector` for sparse vector search. Please refer to the [`pgvector` documentation](https://github.com/pgvector/pgvector?tab=readme-ov-file#sparse-vectors) for more details.

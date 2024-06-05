@@ -1,5 +1,4 @@
 use async_std::stream::StreamExt;
-use async_std::task;
 use datafusion::common::arrow::array::RecordBatch;
 use datafusion::common::DataFusionError;
 use datafusion::logical_expr::LogicalPlan;
@@ -22,7 +21,7 @@ macro_rules! fallback_warning {
     };
 }
 
-pub fn executor_run(
+pub async fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
     direction: pg_sys::ScanDirection,
     count: u64,
@@ -64,8 +63,8 @@ pub fn executor_run(
                 _ => {}
             };
 
-            let batches =
-                task::block_on(race(await_cancel(), get_datafusion_batches(logical_plan)));
+            // Race between the DataFusion query and SIGINT/SIGKILL/SIGQUIT to handle interrupts
+            let batches = race(await_cancel(), get_datafusion_batches(logical_plan)).await;
 
             // Execute SELECT
             match batches {

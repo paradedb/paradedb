@@ -3,6 +3,7 @@ mod explain;
 mod process;
 mod query;
 
+use async_std::task;
 use pgrx::*;
 use std::ffi::CStr;
 
@@ -22,10 +23,16 @@ impl hooks::PgHooks for LakehouseHook {
             execute_once: bool,
         ) -> HookResult<()>,
     ) -> HookResult<()> {
-        executor::executor_run(query_desc, direction, count, execute_once, prev_hook)
-            .unwrap_or_else(|err| {
-                panic!("{}", err);
-            });
+        task::block_on(executor::executor_run(
+            query_desc,
+            direction,
+            count,
+            execute_once,
+            prev_hook,
+        ))
+        .unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
 
         HookResult::new(())
     }

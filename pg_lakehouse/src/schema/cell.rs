@@ -731,6 +731,13 @@ where
                     PgOid::from(oid),
                 )),
             },
+            pg_sys::VOIDOID => match self.data_type() {
+                DataType::Null => Ok(None),
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
             unsupported => Err(DataTypeError::DataTypeMismatch(
                 self.data_type().clone(),
                 PgOid::from(unsupported),

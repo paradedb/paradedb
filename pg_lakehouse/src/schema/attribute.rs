@@ -98,6 +98,7 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
         }
         DataType::Timestamp(_, None) => vec![PgAttribute::new(field.name(), pg_sys::TIMESTAMPOID)],
         DataType::Timestamp(_, _tz) => vec![PgAttribute::new(field.name(), pg_sys::TIMESTAMPTZOID)],
+        DataType::Null => vec![PgAttribute::new(field.name(), pg_sys::VOIDOID)],
         unsupported => {
             return Err(SchemaError::UnsupportedArrowType(
                 field.name().to_string(),

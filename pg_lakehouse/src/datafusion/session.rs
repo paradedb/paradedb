@@ -3,6 +3,7 @@ use async_std::task;
 use datafusion::common::DataFusionError;
 use datafusion::datasource::object_store::ObjectStoreRegistry;
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
+use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use once_cell::sync::Lazy;
 use pgrx::*;
@@ -14,6 +15,7 @@ use thiserror::Error;
 use super::catalog::*;
 use super::object_store::LakehouseObjectStoreRegistry;
 use super::schema::LakehouseSchemaProvider;
+use super::udf::PgSleep;
 
 const SESSION_ID: &str = "lakehouse_session_context";
 
@@ -148,6 +150,7 @@ impl Session {
         // Register catalog
         context.register_catalog_list(Arc::new(LakehouseCatalogList::new()));
         context.register_catalog(&Self::catalog_name()?, Arc::new(LakehouseCatalog::new()));
+        context.register_udf(ScalarUDF::from(PgSleep::new()));
 
         Ok(Arc::new(context))
     }

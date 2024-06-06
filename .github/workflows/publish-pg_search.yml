@@ -312,9 +312,9 @@ jobs:
           %{__rm} -rf %{buildroot}
           install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
           install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -m 755 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-/usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
-          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 755 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
+          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
 
           %files
           /usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so

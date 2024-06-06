@@ -87,9 +87,7 @@ impl SearchStateManager {
         let result_map = &manager.result_map;
         let (score, _) = result_map
             .get(&alias.unwrap_or_default())
-            .and_then(|inner_map| {
-                inner_map.get(&key)
-            })
+            .and_then(|inner_map| inner_map.get(&key))
             .ok_or(SearchStateError::DocLookup(key))?;
 
         Ok(*score)

@@ -48,6 +48,7 @@ rank_bm25_fn!(rank_i16, i16);
 rank_bm25_fn!(rank_i32, i32);
 rank_bm25_fn!(rank_i64, i64);
 rank_bm25_fn!(rank_f32, f32);
+rank_bm25_fn!(rank_f64, f64);
 rank_bm25_fn!(rank_numeric, pgrx::AnyNumeric);
 rank_bm25_fn!(rank_string, String);
 rank_bm25_fn!(rank_uuid, pgrx::Uuid);

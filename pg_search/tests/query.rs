@@ -325,3 +325,42 @@ fn exists_query(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 }
+
+fn more_like_this_raw(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id SERIAL PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (flavour) VALUES 
+        ('apple'),
+        ('banana'), 
+        ('cherry'), 
+        ('banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {tokenizer: {type: "en_stem"}}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this_raw(
+            fields => ARRAY[
+                paradedb.term(field => 'flavour', value => 'anana')
+            ]
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}

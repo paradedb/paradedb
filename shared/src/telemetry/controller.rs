@@ -1,3 +1,4 @@
+use anyhow::Result;
 use chrono::Utc;
 use pgrx::pg_sys::{PG_VERSION, PG_VERSION_STR};
 use std::{
@@ -6,8 +7,7 @@ use std::{
 };
 
 use super::{
-    event::TelemetryEvent, DirectoryStore, TelemetryConfigStore, TelemetryError, TelemetryStore,
-    TermPoll,
+    event::TelemetryEvent, DirectoryStore, TelemetryConfigStore, TelemetryStore, TermPoll,
 };
 
 pub struct TelemetrySender {
@@ -17,7 +17,7 @@ pub struct TelemetrySender {
 }
 
 impl TelemetrySender {
-    pub fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
+    pub fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<()> {
         let conn = self.telemetry_store.get_connection()?;
 
         if self.config_store.telemetry_enabled()? {
@@ -30,7 +30,7 @@ impl TelemetrySender {
             Ok(())
         }
     }
-    pub fn send_deployment(&self) -> Result<(), TelemetryError> {
+    pub fn send_deployment(&self) -> Result<()> {
         if self.directory_store.extension_uuid_path()?.exists() {
             pgrx::log!("extension has been deployed before, skipping deployment telemetry");
             return Ok(());
@@ -47,12 +47,10 @@ impl TelemetrySender {
             os_type: os_info.os_type().to_string(),
             os_version: os_info.version().to_string(),
             replication_mode: std::env::var("POSTGRESQL_REPLICATION_MODE").ok(),
-            postgres_version: std::str::from_utf8(PG_VERSION)
-                .map_err(TelemetryError::VersionInfo)?
+            postgres_version: std::str::from_utf8(PG_VERSION)?
                 .trim_end_matches('\0')
                 .to_owned(),
-            postgres_version_details: std::str::from_utf8(PG_VERSION_STR)
-                .map_err(TelemetryError::VersionInfo)?
+            postgres_version_details: std::str::from_utf8(PG_VERSION_STR)?
                 .trim_end_matches('\0')
                 .to_owned(),
         };
@@ -60,7 +58,7 @@ impl TelemetrySender {
         self.send(&uuid, &event)
     }
 
-    pub fn send_directory_check(&self) -> Result<(), TelemetryError> {
+    pub fn send_directory_check(&self) -> Result<()> {
         let uuid = self.directory_store.extension_uuid()?;
         let size = self.directory_store.extension_size()?;
         let path = self.directory_store.extension_path()?;
@@ -84,7 +82,7 @@ pub struct TelemetryController {
 }
 
 impl TelemetryController {
-    pub fn run(&self) -> Result<(), TelemetryError> {
+    pub fn run(&self) -> Result<()> {
         let mut last_action_time = Instant::now();
         self.sender.send_deployment()?;
         loop {

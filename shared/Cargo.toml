@@ -6,7 +6,6 @@ edition = "2021"
 license = "AGPL-3.0"
 
 [features]
-telemetry = []
 fixtures = ["async-std", "rstest", "soa_derive", "sqlx", "bigdecimal"]
 
 [dependencies]

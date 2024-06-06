@@ -6,6 +6,13 @@ const BASE_GITHUB_URL: &str = "https://github.com";
 #[pg_extern(sql = r#"
     DO $$
     BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM pg_namespace 
+        WHERE nspname = 'paradedb'
+    ) THEN
+        CREATE SCHEMA paradedb;
+    END IF;
     IF NOT EXISTS (SELECT FROM pg_proc p
         JOIN pg_namespace n ON p.pronamespace = n.oid
         WHERE n.nspname = 'paradedb' AND p.proname = 'help') THEN

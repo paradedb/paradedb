@@ -156,7 +156,7 @@ jobs:
         working-directory: pg_search/
         run: |
           sed -i '/# Global settings - optimize for the native CPU for all targets./,/\[build\]/d; /rustflags = \["-Ctarget-cpu=native"\]/d' ../.cargo/config.toml
-          cargo pgrx package --features "icu telemetry"
+          cargo pgrx package --features icu
 
       - name: Create .deb Package
         run: |

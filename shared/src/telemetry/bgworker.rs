@@ -1,7 +1,8 @@
-use super::{TelemetryConfigStore, TelemetryError, TermPoll};
+use super::{TelemetryConfigStore, TermPoll};
 use crate::telemetry::controller::{TelemetryController, TelemetrySender};
 use crate::telemetry::postgres::PostgresDirectoryStore;
 use crate::telemetry::posthog::PosthogStore;
+use anyhow::{anyhow, Result};
 use pgrx::bgworkers::{self, BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum};
 use std::ffi::CStr;
@@ -73,12 +74,10 @@ pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
         .set_library(&extension.name())
         // We pass the extension name to retrieve the associated data directory to read telemetry data from.
         .set_argument((extension as i32).into_datum())
-        // Necessary for using plog!.
-        // Also, it doesn't seem like bgworkers will start without this.
+        // It doesn't seem like bgworkers will start without this.
         .enable_spi_access()
         // RecoveryFinished is the last available stage for bgworker startup.
-        // We wait until as late as possible so that we can make sure the
-        // paradedb.logs table is created, for the sake of using plog!.
+        // Allows time for all boostrapped tables to be created.
         .set_start_time(bgworkers::BgWorkerStartTime::RecoveryFinished)
         .load();
 }
@@ -94,8 +93,8 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     let extension_name = extension.name();
 
     // If telemetry is not enabled at compile time, return early.
-    if option_env!("TELEMETRY") != Some("true") {
-        pgrx::log!("TELEMETRY var not set at compile time for {extension_name}");
+    if option_env!("PARADEDB_TELEMETRY") != Some("true") {
+        pgrx::log!("PARADEDB_TELEMETRY var not set at compile time for {extension_name}");
         return;
     }
 
@@ -151,14 +150,14 @@ pub struct BgWorkerTelemetryConfig {
 }
 
 impl BgWorkerTelemetryConfig {
-    pub fn new(extension_name: &str) -> Result<Self, TelemetryError> {
+    pub fn new(extension_name: &str) -> Result<Self> {
         Ok(Self {
             posthog_api_key: option_env!("POSTHOG_API_KEY")
                 .map(|s| s.to_string())
-                .ok_or(TelemetryError::PosthogApiKey)?,
+                .ok_or_else(|| anyhow!("posthog api key missing"))?,
             posthog_host_url: option_env!("POSTHOG_HOST")
                 .map(|s| s.to_string())
-                .ok_or(TelemetryError::PosthogHost)?,
+                .ok_or_else(|| anyhow!("posthog host missing"))?,
             extension_name: extension_name.to_string(),
             root_data_directory: unsafe {
                 PathBuf::from(
@@ -170,20 +169,21 @@ impl BgWorkerTelemetryConfig {
         })
     }
 
-    pub fn check_telemetry_setting(&self) -> Result<bool, TelemetryError> {
+    pub fn check_telemetry_setting(&self) -> Result<bool> {
         // PGRX seems to have a problem with GUC variables in background workers.
         // This means that we can't check if telemetry has been disabled by ALTER SYSTEM.
         // Instead, we need to connect to an existing database to check with an SPI query.
         // Users aren't supposed to delete the template1 database, so we'll connect to that.
         // If for some reason it doesn't exist, the telemetry worker will crash,
         // but other extension operations will be unaffected.
-        let mut has_connected_to_spi = CONNECTED_TO_SPI
-            .lock()
-            .map_err(|err| TelemetryError::SpiConnectLock(err.to_string()))?;
+        let mut has_connected_to_spi = CONNECTED_TO_SPI.lock().unwrap();
 
         if !(*has_connected_to_spi) {
             // This must be the only time in the background worker that you call
             // `connect_worker_to_spi`. If it is called again, the worker will segfault.
+            // It's possible to pass "None" here for the database argument, but you will
+            // only be able to access system catalogs, and not any GUC settings or use
+            // any SPI queries.
             BackgroundWorker::connect_worker_to_spi(Some("template1"), None);
             *has_connected_to_spi = true
         }
@@ -194,7 +194,7 @@ impl BgWorkerTelemetryConfig {
         BackgroundWorker::transaction(|| match pgrx::Spi::get_one::<&str>(&guc_setting_query) {
             Ok(Some("true")) => Ok(true),
             Ok(Some("on")) => Ok(true),
-            Err(err) => Err(TelemetryError::EnabledCheck(err)),
+            Err(err) => Err(anyhow!("error checking telemetry guc setting: {err}")),
             other => {
                 pgrx::log!("{guc_setting_query} = {other:?}");
                 Ok(false)
@@ -204,19 +204,19 @@ impl BgWorkerTelemetryConfig {
 }
 
 impl TelemetryConfigStore for BgWorkerTelemetryConfig {
-    fn telemetry_enabled(&self) -> Result<bool, TelemetryError> {
+    fn telemetry_enabled(&self) -> Result<bool> {
         self.check_telemetry_setting()
     }
-    fn extension_name(&self) -> Result<String, TelemetryError> {
+    fn extension_name(&self) -> Result<String> {
         Ok(self.extension_name.to_string())
     }
-    fn telemetry_api_key(&self) -> Result<String, TelemetryError> {
+    fn telemetry_api_key(&self) -> Result<String> {
         Ok(self.posthog_api_key.to_string())
     }
-    fn telemetry_host_url(&self) -> Result<String, TelemetryError> {
+    fn telemetry_host_url(&self) -> Result<String> {
         Ok(self.posthog_host_url.to_string())
     }
-    fn root_data_directory(&self) -> Result<PathBuf, TelemetryError> {
+    fn root_data_directory(&self) -> Result<PathBuf> {
         Ok(self.root_data_directory.clone())
     }
 }

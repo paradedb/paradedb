@@ -57,13 +57,13 @@ FROM builder as builder-pg_search
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
-ARG TELEMETRY
+ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
-    TELEMETRY=${TELEMETRY}
+    PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
 COPY pg_search/ /tmp/pg_search
 COPY shared/ /tmp/shared
@@ -82,13 +82,13 @@ FROM builder as builder-pg_lakehouse
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
-ARG TELEMETRY
+ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
-    TELEMETRY=${TELEMETRY}
+    PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
 COPY pg_lakehouse/ /tmp/pg_lakehouse
 COPY shared/ /tmp/shared

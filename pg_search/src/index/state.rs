@@ -81,21 +81,16 @@ impl SearchStateManager {
         key: TantivyValue,
         alias: Option<SearchAlias>,
     ) -> Result<Score, SearchStateError> {
-        pgrx::info!("get_score for {:?}", key);
         let manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;
-        pgrx::info!("manager done");
         let result_map = &manager.result_map;
-        pgrx::info!("result_map: {:?}", result_map);
         let (score, _) = result_map
             .get(&alias.unwrap_or_default())
             .and_then(|inner_map| {
-                pgrx::info!("inner_map: {:?}", inner_map);
                 inner_map.get(&key)
             })
             .ok_or(SearchStateError::DocLookup(key))?;
-        pgrx::info!("score done");
 
         Ok(*score)
     }
@@ -179,8 +174,6 @@ impl SearchStateManager {
         doc_address: DocAddress,
         alias: Option<SearchAlias>,
     ) -> Result<(), SearchStateError> {
-        // THIS PRINT CAUSES TESTS TO CRASH
-        // pgrx::info!("set_result key {:?} score {:?}", key, score);
         let mut manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;
@@ -305,7 +298,6 @@ impl SearchState {
             let schema = self.schema.clone();
             let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
                 move |segment_reader: &tantivy::SegmentReader| -> Box<dyn FnMut(tantivy::DocId, Score) -> SearchIndexScore> {
-                    log::debug!("segment_reader: {:?}", segment_reader);
                     let fast_fields = segment_reader
                         .fast_fields();
 
@@ -318,9 +310,10 @@ impl SearchState {
                                 .first_or_default_col(0);
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
+                                let val = key_field_reader.get_val(doc);
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    key: TantivyValue(val.into()),
                                 }
                             })
                         }
@@ -358,11 +351,11 @@ impl SearchState {
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 let mut tok_str: String = Default::default();
-                                key_field_reader.ord_to_str(doc.into(), &mut tok_str).expect("no string!!");
-                                log::debug!("doc: {:?} tok_str: {:?}", doc, tok_str);
+                                let ord = key_field_reader.term_ords(doc.into()).nth(0).unwrap();
+                                key_field_reader.ord_to_str(ord.into(), &mut tok_str).expect("no string!!");
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: TantivyValue(tok_str.into()),
+                                    key: TantivyValue(tok_str.clone().into()),
                                 }
                             })
                         }

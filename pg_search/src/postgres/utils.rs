@@ -66,6 +66,5 @@ pub unsafe fn row_to_search_document(
             );
         }
     }
-    pgrx::info!("document: {:?}", document);
     Ok(document)
 }

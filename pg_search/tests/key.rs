@@ -43,7 +43,7 @@ fn boolean_key(mut conn: PgConnection) {
 fn uuid_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id UUID,
+        id SERIAL,
         value TEXT
     );
 

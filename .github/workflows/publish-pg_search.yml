@@ -320,7 +320,6 @@ jobs:
           /usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
-          %exclude /usr/lib/.build-id
 
           %changelog
           * Thu Jun 6 2024 ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}

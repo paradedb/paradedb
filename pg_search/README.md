@@ -262,6 +262,7 @@ Finally, to enable the ICU tokenizer in development, pass `--features icu` to th
 First, start pgrx:
 
 ```bash
+# Note: If not using pg16, specify with (i.e. -- pg15, -- pg14, etc.)
 cargo pgrx run
 ```
 

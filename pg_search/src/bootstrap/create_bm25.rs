@@ -21,6 +21,7 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
 )
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
+#[allow(clippy::too_many_arguments)]
 fn create_bm25(
     index_name: &str,
     table_name: &str,
@@ -87,7 +88,7 @@ fn create_bm25(
 
     Spi::run(&format!(
         "CREATE INDEX {} ON {}.{} USING bm25 (({}.*)) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",
-        spi::quote_identifier(&format!("{}_bm25_index", index_name)),
+        spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
         spi::quote_identifier(table_name),
@@ -161,7 +162,7 @@ fn create_bm25(
 
     Spi::run(&format!(
         "SET client_min_messages TO {}",
-        spi::quote_literal(&original_client_min_messages)
+        spi::quote_literal(original_client_min_messages)
     ))?;
 
     Ok(())

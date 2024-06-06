@@ -111,7 +111,7 @@ async fn test_arrow_types_s3_listing(#[future(awt)] s3: S3, mut conn: PgConnecti
         .execute(&mut conn);
 
     let retrieved_batch =
-        "SELECT * FROM primitive".fetch_recordbatch(&mut conn, &stored_batch.schema());
+        "SELECT * FROM primitive".fetch_recordbatch(&mut conn, &stored_batch.schema())?;
 
     assert_eq!(stored_batch.num_columns(), retrieved_batch.num_columns());
     for field in stored_batch.schema().fields() {
@@ -154,7 +154,7 @@ async fn test_arrow_types_s3_delta(
         .execute(&mut conn);
 
     let retrieved_batch =
-        "SELECT * FROM delta_primitive".fetch_recordbatch(&mut conn, &batch.schema());
+        "SELECT * FROM delta_primitive".fetch_recordbatch(&mut conn, &batch.schema())?;
 
     assert_eq!(batch.num_columns(), retrieved_batch.num_columns());
     for field in batch.schema().fields() {
@@ -223,7 +223,7 @@ async fn test_arrow_types_local_file_listing(
     .execute(&mut conn);
 
     let retrieved_batch =
-        "SELECT * FROM primitive".fetch_recordbatch(&mut conn, &stored_batch.schema());
+        "SELECT * FROM primitive".fetch_recordbatch(&mut conn, &stored_batch.schema())?;
 
     assert_eq!(stored_batch.num_columns(), retrieved_batch.num_columns());
     for field in stored_batch.schema().fields() {
@@ -257,7 +257,7 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
     .execute(&mut conn);
 
     let retrieved_batch =
-        "SELECT * FROM delta_primitive".fetch_recordbatch(&mut conn, &batch.schema());
+        "SELECT * FROM delta_primitive".fetch_recordbatch(&mut conn, &batch.schema())?;
 
     assert_eq!(batch.num_columns(), retrieved_batch.num_columns());
     for field in batch.schema().fields() {

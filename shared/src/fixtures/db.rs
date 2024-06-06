@@ -100,13 +100,14 @@ where
     ///     )
     /// }
     ///
-    fn fetch_recordbatch(self, connection: &mut PgConnection, schema: &SchemaRef) -> RecordBatch {
+    fn fetch_recordbatch(
+        self,
+        connection: &mut PgConnection,
+        schema: &SchemaRef,
+    ) -> Result<RecordBatch, sqlx::Error> {
         block_on(async {
-            let rows = sqlx::query(self.as_ref())
-                .fetch_all(connection)
-                .await
-                .unwrap();
-            schema_to_batch(schema, &rows).unwrap()
+            let rows = sqlx::query(self.as_ref()).fetch_all(connection).await?;
+            Ok(schema_to_batch(schema, &rows).unwrap())
         })
     }
 

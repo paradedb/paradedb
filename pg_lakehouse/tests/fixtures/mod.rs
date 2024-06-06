@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 use std::{
     fs::{self, File},
     io::Read,

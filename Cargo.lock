@@ -5501,13 +5501,14 @@ dependencies = [
 
 [[package]]
 name = "pg_lakehouse"
-version = "0.7.4"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "async-std",
  "aws-config",
  "aws-sdk-s3",
  "chrono",
+ "dashmap",
  "datafusion 37.1.0",
  "deltalake",
  "futures",

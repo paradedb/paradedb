@@ -1,0 +1,80 @@
+---
+title: Query Acceleration
+---
+
+## Overview
+
+`pg_lakehouse` attempts to push down the entirety of every foreign table query to DataFusion, an in-process analytical query engine.
+Users experiencing slower than expected query times can debug or optimize in several ways.
+
+## Shared Preload Libraries
+
+If the `pg_lakehouse` extension has been installed directly into Postgres, it is very important that it is
+added to `shared_preload_libraries` inside `postgresql.conf`.
+
+```bash
+# Inside postgresql.conf
+shared_preload_libraries = 'pg_lakehouse'
+```
+
+## Run `EXPLAIN`
+
+A query that has been fully pushed down to DataFusion will show `DataFusionScan` at the top of the query plan returned by `EXPLAIN`.
+
+```sql
+EXPLAIN SELECT COUNT(*) FROM trips;
+                  QUERY PLAN
+----------------------------------------------
+ DataFusionScan: LogicalPlan
+  Projection: COUNT(*)
+   Aggregate: groupBy=[[]], aggr=[[COUNT(*)]]
+     TableScan: trips
+(4 rows)
+```
+
+On the other hand, queries that have not been fully pushed down to DataFusion will show a `Foreign Scan` somewhere inside the query plan.
+These queries may take longer to run.
+
+```sql
+-- Custom UDFs are not **yet** pushed down to DataFusion
+CREATE OR REPLACE FUNCTION add_one(input_integer INT)
+RETURNS INT AS $$
+BEGIN
+    RETURN input_integer + 1;
+END;
+$$ LANGUAGE plpgsql;
+
+EXPLAIN SELECT add_one("VendorID") FROM trips LIMIT 1;
+                                           QUERY PLAN
+-------------------------------------------------------------------------------------------------
+ Limit  (cost=0.00..1.25 rows=1 width=4)
+   ->  Foreign Scan on trips  (cost=0.00..1.25 rows=1 width=4)
+         Wrappers: quals = []
+         Wrappers: tgts = [Column { name: "VendorID", num: 1, type_oid: Oid(23), type_mod: -1 }]
+         Wrappers: sorts = []
+         Wrappers: limit = Some(Limit { count: 1, offset: 0 })
+(6 rows)
+```
+
+Opening a [Github issue](https://github.com/paradedb/paradedb/issues) is the best way to request full DataFusion pushdown for these
+queries.
+
+## First Queries
+
+The first query to a foreign server in a new Postgres connection may be slower than subsequent queries. This is partially due to the fact
+that `pg_lakehouse` must first establish a connection with the foreign server before executing the query. To address this, the
+`connect_table` function can be used to pre-establish a connection to the foreign server.
+
+```sql
+CALL connect_table('trips');
+-- schema.table is also accepted
+CALL connect_table('public.trips');
+```
+
+This function is also useful for verifying that the server and table credentials you've provided are valid. If the connection is
+unsucessful, an error message will be returned.
+
+## Object Store Location
+
+The physical distance between the Postgres server and the object store can significantly affect query times. For instance,
+queries will experience network latency if the S3 bucket is located in a different AWS region than the Postgres server.

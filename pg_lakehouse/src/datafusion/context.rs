@@ -78,8 +78,7 @@ impl ContextProvider for QueryContext {
     }
 }
 
-#[inline]
-async fn get_table_source(
+pub async fn get_table_source(
     reference: TableReference<'_>,
 ) -> Result<Arc<dyn TableSource>, ContextError> {
     let catalog_name = Session::catalog_name()?;
@@ -88,7 +87,8 @@ async fn get_table_source(
     match schema_name {
         Some(schema_name) => {
             // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
-            get_source(&catalog_name, schema_name, reference.table())
+            let _ = Session::schema_provider(schema_name)?;
+            get_source(&catalog_name, schema_name, reference.table()).await
         }
         None => {
             // If no schema was provided in the query, i.e. SELECT * FROM <table>
@@ -112,7 +112,7 @@ async fn get_table_source(
                         continue;
                     }
 
-                    return get_source(&catalog_name, schema_name, reference.table());
+                    return get_source(&catalog_name, schema_name, reference.table()).await;
                 }
             }
 
@@ -122,7 +122,7 @@ async fn get_table_source(
 }
 
 #[inline]
-fn get_source(
+async fn get_source(
     catalog_name: &str,
     schema_name: &str,
     table_name: &str,
@@ -132,7 +132,7 @@ fn get_source(
     let table_name = table_name.to_string();
     let context = Session::session_context()?;
     let table_reference = TableReference::full(catalog_name, schema_name, table_name);
-    let provider = task::block_on(context.table_provider(table_reference))?;
+    let provider = context.table_provider(table_reference).await?;
 
     Ok(provider_as_source(provider))
 }

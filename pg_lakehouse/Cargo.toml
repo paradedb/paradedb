@@ -1,7 +1,7 @@
 [package]
 name = "pg_lakehouse"
 description = "An analytical query engine for Postgres"
-version = "0.7.4"
+version = "0.7.3"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -21,6 +21,7 @@ pg_test = []
 anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
+dashmap = "5.5.3"
 datafusion = { version = "37.1.0", features = ["avro"] }
 deltalake = { version = "0.17.3", features = [
   "datafusion",

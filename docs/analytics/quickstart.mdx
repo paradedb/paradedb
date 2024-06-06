@@ -59,6 +59,9 @@ OPTIONS (
     extension 'parquet'
 );
 
+-- Optional: Pre-establish the S3 connection
+CALL connect_table('trips');
+
 -- Success! Now you can query the file like a regular Postgres table
 SELECT COUNT(*) FROM trips;
   count

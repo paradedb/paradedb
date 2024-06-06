@@ -1,12 +1,13 @@
 use async_std::task;
 use chrono::Datelike;
+use datafusion::common::DataFusionError;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
 use url::Url;
 
-use crate::datafusion::context::ContextError;
+use crate::datafusion::context::{get_table_source, ContextError};
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
 use crate::fdw::handler::*;
@@ -21,6 +22,28 @@ pub fn arrow_schema(
     task::block_on(arrow_schema_impl(server, path, extension, format)).unwrap_or_else(|err| {
         panic!("{}", err);
     })
+}
+
+extension_sql!(
+    r#"
+    CREATE OR REPLACE PROCEDURE connect_table(table_name VARCHAR) 
+    LANGUAGE C AS 'MODULE_PATHNAME', 'connect_table';
+    "#,
+    name = "connect_table"
+);
+#[pg_guard]
+#[no_mangle]
+pub extern "C" fn connect_table(fcinfo: pg_sys::FunctionCallInfo) {
+    task::block_on(connect_table_impl(fcinfo)).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
+}
+
+#[pg_guard]
+#[no_mangle]
+extern "C" fn pg_finfo_connect_table() -> &'static pg_sys::Pg_finfo_record {
+    const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
+    &V1_API
 }
 
 #[pg_extern]
@@ -74,10 +97,22 @@ async fn arrow_schema_impl(
     ))
 }
 
+#[inline]
+async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ApiError> {
+    let table_name: String =
+        unsafe { fcinfo::pg_getarg(fcinfo, 0).ok_or(ApiError::TableNameNotFound)? };
+    let _ = get_table_source(table_name.into()).await?;
+
+    Ok(())
+}
+
 #[derive(Error, Debug)]
 pub enum ApiError {
     #[error(transparent)]
     Context(#[from] ContextError),
+
+    #[error(transparent)]
+    DataFusionError(#[from] DataFusionError),
 
     #[error(transparent)]
     TableProviderError(#[from] TableProviderError),
@@ -90,4 +125,7 @@ pub enum ApiError {
 
     #[error("No foreign server with name {0} was found")]
     ForeignServerNotFound(String),
+
+    #[error("Table name not provided")]
+    TableNameNotFound,
 }

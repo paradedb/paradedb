@@ -1,6 +1,7 @@
 use async_std::sync::RwLock;
 use async_std::task;
 use datafusion::common::DataFusionError;
+use datafusion::datasource::object_store::ObjectStoreRegistry;
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use datafusion::prelude::{SessionConfig, SessionContext};
 use once_cell::sync::Lazy;
@@ -11,12 +12,17 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use super::catalog::*;
+use super::object_store::LakehouseObjectStoreRegistry;
 use super::schema::LakehouseSchemaProvider;
 
 const SESSION_ID: &str = "lakehouse_session_context";
 
 type SessionCache = Lazy<Arc<RwLock<HashMap<String, Arc<SessionContext>>>>>;
 static SESSION_CACHE: SessionCache = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+
+type ObjectStoreRegistryCache = Lazy<Arc<LakehouseObjectStoreRegistry>>;
+static OBJECT_STORE_REGISTRY_CACHE: ObjectStoreRegistryCache =
+    Lazy::new(|| Arc::new(LakehouseObjectStoreRegistry::new()));
 
 pub struct Session;
 
@@ -119,6 +125,10 @@ impl Session {
         Ok(unsafe { CStr::from_ptr(database_name).to_str()?.to_owned() })
     }
 
+    pub fn object_store_registry() -> Arc<LakehouseObjectStoreRegistry> {
+        Arc::clone(&OBJECT_STORE_REGISTRY_CACHE)
+    }
+
     fn init() -> Result<Arc<SessionContext>, SessionError> {
         let mut session_config = SessionConfig::from_env()?.with_information_schema(true);
         let session_timezone = unsafe {
@@ -129,7 +139,9 @@ impl Session {
         session_config.options_mut().execution.time_zone = Some(session_timezone.to_string());
 
         // Create a new context
-        let rn_config = RuntimeConfig::new();
+        let rn_config = RuntimeConfig::new().with_object_store_registry(
+            Self::object_store_registry() as Arc<dyn ObjectStoreRegistry>,
+        );
         let runtime_env = RuntimeEnv::new(rn_config)?;
         let mut context = SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
 

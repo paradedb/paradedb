@@ -353,5 +353,5 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ~/rpmbuild/RPMS/pg_search-${{ steps.version.outputs.tag_version }}-1.el9.x86_64.rpm
+          asset_path: ~/rpmbuild/RPMS/x86_64/pg_search-${{ steps.version.outputs.tag_version }}-1.el9.x86_64.rpm
           asset_name: pg_search-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm

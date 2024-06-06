@@ -21,10 +21,41 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
+use paste::paste;
 use pgrx::{prelude::TableIterator, *};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
+
+// Use this macro to define repetitions of functions that take a key argument in order to
+//     support every key type.
+macro_rules! key_arg_repeat_fn {
+    ($macro_fn_name:ident, $output_prefix:ident) => {
+        paste! {
+            $macro_fn_name!([<$output_prefix _bool>], bool);
+            $macro_fn_name!([<$output_prefix _i8>], i8);
+            $macro_fn_name!([<$output_prefix _i16>], i16);
+            $macro_fn_name!([<$output_prefix _i32>], i32);
+            $macro_fn_name!([<$output_prefix _i64>], i64);
+            $macro_fn_name!([<$output_prefix _f32>], f32);
+            $macro_fn_name!([<$output_prefix _f64>], f64);
+            $macro_fn_name!([<$output_prefix _numeric>], pgrx::AnyNumeric);
+            $macro_fn_name!([<$output_prefix _string>], String);
+            $macro_fn_name!([<$output_prefix _uuid>], pgrx::Uuid);
+            $macro_fn_name!([<$output_prefix _date>], pgrx::Date);
+            $macro_fn_name!([<$output_prefix _time>], pgrx::Time);
+            $macro_fn_name!([<$output_prefix _timestamp>], pgrx::Timestamp);
+            $macro_fn_name!([<$output_prefix _timetz>], pgrx::TimeWithTimeZone);
+            $macro_fn_name!([<$output_prefix _timestamptz>], pgrx::TimestampWithTimeZone);
+        }
+    };
+}
+
+// rank_bm25
+pub fn rank_bm25_impl(key: TantivyValue, alias: default!(Option<String>, "NULL")) -> f32 {
+    SearchStateManager::get_score(key, alias.map(SearchAlias::from))
+        .expect("could not lookup doc address for search query")
+}
 
 macro_rules! rank_bm25_fn {
     ($func_name:ident, $key_type:ty) => {
@@ -34,66 +65,9 @@ macro_rules! rank_bm25_fn {
         }
     };
 }
+key_arg_repeat_fn!(rank_bm25_fn, rank);
 
-pub fn rank_bm25_impl(key: TantivyValue, alias: default!(Option<String>, "NULL")) -> f32 {
-    SearchStateManager::get_score(key, alias.map(SearchAlias::from))
-        .expect("could not lookup doc address for search query")
-}
-
-rank_bm25_fn!(rank_bool, bool);
-rank_bm25_fn!(rank_i8, i8);
-rank_bm25_fn!(rank_i16, i16);
-rank_bm25_fn!(rank_i32, i32);
-rank_bm25_fn!(rank_i64, i64);
-rank_bm25_fn!(rank_f32, f32);
-rank_bm25_fn!(rank_f64, f64);
-rank_bm25_fn!(rank_numeric, pgrx::AnyNumeric);
-rank_bm25_fn!(rank_string, String);
-rank_bm25_fn!(rank_uuid, pgrx::Uuid);
-rank_bm25_fn!(rank_date, pgrx::Date);
-rank_bm25_fn!(rank_time, pgrx::Time);
-rank_bm25_fn!(rank_timestamp, pgrx::Timestamp);
-rank_bm25_fn!(rank_timetz, pgrx::TimeWithTimeZone);
-rank_bm25_fn!(rank_timestamptz, pgrx::TimestampWithTimeZone);
-
-macro_rules! highlight_fn {
-    ($func_name:ident, $key_type:ty) => {
-        #[pg_extern(name = "highlight")]
-        pub fn $func_name(
-            key: $key_type,
-            field: &str,
-            prefix: default!(Option<String>, "NULL"),
-            postfix: default!(Option<String>, "NULL"),
-            max_num_chars: default!(Option<i32>, "NULL"),
-            alias: default!(Option<String>, "NULL"),
-        ) -> String {
-            highlight_impl(
-                TantivyValue::try_from(key).unwrap(),
-                field,
-                prefix,
-                postfix,
-                max_num_chars,
-                alias,
-            )
-        }
-    };
-}
-
-highlight_fn!(highlight_i8, i8);
-highlight_fn!(highlight_i16, i16);
-highlight_fn!(highlight_i32, i32);
-highlight_fn!(highlight_i64, i64);
-highlight_fn!(highlight_f32, f32);
-highlight_fn!(highlight_f64, f64);
-highlight_fn!(highlight_numeric, pgrx::AnyNumeric);
-highlight_fn!(highlight_string, String);
-highlight_fn!(highlight_uuid, pgrx::Uuid);
-highlight_fn!(highlight_date, pgrx::Date);
-highlight_fn!(highlight_time, pgrx::Time);
-highlight_fn!(highlight_timestamp, pgrx::Timestamp);
-highlight_fn!(highlight_timetz, pgrx::TimeWithTimeZone);
-highlight_fn!(highlight_timestamptz, pgrx::TimestampWithTimeZone);
-
+// highlight
 pub fn highlight_impl(
     key: TantivyValue,
     field: &str,
@@ -123,6 +97,30 @@ pub fn highlight_impl(
 
     snippet.to_html()
 }
+
+macro_rules! highlight_fn {
+    ($func_name:ident, $key_type:ty) => {
+        #[pg_extern(name = "highlight")]
+        pub fn $func_name(
+            key: $key_type,
+            field: &str,
+            prefix: default!(Option<String>, "NULL"),
+            postfix: default!(Option<String>, "NULL"),
+            max_num_chars: default!(Option<i32>, "NULL"),
+            alias: default!(Option<String>, "NULL"),
+        ) -> String {
+            highlight_impl(
+                TantivyValue::try_from(key).unwrap(),
+                field,
+                prefix,
+                postfix,
+                max_num_chars,
+                alias,
+            )
+        }
+    };
+}
+key_arg_repeat_fn!(highlight_fn, highlight);
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[pg_extern]

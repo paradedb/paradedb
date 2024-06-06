@@ -35,13 +35,11 @@ macro_rules! rank_bm25_fn {
     };
 }
 
-// #[pg_extern]
 pub fn rank_bm25_impl(key: TantivyValue, alias: default!(Option<String>, "NULL")) -> f32 {
     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
         .expect("could not lookup doc address for search query")
 }
 
-// TODO: set a list of key supported pgrx key types and auto-generate all the sub-fns for it (repeat for highlight)
 rank_bm25_fn!(rank_bool, bool);
 rank_bm25_fn!(rank_i8, i8);
 rank_bm25_fn!(rank_i16, i16);
@@ -86,6 +84,7 @@ highlight_fn!(highlight_i16, i16);
 highlight_fn!(highlight_i32, i32);
 highlight_fn!(highlight_i64, i64);
 highlight_fn!(highlight_f32, f32);
+highlight_fn!(highlight_f64, f64);
 highlight_fn!(highlight_numeric, pgrx::AnyNumeric);
 highlight_fn!(highlight_string, String);
 highlight_fn!(highlight_uuid, pgrx::Uuid);
@@ -95,22 +94,14 @@ highlight_fn!(highlight_timestamp, pgrx::Timestamp);
 highlight_fn!(highlight_timetz, pgrx::TimeWithTimeZone);
 highlight_fn!(highlight_timestamptz, pgrx::TimestampWithTimeZone);
 
-// #[pg_extern]
 pub fn highlight_impl(
-    key: TantivyValue, // TODO: should be able to take in columns of other types and turn into string
-    // index_name: &str,
+    key: TantivyValue,
     field: &str,
     prefix: default!(Option<String>, "NULL"),
     postfix: default!(Option<String>, "NULL"),
     max_num_chars: default!(Option<i32>, "NULL"),
     alias: default!(Option<String>, "NULL"),
 ) -> String {
-    // let bm25_index_name = format!("{}_bm25_index", index_name);
-    // let search_index = get_search_index(&bm25_index_name);
-    // let schema = search_index.schema;
-
-    // let key_field_name = schema.fields[schema.key];
-
     let mut snippet = SearchStateManager::get_snippet(
         key,
         field,

@@ -349,8 +349,8 @@ impl SearchState {
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 let mut tok_str: String = Default::default();
-                                let ord = key_field_reader.term_ords(doc.into()).nth(0).unwrap();
-                                key_field_reader.ord_to_str(ord.into(), &mut tok_str).expect("no string!!");
+                                let ord = key_field_reader.term_ords(doc).nth(0).unwrap();
+                                key_field_reader.ord_to_str(ord, &mut tok_str).expect("no string!!");
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: TantivyValue(tok_str.clone().into()),

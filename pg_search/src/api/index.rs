@@ -514,7 +514,7 @@ term_fn_unsupported!(tsrange, pgrx::Range<pgrx::Timestamp>, "timestamp range");
 term_fn_unsupported!(
     tstzrange,
     pgrx::Range<pgrx::TimestampWithTimeZone>,
-    "timstamp ranges with time zone"
+    "timestamp ranges with time zone"
 );
 
 #[pg_extern(immutable, parallel_safe)]

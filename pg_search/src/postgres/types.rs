@@ -1,4 +1,3 @@
-// Convert pgrx types into tantivy values
 use crate::postgres::datetime::{
     pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value, pgrx_timestamp_to_tantivy_value,
     pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value,
@@ -118,30 +117,6 @@ impl TantivyValue {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum TantivyValueError {
-    #[error("{0} term not supported")]
-    TermNotImplemented(String),
-
-    #[error(transparent)]
-    PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
-
-    #[error("could not dereference postgres datum")]
-    DatumDeref,
-
-    #[error(transparent)]
-    SerdeJsonError(#[from] serde_json::Error),
-
-    #[error("Cannot convert oid of InvalidOid to TantivyValue")]
-    InvalidOid,
-
-    #[error("Cannot convert builtin oid of {0} to TantivyValue")]
-    UnsupportedOid(Oid),
-
-    #[error("Cannot convert builtin array oid of {0} to TantivyValue")]
-    UnsupportedArrayOid(Oid),
-}
-
 impl fmt::Display for TantivyValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.tantivy_schema_value() {
@@ -151,7 +126,7 @@ impl fmt::Display for TantivyValue {
             tantivy::schema::OwnedValue::F64(f64) => write!(f, "{}", f64),
             tantivy::schema::OwnedValue::Bool(bool) => write!(f, "{}", bool),
             tantivy::schema::OwnedValue::Date(datetime) => {
-                write!(f, "{}", datetime.into_primitive().to_string())
+                write!(f, "{}", datetime.into_primitive())
             }
             tantivy::schema::OwnedValue::Bytes(bytes) => {
                 write!(f, "{}", String::from_utf8(bytes.clone()).unwrap())
@@ -511,4 +486,28 @@ impl TryFrom<pgrx::Uuid> for TantivyValue {
     fn try_from(val: pgrx::Uuid) -> Result<Self, Self::Error> {
         Ok(TantivyValue(tantivy::schema::OwnedValue::Str(val.to_string())))
     }
+}
+
+#[derive(Error, Debug)]
+pub enum TantivyValueError {
+    #[error("{0} term not supported")]
+    TermNotImplemented(String),
+
+    #[error(transparent)]
+    PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
+
+    #[error("could not dereference postgres datum")]
+    DatumDeref,
+
+    #[error(transparent)]
+    SerdeJsonError(#[from] serde_json::Error),
+
+    #[error("Cannot convert oid of InvalidOid to TantivyValue")]
+    InvalidOid,
+
+    #[error("Cannot convert builtin oid of {0} to TantivyValue")]
+    UnsupportedOid(Oid),
+
+    #[error("Cannot convert builtin array oid of {0} to TantivyValue")]
+    UnsupportedArrayOid(Oid),
 }

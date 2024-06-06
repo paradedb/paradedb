@@ -331,9 +331,7 @@ jobs:
           cp `find target/release -type f -name "pg_search*"` archive/SOURCES/pg_search_${{ matrix.pg_version }}
 
           echo "Building RPM package..."
-          cd archive/SPECS/
-          make pg_search
-          rpmbuild --without debuginfo -ba pg_search.spec
+          rpmbuild --without debuginfo -ba archive/SPECS/pg_search.spec
 
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL

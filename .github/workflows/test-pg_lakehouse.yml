@@ -130,6 +130,12 @@ jobs:
         working-directory: pg_lakehouse/
         run: cargo clean
 
+      # The SHA hash here must exactly match the Image::Tag that is referenced in the
+      # testcontainers modules Rust crate for localstack.
+      - name: Pull localstack image
+        run: docker pull localstack/localstack@sha256:73698e485240939490134aadd7e429ac87ff068cd5ad09f5de8ccb76727c13e1
+
+
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_lakehouse Cargo Test Suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

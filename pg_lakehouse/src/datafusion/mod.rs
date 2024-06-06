@@ -6,4 +6,3 @@ pub mod plan;
 pub mod provider;
 pub mod schema;
 pub mod session;
-pub mod udf;

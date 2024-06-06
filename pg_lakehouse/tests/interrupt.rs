@@ -30,8 +30,6 @@ async fn test_sigint(database: Db, tempdir: TempDir) -> Result<()> {
     primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "parquet")
         .execute(&mut first_conn);
 
-    let (pg_backend_pid,): (i32,) = "SELECT pg_backend_pid()".fetch_one(&mut first_conn);
-
     let retrieved_batch =
         std::thread::spawn(move || {
             match "SELECT pg_sleep(600), * FROM primitive"
@@ -46,6 +44,7 @@ async fn test_sigint(database: Db, tempdir: TempDir) -> Result<()> {
         });
 
     let cancel_request = std::thread::spawn(move || {
+        let (pg_backend_pid,): (i32,) = "SELECT pid FROM pg_stat_activity WHERE query = 'SELECT pg_sleep(600), * FROM primitive'".fetch_one(&mut second_conn);
         format!("SELECT pg_cancel_backend({pg_backend_pid})")
             .execute_result(&mut second_conn)
             .unwrap();

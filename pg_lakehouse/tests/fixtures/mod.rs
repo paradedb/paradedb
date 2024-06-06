@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 use std::{
     fs::{self, File},
     io::Read,
@@ -67,6 +66,7 @@ pub struct S3 {
     #[allow(unused)]
     container: ContainerAsync<LocalStack>,
     pub client: aws_sdk_s3::Client,
+    #[allow(unused)]
     pub url: String,
 }
 

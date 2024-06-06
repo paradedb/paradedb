@@ -233,12 +233,13 @@ pub fn fuzzy_term(
     }
 }
 
-// Avoid exposing more_like_this for now until we can decide on the exact API.
+// We expose as more_like_this_raw so we can gather feedback on how the API is used.
 // Lucene and Elasticsearch seem to have different interfaces for this query,
 // and Tantivy doesn't have any examples of its use, so its unclear what the best
 // way to use it is with pg_search.
-#[allow(unused)]
+// Once we gathered feedback, we can expose a more user-friendly interface.
 #[allow(clippy::too_many_arguments)]
+#[pg_extern(name = "more_like_this_raw", immutable, parallel_safe)]
 pub fn more_like_this(
     min_doc_frequency: default!(Option<i32>, "NULL"),
     max_doc_frequency: default!(Option<i32>, "NULL"),

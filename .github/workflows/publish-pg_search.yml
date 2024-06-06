@@ -300,7 +300,7 @@ jobs:
           URL:            https://github.com/paradedb/paradedb
           Source0:        %{name}-%{version}.tar.gz
 
-          BuildRequires:	postgresql${{ matrix.pg_version }}-devel
+          BuildRequires:  postgresql${{ matrix.pg_version }}-devel
           Requires:       postgresql${{ matrix.pg_version }}-server
 
           %description
@@ -323,12 +323,12 @@ jobs:
           %exclude /usr/lib/.build-id
 
           %changelog
-          * Tue June 4 2024 ParadeDB <support@paradedb.com> - ${rpm_version}
+          * Thu Jun 6 2024 ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
           - Initial RPM Release
           EOF
 
           echo "Copying pg_search binaries to RPM build directory..."
-          cp `find target/release -type f -name "pg_search*"` archive/SOURCES/pg_search_${{ matrix.pg_version }}
+          cp -r target/release/pg_search-pg${{ matrix.pg_version }}/ archive/SOURCES/pg_search_${{ matrix.pg_version }}/
 
           echo "Building RPM package..."
           rpmbuild --without debuginfo -ba archive/SPECS/pg_search.spec

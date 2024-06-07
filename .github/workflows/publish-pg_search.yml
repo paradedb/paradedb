@@ -1,14 +1,12 @@
 # workflows/publish-pg_search.yml
 #
 # Publish pg_search
-# Build and publish the pg_search extension as a .deb to GitHub Releases.
+# Build and publish the pg_search extension as .deb and .rpm to GitHub Releases.
 
 name: Publish pg_search
 
 on:
   push:
-    branches:
-      - phil/rhel
     tags:
       - "v*"
   workflow_dispatch:

@@ -1,7 +1,7 @@
 # workflows/publish-pg_lakehouse.yml
 #
 # Publish pg_lakehouse
-# Build and publish the pg_lakehouse extension as a .deb to GitHub Releases.
+# Build and publish the pg_lakehouse extension as .deb and .rpm to GitHub Releases.
 
 name: Publish pg_lakehouse
 

@@ -104,10 +104,6 @@ jobs:
             image: debian:12-slim
             pg_version: 16
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: redhat/ubi8:latest
-            pg_version: 16
-            arch: arm64
           # Red Hat Enterprise Linux 9
           - runner: depot-ubuntu-22.04-4
             image: redhat/ubi9:latest

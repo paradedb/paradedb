@@ -1,8 +1,5 @@
 ARG PG_VERSION_MAJOR=16
 
-# Note: As of writing, Debian 11/Bullseye is the latest stable Debian distro
-# and if equivalent to Ubuntu 22.04, which we use for testing.
-
 ###############################################
 # First Stage: Builder
 ###############################################

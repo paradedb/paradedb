@@ -245,3 +245,4 @@ jobs:
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
           asset_name: pg_lakehouse-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          overwrite: true

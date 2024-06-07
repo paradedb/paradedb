@@ -1,4 +1,5 @@
 mod api;
+mod bootstrap;
 mod env;
 mod globals;
 mod index;
@@ -23,7 +24,7 @@ pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
 
 pgrx::pg_module_magic!();
 
-extension_sql_file!("../sql/_bootstrap.sql");
+extension_sql!("GRANT ALL ON SCHEMA paradedb TO PUBLIC;" name = "paradedb_grant_all");
 
 /// Initializes option parsing and telemetry
 #[allow(clippy::missing_safety_doc)]

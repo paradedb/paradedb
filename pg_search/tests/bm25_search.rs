@@ -232,7 +232,10 @@ fn uuid(mut conn: PgConnection) {
     )"#
     .execute_result(&mut conn)
     {
-        Err(err) => assert!(err.to_string().contains("cannot be indexed")),
+        Err(err) => assert!(
+            err.to_string().contains("cannot be indexed"),
+            "received {err:?}"
+        ),
         _ => panic!("uuid fields in bm25 index should not be supported"),
     };
 }

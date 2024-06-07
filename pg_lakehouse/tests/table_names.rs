@@ -27,17 +27,17 @@ async fn test_table_case_sensitivity(mut conn: PgConnection, tempdir: TempDir) -
     .execute(&mut conn);
 
     let retrieved_batch =
-        "SELECT * FROM \"PrimitiveTable\"".fetch_recordbatch(&mut conn, &stored_batch.schema());
+        "SELECT * FROM \"PrimitiveTable\"".fetch_recordbatch(&mut conn, &stored_batch.schema())?;
 
     assert_eq!(stored_batch.num_columns(), retrieved_batch.num_columns());
 
     let retrieved_batch = "SELECT * FROM public.\"PrimitiveTable\""
-        .fetch_recordbatch(&mut conn, &stored_batch.schema());
+        .fetch_recordbatch(&mut conn, &stored_batch.schema())?;
 
     assert_eq!(stored_batch.num_columns(), retrieved_batch.num_columns());
 
     let retrieved_batch = "SELECT * FROM \"public\".\"PrimitiveTable\""
-        .fetch_recordbatch(&mut conn, &stored_batch.schema());
+        .fetch_recordbatch(&mut conn, &stored_batch.schema())?;
 
     assert_eq!(stored_batch.num_columns(), retrieved_batch.num_columns());
 

@@ -27,8 +27,12 @@ async fn test_sigint(database: Db, tempdir: TempDir) -> Result<()> {
     writer.write(&stored_batch)?;
     writer.close()?;
 
-    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "parquet")
-        .execute(&mut first_conn);
+    primitive_setup_fdw_local_file_listing(
+        parquet_path.as_path().to_str().unwrap(),
+        "parquet",
+        "primitive",
+    )
+    .execute(&mut first_conn);
 
     let (pg_backend_pid,): (i32,) = "SELECT pg_backend_pid()".fetch_one(&mut first_conn);
 
@@ -77,8 +81,12 @@ async fn test_sigkill(database: Db, tempdir: TempDir) -> Result<()> {
     writer.write(&stored_batch)?;
     writer.close()?;
 
-    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "parquet")
-        .execute(&mut first_conn);
+    primitive_setup_fdw_local_file_listing(
+        parquet_path.as_path().to_str().unwrap(),
+        "parquet",
+        "primitive",
+    )
+    .execute(&mut first_conn);
 
     let (pg_backend_pid,): (i32,) = "SELECT pg_backend_pid()".fetch_one(&mut first_conn);
 

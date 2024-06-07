@@ -46,6 +46,7 @@ async fn test_sigint(database: Db, tempdir: TempDir) -> Result<()> {
         });
 
     let cancel_request = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(5));
         format!("SELECT pg_cancel_backend({pg_backend_pid})")
             .execute_result(&mut second_conn)
             .unwrap();
@@ -95,6 +96,7 @@ async fn test_sigkill(database: Db, tempdir: TempDir) -> Result<()> {
         });
 
     let cancel_request = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(5));
         format!("SELECT pg_terminate_backend({pg_backend_pid})")
             .execute_result(&mut second_conn)
             .unwrap();

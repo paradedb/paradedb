@@ -284,12 +284,17 @@ jobs:
 
           # Enable required modules
           echo "test1"
-          sudo dnf -qy module enable llvm:13
+          # Enable the llvm-toolset module
+          sudo dnf -qy module enable llvm-toolset
+
+          # Install LLVM and related packages
+          sudo dnf -y install llvm-toolset
+
           sudo dnf -qy module enable postgresql:${{ matrix.pg_version }}
 
-          # Install LLVM and PostgreSQL
-          echo "test2"
-          sudo dnf -y install llvm-devel
+          # # Install LLVM and PostgreSQL
+          # echo "test2"
+          # sudo dnf -y install llvm-devel
 
           sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
           sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/

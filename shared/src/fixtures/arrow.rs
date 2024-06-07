@@ -204,9 +204,9 @@ pub fn primitive_create_server(server: &str, wrapper: &str) -> String {
     format!("CREATE SERVER {server} FOREIGN DATA WRAPPER {wrapper}")
 }
 
-pub fn primitive_create_table(server: &str) -> String {
+pub fn primitive_create_table(server: &str, table: &str) -> String {
     format!(
-        "CREATE FOREIGN TABLE primitive (
+        "CREATE FOREIGN TABLE {table} (
             boolean_col       boolean,
             int8_col          smallint,
             int16_col         smallint,
@@ -236,9 +236,9 @@ pub fn primitive_create_table(server: &str) -> String {
     )
 }
 
-pub fn primitive_create_delta_table(server: &str) -> String {
+pub fn primitive_create_delta_table(server: &str, table: &str) -> String {
     format!(
-        "CREATE FOREIGN TABLE delta_primitive (
+        "CREATE FOREIGN TABLE {table} (
             boolean_col       boolean,
             int8_col          smallint,
             int16_col         smallint,
@@ -258,11 +258,12 @@ pub fn primitive_setup_fdw_s3_listing(
     s3_endpoint: &str,
     s3_object_path: &str,
     extension: &str,
+    table: &str,
 ) -> String {
     let create_foreign_data_wrapper =
         primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
     let create_server = primitive_create_server("s3_server", "s3_wrapper");
-    let create_table = primitive_create_table("s3_server");
+    let create_table = primitive_create_table("s3_server", table);
 
     format!(
         r#"
@@ -277,11 +278,12 @@ pub fn primitive_setup_fdw_s3_delta(
     s3_endpoint: &str,
     s3_object_path: &str,
     extension: &str,
+    table: &str,
 ) -> String {
     let create_foreign_data_wrapper =
         primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
     let create_server = primitive_create_server("s3_server", "s3_wrapper");
-    let create_table = primitive_create_delta_table("s3_server");
+    let create_table = primitive_create_delta_table("s3_server", table);
 
     format!(
         r#"
@@ -292,14 +294,18 @@ pub fn primitive_setup_fdw_s3_delta(
     )
 }
 
-pub fn primitive_setup_fdw_local_file_listing(local_file_path: &str, extension: &str) -> String {
+pub fn primitive_setup_fdw_local_file_listing(
+    local_file_path: &str,
+    extension: &str,
+    table: &str,
+) -> String {
     let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
         "local_file_wrapper",
         "local_file_fdw_handler",
         "local_file_fdw_validator",
     );
     let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
-    let create_table = primitive_create_table("local_file_server");
+    let create_table = primitive_create_table("local_file_server", table);
 
     format!(
         r#"
@@ -310,14 +316,18 @@ pub fn primitive_setup_fdw_local_file_listing(local_file_path: &str, extension: 
     )
 }
 
-pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, extension: &str) -> String {
+pub fn primitive_setup_fdw_local_file_delta(
+    local_file_path: &str,
+    extension: &str,
+    table: &str,
+) -> String {
     let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
         "local_file_wrapper",
         "local_file_fdw_handler",
         "local_file_fdw_validator",
     );
     let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
-    let create_table = primitive_create_delta_table("local_file_server");
+    let create_table = primitive_create_delta_table("local_file_server", table);
 
     format!(
         r#"

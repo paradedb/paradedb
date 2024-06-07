@@ -250,11 +250,17 @@ pub fn more_like_this(
     boost_factor: default!(Option<f32>, "NULL"),
     stop_words: default!(Option<Vec<String>>, "NULL"),
     fields: default!(Array<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+    with_document_id: default!(Option<i64>, "NULL"),
 ) -> SearchQueryInput {
     let fields = fields.iter_deny_null().map(|input| match input {
         SearchQueryInput::Term { field, value, .. } => (field.unwrap_or("".into()), value),
         _ => panic!("only term queries can be passed to more_like_this"),
     });
+
+    if !(with_document_id.is_none() ^ (fields.len() == 0)) {
+        panic!("more_like_this must be called with either with_docuemnt_id or with_document_fields");
+    }
+
     SearchQueryInput::MoreLikeThis {
         min_doc_frequency: min_doc_frequency.map(|n| n as u64),
         max_doc_frequency: max_doc_frequency.map(|n| n as u64),
@@ -265,6 +271,7 @@ pub fn more_like_this(
         boost_factor,
         stop_words,
         fields: fields.collect(),
+        with_document_id,
     }
 }
 

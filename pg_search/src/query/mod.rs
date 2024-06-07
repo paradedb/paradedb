@@ -81,6 +81,7 @@ pub enum SearchQueryInput {
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
         fields: Vec<(String, tantivy::schema::OwnedValue)>,
+        with_document_id: Option<i64>,
     },
     Parse {
         query_string: String,
@@ -308,7 +309,10 @@ impl SearchQueryInput {
                 boost_factor,
                 stop_words,
                 fields,
+                with_document_id,
             } => {
+                with_document_id;
+
                 let mut builder = MoreLikeThisQuery::builder();
 
                 if let Some(min_doc_frequency) = min_doc_frequency {

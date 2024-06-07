@@ -351,6 +351,20 @@ fn more_like_this_raw(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    match r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this_raw(),
+        stable_sort => true
+    );
+    "#
+    .fetch_result::<()>(&mut conn)
+    {
+        Err(err) => assert!(err
+            .to_string()
+            .contains("more_like_this must be called with either with_docuemnt_id or with_document_fields")),
+        _ => panic!("with_docuemnt_id or with_document_fields validation failed"),
+    }
+
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_index.search(
         query => paradedb.more_like_this_raw(

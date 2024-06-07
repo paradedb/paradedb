@@ -106,27 +106,6 @@ jobs:
           #   image: debian:12-slim
           #   pg_version: 16
           #   arch: arm64
-          # # Red Hat Enterprise Linux 8
-          # - runner: depot-ubuntu-22.04-4
-          #   image: redhat/ubi8:latest
-          #   pg_version: 14
-          #   arch: amd64
-          # - runner: depot-ubuntu-22.04-arm-4
-          #   image: redhat/ubi8:latest
-          #   pg_version: 14
-          #   arch: arm64
-          # - runner: depot-ubuntu-22.04-4
-          #   image: redhat/ubi8:latest
-          #   pg_version: 15
-          #   arch: amd64
-          # - runner: depot-ubuntu-22.04-arm-4
-          #   image: redhat/ubi8:latest
-          #   pg_version: 15
-          #   arch: arm64
-          - runner: depot-ubuntu-22.04-4
-            image: redhat/ubi8:latest
-            pg_version: 16
-            arch: amd64
           # - runner: depot-ubuntu-22.04-arm-4
           #   image: redhat/ubi8:latest
           #   pg_version: 16
@@ -156,6 +135,7 @@ jobs:
           #   image: redhat/ubi9:latest
           #   pg_version: 16
           #   arch: arm64
+          # TODO: Add support for RHEL 8
 
     steps:
       - name: Checkout Git Repository
@@ -268,16 +248,6 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-          # Determine RHEL version to retrieve the correct repositories
-          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
-            RHEL_VERSION=8
-          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
-            RHEL_VERSION=9
-          else
-            echo "Unsupported RHEL version"
-            exit 1
-          fi
-
           if [ "${{ matrix.arch }}" == "amd64" ]; then
             REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
           else
@@ -292,10 +262,7 @@ jobs:
           fi
           sudo dnf clean all
 
-          echo "5"
-          sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
-
-          echo "6"
+          sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
           sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/
           echo "/usr/pgsql-${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 

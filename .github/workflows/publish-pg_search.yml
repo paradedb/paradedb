@@ -292,26 +292,8 @@ jobs:
           fi
           sudo dnf clean all
 
-          echo "1"
-          # Reset all previously enabled PostgreSQL modules
-          sudo dnf module reset -y postgresql
-
-          echo "2"
-          # Enable the llvm-toolset module for rhel8
-          sudo dnf module -y enable llvm-toolset:rhel${RHEL_VERSION}
-          sudo dnf -y install llvm-toolset
-
-          echo "3"
-          # # Install LLVM and PostgreSQL
-          # echo "test2"
-          # sudo dnf -y install llvm-devel
-
-          echo "4"
-
-          sudo dnf module -y enable postgresql:${{ matrix.pg_version }}
-
           echo "5"
-          sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
+          sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
 
           echo "6"
           sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/

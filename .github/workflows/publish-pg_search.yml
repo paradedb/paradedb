@@ -202,7 +202,7 @@ jobs:
             echo "RPM Arch: $ARCH"
             echo "rpm_arch=$ARCH" >> $GITHUB_OUTPUT
 
-            OS=$($DISTRO-$RELEASE | cut -d '-' -f 2-)
+            OS=$(echo $DISTRO-$RELEASE | cut -d '-' -f 2-)
             echo "RPM OS: $OS"
             echo "rpm_os=$OS" >> $GITHUB_OUTPUT
           fi

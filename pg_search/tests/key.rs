@@ -29,6 +29,7 @@ fn boolean_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(bool, f32)> = r#"
     SELECT id, paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -37,6 +38,15 @@ fn boolean_key(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(false, 0.25759196), (true, 0.14109309)]);
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
@@ -70,6 +80,7 @@ fn uuid_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(String, f32)> = r#"
     SELECT CAST(id AS TEXT), paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -106,6 +117,15 @@ fn uuid_key(mut conn: PgConnection) {
             ),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -139,6 +159,7 @@ fn i64_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(i64, f32)> = r#"
     SELECT id, paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -157,6 +178,15 @@ fn i64_key(mut conn: PgConnection) {
             (4, 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -190,6 +220,7 @@ fn i32_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(i32, f32)> = r#"
     SELECT id, paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -208,6 +239,15 @@ fn i32_key(mut conn: PgConnection) {
             (4, 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -241,6 +281,7 @@ fn i16_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(i16, f32)> = r#"
     SELECT id, paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -259,6 +300,15 @@ fn i16_key(mut conn: PgConnection) {
             (4, 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -292,6 +342,7 @@ fn f32_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(f32, f32)> = r#"
     SELECT id, paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -310,6 +361,15 @@ fn f32_key(mut conn: PgConnection) {
             (4.4, 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -343,6 +403,7 @@ fn f64_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(f64, f32)> = r#"
     SELECT id, paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -361,6 +422,15 @@ fn f64_key(mut conn: PgConnection) {
             (4.4, 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -394,6 +464,7 @@ fn numeric_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(f64, f32)> = r#"
     SELECT CAST(id AS FLOAT8), paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -412,6 +483,15 @@ fn numeric_key(mut conn: PgConnection) {
             (4.4, 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -445,6 +525,7 @@ fn string_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(String, f32)> = r#"
     SELECT id, paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -481,6 +562,15 @@ fn string_key(mut conn: PgConnection) {
             ),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -514,6 +604,7 @@ fn date_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(String, f32)> = r#"
     SELECT CAST(id AS TEXT), paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -532,6 +623,15 @@ fn date_key(mut conn: PgConnection) {
             ("2023-05-06".to_string(), 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -565,6 +665,7 @@ fn time_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(String, f32)> = r#"
     SELECT CAST(id AS TEXT), paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -583,6 +684,15 @@ fn time_key(mut conn: PgConnection) {
             ("11:12:13".to_string(), 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -616,6 +726,7 @@ fn timestamp_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(String, f32)> = r#"
     SELECT CAST(id AS TEXT), paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -634,6 +745,15 @@ fn timestamp_key(mut conn: PgConnection) {
             ("2023-05-06 11:12:13".to_string(), 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -667,6 +787,7 @@ fn timestamptz_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(String, f32)> = r#"
     SELECT CAST(id AS TEXT), paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -685,6 +806,15 @@ fn timestamptz_key(mut conn: PgConnection) {
             ("2023-05-06 17:12:13+00".to_string(), 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
@@ -718,6 +848,7 @@ fn timetz_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // stable_sort
     let rows: Vec<(String, f32)> = r#"
     SELECT CAST(id AS TEXT), paradedb.rank_bm25(id) FROM test_index.search(
         query => paradedb.term(field => 'value', value => 'blue'),
@@ -736,4 +867,13 @@ fn timetz_key(mut conn: PgConnection) {
             ("11:12:13-06".to_string(), 0.44761515),
         ]
     );
+
+    // no stable_sort
+    let rows: Vec<(f32,)> = r#"
+    SELECT paradedb.rank_bm25(id) FROM test_index.search(
+        query => paradedb.term(field => 'value', value => 'blue'),
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 6);
 }

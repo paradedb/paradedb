@@ -123,10 +123,10 @@ macro_rules! highlight_fn {
 key_arg_repeat_fn!(highlight_fn, highlight);
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-#[pg_extern]
-pub fn minmax_bm25(
+// #[pg_extern]
+pub fn minmax_bm25_impl<T: std::convert::TryFrom<TantivyValue>>(
     config_json: JsonB,
-) -> TableIterator<'static, (name!(id, String), name!(rank_bm25, f32))> {
+) -> TableIterator<'static, (name!(id, T), name!(rank_bm25, f32))> {
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json).expect("could not parse search config");
@@ -152,7 +152,7 @@ pub fn minmax_bm25(
     // Now that we have min and max, iterate over the collected results
     let mut field_rows = Vec::new();
     for (score, doc_address) in top_docs {
-        let key = scan_state.key_value(doc_address);
+        let key: T = TantivyValue::try_into(scan_state.key_value(doc_address)).unwrap_or_else(|_| panic!("key conversion failed!"));
         let normalized_score = if score_range == 0.0 {
             1.0 // Avoid division by zero
         } else {
@@ -163,6 +163,18 @@ pub fn minmax_bm25(
     }
     TableIterator::new(field_rows)
 }
+
+macro_rules! minmax_bm25_fn {
+    ($func_name:ident, $key_type:ty) => {
+        #[pg_extern(name = "minmax_bm25")]
+        pub fn $func_name(
+            config_json: JsonB,
+        ) -> TableIterator<'static, (name!(id, $key_type), name!(rank_bm25, f32))> {
+            minmax_bm25_impl::<$key_type>(config_json).into()
+        }
+    };
+}
+key_arg_repeat_fn!(minmax_bm25_fn, minmax_bm25);
 
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {

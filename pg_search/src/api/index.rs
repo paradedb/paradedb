@@ -372,13 +372,13 @@ pub fn range_date(field: String, range: Range<pgrx::Date>) -> SearchQueryInput {
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_value(n)),
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_value(n).unwrap()),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_value(n).unwrap()),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_value(n)),
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_value(n).unwrap()),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_value(n).unwrap()),
             },
         },
     }
@@ -400,13 +400,13 @@ pub fn range_timestamp(field: String, range: Range<pgrx::Timestamp>) -> SearchQu
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamp_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamp_to_tantivy_value(n)),
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamp_to_tantivy_value(n).unwrap()),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamp_to_tantivy_value(n).unwrap()),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamp_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamp_to_tantivy_value(n)),
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamp_to_tantivy_value(n).unwrap()),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamp_to_tantivy_value(n).unwrap()),
             },
         },
     }
@@ -431,13 +431,13 @@ pub fn range_timestamptz(
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamptz_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamptz_to_tantivy_value(n)),
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamptz_to_tantivy_value(n).unwrap()),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamptz_to_tantivy_value(n).unwrap()),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamptz_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamptz_to_tantivy_value(n)),
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamptz_to_tantivy_value(n).unwrap()),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamptz_to_tantivy_value(n).unwrap()),
             },
         },
     }

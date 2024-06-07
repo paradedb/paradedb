@@ -442,7 +442,7 @@ impl SearchState {
         }
     }
 
-    pub fn key_value(&self, doc_address: DocAddress) -> String {
+    pub fn key_value(&self, doc_address: DocAddress) -> TantivyValue {
         let retrieved_doc: TantivyDocument = self
             .searcher
             .doc(doc_address)
@@ -452,7 +452,7 @@ impl SearchState {
             .get_first(self.schema.key_field().id.0)
             .unwrap();
 
-        TantivyValue(value.clone()).to_string()
+        TantivyValue(value.clone())
     }
 
     pub fn ctid_value(&self, doc_address: DocAddress) -> u64 {

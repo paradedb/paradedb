@@ -268,6 +268,16 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
+          # Determine RHEL version to retrieve the correct repositories
+          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
+            RHEL_VERSION=8
+          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
+            RHEL_VERSION=9
+          else
+            echo "Unsupported RHEL version"
+            exit 1
+          fi
+
           if [ "${{ matrix.arch }}" == "amd64" ]; then
             REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
           else
@@ -282,19 +292,18 @@ jobs:
           fi
           sudo dnf clean all
 
-          # Enable required modules
-          echo "test1"
-          # Enable the llvm-toolset module
-          sudo dnf -qy module enable llvm-toolset
 
-          # Install LLVM and related packages
+
+          # Enable the llvm-toolset module for rhel8
+          sudo dnf module -y enable llvm-toolset:rhel${RHEL_VERSION}
           sudo dnf -y install llvm-toolset
 
-          sudo dnf -qy module enable postgresql:${{ matrix.pg_version }}
-
+          # sudo dnf -qy module enable postgresql:${{ matrix.pg_version }}
           # # Install LLVM and PostgreSQL
           # echo "test2"
           # sudo dnf -y install llvm-devel
+
+
 
           sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
           sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/

@@ -192,7 +192,7 @@ jobs:
           echo "os_version=$DISTRO-$RELEASE" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version on Debian
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04'}}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -210,6 +210,9 @@ jobs:
           fi
           sudo dnf -y install $REPO_URL
 
+          if [ ! -f /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL ]; then
+            sudo curl -o /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG
+          fi
           sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
           sudo dnf clean all
 

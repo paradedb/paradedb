@@ -210,10 +210,10 @@ jobs:
           fi
           sudo dnf -y install $REPO_URL
 
-          if [ ! -f /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL ]; then
+          if [ ! -f /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG ]; then
             sudo curl -o /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG          
           fi
-          sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
+          sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG
           sudo dnf clean all
 
           sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'

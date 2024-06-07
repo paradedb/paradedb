@@ -211,7 +211,7 @@ jobs:
           sudo dnf -y install $REPO_URL
 
           if [ ! -f /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL ]; then
-            sudo curl -o /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG
+            sudo curl -o /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG          
           fi
           sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
           sudo dnf clean all

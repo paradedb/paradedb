@@ -24,8 +24,8 @@ USING hnsw (<column_name> <distance_metric>);
 </ParamField>
 <ParamField body="distance_metric" required>
   The distance metric used for measuring similarity between two vectors. Use
-  `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, and
-  `vector_cosine_ops` for cosine distance.
+  `sparsevec_l2_ops` for L2 distance, `sparsevec_ip_ops` for inner product, and
+  `sparsevec_cosine_ops` for cosine distance.
 </ParamField>
 
 ## Index Options
@@ -34,7 +34,7 @@ The following example demonstrates how to pass options when creating the HNSW in
 
 ```sql
 CREATE INDEX ON mock_items
-USING hnsw (sparse_embedding vector_l2_ops)
+USING hnsw (sparse_embedding sparsevec_l2_ops)
 WITH (m = 16, ef_construction = 64);
 ```
 

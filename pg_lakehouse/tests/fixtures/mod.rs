@@ -96,11 +96,13 @@ impl S3 {
         }
     }
 
+    #[allow(unused)]
     pub async fn create_bucket(&self, bucket: &str) -> Result<()> {
         self.client.create_bucket().bucket(bucket).send().await?;
         Ok(())
     }
 
+    #[allow(unused)]
     pub async fn put_batch(&self, bucket: &str, key: &str, batch: &RecordBatch) -> Result<()> {
         let mut buf = vec![];
         let mut writer = ArrowWriter::try_new(&mut buf, batch.schema(), None)?;
@@ -117,6 +119,7 @@ impl S3 {
         Ok(())
     }
 
+    #[allow(unused)]
     pub async fn put_rows<T: Serialize>(&self, bucket: &str, key: &str, rows: &[T]) -> Result<()> {
         let fields = Vec::<FieldRef>::from_type::<NycTripsTable>(TracingOptions::default())?;
         let batch = serde_arrow::to_record_batch(&fields, &rows)?;

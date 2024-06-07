@@ -69,7 +69,7 @@
       "url": "changelog"
     }
   ],
-  "versions": ["Current Version: 0.7.4"],
+  "versions": ["Version 0.7.5"],
   "navigation": [
     {
       "group": "Documentation",
@@ -150,6 +150,7 @@
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.7.5",
         "changelog/0.7.4",
         "changelog/0.7.3",
         "changelog/0.7.2",

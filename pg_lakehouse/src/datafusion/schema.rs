@@ -40,7 +40,10 @@ impl LakehouseSchemaProvider {
 
     fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
         let pg_relation = unsafe {
-            PgRelation::open_with_name(table_name).unwrap_or_else(|err| {
+            PgRelation::open_with_name(
+                format!("\"{}\".\"{}\"", self.schema_name, table_name).as_str(),
+            )
+            .unwrap_or_else(|err| {
                 panic!("{}", err);
             })
         };
@@ -149,7 +152,9 @@ impl SchemaProvider for LakehouseSchemaProvider {
 
     fn table_exist(&self, table_name: &str) -> bool {
         let pg_relation = match unsafe {
-            PgRelation::open_with_name(format!("{}.{}", self.schema_name, table_name).as_str())
+            PgRelation::open_with_name(
+                format!("\"{}\".\"{}\"", self.schema_name, table_name).as_str(),
+            )
         } {
             Ok(relation) => relation,
             Err(_) => return false,

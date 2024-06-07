@@ -346,7 +346,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
         table_name => 'test_more_like_this_table',
         index_name => 'test_more_like_this_index',
         key_field => 'id',
-        text_fields => '{"flavour": {tokenizer: {type: "en_stem"}}}'
+        text_fields => '{"flavour": {}}'    
     );
     "#
     .execute(&mut conn);
@@ -354,8 +354,10 @@ fn more_like_this_raw(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_index.search(
         query => paradedb.more_like_this_raw(
+            min_doc_frequency => 0,
+            min_term_frequency => 0,
             fields => ARRAY[
-                paradedb.term(field => 'flavour', value => 'anana')
+                paradedb.term(field => 'flavour', value => 'banana')
             ]
         ),
         stable_sort => true

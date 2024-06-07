@@ -106,15 +106,56 @@ jobs:
           #   image: debian:12-slim
           #   pg_version: 16
           #   arch: arm64
+          # Red Hat Enterprise Linux 8
           - runner: depot-ubuntu-22.04-4
-            image: redhat/ubi9:latest
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: amd64
+          - runner: depot-ubuntu-22.04-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: arm64
+          - runner: depot-ubuntu-22.04-4
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: amd64
+          - runner: depot-ubuntu-22.04-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: arm64
+          - runner: depot-ubuntu-22.04-4
+            image: redhat/ubi8:latest
             pg_version: 16
             arch: amd64
           - runner: depot-ubuntu-22.04-arm-4
-            image: redhat/ubi9:latest
+            image: redhat/ubi8:latest
             pg_version: 16
             arch: arm64
-          # TODO: RedHat UBI 8, and finish adding RedHat UBI 9
+          # # Red Hat Enterprise Linux 9
+          # - runner: depot-ubuntu-22.04-4
+          #   image: redhat/ubi9:latest
+          #   pg_version: 14
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: redhat/ubi9:latest
+          #   pg_version: 14
+          #   arch: arm64
+          # - runner: depot-ubuntu-22.04-4
+          #   image: redhat/ubi9:latest
+          #   pg_version: 15
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: redhat/ubi9:latest
+          #   pg_version: 15
+          #   arch: arm64
+          # - runner: depot-ubuntu-22.04-4
+          #   image: redhat/ubi9:latest
+          #   pg_version: 16
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: redhat/ubi9:latest
+          #   pg_version: 16
+          #   arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -347,7 +388,6 @@ jobs:
           echo "Building RPM package..."
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
 
-      # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT

@@ -30,6 +30,7 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     index_name text DEFAULT '',
     table_name text DEFAULT '',
     key_field text DEFAULT '',
+    key_oid oid DEFAULT 0,
     schema_name text DEFAULT CURRENT_SCHEMA,
     text_fields text DEFAULT '{}',
     numeric_fields text DEFAULT '{}',
@@ -180,9 +181,18 @@ fn create_bm25(
         &format!("RETURN QUERY SELECT * FROM paradedb.schema_bm25({})", spi::quote_literal(index_name))
     ))?;
 
+    let key_oid = match Spi::get_one::<pg_sys::Oid>(
+        &format!("SELECT pg_type.oid FROM pg_type INNER JOIN information_schema.columns ic ON ic.data_type = pg_type.typname WHERE ic.table_name = {} AND ic.column_name = {}", table_name, key_field)
+    )? {
+        Some(key_oid) => key_oid,
+        None => bail!("could not select key field type oid"),
+    };
+
+    let key_type: &str = "integer";
+
     Spi::run(&format_hybrid_function(
         &spi::quote_qualified_identifier(index_name, "rank_hybrid"),
-        &format!("TABLE({} bigint, rank_hybrid real)", spi::quote_identifier(key_field)),
+        &format!("TABLE({} {}, rank_hybrid real)", spi::quote_identifier(key_field), key_type),
         &format!(
             "
                 WITH similarity AS (
@@ -201,7 +211,7 @@ fn create_bm25(
                 ),
                 bm25 AS (
                     SELECT 
-                        id as key_field, 
+                        paradedb.get_pg_from_tantivy(id, {}) as key_field,
                         rank_bm25 as score 
                     FROM paradedb.minmax_bm25($1)
                 )
@@ -213,7 +223,8 @@ fn create_bm25(
                 ORDER BY score_hybrid DESC;
             ",
             spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name)
+            spi::quote_identifier(table_name),
+            key_oid
         ),
         &index_json
     ))?;

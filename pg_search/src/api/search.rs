@@ -122,11 +122,11 @@ macro_rules! highlight_fn {
 }
 key_arg_repeat_fn!(highlight_fn, highlight);
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-// #[pg_extern]
-pub fn minmax_bm25_impl<T: pgrx::datum::IntoDatum + std::convert::TryFrom<TantivyValue> + 'static>(
+#[pg_extern(name = "minmax_bm25")]
+pub fn minmax_bm25(
     config_json: JsonB,
-) -> TableIterator<'static, (name!(id, T), name!(rank_bm25, f32))> {
+    key_field: String,
+) -> TableIterator<'static, (name!(id, TantivyValue), name!(rank_bm25, f32))> {
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json).expect("could not parse search config");
@@ -152,7 +152,8 @@ pub fn minmax_bm25_impl<T: pgrx::datum::IntoDatum + std::convert::TryFrom<Tantiv
     // Now that we have min and max, iterate over the collected results
     let mut field_rows = Vec::new();
     for (score, doc_address) in top_docs {
-        let key: T = TantivyValue::try_into(scan_state.key_value(doc_address)).unwrap_or_else(|_| panic!("key conversion failed!"));
+        // let key: T = TantivyValue::try_into(scan_state.key_value(doc_address)).unwrap_or_else(|_| panic!("key conversion failed!"));
+        let key = scan_state.key_value(doc_address);
         let normalized_score = if score_range == 0.0 {
             1.0 // Avoid division by zero
         } else {
@@ -164,17 +165,59 @@ pub fn minmax_bm25_impl<T: pgrx::datum::IntoDatum + std::convert::TryFrom<Tantiv
     TableIterator::new(field_rows)
 }
 
-macro_rules! minmax_bm25_fn {
-    ($func_name:ident, $key_type:ty) => {
-        #[pg_extern(name = "minmax_bm25")]
-        pub fn $func_name(
-            config_json: JsonB,
-        ) -> TableIterator<'static, (name!(id, $key_type), name!(rank_bm25, f32))> {
-            minmax_bm25_impl::<$key_type>(config_json).into()
-        }
-    };
-}
-key_arg_repeat_fn!(minmax_bm25_fn, minmax_bm25);
+// TODO: figure out how to get the right return type when the key is in the return
+
+// #[allow(clippy::not_unsafe_ptr_arg_deref)]
+// pub fn minmax_bm25_impl<T: pgrx::datum::IntoDatum + std::convert::TryFrom<TantivyValue> + 'static>(
+//     config_json: JsonB,
+// ) -> TableIterator<'static, (name!(id, T), name!(rank_bm25, f32))> {
+//     let JsonB(search_config_json) = config_json;
+//     let search_config: SearchConfig =
+//         serde_json::from_value(search_config_json).expect("could not parse search config");
+//     let search_index = get_search_index(&search_config.index_name);
+
+//     let writer_client = WriterGlobal::client();
+//     let mut scan_state = search_index
+//         .search_state(&writer_client, &search_config, needs_commit())
+//         .unwrap();
+
+//     // Collect into a Vec to allow multiple iterations
+//     let top_docs: Vec<_> = scan_state.search_dedup(search_index.executor).collect();
+
+//     // Calculate min and max scores
+//     let (min_score, max_score) = top_docs
+//         .iter()
+//         .map(|(score, _)| score)
+//         .fold((f32::MAX, f32::MIN), |(min, max), bm25| {
+//             (min.min(*bm25), max.max(*bm25))
+//         });
+//     let score_range = max_score - min_score;
+
+//     // Now that we have min and max, iterate over the collected results
+//     let mut field_rows = Vec::new();
+//     for (score, doc_address) in top_docs {
+//         let key: T = TantivyValue::try_into(scan_state.key_value(doc_address)).unwrap_or_else(|_| panic!("key conversion failed!"));
+//         let normalized_score = if score_range == 0.0 {
+//             1.0 // Avoid division by zero
+//         } else {
+//             (score - min_score) / score_range
+//         };
+
+//         field_rows.push((key, normalized_score));
+//     }
+//     TableIterator::new(field_rows)
+// }
+
+// macro_rules! minmax_bm25_fn {
+//     ($func_name:ident, $key_type:ty) => {
+//         pub fn $func_name(
+//             config_json: JsonB,
+//         ) -> TableIterator<'static, (name!(id, $key_type), name!(rank_bm25, f32))> {
+//             minmax_bm25_impl::<$key_type>(config_json).into()
+//         }
+//     };
+// }
+// key_arg_repeat_fn!(minmax_bm25_fn, minmax_bm25);
 
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {

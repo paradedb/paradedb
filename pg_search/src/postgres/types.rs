@@ -18,7 +18,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use thiserror::Error;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
 pub struct TantivyValue(pub tantivy::schema::OwnedValue);
 
 impl TantivyValue {

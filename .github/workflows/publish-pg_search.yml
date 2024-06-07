@@ -165,38 +165,49 @@ jobs:
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
+      # TODO: I probably need to do some conditional logic here for EL8 vs EL9
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
+          # Determine RHEL version to retrieve the correct repositories
+          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
+            RHEL_VERSION=8
+          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
+            RHEL_VERSION=9
+          else
+            echo "Unsupported RHEL version"
+            exit 1
+          fi
+
           # Install dependencies
           dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq rpm-build
 
-          # Add Oracle Linux 9 repositories to enable epel-release
-          sudo tee /etc/yum.repos.d/oracle-linux-ol9.repo > /dev/null <<EOF
-          [ol9_baseos_latest]
-          name=Oracle Linux 9 BaseOS Latest (\$basearch)
-          baseurl=https://yum.oracle.com/repo/OracleLinux/OL9/baseos/latest/\$basearch/
+          # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
+          sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
+          [ol${RHEL_VERSION}_baseos_latest]
+          name=Oracle Linux ${RHEL_VERSION} BaseOS Latest (\$basearch)
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/baseos/latest/\$basearch/
           gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
           gpgcheck=1
           enabled=1
 
-          [ol9_appstream]
-          name=Oracle Linux 9 Application Stream (\$basearch)
-          baseurl=https://yum.oracle.com/repo/OracleLinux/OL9/appstream/\$basearch/
+          [ol${RHEL_VERSION}_appstream]
+          name=Oracle Linux ${RHEL_VERSION} Application Stream (\$basearch)
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/appstream/\$basearch/
           gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
           gpgcheck=1
           enabled=1
 
-          [ol9_codeready_builder]
-          name=Oracle Linux 9 CodeReady Builder (\$basearch) - Unsupported
-          baseurl=https://yum.oracle.com/repo/OracleLinux/OL9/codeready/builder/\$basearch/
+          [ol${RHEL_VERSION}_codeready_builder]
+          name=Oracle Linux ${RHEL_VERSION} CodeReady Builder (\$basearch) - Unsupported
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/codeready/builder/\$basearch/
           gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
           gpgcheck=1
           enabled=1
           EOF
 
           # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
-          wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol9 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol${RHEL_VERSION} -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
           sudo dnf install -y epel-release
 
           # This package requires epel-release, which is why we install it last. It is required to
@@ -252,7 +263,7 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/>
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install & Configure Supported PostgreSQL Version on RHEL

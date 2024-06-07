@@ -124,7 +124,7 @@ key_arg_repeat_fn!(highlight_fn, highlight);
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 // #[pg_extern]
-pub fn minmax_bm25_impl<T: std::convert::TryFrom<TantivyValue>>(
+pub fn minmax_bm25_impl<T: pgrx::datum::IntoDatum + std::convert::TryFrom<TantivyValue> + 'static>(
     config_json: JsonB,
 ) -> TableIterator<'static, (name!(id, T), name!(rank_bm25, f32))> {
     let JsonB(search_config_json) = config_json;

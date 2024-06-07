@@ -201,10 +201,8 @@ jobs:
             fi
             echo "RPM Arch: $ARCH"
             echo "rpm_arch=$ARCH" >> $GITHUB_OUTPUT
-
-            OS=$(echo $DISTRO-$RELEASE | cut -d '-' -f 2-)
-            echo "RPM OS: $OS"
-            echo "rpm_os=$OS" >> $GITHUB_OUTPUT
+            echo "RPM OS: el$RELEASE"
+            echo "rpm_os=el$RELEASE" >> $GITHUB_OUTPUT
           fi
 
       - name: Install & Configure Supported PostgreSQL Version on Debian

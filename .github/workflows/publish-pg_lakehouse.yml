@@ -284,6 +284,9 @@ jobs:
           fi
           sudo dnf clean all
 
+          # We first disable the existing Postgres module to avoid conflicts with the PostgreSQL version we want to install
+          sudo dnf -qy module disable postgresql
+
           sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
           sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/
           echo "/usr/pgsql-${{ matrix.pg_version }}/bin" >> $GITHUB_PATH

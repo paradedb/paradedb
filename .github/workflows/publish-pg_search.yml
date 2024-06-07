@@ -213,17 +213,23 @@ jobs:
           if [ "${{ matrix.arch }}" == "amd64" ]; then
             sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
           else
-            if [ ! -f /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG ]; then
-              sudo curl -o /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG          
-            fi
+            sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG-AARCH64-RHEL9
 
-            # Convert the GPG key to ASCII armored format if needed and import it
-            if gpg --list-keys --with-colons | grep "PGDG RPM Signing Key"; then
-              gpg --export --armor "PGDG RPM Signing Key" > /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG-ASCII
-              sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG-ASCII
-            else
-              sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG
-            fi
+            # RPM-GPG-KEY-PGDG-AARCH64-RHEL7                     04-Jan-2024 14:24                1768
+            # RPM-GPG-KEY-PGDG-AARCH64-RHEL8                     04-Jan-2024 14:24                3183
+            # RPM-GPG-KEY-PGDG-AARCH64-RHEL9 
+
+            # if [ ! -f /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG ]; then
+            #   sudo curl -o /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG https://download.postgresql.org/pub/repos/yum/RPM-GPG-KEY-PGDG          
+            # fi
+
+            # # Convert the GPG key to ASCII armored format if needed and import it
+            # if gpg --list-keys --with-colons | grep "PGDG RPM Signing Key"; then
+            #   gpg --export --armor "PGDG RPM Signing Key" > /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG-ASCII
+            #   sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG-ASCII
+            # else
+            #   sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-PGDG
+            # fi
           fi
           sudo dnf clean all
 

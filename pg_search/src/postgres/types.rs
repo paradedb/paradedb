@@ -17,6 +17,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use thiserror::Error;
+use pgrx::IntoDatum;
 
 #[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
 pub struct TantivyValue(pub tantivy::schema::OwnedValue);
@@ -24,6 +25,32 @@ pub struct TantivyValue(pub tantivy::schema::OwnedValue);
 impl TantivyValue {
     pub fn tantivy_schema_value(&self) -> tantivy::schema::OwnedValue {
         self.0.clone()
+    }
+
+    pub unsafe fn try_into_datum(self, oid: PgOid) -> Result<Datum, TantivyValueError> {
+        Ok(match &oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                PgBuiltInOids::BOOLOID => bool::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::INT2OID => i16::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::INT4OID => i32::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::INT8OID => i64::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::OIDOID => u32::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::FLOAT4OID => f32::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::FLOAT8OID => f64::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::NUMERICOID => pgrx::AnyNumeric::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => String::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::JSONOID => pgrx::JsonString::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::JSONBOID => pgrx::JsonB::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::DATEOID => pgrx::datum::Date::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::TIMESTAMPOID => pgrx::datum::Timestamp::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::TIMESTAMPTZOID => pgrx::datum::TimestampWithTimeZone::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::TIMEOID => pgrx::datum::Time::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::TIMETZOID => pgrx::datum::TimeWithTimeZone::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::UUIDOID => pgrx::datum::Uuid::try_from(self).unwrap().into_datum().unwrap(),
+                _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
+            },
+            _ => return Err(TantivyValueError::InvalidOid),
+        })
     }
 
     pub unsafe fn try_from_datum_array(

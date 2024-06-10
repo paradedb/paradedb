@@ -181,14 +181,12 @@ fn create_bm25(
         &format!("RETURN QUERY SELECT * FROM paradedb.schema_bm25({})", spi::quote_literal(index_name))
     ))?;
 
-    let key_oid = match Spi::get_one::<pg_sys::Oid>(
-        &format!("SELECT pg_type.oid FROM pg_type INNER JOIN information_schema.columns ic ON ic.data_type = pg_type.typname WHERE ic.table_name = {} AND ic.column_name = {}", table_name, key_field)
+    let key_type = match Spi::get_one::<String>(
+        &format!("SELECT ic.data_type INTO key_type FROM information_schema.columns ic WHERE ic.table_schema = create_bm25.schema_name AND ic.table_name = {} AND ic.column_name = {}", table_name, key_field)
     )? {
-        Some(key_oid) => key_oid,
-        None => bail!("could not select key field type oid"),
+        Some(key_type) => key_type,
+        None => bail!("could not select key field type"),
     };
-
-    let key_type: &str = "integer";
 
     Spi::run(&format_hybrid_function(
         &spi::quote_qualified_identifier(index_name, "rank_hybrid"),
@@ -211,7 +209,7 @@ fn create_bm25(
                 ),
                 bm25 AS (
                     SELECT 
-                        paradedb.get_pg_from_tantivy(id, {}) as key_field,
+                        id as key_field,
                         rank_bm25 as score 
                     FROM paradedb.minmax_bm25($1)
                 )
@@ -223,8 +221,7 @@ fn create_bm25(
                 ORDER BY score_hybrid DESC;
             ",
             spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name),
-            key_oid
+            spi::quote_identifier(table_name)
         ),
         &index_json
     ))?;

@@ -20,6 +20,8 @@ use thiserror::Error;
 
 static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
+// TODO: create a conversion trait
+
 fn datetime_components_to_tantivy_date(
     ymd: Option<(i32, u8, u8)>,
     hms_micro: (u8, u8, u8, u32),

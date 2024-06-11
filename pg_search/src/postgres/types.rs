@@ -173,6 +173,10 @@ impl TantivyValue {
             _ => Err(TantivyValueError::InvalidOid),
         }
     }
+
+    pub unsafe fn try_from_anyelement(any_element: pgrx::AnyElement) -> Result<Self, TantivyValueError> {
+        Self::try_from_datum(any_element.datum(), PgOid::from_untagged(any_element.oid()))
+    }
 }
 
 impl fmt::Display for TantivyValue {

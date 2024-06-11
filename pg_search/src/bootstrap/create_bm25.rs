@@ -115,8 +115,6 @@ fn create_bm25(
         .collect::<Vec<String>>()
         .join(", ");
 
-    info!("Creating bm25 index for columns: {}", column_names_csv);
-
     Spi::run(&format!(
         "CREATE INDEX {} ON {}.{} USING bm25 ({}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",
         spi::quote_identifier(format!("{}_bm25_index", index_name)),

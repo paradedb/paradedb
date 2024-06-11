@@ -46,7 +46,7 @@ fn create_bm25(
         "SELECT EXISTS (SELECT i.schema_name FROM information_schema.schemata i WHERE i.schema_name = {})",
         spi::quote_literal(index_name)
     ))?.unwrap_or(false) {
-        bail!("relation '{}' already exists", spi::quote_literal(index_name));
+        bail!("Index name cannot be the same as a schema that already exists. Please choose a different index name or drop the {} schema.", index_name);
     }
 
     if table_name.is_empty() {
@@ -97,8 +97,8 @@ fn create_bm25(
         datetime_fields,
     ] {
         match json5::from_str::<Value>(fields) {
-            Ok(json_fields) => {
-                if let Value::Object(map) = json_fields {
+            Ok(obj) => {
+                if let Value::Object(map) = obj {
                     for key in map.keys() {
                         column_names.insert(key.clone());
                     }
@@ -114,6 +114,8 @@ fn create_bm25(
         .into_iter()
         .collect::<Vec<String>>()
         .join(", ");
+
+    info!("Creating bm25 index for columns: {}", column_names_csv);
 
     Spi::run(&format!(
         "CREATE INDEX {} ON {}.{} USING bm25 ({}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",

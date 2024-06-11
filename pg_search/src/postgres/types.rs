@@ -174,7 +174,9 @@ impl TantivyValue {
         }
     }
 
-    pub unsafe fn try_from_anyelement(any_element: pgrx::AnyElement) -> Result<Self, TantivyValueError> {
+    pub unsafe fn try_from_anyelement(
+        any_element: pgrx::AnyElement,
+    ) -> Result<Self, TantivyValueError> {
         Self::try_from_datum(any_element.datum(), PgOid::from_untagged(any_element.oid()))
     }
 }

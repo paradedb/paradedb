@@ -28,9 +28,7 @@ const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
 #[pg_extern(name = "rank_bm25")]
 pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
-    let key = unsafe {
-        TantivyValue::try_from_anyelement(key).unwrap()
-    };
+    let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
 
     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
         .expect("could not lookup doc address for search query")
@@ -45,9 +43,7 @@ pub fn highlight(
     max_num_chars: default!(Option<i32>, "NULL"),
     alias: default!(Option<String>, "NULL"),
 ) -> String {
-    let key = unsafe {
-        TantivyValue::try_from_anyelement(key).unwrap()
-    };
+    let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
 
     let mut snippet = SearchStateManager::get_snippet(
         key,

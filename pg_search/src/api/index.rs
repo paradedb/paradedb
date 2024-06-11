@@ -464,20 +464,78 @@ pub fn regex(field: String, pattern: String) -> SearchQueryInput {
     SearchQueryInput::Regex { field, pattern }
 }
 
-#[pg_extern]
-pub fn term(field: default!(Option<String>, "NULL"),
-            value: default!(Option<AnyElement>, "NULL")) -> SearchQueryInput {
-    if let Some(value) = value {
-        SearchQueryInput::Term {
-            field,
-            value: unsafe { TantivyValue::try_from_anyelement(value) }
-                .unwrap()
-                .tantivy_schema_value(),
+macro_rules! term_fn {
+    ($func_name:ident, $value_type:ty) => {
+        #[pg_extern(name = "term", immutable, parallel_safe)]
+        pub fn $func_name(
+            field: default!(Option<String>, "NULL"),
+            value: default!(Option<$value_type>, "NULL"),
+        ) -> SearchQueryInput {
+            if let Some(value) = value {
+                SearchQueryInput::Term {
+                    field,
+                    value: TantivyValue::try_from(value)
+                        .unwrap()
+                        .tantivy_schema_value(),
+                }
+            } else {
+                panic!("no value provided to term query")
+            }
         }
-    } else {
-        panic!("no value provided to term query")
-    }
+    };
 }
+
+macro_rules! term_fn_unsupported {
+    ($func_name:ident, $value_type:ty, $term_type:literal) => {
+        #[pg_extern(name = "term", immutable, parallel_safe)]
+        #[allow(unused)]
+        pub fn $func_name(
+            field: default!(Option<String>, "NULL"),
+            value: default!(Option<$value_type>, "NULL"),
+        ) -> SearchQueryInput {
+            unimplemented!("{} in term query not implemented", $term_type)
+        }
+    };
+}
+
+// Generate functions for each type
+// NOTE: We cannot use AnyElement for `term` because it sullies the user experience.
+//       For example, searching for a string value is an ambiguous type, so the user
+//       would have to search for 'string'::text or 'string'::varchar in the `value`
+//       argument.
+term_fn!(term_bytes, Vec<u8>);
+term_fn!(term_str, String);
+term_fn!(term_i8, i8);
+term_fn!(term_i16, i16);
+term_fn!(term_i32, i32);
+term_fn!(term_i64, i64);
+term_fn!(term_f32, f32);
+term_fn!(term_f64, f64);
+term_fn!(term_bool, bool);
+term_fn!(date, pgrx::Date);
+term_fn!(time, pgrx::Time);
+term_fn!(timestamp, pgrx::Timestamp);
+term_fn!(time_with_time_zone, pgrx::TimeWithTimeZone);
+term_fn!(timestamp_with_time_zome, pgrx::TimestampWithTimeZone);
+term_fn!(numeric, pgrx::AnyNumeric);
+term_fn!(uuid, pgrx::Uuid);
+term_fn_unsupported!(json, pgrx::Json, "json");
+term_fn_unsupported!(jsonb, pgrx::JsonB, "jsonb");
+term_fn_unsupported!(anyarray, pgrx::AnyArray, "array");
+term_fn_unsupported!(pg_box, pgrx::pg_sys::BOX, "box");
+term_fn_unsupported!(point, pgrx::pg_sys::Point, "point");
+term_fn_unsupported!(tid, pgrx::pg_sys::ItemPointerData, "tid");
+term_fn_unsupported!(inet, pgrx::Inet, "inet");
+term_fn_unsupported!(int4range, pgrx::Range<i32>, "int4 range");
+term_fn_unsupported!(int8range, pgrx::Range<i64>, "int8 range");
+term_fn_unsupported!(numrange, pgrx::Range<pgrx::AnyNumeric>, "numeric range");
+term_fn_unsupported!(daterange, pgrx::Range<pgrx::Date>, "date range");
+term_fn_unsupported!(tsrange, pgrx::Range<pgrx::Timestamp>, "timestamp range");
+term_fn_unsupported!(
+    tstzrange,
+    pgrx::Range<pgrx::TimestampWithTimeZone>,
+    "timestamp ranges with time zone"
+);
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(

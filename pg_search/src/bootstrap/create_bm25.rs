@@ -181,6 +181,7 @@ fn create_bm25(
         &format!("RETURN QUERY SELECT * FROM paradedb.schema_bm25({})", spi::quote_literal(index_name))
     ))?;
 
+    // Get the type and type oid of the key column
     let (key_oid, key_type) = match Spi::get_two::<pg_sys::Oid, String>(
         &format!(
             "SELECT a.atttypid AS type_oid, t.typname AS type_name

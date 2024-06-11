@@ -21,61 +21,34 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
-use paste::paste;
 use pgrx::{prelude::TableIterator, *};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
-// Use this macro to define repetitions of functions that take a key argument in order to
-//     support every key type.
-macro_rules! key_arg_repeat_fn {
-    ($macro_fn_name:ident, $output_prefix:ident) => {
-        paste! {
-            $macro_fn_name!([<$output_prefix _bool>], bool);
-            $macro_fn_name!([<$output_prefix _i8>], i8);
-            $macro_fn_name!([<$output_prefix _i16>], i16);
-            $macro_fn_name!([<$output_prefix _i32>], i32);
-            $macro_fn_name!([<$output_prefix _i64>], i64);
-            $macro_fn_name!([<$output_prefix _f32>], f32);
-            $macro_fn_name!([<$output_prefix _f64>], f64);
-            $macro_fn_name!([<$output_prefix _numeric>], pgrx::AnyNumeric);
-            $macro_fn_name!([<$output_prefix _string>], String);
-            $macro_fn_name!([<$output_prefix _uuid>], pgrx::Uuid);
-            $macro_fn_name!([<$output_prefix _date>], pgrx::Date);
-            $macro_fn_name!([<$output_prefix _time>], pgrx::Time);
-            $macro_fn_name!([<$output_prefix _timestamp>], pgrx::Timestamp);
-            $macro_fn_name!([<$output_prefix _timetz>], pgrx::TimeWithTimeZone);
-            $macro_fn_name!([<$output_prefix _timestamptz>], pgrx::TimestampWithTimeZone);
-        }
+#[pg_extern(name = "rank_bm25")]
+pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
+    let key = unsafe {
+        TantivyValue::try_from_datum(key.datum(), PgOid::from_untagged(key.oid())).unwrap()
     };
-}
 
-// rank_bm25
-pub fn rank_bm25_impl(key: TantivyValue, alias: default!(Option<String>, "NULL")) -> f32 {
     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
         .expect("could not lookup doc address for search query")
 }
 
-macro_rules! rank_bm25_fn {
-    ($func_name:ident, $key_type:ty) => {
-        #[pg_extern(name = "rank_bm25")]
-        pub fn $func_name(key: $key_type, alias: default!(Option<String>, "NULL")) -> f32 {
-            rank_bm25_impl(TantivyValue::try_from(key).unwrap(), alias)
-        }
-    };
-}
-key_arg_repeat_fn!(rank_bm25_fn, rank);
-
-// highlight
-pub fn highlight_impl(
-    key: TantivyValue,
+#[pg_extern]
+pub fn highlight(
+    key: AnyElement,
     field: &str,
     prefix: default!(Option<String>, "NULL"),
     postfix: default!(Option<String>, "NULL"),
     max_num_chars: default!(Option<i32>, "NULL"),
     alias: default!(Option<String>, "NULL"),
 ) -> String {
+    let key = unsafe {
+        TantivyValue::try_from_datum(key.datum(), PgOid::from_untagged(key.oid())).unwrap()
+    };
+
     let mut snippet = SearchStateManager::get_snippet(
         key,
         field,
@@ -97,30 +70,6 @@ pub fn highlight_impl(
 
     snippet.to_html()
 }
-
-macro_rules! highlight_fn {
-    ($func_name:ident, $key_type:ty) => {
-        #[pg_extern(name = "highlight")]
-        pub fn $func_name(
-            key: $key_type,
-            field: &str,
-            prefix: default!(Option<String>, "NULL"),
-            postfix: default!(Option<String>, "NULL"),
-            max_num_chars: default!(Option<i32>, "NULL"),
-            alias: default!(Option<String>, "NULL"),
-        ) -> String {
-            highlight_impl(
-                TantivyValue::try_from(key).unwrap(),
-                field,
-                prefix,
-                postfix,
-                max_num_chars,
-                alias,
-            )
-        }
-    };
-}
-key_arg_repeat_fn!(highlight_fn, highlight);
 
 #[pg_extern]
 pub fn minmax_bm25(

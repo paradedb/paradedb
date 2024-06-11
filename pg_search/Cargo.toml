@@ -52,7 +52,6 @@ num_cpus = "1.16.0"
 zstd-sys = "=2.0.9"
 chrono = "0.4.38"
 ordered-float = "4.2.0"
-paste = "1.0.15"
 
 [dev-dependencies]
 approx = "0.5.1"

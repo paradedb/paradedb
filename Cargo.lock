@@ -5507,7 +5507,6 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "ordered-float 4.2.0",
- "paste",
  "pgrx",
  "pgrx-tests",
  "pgvector",

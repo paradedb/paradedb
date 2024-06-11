@@ -147,11 +147,7 @@ fn create_bm25(
 
     Spi::run(&format_bm25_function(
         &spi::quote_qualified_identifier(index_name, "explain"),
-        &format!(
-            "SETOF {}.{}",
-            spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name)
-        ),
+        "TABLE(plan text)",
         &format!(
             "RETURN QUERY EXPLAIN SELECT * FROM {}.{} WHERE {} @@@ __paradedb_search_config__",
             spi::quote_identifier(schema_name),

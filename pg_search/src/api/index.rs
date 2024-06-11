@@ -18,9 +18,6 @@
 use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
-use crate::postgres::datetime::{
-    pgrx_date_to_tantivy_value, pgrx_timestamp_to_tantivy_value, pgrx_timestamptz_to_tantivy_value,
-};
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;
@@ -356,108 +353,69 @@ pub fn range_numeric(field: String, range: Range<pgrx::AnyNumeric>) -> SearchQue
     }
 }
 
-#[pg_extern(name = "range", immutable, parallel_safe)]
-pub fn range_date(field: String, range: Range<pgrx::Date>) -> SearchQueryInput {
-    match range.into_inner() {
-        None => SearchQueryInput::Range {
-            field,
-            lower_bound: Bound::Included(OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-            upper_bound: Bound::Excluded(OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-        },
-        Some((lower, upper)) => SearchQueryInput::Range {
-            field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_value(n).unwrap()),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_value(n).unwrap()),
-            },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_value(n).unwrap()),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_value(n).unwrap()),
-            },
-        },
-    }
+macro_rules! datetime_range_fn {
+    ($func_name:ident, $value_type:ty) => {
+        #[pg_extern(name = "range", immutable, parallel_safe)]
+        pub fn $func_name(field: String, range: Range<$value_type>) -> SearchQueryInput {
+            match range.into_inner() {
+                None => SearchQueryInput::Range {
+                    field,
+                    lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
+                        tantivy::DateTime::from_timestamp_micros(0),
+                    )),
+                    upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
+                        tantivy::DateTime::from_timestamp_micros(0),
+                    )),
+                },
+                Some((lower, upper)) => SearchQueryInput::Range {
+                    field,
+                    lower_bound: match lower {
+                        RangeBound::Infinite => Bound::Unbounded,
+                        RangeBound::Inclusive(n) => Bound::Included(
+                            TantivyValue::try_from(n)
+                                .unwrap()
+                                .tantivy_schema_value()
+                                .as_date()
+                                .unwrap()
+                                .into(),
+                        ),
+                        RangeBound::Exclusive(n) => Bound::Excluded(
+                            TantivyValue::try_from(n)
+                                .unwrap()
+                                .tantivy_schema_value()
+                                .as_date()
+                                .unwrap()
+                                .into(),
+                        ),
+                    },
+                    upper_bound: match upper {
+                        RangeBound::Infinite => Bound::Unbounded,
+                        RangeBound::Inclusive(n) => Bound::Included(
+                            TantivyValue::try_from(n)
+                                .unwrap()
+                                .tantivy_schema_value()
+                                .as_date()
+                                .unwrap()
+                                .into(),
+                        ),
+                        RangeBound::Exclusive(n) => Bound::Excluded(
+                            TantivyValue::try_from(n)
+                                .unwrap()
+                                .tantivy_schema_value()
+                                .as_date()
+                                .unwrap()
+                                .into(),
+                        ),
+                    },
+                },
+            }
+        }
+    };
 }
 
-#[pg_extern(name = "range", immutable, parallel_safe)]
-pub fn range_timestamp(field: String, range: Range<pgrx::Timestamp>) -> SearchQueryInput {
-    match range.into_inner() {
-        None => SearchQueryInput::Range {
-            field,
-            lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-            upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-        },
-        Some((lower, upper)) => SearchQueryInput::Range {
-            field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => {
-                    Bound::Included(pgrx_timestamp_to_tantivy_value(n).unwrap())
-                }
-                RangeBound::Exclusive(n) => {
-                    Bound::Excluded(pgrx_timestamp_to_tantivy_value(n).unwrap())
-                }
-            },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => {
-                    Bound::Included(pgrx_timestamp_to_tantivy_value(n).unwrap())
-                }
-                RangeBound::Exclusive(n) => {
-                    Bound::Excluded(pgrx_timestamp_to_tantivy_value(n).unwrap())
-                }
-            },
-        },
-    }
-}
-
-#[pg_extern(name = "range", immutable, parallel_safe)]
-pub fn range_timestamptz(
-    field: String,
-    range: Range<pgrx::TimestampWithTimeZone>,
-) -> SearchQueryInput {
-    match range.into_inner() {
-        None => SearchQueryInput::Range {
-            field,
-            lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-            upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-        },
-        Some((lower, upper)) => SearchQueryInput::Range {
-            field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => {
-                    Bound::Included(pgrx_timestamptz_to_tantivy_value(n).unwrap())
-                }
-                RangeBound::Exclusive(n) => {
-                    Bound::Excluded(pgrx_timestamptz_to_tantivy_value(n).unwrap())
-                }
-            },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => {
-                    Bound::Included(pgrx_timestamptz_to_tantivy_value(n).unwrap())
-                }
-                RangeBound::Exclusive(n) => {
-                    Bound::Excluded(pgrx_timestamptz_to_tantivy_value(n).unwrap())
-                }
-            },
-        },
-    }
-}
+datetime_range_fn!(range_date, pgrx::Date);
+datetime_range_fn!(range_timestamp, pgrx::Timestamp);
+datetime_range_fn!(range_timestamptz, pgrx::TimestampWithTimeZone);
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn regex(field: String, pattern: String) -> SearchQueryInput {

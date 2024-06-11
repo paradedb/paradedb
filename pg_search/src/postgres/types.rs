@@ -1,10 +1,6 @@
-use crate::postgres::datetime::{
-    pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value, pgrx_timestamp_to_tantivy_value,
-    pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value, tantivy_value_to_pgrx_date,
-    tantivy_value_to_pgrx_time, tantivy_value_to_pgrx_timestamp, tantivy_value_to_pgrx_timestamptz,
-    tantivy_value_to_pgrx_timetz, DatetimeConversionError,
-};
+use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use ordered_float::OrderedFloat;
+use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
 use pgrx::pg_sys::Oid;
 use pgrx::IntoDatum;
@@ -604,7 +600,10 @@ impl TryFrom<pgrx::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Date) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(pgrx_date_to_tantivy_value(val)?))
+        Ok(TantivyValue(datetime_components_to_tantivy_date(
+            Some((val.year(), val.month(), val.day())),
+            (0, 0, 0, 0),
+        )?))
     }
 }
 
@@ -613,7 +612,12 @@ impl TryFrom<TantivyValue> for pgrx::Date {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
-            Ok(tantivy_value_to_pgrx_date(val)?)
+            let prim_dt = val.into_primitive();
+            Ok(pgrx::Date::new(
+                prim_dt.year(),
+                prim_dt.month().into(),
+                prim_dt.day(),
+            )?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "date".to_string(),
@@ -626,7 +630,11 @@ impl TryFrom<pgrx::Time> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Time) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(pgrx_time_to_tantivy_value(val)?))
+        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
+        Ok(TantivyValue(datetime_components_to_tantivy_date(
+            None,
+            (v_h, v_m, v_s, v_ms),
+        )?))
     }
 }
 
@@ -635,7 +643,13 @@ impl TryFrom<TantivyValue> for pgrx::Time {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
-            Ok(tantivy_value_to_pgrx_time(val)?)
+            let prim_dt = val.into_primitive();
+            let (h, m, s, micro) = prim_dt.as_hms_micro();
+            Ok(pgrx::Time::new(
+                h,
+                m,
+                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+            )?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "time".to_string(),
@@ -648,7 +662,11 @@ impl TryFrom<pgrx::Timestamp> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Timestamp) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(pgrx_timestamp_to_tantivy_value(val)?))
+        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
+        Ok(TantivyValue(datetime_components_to_tantivy_date(
+            Some((val.year(), val.month(), val.day())),
+            (v_h, v_m, v_s, v_ms),
+        )?))
     }
 }
 
@@ -657,7 +675,16 @@ impl TryFrom<TantivyValue> for pgrx::Timestamp {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
-            Ok(tantivy_value_to_pgrx_timestamp(val)?)
+            let prim_dt = val.into_primitive();
+            let (h, m, s, micro) = prim_dt.as_hms_micro();
+            Ok(pgrx::Timestamp::new(
+                prim_dt.year(),
+                prim_dt.month().into(),
+                prim_dt.day(),
+                h,
+                m,
+                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+            )?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "timestamp".to_string(),
@@ -670,7 +697,11 @@ impl TryFrom<pgrx::TimeWithTimeZone> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::TimeWithTimeZone) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(pgrx_timetz_to_tantivy_value(val)?))
+        let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
+        Ok(TantivyValue(datetime_components_to_tantivy_date(
+            None,
+            (v_h, v_m, v_s, v_ms),
+        )?))
     }
 }
 
@@ -679,7 +710,14 @@ impl TryFrom<TantivyValue> for pgrx::TimeWithTimeZone {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
-            Ok(tantivy_value_to_pgrx_timetz(val)?)
+            let prim_dt = val.into_primitive();
+            let (h, m, s, micro) = prim_dt.as_hms_micro();
+            Ok(pgrx::TimeWithTimeZone::with_timezone(
+                h,
+                m,
+                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                "UTC",
+            )?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "timetz".to_string(),
@@ -692,7 +730,11 @@ impl TryFrom<pgrx::TimestampWithTimeZone> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::TimestampWithTimeZone) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(pgrx_timestamptz_to_tantivy_value(val)?))
+        let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
+        Ok(TantivyValue(datetime_components_to_tantivy_date(
+            Some((val.year(), val.month(), val.day())),
+            (v_h, v_m, v_s, v_ms),
+        )?))
     }
 }
 
@@ -701,7 +743,17 @@ impl TryFrom<TantivyValue> for pgrx::TimestampWithTimeZone {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
-            Ok(tantivy_value_to_pgrx_timestamptz(val)?)
+            let prim_dt = val.into_primitive();
+            let (h, m, s, micro) = prim_dt.as_hms_micro();
+            Ok(pgrx::TimestampWithTimeZone::with_timezone(
+                prim_dt.year(),
+                prim_dt.month().into(),
+                prim_dt.day(),
+                h,
+                m,
+                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                "UTC",
+            )?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "timestamptz".to_string(),
@@ -849,7 +901,7 @@ pub enum TantivyValueError {
     PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
 
     #[error(transparent)]
-    DatetimeConversionError(#[from] DatetimeConversionError),
+    DateTimeConversionError(#[from] DateTimeConversionError),
 
     #[error("Failed UUID conversion: {0}")]
     UuidConversionError(String),

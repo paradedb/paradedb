@@ -125,7 +125,8 @@ key_arg_repeat_fn!(highlight_fn, highlight);
 #[pg_extern]
 pub fn minmax_bm25(
     config_json: JsonB,
-    key_type_dummy: AnyElement // this dummy is needed to allow a polymorphic return type of AnyElement
+    _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
+    key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
 ) -> TableIterator<'static, (name!(id, AnyElement), name!(rank_bm25, f32))> {
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
@@ -149,12 +150,20 @@ pub fn minmax_bm25(
         });
     let score_range = max_score - min_score;
 
-    let key_oid = PgOid::from_untagged(key_type_dummy.oid());
-
     // Now that we have min and max, iterate over the collected results
     let mut field_rows = Vec::new();
     for (score, doc_address) in top_docs {
-        let key = unsafe { datum::AnyElement::from_polymorphic_datum(scan_state.key_value(doc_address).try_into_datum(key_oid).unwrap(), false, key_oid.value()).unwrap() };
+        let key = unsafe {
+            datum::AnyElement::from_polymorphic_datum(
+                scan_state
+                    .key_value(doc_address)
+                    .try_into_datum(PgOid::from_untagged(key_oid))
+                    .unwrap(),
+                false,
+                key_oid,
+            )
+            .unwrap()
+        };
         let normalized_score = if score_range == 0.0 {
             1.0 // Avoid division by zero
         } else {

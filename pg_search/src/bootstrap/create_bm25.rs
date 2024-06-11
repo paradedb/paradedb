@@ -181,11 +181,21 @@ fn create_bm25(
         &format!("RETURN QUERY SELECT * FROM paradedb.schema_bm25({})", spi::quote_literal(index_name))
     ))?;
 
-    let key_type = match Spi::get_one::<String>(
-        &format!("SELECT ic.data_type INTO key_type FROM information_schema.columns ic WHERE ic.table_schema = create_bm25.schema_name AND ic.table_name = {} AND ic.column_name = {}", table_name, key_field)
+    let (key_oid, key_type) = match Spi::get_two::<pg_sys::Oid, String>(
+        &format!(
+            "SELECT a.atttypid AS type_oid, t.typname AS type_name
+            FROM pg_attribute a
+            JOIN pg_type t ON a.atttypid = t.oid
+            JOIN pg_class c ON a.attrelid = c.oid
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE c.relname = {} AND a.attname = {} AND n.nspname = {}",
+            spi::quote_identifier(table_name),
+            spi::quote_identifier(key_field),
+            spi::quote_identifier(schema_name)
+        )
     )? {
-        Some(key_type) => key_type,
-        None => bail!("could not select key field type"),
+        (Some(key_oid), Some(key_type)) => (key_oid, key_type),
+        _ => bail!("could not select key field type and type oid"),
     };
 
     Spi::run(&format_hybrid_function(
@@ -211,7 +221,7 @@ fn create_bm25(
                     SELECT 
                         id as key_field,
                         rank_bm25 as score 
-                    FROM paradedb.minmax_bm25($1)
+                    FROM paradedb.minmax_bm25($1, NULL::{}, {})
                 )
                 SELECT
                     COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,
@@ -221,7 +231,9 @@ fn create_bm25(
                 ORDER BY score_hybrid DESC;
             ",
             spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name)
+            spi::quote_identifier(table_name),
+            key_type,
+            key_oid
         ),
         &index_json
     ))?;

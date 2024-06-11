@@ -99,7 +99,7 @@ pub fn tantivy_value_to_pgrx_date(
 ) -> Result<pgrx::Date, DatetimeConversionError> {
     let prim_dt = value.into_primitive();
     pgrx::Date::new(prim_dt.year(), prim_dt.month().into(), prim_dt.day())
-    .map_err(|_| DatetimeConversionError::FailedTantivyToPostgres)
+        .map_err(|_| DatetimeConversionError::FailedTantivyToPostgres)
 }
 
 pub fn pgrx_timestamp_to_tantivy_value(

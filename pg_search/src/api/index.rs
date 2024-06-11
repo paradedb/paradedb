@@ -258,7 +258,9 @@ pub fn more_like_this(
     });
 
     if !(with_document_id.is_none() ^ (fields.len() == 0)) {
-        panic!("more_like_this must be called with either with_docuemnt_id or with_document_fields");
+        panic!(
+            "more_like_this must be called with either with_docuemnt_id or with_document_fields"
+        );
     }
 
     SearchQueryInput::MoreLikeThis {

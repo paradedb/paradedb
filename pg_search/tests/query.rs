@@ -359,9 +359,9 @@ fn more_like_this_raw(mut conn: PgConnection) {
     "#
     .fetch_result::<()>(&mut conn)
     {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("more_like_this must be called with either with_docuemnt_id or with_document_fields")),
+        Err(err) => assert!(err.to_string().contains(
+            "more_like_this must be called with either with_docuemnt_id or with_document_fields"
+        )),
         _ => panic!("with_docuemnt_id or with_document_fields validation failed"),
     }
 
@@ -379,4 +379,18 @@ fn more_like_this_raw(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this_raw(
+            min_doc_frequency => 0,
+            min_term_frequency => 0,
+            with_document_id => 0
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    // TODO once the segment ord is set, assert_eq!(rows.len(), 2);
+    assert!(rows.len() > 0);
 }

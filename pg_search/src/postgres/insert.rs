@@ -1,7 +1,5 @@
 use super::utils::get_search_index;
-use crate::{
-    env::register_commit_callback, globals::WriterGlobal, postgres::utils::lookup_index_tupdesc,
-};
+use crate::{env::register_commit_callback, globals::WriterGlobal};
 use pgrx::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -41,7 +39,7 @@ unsafe fn aminsert_internal(
     ctid: pg_sys::ItemPointer,
 ) -> bool {
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
-    let tupdesc = lookup_index_tupdesc(&index_relation_ref);
+    let tupdesc = index_relation_ref.tuple_desc();
     let index_name = index_relation_ref.name();
     let search_index = get_search_index(index_name);
     let search_document = search_index

@@ -30,7 +30,7 @@ use tantivy::{
     },
     query_grammar::Occur,
     schema::{Field, FieldType, IndexRecordOption, OwnedValue},
-    Term,
+    DocAddress, Term,
 };
 use thiserror::Error;
 
@@ -307,8 +307,6 @@ impl SearchQueryInput {
                 fields,
                 with_document_id,
             } => {
-                with_document_id;
-
                 let mut builder = MoreLikeThisQuery::builder();
 
                 if let Some(min_doc_frequency) = min_doc_frequency {
@@ -334,6 +332,13 @@ impl SearchQueryInput {
                 }
                 if let Some(stop_words) = stop_words {
                     builder = builder.with_stop_words(stop_words);
+                }
+
+                if let Some(document_id) = with_document_id {
+                    return Ok(Box::new(
+                        // TODO: We need to get the segment ord from somewhere
+                        builder.with_document(DocAddress::new(0, document_id as u32)),
+                    ));
                 }
 
                 let mut fields_map = HashMap::new();

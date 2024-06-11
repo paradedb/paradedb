@@ -30,7 +30,6 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     index_name text DEFAULT '',
     table_name text DEFAULT '',
     key_field text DEFAULT '',
-    key_oid oid DEFAULT 0,
     schema_name text DEFAULT CURRENT_SCHEMA,
     text_fields text DEFAULT '{}',
     numeric_fields text DEFAULT '{}',
@@ -184,15 +183,15 @@ fn create_bm25(
     // Get the type and type oid of the key column
     let (key_oid, key_type) = match Spi::get_two::<pg_sys::Oid, String>(
         &format!(
-            "SELECT a.atttypid AS type_oid, t.typname AS type_name
+            "SELECT a.atttypid AS type_oid, CAST(t.typname AS TEXT) AS type_name
             FROM pg_attribute a
             JOIN pg_type t ON a.atttypid = t.oid
             JOIN pg_class c ON a.attrelid = c.oid
             JOIN pg_namespace n ON c.relnamespace = n.oid
             WHERE c.relname = {} AND a.attname = {} AND n.nspname = {}",
-            spi::quote_identifier(table_name),
-            spi::quote_identifier(key_field),
-            spi::quote_identifier(schema_name)
+            spi::quote_literal(table_name),
+            spi::quote_literal(key_field),
+            spi::quote_literal(schema_name)
         )
     )? {
         (Some(key_oid), Some(key_type)) => (key_oid, key_type),

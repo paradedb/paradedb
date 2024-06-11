@@ -181,19 +181,17 @@ fn create_bm25(
     ))?;
 
     // Get the type and type oid of the key column
-    let (key_oid, key_type) = match Spi::get_two::<pg_sys::Oid, String>(
-        &format!(
-            "SELECT a.atttypid AS type_oid, CAST(t.typname AS TEXT) AS type_name
+    let (key_oid, key_type) = match Spi::get_two::<pg_sys::Oid, String>(&format!(
+        "SELECT a.atttypid AS type_oid, CAST(t.typname AS TEXT) AS type_name
             FROM pg_attribute a
             JOIN pg_type t ON a.atttypid = t.oid
             JOIN pg_class c ON a.attrelid = c.oid
             JOIN pg_namespace n ON c.relnamespace = n.oid
             WHERE c.relname = {} AND a.attname = {} AND n.nspname = {}",
-            spi::quote_literal(table_name),
-            spi::quote_literal(key_field),
-            spi::quote_literal(schema_name)
-        )
-    )? {
+        spi::quote_literal(table_name),
+        spi::quote_literal(key_field),
+        spi::quote_literal(schema_name)
+    ))? {
         (Some(key_oid), Some(key_type)) => (key_oid, key_type),
         _ => bail!("could not select key field type and type oid"),
     };
@@ -233,7 +231,7 @@ fn create_bm25(
             spi::quote_identifier(schema_name),
             spi::quote_identifier(table_name),
             key_type,
-            key_oid
+            key_oid.as_u32()
         ),
         &index_json
     ))?;

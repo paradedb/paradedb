@@ -900,7 +900,7 @@ pub enum TantivyValueError {
     #[error(transparent)]
     PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
 
-    #[error(transparent)]
+    #[error("Could not generate datetime datum")]
     DateTimeConversionError(#[from] DateTimeConversionError),
 
     #[error("Failed UUID conversion: {0}")]

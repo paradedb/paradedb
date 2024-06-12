@@ -776,7 +776,7 @@ impl TryFrom<TantivyValue> for pgrx::Uuid {
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Str(val) = value.0 {
             Ok(pgrx::Uuid::from_slice(val.as_bytes())
-                .map_err(|err| TantivyValueError::UuidConversionError(err))?)
+                .map_err(TantivyValueError::UuidConversionError)?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "uuid".to_string(),

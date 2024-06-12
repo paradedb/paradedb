@@ -116,10 +116,11 @@ fn create_bm25(
         .join(", ");
 
     Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",
         spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
+        spi::quote_identifier(key_field),
         column_names_csv,
         spi::quote_literal(key_field),
         spi::quote_literal(text_fields),

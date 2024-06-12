@@ -88,7 +88,6 @@ fn create_bm25(
     ))?;
 
     let mut column_names = HashSet::new();
-    column_names.insert(key_field.to_string());
     for fields in [
         text_fields,
         numeric_fields,

@@ -117,7 +117,7 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
 
     let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search
         WHERE paradedb.search_tantivy(
-            paradedb.bm25_search.*,
+            id,
             jsonb_build_object(
                 'index_name', 'bm25_search_bm25_index',
                 'table_name', 'bm25_test_table',

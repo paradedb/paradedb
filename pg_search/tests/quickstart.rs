@@ -151,7 +151,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[3].0, 39);
     assert_eq!(rows[4].0, 9);
     assert_relative_eq!(rows[0].1, 0.95714283, epsilon = 1e-6); // Adjust epsilon as needed
-    assert_relative_eq!(rows[1].1, 0.8487012, epsilon = 1e-6);
+    assert_relative_eq!(rows[1].1, 0.8490507, epsilon = 1e-6);
     assert_relative_eq!(rows[2].1, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[3].1, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[4].1, 0.1, epsilon = 1e-6);
@@ -183,7 +183,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[3].2, Vector::from(vec![1.0, 2.0, 3.0]));
     assert_eq!(rows[4].2, Vector::from(vec![1.0, 2.0, 3.0]));
     assert_relative_eq!(rows[0].3, 0.95714283, epsilon = 1e-6);
-    assert_relative_eq!(rows[1].3, 0.8487012, epsilon = 1e-6);
+    assert_relative_eq!(rows[1].3, 0.8490507, epsilon = 1e-6);
     assert_relative_eq!(rows[2].3, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[3].3, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[4].3, 0.1, epsilon = 1e-6);

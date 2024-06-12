@@ -521,3 +521,58 @@ fn update_time(mut conn: PgConnection) {
     // There should be a negligible difference in time between the two updates
     assert!((elapsed_without_index - elapsed_with_index).abs() < 3);
 }
+
+fn aggregation(mut conn: PgConnection) {
+    // Manually create the table so we can specify fast fields.
+    r#"
+    BEGIN;
+        CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
+    
+        CALL paradedb.create_bm25(
+        	index_name => 'bm25_search',
+            table_name => 'bm25_search',
+        	schema_name => 'paradedb',
+            key_field => 'id',
+            text_fields => '{description: {}}',
+        	numeric_fields => '{rating: {fast: true}}'
+        );
+    COMMIT;
+    "#.execute(&mut conn);
+
+    // Test regular JSON syntax
+    let (result,): (serde_json::Value,) = r#"
+    SELECT bm25_search.aggregate('{
+      "aggregate": {"avg": {"field": "rating"}}
+    }');
+    "#
+    .fetch_one(&mut conn);
+
+    assert_relative_eq!(
+        result["aggregate"]["value"].as_f64().unwrap(),
+        3.8536585365853657,
+        epsilon = 1e-6
+    );
+
+    // Test JSON5 syntax
+    let (result,): (serde_json::Value,) = r#"
+    SELECT bm25_search.aggregate('{aggregate: {avg: {field: "rating"}}}');
+    "#
+    .fetch_one(&mut conn);
+
+    assert_relative_eq!(
+        result["aggregate"]["value"].as_f64().unwrap(),
+        3.8536585365853657,
+        epsilon = 1e-6
+    );
+
+    // Test with query argument
+    let (result,): (serde_json::Value,) = r#"
+    SELECT bm25_search.aggregate(
+        '{aggregate: {avg: {field: "rating"}}}',
+        query => paradedb.parse('description:keyboard')
+    )"#
+    .fetch_one(&mut conn);
+
+    // All the "keyboard" rows have a rating of 4, so the average should be 4.0.
+    assert_eq!(result["aggregate"]["value"].as_f64().unwrap(), 4.0);
+}

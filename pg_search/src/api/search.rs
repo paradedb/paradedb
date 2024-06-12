@@ -124,7 +124,7 @@ pub fn aggregate_internal(
     // Must reload, or new results will not appear in the search.
     search_index.reader.reload()?;
 
-    let tantivy_aggs: Aggregations = serde_json::from_str(&aggs)?;
+    let tantivy_aggs: Aggregations = json5::from_str(&aggs)?;
     let tantivy_query = search_config
         .query
         .into_tantivy_query(&search_index.schema, &mut search_index.query_parser())?;

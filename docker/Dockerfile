@@ -118,6 +118,16 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 
 FROM builder as builder-pgvectorscale
 
+ARG TARGETARCH
+
+# Declare compile-time environment variables
+ENV RUSTFLAGS=""
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        # Required for pgvectorscale to compile on x86_64/amd64
+        export RUSTFLAGS="-C target-feature=+avx2,+fma"; \
+    fi && \
+    echo "RUSTFLAGS=${RUSTFLAGS}"
+
 # Build the extension
 WORKDIR /tmp
 RUN git clone --branch 0.2.0 https://github.com/timescale/pgvectorscale.git

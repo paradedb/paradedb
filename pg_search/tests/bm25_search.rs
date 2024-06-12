@@ -467,3 +467,57 @@ fn alias(mut conn: PgConnection) {
     assert_relative_eq!(rows[2].1, 2.8772602, epsilon = 1e-6);
     assert_relative_eq!(rows[3].1, 3.3322046, epsilon = 1e-6);
 }
+
+#[rstest]
+fn explain(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let plan: Vec<(String,)> =
+        "SELECT * FROM bm25_search.explain('description:keyboard OR category:electronics', stable_sort => true)".fetch(&mut conn);
+
+    assert!(plan[0].0.contains("Index Scan"));
+
+    "CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');"
+        .execute(&mut conn);
+    "CALL paradedb.create_bm25(
+            index_name => 'search_idx',
+            schema_name => 'public',
+            table_name => 'mock_items',
+            key_field => 'id',
+            text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}'
+    )"
+    .execute(&mut conn);
+
+    let plan: Vec<(String,)> =
+        "SELECT * FROM search_idx.explain('description:keyboard OR category:electronics', stable_sort => true)".fetch(&mut conn);
+
+    assert!(plan[0].0.contains("Index Scan"));
+}
+
+#[rstest]
+fn update_time(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');"
+        .execute(&mut conn);
+    "CALL paradedb.create_bm25(
+            index_name => 'search_idx',
+            schema_name => 'public',
+            table_name => 'mock_items',
+            key_field => 'id',
+            text_fields => '{description: {tokenizer: {type: \"en_stem\"}}}'
+    )"
+    .execute(&mut conn);
+
+    let start_time = std::time::Instant::now();
+    "UPDATE mock_items set category = 'Keyboards' WHERE description = 'Plastic Keyboard'"
+        .execute(&mut conn);
+    let elapsed_with_index = start_time.elapsed().as_millis() as i64;
+
+    "CALL paradedb.drop_bm25('search_idx')".execute(&mut conn);
+    let start_time = std::time::Instant::now();
+    "UPDATE mock_items set category = 'Instruments' WHERE description = 'Plastic Keyboard'"
+        .execute(&mut conn);
+    let elapsed_without_index = start_time.elapsed().as_millis() as i64;
+
+    // There should be a negligible difference in time between the two updates
+    assert!((elapsed_without_index - elapsed_with_index).abs() < 3);
+}

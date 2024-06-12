@@ -137,3 +137,53 @@ pub fn format_empty_function(
 
     formatted_sql
 }
+
+pub fn format_aggregate_function(function_name: &str, index_json: &Value) -> String {
+    let index_json_str = serde_json::to_string(&index_json).unwrap();
+    let formatted_sql = format!(
+        r#"
+        CREATE OR REPLACE FUNCTION {function_name}(
+            aggs text
+        ) RETURNS jsonb AS $func$
+        BEGIN
+            RETURN paradedb.aggregate_internal(
+                aggs,
+                '{index_json_str}'::jsonb || jsonb_build_object(
+                    'query', paradedb.all()::text::jsonb
+                )
+            );
+        END
+        $func$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION {function_name}(
+            aggs text,
+            query text
+        ) RETURNS jsonb AS $func$
+        BEGIN
+            RETURN paradedb.aggregate_internal(
+                aggs,
+                '{index_json_str}'::jsonb || jsonb_build_object(
+                    'query', paradedb.parse(query)::text::jsonb
+                )
+            );
+        END
+        $func$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION {function_name}(
+            aggs text,
+            query paradedb.searchqueryinput
+        ) RETURNS jsonb AS $func$
+        BEGIN
+            RETURN paradedb.aggregate_internal(
+                aggs,
+                '{index_json_str}'::jsonb || jsonb_build_object(
+                    'query', query::text::jsonb
+                )
+            );
+        END
+        $func$ LANGUAGE plpgsql;
+        "#,
+    );
+
+    formatted_sql
+}

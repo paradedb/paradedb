@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
+use anyhow::{bail, Result};
 use core::panic;
-use std::{collections::HashMap, ops::Bound};
-
 use pgrx::PostgresType;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, ops::Bound};
 use tantivy::{
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
@@ -181,7 +181,7 @@ impl SearchQueryInput {
         self,
         field_lookup: &impl AsFieldType<String>,
         parser: &mut QueryParser,
-    ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn Query>> {
         match self {
             Self::All => Ok(Box::new(AllQuery)),
             Self::Boolean {
@@ -318,7 +318,7 @@ impl SearchQueryInput {
                 let mut fields_map = HashMap::new();
                 for (field_name, value) in fields {
                     if !field_lookup.is_field_type(&field_name, &value) {
-                        return Err(Box::new(QueryError::WrongFieldType(field_name)));
+                        bail!("{}", QueryError::WrongFieldType(field_name))
                     }
 
                     let (_, field) = field_lookup
@@ -457,11 +457,7 @@ impl SearchQueryInput {
     }
 }
 
-fn value_to_term(
-    field: Field,
-    value: Value,
-    field_type: &FieldType,
-) -> Result<Term, Box<dyn std::error::Error>> {
+fn value_to_term(field: Field, value: Value, field_type: &FieldType) -> Result<Term> {
     Ok(match value {
         Value::Str(text) => {
             match field_type {

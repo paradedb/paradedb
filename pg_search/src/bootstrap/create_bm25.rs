@@ -4,6 +4,7 @@ use pgrx::Spi;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
+use super::format::format_aggregate_function;
 use super::format::format_bm25_function;
 use super::format::format_empty_function;
 use super::format::format_hybrid_function;
@@ -199,6 +200,11 @@ fn create_bm25(
             spi::quote_identifier(table_name)
         ),
         &index_json
+    ))?;
+
+    Spi::run(&format_aggregate_function(
+        &spi::quote_qualified_identifier(index_name, "aggregate"),
+        &index_json,
     ))?;
 
     Spi::run(&format!(

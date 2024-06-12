@@ -1,7 +1,7 @@
 # workflows/publish-pg_lakehouse.yml
 #
 # Publish pg_lakehouse
-# Build and publish the pg_lakehouse extension as a .deb to GitHub Releases.
+# Build and publish the pg_lakehouse extension as .deb and .rpm to GitHub Releases.
 
 name: Publish pg_lakehouse
 
@@ -104,16 +104,88 @@ jobs:
             image: debian:12-slim
             pg_version: 16
             arch: arm64
-          # TODO: Add Ubuntu 20.04, RedHat UBI 8, and RedHat UBI 9
-          # TODO: Maybe consider removing debian-slim for regular debian, and removing manual apt downloads
+          # Red Hat Enterprise Linux 9
+          - runner: depot-ubuntu-22.04-4
+            image: redhat/ubi9:latest
+            pg_version: 14
+            arch: amd64
+          - runner: depot-ubuntu-22.04-arm-4
+            image: redhat/ubi9:latest
+            pg_version: 14
+            arch: arm64
+          - runner: depot-ubuntu-22.04-4
+            image: redhat/ubi9:latest
+            pg_version: 15
+            arch: amd64
+          - runner: depot-ubuntu-22.04-arm-4
+            image: redhat/ubi9:latest
+            pg_version: 15
+            arch: arm64
+          - runner: depot-ubuntu-22.04-4
+            image: redhat/ubi9:latest
+            pg_version: 16
+            arch: amd64
+          - runner: depot-ubuntu-22.04-arm-4
+            image: redhat/ubi9:latest
+            pg_version: 16
+            arch: arm64
+          # TODO: Add support for RHEL 8
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
       - name: Install Debian Dependencies
-        if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
+
+      - name: Install RHEL Dependencies
+        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
+        run: |
+          # Determine RHEL version to retrieve the correct repositories
+          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
+            RHEL_VERSION=8
+          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
+            RHEL_VERSION=9
+          else
+            echo "Unsupported RHEL version"
+            exit 1
+          fi
+
+          # Install dependencies
+          dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq rpm-build
+
+          # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
+          sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
+          [ol${RHEL_VERSION}_baseos_latest]
+          name=Oracle Linux ${RHEL_VERSION} BaseOS Latest (\$basearch)
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/baseos/latest/\$basearch/
+          gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          gpgcheck=1
+          enabled=1
+
+          [ol${RHEL_VERSION}_appstream]
+          name=Oracle Linux ${RHEL_VERSION} Application Stream (\$basearch)
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/appstream/\$basearch/
+          gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          gpgcheck=1
+          enabled=1
+
+          [ol${RHEL_VERSION}_codeready_builder]
+          name=Oracle Linux ${RHEL_VERSION} CodeReady Builder (\$basearch) - Unsupported
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/codeready/builder/\$basearch/
+          gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          gpgcheck=1
+          enabled=1
+          EOF
+
+          # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
+          wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol${RHEL_VERSION} -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          sudo dnf install -y epel-release
+
+          # This package requires epel-release, which is why we install it last. It is required to
+          # configure the build environment for creating the RPM package via rpmbuild
+          sudo dnf install -y rpmdevtools
 
       # Note: DataFusion requires Rust nightly to enable packed_simd for SIMD optimizations. We
       # fix Rust nightly because current latest (1.80.0) is causing compilation issues with some dependencies
@@ -125,35 +197,86 @@ jobs:
       - name: Retrieve OS & GitHub Tag Versions
         id: version
         run: |
-          # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
           else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=${{ github.event.inputs.version }}
           fi
-          # Retrieve the OS Distributor ID (-is) and Release (-rs) Versions
-          DISTRO=$(echo "$(lsb_release -is)" | tr '[:upper:]' '[:lower:]')
-          RELEASE=$(lsb_release -rs)
+          echo "GitHub Tag Version: $VERSION"
+          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+
+          if [ -x "$(command -v lsb_release)" ]; then
+            DISTRO=$(echo "$(lsb_release -is)" | tr '[:upper:]' '[:lower:]')
+            RELEASE=$(lsb_release -rs)
+          else
+            DISTRO=$(cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '"')
+            RELEASE=$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)
+          fi
           echo "OS Version: $DISTRO-$RELEASE"
           echo "os_version=$DISTRO-$RELEASE" >> $GITHUB_OUTPUT
 
-      - name: Install & Configure Supported PostgreSQL Version
+          # RHEL uses different architecture and OS naming conventions when packaging via rpmbuid. We need to
+          # retrieve those as well to programmatically retrieve and upload the correct RPM package
+          if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
+            if [ "${{ matrix.arch }}" == "amd64" ]; then
+              ARCH=x86_64
+            else
+              ARCH=aarch64
+            fi
+            echo "RPM Arch: $ARCH"
+            echo "rpm_arch=$ARCH" >> $GITHUB_OUTPUT
+            echo "RPM OS: el$RELEASE"
+            echo "rpm_os=el$RELEASE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install & Configure Supported PostgreSQL Version on Debian
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04'}}
         run: |
-          # Install PostgreSQL
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
+      - name: Install & Configure Supported PostgreSQL Version on RHEL
+        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
+        run: |
+          if [ "${{ matrix.arch }}" == "amd64" ]; then
+            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+          else
+            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-aarch64/pgdg-redhat-repo-latest.noarch.rpm"
+          fi
+          sudo dnf -y install $REPO_URL
+
+          if [ "${{ matrix.arch }}" == "amd64" ]; then
+            sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
+          else
+            sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-AARCH64-RHEL
+          fi
+          sudo dnf clean all
+
+          sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
+          sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/
+          echo "/usr/pgsql-${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_lakehouse/
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+        run: |
+          if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
+            PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+          else
+            PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          fi
+          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      # TODO: Add telemetry to pg_lakehouse
       # We remove the native CPU optimization for the build, as we don't know what CPU architecture the user will be running our
       # prebuilt binaries on. This reduces performance, but is necessary for compatibility. For the most optimized build, users should
       # build the extension directly on their target machine, or use our Docker image.
@@ -168,7 +291,7 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pg_lakehouse*"` archive
-          package_dir=pg_lakehouse-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
+          package_dir=pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -187,7 +310,7 @@ jobs:
           # Create control file (package name cannot have underscore)
           mkdir -p ${package_dir}/DEBIAN
           touch ${package_dir}/DEBIAN/control
-          deb_version=${{ steps.version.outputs.version }}
+          deb_version=${{ steps.version.outputs.tag_version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
           echo 'Package: pg-lakehouse' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
@@ -204,15 +327,74 @@ jobs:
           sudo chmod -R 755 ${package_dir}
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
-      # We retrieve the GitHub release for the specific release version
+      - name: Create .rpm Package
+        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
+        run: |
+          echo "Configuring RPM build environment..."
+          rpmdev-setuptree
+
+          echo "Creating RPM SPEC file..."
+          spec_file=~/rpmbuild/SPECS/pg_lakehouse.spec
+          cat <<EOF > $spec_file
+          Name:           pg_lakehouse
+          Version:        ${{ steps.version.outputs.tag_version }}
+          Release:        1%{?dist}
+          Summary:        An analytical query engine for Postgres
+          License:        GNU Affero General Public License v3.0
+          URL:            https://github.com/paradedb/paradedb
+
+          BuildRequires:  postgresql${{ matrix.pg_version }}-devel
+          Requires:       postgresql${{ matrix.pg_version }}-server
+
+          %description
+          pg_lakehouse is a Postgres extension that enables fast analytics over
+          data lakes from Postgres. It is built on top of DataFusion, the Rust-based
+          analytics query engine, using pgrx.
+
+          %install
+          %{__rm} -rf %{buildroot}
+          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
+          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 755 %{_sourcedir}/pg_lakehouse_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_lakehouse.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
+          install -m 644 %{_sourcedir}/pg_lakehouse_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_lakehouse*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 644 %{_sourcedir}/pg_lakehouse_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_lakehouse.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+
+          %files
+          /usr/pgsql-${{ matrix.pg_version }}/lib/pg_lakehouse.so
+          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_lakehouse.control
+          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_lakehouse*sql
+
+          %changelog
+          * Thu Jun 6 2024 ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
+          - Initial RPM Release
+          EOF
+
+          echo "Copying pg_lakehouse binaries to RPM build directory..."
+          cp -r target/release/pg_lakehouse-pg${{ matrix.pg_version }}/ ~/rpmbuild/SOURCES/pg_lakehouse_${{ matrix.pg_version }}
+
+          echo "Building RPM package..."
+          rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_lakehouse.spec
+
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
-        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
+        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
       - name: Upload pg_lakehouse .deb to GitHub Release
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         uses: shogo82148/actions-upload-release-asset@v1
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_lakehouse-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-          asset_name: pg_lakehouse-v${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_path: ./pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: pg_lakehouse-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          overwrite: true
+
+      - name: Upload pg_lakehouse .rpm to GitHub Release
+        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.rpm_os }}.${{ steps.version.outputs.rpm_arch }}.rpm
+          asset_name: pg_lakehouse-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
+          overwrite: true

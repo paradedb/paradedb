@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     clang \
     pkg-config \
+    libopenblas-dev \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
 
@@ -113,6 +114,25 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
     make USE_PGXS=1 OPTFLAGS="" -j
 
 ######################
+# pgvectorscale
+######################
+
+FROM builder as builder-pgvectorscale
+
+ARG TARGETARCH
+
+# Build the extension
+WORKDIR /tmp
+RUN git clone --branch 0.2.0 https://github.com/timescale/pgvectorscale.git
+WORKDIR /tmp/pgvectorscale/pgvectorscale
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        # Required for pgvectorscale to compile on x86_64/amd64
+        RUSTFLAGS="-C target-feature=+avx2,+fma" cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"; \
+    else \
+        cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"; \
+    fi
+
+######################
 # pg_cron
 ######################
 
@@ -156,6 +176,8 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
+COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /opt/bitnami/postgresql/share/extension/

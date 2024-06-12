@@ -120,7 +120,7 @@ FROM builder as builder-pgvectorscale
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v0.2.0 https://github.com/timescale/pgvectorscale.git
+RUN git clone --branch 0.2.0 https://github.com/timescale/pgvectorscale.git
 WORKDIR /tmp/pgvectorscale/pgvectorscale
 RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 

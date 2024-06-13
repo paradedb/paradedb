@@ -7771,7 +7771,7 @@ dependencies = [
  "tantivy-fst",
  "tantivy-query-grammar",
  "tantivy-stacker",
- "tantivy-tokenizer-api",
+ "tantivy-tokenizer-api 0.2.0",
  "tempfile",
  "thiserror",
  "time",
@@ -7812,6 +7812,17 @@ dependencies = [
  "ownedbytes",
  "serde",
  "time",
+]
+
+[[package]]
+name = "tantivy-czech-stemmer"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "745be6d22c873e24210b22324d201204ada6fc264f81d8c75c4289cbc67d3c12"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "tantivy-tokenizer-api 0.3.0",
 ]
 
 [[package]]
@@ -7856,6 +7867,15 @@ dependencies = [
 name = "tantivy-tokenizer-api"
 version = "0.2.0"
 source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "tantivy-tokenizer-api"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a0dcade25819a89cfe6f17d932c9cedff11989936bf6dd4f336d50392053b04"
 dependencies = [
  "serde",
 ]
@@ -8082,6 +8102,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tantivy",
+ "tantivy-czech-stemmer",
  "tracing",
 ]
 

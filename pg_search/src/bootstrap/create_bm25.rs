@@ -1,7 +1,8 @@
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
 use pgrx::Spi;
-use serde_json::json;
+use serde_json::{json, Value};
+use std::collections::HashSet;
 
 use super::format::format_bm25_function;
 use super::format::format_empty_function;
@@ -45,7 +46,7 @@ fn create_bm25(
         "SELECT EXISTS (SELECT i.schema_name FROM information_schema.schemata i WHERE i.schema_name = {})",
         spi::quote_literal(index_name)
     ))?.unwrap_or(false) {
-        bail!("relation '{}' already exists", spi::quote_literal(index_name));
+        bail!("Index name cannot be the same as a schema that already exists. Please choose a different index name or drop the {} schema.", index_name);
     }
 
     if table_name.is_empty() {
@@ -86,12 +87,40 @@ fn create_bm25(
         spi::quote_identifier(index_name)
     ))?;
 
+    let mut column_names = HashSet::new();
+    for fields in [
+        text_fields,
+        numeric_fields,
+        boolean_fields,
+        json_fields,
+        datetime_fields,
+    ] {
+        match json5::from_str::<Value>(fields) {
+            Ok(obj) => {
+                if let Value::Object(map) = obj {
+                    for key in map.keys() {
+                        column_names.insert(key.clone());
+                    }
+                }
+            }
+            Err(err) => {
+                bail!("Error parsing {}: {}", fields, err);
+            }
+        }
+    }
+    let column_names_csv = column_names
+        .clone()
+        .into_iter()
+        .collect::<Vec<String>>()
+        .join(", ");
+
     Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 (({}.*)) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",
         spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
-        spi::quote_identifier(table_name),
+        spi::quote_identifier(key_field),
+        column_names_csv,
         spi::quote_literal(key_field),
         spi::quote_literal(text_fields),
         spi::quote_literal(numeric_fields),
@@ -111,7 +140,19 @@ fn create_bm25(
             "RETURN QUERY SELECT * FROM {}.{} WHERE {} @@@ __paradedb_search_config__",
             spi::quote_identifier(schema_name),
             spi::quote_identifier(table_name),
-            spi::quote_identifier(table_name)
+            spi::quote_identifier(key_field)
+        ),
+        &index_json,
+    ))?;
+
+    Spi::run(&format_bm25_function(
+        &spi::quote_qualified_identifier(index_name, "explain"),
+        "TABLE(\"QUERY PLAN\" text)",
+        &format!(
+            "RETURN QUERY EXPLAIN SELECT * FROM {}.{} WHERE {} @@@ __paradedb_search_config__",
+            spi::quote_identifier(schema_name),
+            spi::quote_identifier(table_name),
+            spi::quote_identifier(key_field)
         ),
         &index_json,
     ))?;

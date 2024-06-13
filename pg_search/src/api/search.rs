@@ -110,7 +110,6 @@ fn drop_bm25_internal(index_name: &str) {
 }
 
 #[pg_extern]
-#[allow(unused)]
 pub fn aggregate_internal(
     aggs: String,
     config_json: default!(Option<JsonB>, "NULL"),

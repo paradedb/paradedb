@@ -5,10 +5,7 @@ use crate::postgres::datetime::{
 };
 use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
-use pgrx::{
-    pg_sys, varsize, Array, FromDatum, JsonB, JsonString, PgBuiltInOids, PgOid, PgRelation,
-    PgTupleDesc,
-};
+use pgrx::*;
 use serde_json::Map;
 
 pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
@@ -17,63 +14,13 @@ pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"))
 }
 
-pub fn lookup_index_tupdesc(indexrel: &PgRelation) -> PgTupleDesc<'static> {
-    let tupdesc = indexrel.tuple_desc();
-
-    let typid = tupdesc
-        .get(0)
-        .expect("no attribute #0 on tupledesc")
-        .type_oid()
-        .value();
-    let typmod = tupdesc
-        .get(0)
-        .expect("no attribute #0 on tupledesc")
-        .type_mod();
-
-    // lookup the tuple descriptor for the rowtype we're *indexing*, rather than
-    // using the tuple descriptor for the index definition itself
-    unsafe { PgTupleDesc::from_pg_is_copy(pg_sys::lookup_rowtype_tupdesc_copy(typid, typmod)) }
-}
-
 pub unsafe fn row_to_search_document(
     tupdesc: &PgTupleDesc,
     values: *mut pg_sys::Datum,
     schema: &SearchIndexSchema,
 ) -> Result<SearchDocument, IndexError> {
-    let row = std::slice::from_raw_parts(values, 1)[0];
-    let td =
-        pg_sys::pg_detoast_datum(row.cast_mut_ptr::<pg_sys::varlena>()) as pg_sys::HeapTupleHeader;
-
-    let mut tmptup = pg_sys::HeapTupleData {
-        t_len: varsize(td as *mut pg_sys::varlena) as u32,
-        t_self: Default::default(),
-        t_tableOid: pg_sys::Oid::INVALID,
-        t_data: td,
-    };
-
-    let mut datums = vec![pg_sys::Datum::from(0); tupdesc.natts as usize];
-    let mut nulls = vec![false; tupdesc.natts as usize];
-
-    pg_sys::heap_deform_tuple(
-        &mut tmptup,
-        tupdesc.as_ptr(),
-        datums.as_mut_ptr(),
-        nulls.as_mut_ptr(),
-    );
-
     let mut document = schema.new_document();
     for (attno, attribute) in tupdesc.iter().enumerate() {
-        // Skip attributes that have been dropped.
-        if attribute.is_dropped() {
-            continue;
-        }
-        // Skip attributes that have null values.
-        if let Some(is_null) = nulls.get(attno) {
-            if *is_null {
-                continue;
-            }
-        }
-
         let attname = attribute.name().to_string();
         let attribute_type_oid = attribute.type_oid();
 
@@ -92,7 +39,7 @@ pub unsafe fn row_to_search_document(
             (attribute_type_oid, false)
         };
 
-        let datum = datums[attno];
+        let datum = *values.add(attno);
 
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {

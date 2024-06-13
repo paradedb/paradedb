@@ -2,7 +2,7 @@ use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::{get_search_index, lookup_index_tupdesc};
+use crate::postgres::utils::get_search_index;
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
@@ -25,7 +25,6 @@ impl BuildState {
 }
 
 #[pg_guard]
-// TODO: remove the unsafe
 pub extern "C" fn ambuild(
     heaprel: pg_sys::Relation,
     indexrel: pg_sys::Relation,
@@ -147,7 +146,6 @@ pub extern "C" fn ambuild(
     SearchIndex::new(directory, fields).expect("could not build search index");
 
     let state = do_heap_scan(index_info, &heap_relation, &index_relation);
-
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = state.count as f64;
     result.index_tuples = state.count as f64;
@@ -212,7 +210,6 @@ unsafe fn build_callback_internal(
     index: pg_sys::Relation,
 ) {
     check_for_interrupts!();
-
     let state = (state as *mut BuildState).as_mut().unwrap();
 
     // In the block below, we switch to the memory context we've defined on our build
@@ -227,7 +224,7 @@ unsafe fn build_callback_internal(
         state.memctx.reset();
         state.memctx.switch_to(|_| {
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
-            let tupdesc = lookup_index_tupdesc(&index_relation_ref);
+            let tupdesc = index_relation_ref.tuple_desc();
             let index_name = index_relation_ref.name();
             let search_index = get_search_index(index_name);
             let search_document = search_index

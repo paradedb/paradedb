@@ -522,6 +522,7 @@ fn update_time(mut conn: PgConnection) {
     assert!((elapsed_without_index - elapsed_with_index).abs() < 3);
 }
 
+#[rstest]
 fn aggregation(mut conn: PgConnection) {
     // Manually create the table so we can specify fast fields.
     r#"

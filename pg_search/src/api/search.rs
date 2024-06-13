@@ -118,7 +118,7 @@ pub fn aggregate_internal(
         config_json.ok_or(anyhow!("no config json passed to aggregate"))?;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json).expect("could not parse search config");
-    let mut search_index = get_search_index(&search_config.index_name);
+    let search_index = get_search_index(&search_config.index_name);
 
     // Must reload, or new results will not appear in the search.
     search_index.reader.reload()?;

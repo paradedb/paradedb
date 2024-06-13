@@ -103,7 +103,7 @@ FROM builder as builder-pgvector
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v0.7.1 https://github.com/pgvector/pgvector.git
+RUN git clone --branch v0.7.2 https://github.com/pgvector/pgvector.git
 WORKDIR /tmp/pgvector
 RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare" && \
     echo "trusted = true" >> vector.control && \

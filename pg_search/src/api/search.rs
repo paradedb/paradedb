@@ -134,7 +134,7 @@ pub fn aggregate_internal(
     let results: AggregationResults = searcher.search_with_executor(
         &tantivy_query,
         &collector,
-        &search_index.executor,
+        search_index.executor,
         tantivy::query::EnableScoring::Enabled {
             searcher: &searcher,
             statistics_provider: &searcher,

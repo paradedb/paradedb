@@ -370,9 +370,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
         query => paradedb.more_like_this_raw(
             min_doc_frequency => 0,
             min_term_frequency => 0,
-            fields => ARRAY[
-                paradedb.term(field => 'flavour', value => 'banana')
-            ]
+            with_document_fields => '{"flavour": "banana"}'
         ),
         stable_sort => true
     );

@@ -24,6 +24,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::ToString;
 use crate::writer::WriterDirectory;
 use core::panic;
+use std::collections::HashMap;
 use std::ops::Bound;
 
 #[allow(clippy::type_complexity)]
@@ -249,15 +250,14 @@ pub fn more_like_this(
     max_word_length: default!(Option<i32>, "NULL"),
     boost_factor: default!(Option<f32>, "NULL"),
     stop_words: default!(Option<Vec<String>>, "NULL"),
-    fields: default!(Array<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+    with_document_fields: default!(Option<String>, "'{}'"),
     with_document_id: default!(Option<i64>, "NULL"),
 ) -> SearchQueryInput {
-    let fields = fields.iter_deny_null().map(|input| match input {
-        SearchQueryInput::Term { field, value, .. } => (field.unwrap_or("".into()), value),
-        _ => panic!("only term queries can be passed to more_like_this"),
-    });
+    let document_fields: HashMap<String, tantivy::schema::Value> =
+        serde_json::from_str(&with_document_fields.unwrap())
+            .expect("could not parse with_document_fields");
 
-    if !(with_document_id.is_none() ^ (fields.len() == 0)) {
+    if !(with_document_id.is_none() ^ (document_fields.len() == 0)) {
         panic!(
             "more_like_this must be called with either with_docuemnt_id or with_document_fields"
         );
@@ -272,7 +272,7 @@ pub fn more_like_this(
         max_word_length: max_word_length.map(|n| n as usize),
         boost_factor,
         stop_words,
-        fields: fields.collect(),
+        fields: document_fields.into_iter().collect(),
         with_document_id,
     }
 }

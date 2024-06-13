@@ -69,7 +69,9 @@
       "url": "changelog"
     }
   ],
-  "versions": ["Version 0.7.5"],
+  "versions": [
+    "Version 0.7.5"
+  ],
   "navigation": [
     {
       "group": "Documentation",
@@ -77,7 +79,11 @@
         "introduction",
         {
           "group": "Deploying ParadeDB",
-          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
+          "pages": [
+            "deploy/aws",
+            "deploy/gcp",
+            "deploy/helm"
+          ]
         },
         {
           "group": "Deploying Extensions",
@@ -124,8 +130,11 @@
         },
         {
           "group": "Hybrid Search",
-          "pages": ["search/hybrid/basic"]
-        }
+          "pages": [
+            "search/hybrid/basic"
+          ]
+        },
+        "search/aggregations"
       ]
     },
     {

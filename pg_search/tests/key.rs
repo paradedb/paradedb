@@ -5,6 +5,9 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
 
+// In addition to checking whether all the expected types work for keys, make sure to include tests for anything that
+//    is reliant on keys (e.g. stable_sort, alias)
+
 #[rstest]
 fn boolean_key(mut conn: PgConnection) {
     // Boolean keys are pretty useless, but they're supported!

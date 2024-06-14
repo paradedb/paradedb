@@ -46,7 +46,6 @@ pub trait BaseFdw {
     // DataFusion methods
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>>;
 
-    // Default trait methods
     async fn begin_scan_impl(
         &mut self,
         _quals: &[Qual],

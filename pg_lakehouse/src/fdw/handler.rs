@@ -20,15 +20,14 @@ use pgrx::*;
 use std::collections::HashMap;
 use url::Url;
 
-use crate::datafusion::context::ContextError;
 use crate::datafusion::format::TableFormat;
 
-use super::azblob::AzblobFdw;
-use super::azdls::AzdlsFdw;
+// use super::azblob::AzblobFdw;
+// use super::azdls::AzdlsFdw;
 use super::base::BaseFdw;
-use super::gcs::GcsFdw;
-use super::local::LocalFileFdw;
-use super::s3::S3Fdw;
+// use super::gcs::GcsFdw;
+// use super::local::LocalFileFdw;
+// use super::s3::S3Fdw;
 
 #[derive(PartialEq)]
 pub enum FdwHandler {
@@ -89,21 +88,21 @@ pub fn register_object_store(
     user_mapping_options: HashMap<String, String>,
 ) -> Result<()> {
     match handler {
-        FdwHandler::S3 => {
-            S3Fdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        FdwHandler::LocalFile => {
-            LocalFileFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        FdwHandler::Gcs => {
-            GcsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        FdwHandler::Azdls => {
-            AzdlsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        FdwHandler::Azblob => {
-            AzblobFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
+        // FdwHandler::S3 => {
+        //     S3Fdw::register_object_store(url, format, server_options, user_mapping_options)?;
+        // }
+        // FdwHandler::LocalFile => {
+        //     LocalFileFdw::register_object_store(url, format, server_options, user_mapping_options)?;
+        // }
+        // FdwHandler::Gcs => {
+        //     GcsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
+        // }
+        // FdwHandler::Azdls => {
+        //     AzdlsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
+        // }
+        // FdwHandler::Azblob => {
+        //     AzblobFdw::register_object_store(url, format, server_options, user_mapping_options)?;
+        // }
         _ => {}
     }
 

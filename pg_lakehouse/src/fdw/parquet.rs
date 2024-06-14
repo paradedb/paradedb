@@ -1,19 +1,15 @@
-use anyhow::{Error, Result};
+use anyhow::Result;
 use async_std::stream::StreamExt;
 use async_std::task;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
 use duckdb::params;
-use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
 
-use crate::datafusion::context::ContextError;
 use crate::datafusion::format::TableFormat;
 use crate::duckdb::connection::duckdb_connection;
 use crate::fdw::options::*;
@@ -33,6 +29,55 @@ pub(crate) struct LocalFileFdw {
     target_columns: Vec<Column>,
 }
 
+enum ParquetOption {
+    BinaryAsString,
+    EncryptionConfig,
+    FileName,
+    FileRowNumber,
+    Files,
+    HivePartitioning,
+    UnionByName,
+}
+
+impl ParquetOption {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::BinaryAsString => "binary_as_string",
+            Self::EncryptionConfig => "encryption_config",
+            Self::FileName => "file_name",
+            Self::FileRowNumber => "file_row_number",
+            Self::Files => "files",
+            Self::HivePartitioning => "hive_partitioning",
+            Self::UnionByName => "union_by_name",
+        }
+    }
+
+    pub fn is_required(&self) -> bool {
+        match self {
+            Self::BinaryAsString => false,
+            Self::EncryptionConfig => false,
+            Self::FileName => false,
+            Self::FileRowNumber => false,
+            Self::Files => true,
+            Self::HivePartitioning => false,
+            Self::UnionByName => false,
+        }
+    }
+
+    pub fn iter() -> impl Iterator<Item = Self> {
+        [
+            Self::BinaryAsString,
+            Self::EncryptionConfig,
+            Self::FileName,
+            Self::FileRowNumber,
+            Self::Files,
+            Self::HivePartitioning,
+            Self::UnionByName,
+        ]
+        .into_iter()
+    }
+}
+
 impl BaseFdw for LocalFileFdw {
     fn register_object_store(
         url: &Url,
@@ -42,8 +87,12 @@ impl BaseFdw for LocalFileFdw {
     ) -> Result<()> {
         let conn = duckdb_connection();
         conn.execute(
-            "CREATE VIEW IF NOT EXISTS hits AS SELECT * FROM read_parquet('?')",
-            params![url.to_string()],
+            format!(
+                "CREATE VIEW IF NOT EXISTS hits AS SELECT * FROM read_parquet('{}')",
+                url.path().to_string()
+            )
+            .as_str(),
+            [],
         )?;
 
         Ok(())
@@ -173,7 +222,8 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
-        task::block_on(self.begin_scan_impl(_quals, columns, _sorts, limit, options))
+        Ok(())
+        // task::block_on(self.begin_scan_impl(_quals, columns, _sorts, limit, options))
     }
 
     fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {

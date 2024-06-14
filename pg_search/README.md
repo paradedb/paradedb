@@ -261,4 +261,4 @@ We use `cargo test` as our runner for `pg_lakehouse` tests.
 
 ## License
 
-`pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+`pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE) and as commercial software. For commercial licensing, please contact us at [sales@paradedb.com](mailto:sales@paradedb.com).

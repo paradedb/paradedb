@@ -1,25 +1,10 @@
-// Copyright (c) 2023-2024 Retake, Inc.
-//
-// This file is part of ParadeDB - Postgres for Search and Analytics
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
-
+use anyhow::{Error, Result};
 use async_std::stream::StreamExt;
 use async_std::task;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
+use duckdb::params;
 use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
@@ -30,7 +15,7 @@ use url::Url;
 
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::TableFormat;
-use crate::datafusion::session::Session;
+use crate::duckdb::connection::ConnectionCache;
 use crate::fdw::options::*;
 
 use super::base::*;
@@ -38,7 +23,7 @@ use super::base::*;
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",
-    error_type = "BaseFdwError"
+    error_type = "Error"
 )]
 pub(crate) struct LocalFileFdw {
     dataframe: Option<DataFrame>,
@@ -54,18 +39,12 @@ impl BaseFdw for LocalFileFdw {
         format: TableFormat,
         _server_options: HashMap<String, String>,
         _user_mapping_options: HashMap<String, String>,
-    ) -> Result<(), ContextError> {
-        let object_store = match format {
-            TableFormat::Delta => LocalFileSystem::new_with_prefix(Path::new(url.path()))?,
-            _ => LocalFileSystem::new(),
-        };
-
-        let context = Session::session_context()?;
-
-        // Create SessionContext with ObjectStore
-        context
-            .runtime_env()
-            .register_object_store(url, Arc::new(object_store));
+    ) -> Result<()> {
+        let conn = ConnectionCache::connection()?;
+        conn.execute(
+            "CREATE VIEW IF NOT EXISTS hits AS SELECT * FROM read_parquet('?')",
+            params![url.to_string()],
+        )?;
 
         Ok(())
     }
@@ -126,12 +105,12 @@ impl BaseFdw for LocalFileFdw {
         {
             Some(Ok(batch)) => Ok(Some(batch)),
             None => Ok(None),
-            Some(Err(err)) => Err(BaseFdwError::DataFusionError(err)),
+            Some(Err(err)) => Err(err.into()),
         }
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
+impl ForeignDataWrapper<Error> for LocalFileFdw {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,

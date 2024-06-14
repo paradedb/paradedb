@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::Result;
 use pgrx::*;
 use std::collections::HashMap;
 use url::Url;
@@ -86,7 +87,7 @@ pub fn register_object_store(
     format: TableFormat,
     server_options: HashMap<String, String>,
     user_mapping_options: HashMap<String, String>,
-) -> Result<(), ContextError> {
+) -> Result<()> {
     match handler {
         FdwHandler::S3 => {
             S3Fdw::register_object_store(url, format, server_options, user_mapping_options)?;

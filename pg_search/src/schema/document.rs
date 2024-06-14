@@ -15,13 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use serde::{Deserialize, Serialize};
-use tantivy::{schema::OwnedValue, TantivyDocument};
+use std::{io, io::Cursor};
+use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
+use tantivy::schema::{FieldValue, OwnedValue};
+use tantivy::TantivyDocument;
+use tantivy_common::{BinarySerializable, VInt};
 
 use crate::schema::SearchFieldId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchDocument {
+    #[serde(serialize_with = "serialize_document")]
+    #[serde(deserialize_with = "deserialize_document")]
     pub doc: TantivyDocument,
     pub key: SearchFieldId,
     pub ctid: SearchFieldId,
@@ -37,6 +42,57 @@ impl From<SearchDocument> for TantivyDocument {
     fn from(value: SearchDocument) -> Self {
         value.doc
     }
+}
+
+fn serialize_document<S>(doc: &TantivyDocument, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    // let mut buffer = Vec::new();
+    // // BinarySerializable::serialize(doc, &mut buffer).map_err(serde::ser::Error::custom)?;
+    // // let field_values = doc.field_values();
+    // // BinarySerializable::serialize(VInt(field_values.len() as u64), &mut buffer).unwrap();
+    // // for field_value in field_values {
+    // //     // field_value.serialize(&mut buffer).unwrap();
+    // //     BinarySerializable::serialize(field_value.field, &mut buffer).unwrap();
+    // //     BinarySerializable::serialize(field_value.value, &mut buffer).unwrap();
+    // // }
+    // serializer.serialize_bytes(&buffer)
+    doc.serialize(serializer)
+}
+
+fn deserialize_document<'de, D>(deserializer: D) -> Result<TantivyDocument, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // struct DocumentVisitor;
+
+    // impl<'de> Visitor<'de> for DocumentVisitor {
+    //     type Value = TantivyDocument;
+
+    //     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+    //         formatter.write_str("a byte array representing a TantivyDocument")
+    //     }
+
+    //     fn visit_bytes<E>(self, value: &[u8]) -> Result<TantivyDocument, E>
+    //     where
+    //         E: serde::de::Error,
+    //     {
+    //         // let mut cursor = Cursor::new(value);
+    //         // // BinarySerializable::deserialize(&mut cursor)
+    //         // //     .map_err(|err| E::custom(format!("Error deserializing TantivyDocument: {}", err)))
+
+    //         // let num_field_values = VInt::deserialize(&mut cursor).unwrap().val() as usize;
+    //         // let field_values = (0..num_field_values)
+    //         //     .map(|_| FieldValue::deserialize(&mut cursor ))
+    //         //     .collect::<io::Result<Vec<FieldValue>>>().unwrap();
+    //         let field_values: Vec<FieldValue> = vec![];
+    //         Ok(TantivyDocument::from(field_values))
+    //     }
+    // }
+
+    // deserializer.deserialize_bytes(DocumentVisitor)
+    TantivyDocument::deserialize(deserializer)
 }
 
 #[cfg(test)]

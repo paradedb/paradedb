@@ -31,11 +31,11 @@ use super::base::BaseFdw;
 
 #[derive(PartialEq)]
 pub enum FdwHandler {
-    S3,
-    LocalFile,
-    Gcs,
-    Azblob,
-    Azdls,
+    Csv,
+    Json,
+    Parquet,
+    Delta,
+    Iceberg,
     Other,
 }
 
@@ -44,11 +44,11 @@ pub enum FdwHandler {
 impl From<&str> for FdwHandler {
     fn from(handler_name: &str) -> Self {
         match handler_name {
-            "s3_fdw_handler" => FdwHandler::S3,
-            "local_file_fdw_handler" => FdwHandler::LocalFile,
-            "gcs_fdw_handler" => FdwHandler::Gcs,
-            "azblob_fdw_handler" => FdwHandler::Azblob,
-            "azdls_fdw_handler" => FdwHandler::Azdls,
+            "csv_fdw_handler" => FdwHandler::Csv,
+            "json_fdw_handler" => FdwHandler::Json,
+            "parquet_fdw_handler" => FdwHandler::Parquet,
+            "delta_fdw_handler" => FdwHandler::Delta,
+            "iceberg_fdw_handler" => FdwHandler::Iceberg,
             _ => FdwHandler::Other,
         }
     }

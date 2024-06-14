@@ -13,7 +13,6 @@ use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
 
-use crate::datafusion::context::ContextError;
 use crate::datafusion::format::TableFormat;
 use crate::datafusion::session::Session;
 use crate::fdw::options::*;

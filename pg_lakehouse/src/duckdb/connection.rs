@@ -1,11 +1,6 @@
-use anyhow::{bail, Result};
-use async_std::sync::RwLock;
-use async_std::task;
-use duckdb::{params, Connection, Error};
+use duckdb::Connection;
 use std::cell::RefCell;
-use std::collections::{hash_map::Entry::Vacant, HashMap};
 use std::sync::Arc;
-use std::thread;
 
 thread_local! {
     static THREAD_LOCAL_DATA: RefCell<Arc<Connection>> = RefCell::new(

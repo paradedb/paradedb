@@ -18,14 +18,12 @@
 use anyhow::{anyhow, bail, Result};
 use async_std::task;
 use chrono::Datelike;
-use datafusion::common::DataFusionError;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use supabase_wrappers::prelude::*;
-use thiserror::Error;
 use url::Url;
 
-use crate::datafusion::context::{get_table_source, ContextError};
+use crate::datafusion::context::get_table_source;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
 use crate::fdw::handler::*;

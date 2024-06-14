@@ -21,7 +21,7 @@ use super::base::*;
     website = "https://github.com/paradedb/paradedb",
     error_type = "BaseFdwError"
 )]
-pub(crate) struct LocalFileFdw {
+pub(crate) struct ParquetFdw {
     dataframe: Option<DataFrame>,
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
@@ -29,7 +29,7 @@ pub(crate) struct LocalFileFdw {
     target_columns: Vec<Column>,
 }
 
-enum ParquetOption {
+pub enum ParquetOption {
     BinaryAsString,
     EncryptionConfig,
     FileName,
@@ -78,22 +78,24 @@ impl ParquetOption {
     }
 }
 
-impl BaseFdw for LocalFileFdw {
-    fn register_object_store(
-        url: &Url,
-        format: TableFormat,
-        _server_options: HashMap<String, String>,
-        _user_mapping_options: HashMap<String, String>,
-    ) -> Result<()> {
-        let conn = duckdb_connection();
-        conn.execute(
-            format!(
-                "CREATE VIEW IF NOT EXISTS hits AS SELECT * FROM read_parquet('{}')",
-                url.path().to_string()
-            )
-            .as_str(),
-            [],
-        )?;
+impl BaseFdw for ParquetFdw {
+    fn register_object_store(table_options: HashMap<String, String>) -> Result<()> {
+        // let files = require_option(ParquetOption::Files.as_str(), &table_options)?;
+        // let binary_as_string = require_option_or(
+        //     ParquetOption::BinaryAsString.as_str(),
+        //     &table_options,
+        //     "false",
+        // );
+
+        // let conn = duckdb_connection();
+        // conn.execute(
+        //     format!(
+        //         "CREATE VIEW IF NOT EXISTS hits AS SELECT * FROM read_parquet('{}')",
+        //         url.path().to_string()
+        //     )
+        //     .as_str(),
+        //     [],
+        // )?;
 
         Ok(())
     }
@@ -159,21 +161,13 @@ impl BaseFdw for LocalFileFdw {
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
+impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
-
-        LocalFileFdw::register_object_store(
-            &Url::parse(path)?,
-            TableFormat::from(format),
-            server_options,
-            user_mapping_options,
-        )?;
+        ParquetFdw::register_object_store(table_options)?;
 
         Ok(Self {
             dataframe: None,
@@ -193,13 +187,13 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
                 FOREIGN_SERVER_RELATION_ID => {}
                 FOREIGN_TABLE_RELATION_ID => {
-                    let valid_options: Vec<String> = TableOption::iter()
+                    let valid_options: Vec<String> = ParquetOption::iter()
                         .map(|opt| opt.as_str().to_string())
                         .collect();
 
                     validate_options(opt_list.clone(), valid_options)?;
 
-                    for opt in TableOption::iter() {
+                    for opt in ParquetOption::iter() {
                         if opt.is_required() {
                             check_options_contain(&opt_list, opt.as_str())?;
                         }

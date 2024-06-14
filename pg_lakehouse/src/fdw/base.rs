@@ -23,12 +23,7 @@ use crate::schema::cell::*;
 
 pub trait BaseFdw {
     // Public methods
-    fn register_object_store(
-        url: &Url,
-        format: TableFormat,
-        server_options: HashMap<String, String>,
-        user_mapping_options: HashMap<String, String>,
-    ) -> Result<()>;
+    fn register_object_store(table_options: HashMap<String, String>) -> Result<()>;
 
     // Getter methods
     fn get_current_batch(&self) -> Option<RecordBatch>;

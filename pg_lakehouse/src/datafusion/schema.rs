@@ -15,12 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::{anyhow, Result};
 use async_std::sync::Mutex;
 use async_std::task;
 use datafusion::catalog::schema::SchemaProvider;
 use datafusion::common::DataFusionError;
 use datafusion::datasource::TableProvider;
-use datafusion::error::Result;
 use deltalake::DeltaTable;
 use pgrx::*;
 use std::any::Any;
@@ -36,7 +36,6 @@ use crate::fdw::handler::*;
 use crate::fdw::options::*;
 use crate::schema::attribute::*;
 
-use super::catalog::CatalogError;
 use super::format::*;
 use super::provider::*;
 use super::session::*;
@@ -55,7 +54,7 @@ impl LakehouseSchemaProvider {
         }
     }
 
-    fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
+    fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>> {
         let pg_relation = unsafe {
             PgRelation::open_with_name(
                 format!("\"{}\".\"{}\"", self.schema_name, table_name).as_str(),
@@ -123,7 +122,7 @@ impl LakehouseSchemaProvider {
                 let mut delta_table = table
                     .as_any()
                     .downcast_ref::<DeltaTable>()
-                    .ok_or(CatalogError::DowncastDeltaTable)?
+                    .ok_or_else(|| anyhow!("could not downcast delta table"))?
                     .clone();
                 task::block_on(delta_table.load())?;
                 Arc::new(delta_table) as Arc<dyn TableProvider>

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::{anyhow, bail, Result};
 use async_std::task;
 use chrono::Datelike;
 use datafusion::common::DataFusionError;
@@ -77,13 +78,12 @@ async fn arrow_schema_impl(
     path: String,
     extension: String,
     format: Option<String>,
-) -> Result<iter::TableIterator<'static, (name!(field, String), name!(datatype, String))>, ApiError>
-{
+) -> Result<iter::TableIterator<'static, (name!(field, String), name!(datatype, String))>> {
     let foreign_server =
         unsafe { pg_sys::GetForeignServerByName(server.clone().as_pg_cstr(), true) };
 
     if foreign_server.is_null() {
-        return Err(ApiError::ForeignServerNotFound(server.to_string()));
+        bail!("foreign server {server} not found");
     }
 
     let server_options = unsafe { options_to_hashmap((*foreign_server).options) }?;
@@ -115,34 +115,10 @@ async fn arrow_schema_impl(
 }
 
 #[inline]
-async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ApiError> {
+async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
     let table_name: String =
-        unsafe { fcinfo::pg_getarg(fcinfo, 0).ok_or(ApiError::TableNameNotFound)? };
+        unsafe { fcinfo::pg_getarg(fcinfo, 0).ok_or_else(|| anyhow!("table_name not provided"))? };
     let _ = get_table_source(table_name.into()).await?;
 
     Ok(())
-}
-
-#[derive(Error, Debug)]
-pub enum ApiError {
-    #[error(transparent)]
-    Context(#[from] ContextError),
-
-    #[error(transparent)]
-    DataFusionError(#[from] DataFusionError),
-
-    #[error(transparent)]
-    TableProviderError(#[from] TableProviderError),
-
-    #[error(transparent)]
-    Option(#[from] OptionsError),
-
-    #[error(transparent)]
-    UrlParseError(#[from] url::ParseError),
-
-    #[error("No foreign server with name {0} was found")]
-    ForeignServerNotFound(String),
-
-    #[error("Table name not provided")]
-    TableNameNotFound,
 }

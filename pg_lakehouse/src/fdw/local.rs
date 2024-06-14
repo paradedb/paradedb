@@ -15,7 +15,7 @@ use url::Url;
 
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::TableFormat;
-use crate::duckdb::connection::ConnectionCache;
+use crate::duckdb::connection::duckdb_connection;
 use crate::fdw::options::*;
 
 use super::base::*;
@@ -23,7 +23,7 @@ use super::base::*;
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",
-    error_type = "Error"
+    error_type = "BaseFdwError"
 )]
 pub(crate) struct LocalFileFdw {
     dataframe: Option<DataFrame>,
@@ -40,7 +40,7 @@ impl BaseFdw for LocalFileFdw {
         _server_options: HashMap<String, String>,
         _user_mapping_options: HashMap<String, String>,
     ) -> Result<()> {
-        let conn = ConnectionCache::connection()?;
+        let conn = duckdb_connection();
         conn.execute(
             "CREATE VIEW IF NOT EXISTS hits AS SELECT * FROM read_parquet('?')",
             params![url.to_string()],
@@ -73,7 +73,7 @@ impl BaseFdw for LocalFileFdw {
         self.dataframe = Some(dataframe);
     }
 
-    async fn create_stream(&mut self) -> Result<(), BaseFdwError> {
+    async fn create_stream(&mut self) -> Result<()> {
         if self.stream.is_none() {
             self.stream = Some(
                 self.dataframe
@@ -95,7 +95,7 @@ impl BaseFdw for LocalFileFdw {
         self.target_columns = columns.to_vec();
     }
 
-    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>, BaseFdwError> {
+    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>> {
         match self
             .stream
             .as_mut()
@@ -110,7 +110,7 @@ impl BaseFdw for LocalFileFdw {
     }
 }
 
-impl ForeignDataWrapper<Error> for LocalFileFdw {
+impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,

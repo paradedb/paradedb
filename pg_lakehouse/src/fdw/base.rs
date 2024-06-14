@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use anyhow::Result;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::CatalogProvider;
@@ -54,7 +54,7 @@ pub trait BaseFdw {
         _sorts: &[Sort],
         limit: &Option<Limit>,
         options: HashMap<String, String>,
-    ) -> Result<()> {
+    ) -> Result<(), BaseFdwError> {
         self.set_target_columns(columns);
 
         let oid_u32: u32 = options
@@ -89,7 +89,7 @@ pub trait BaseFdw {
         Ok(())
     }
 
-    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>> {
+    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
         self.create_stream().await?;
 
         if self.get_current_batch().is_none()
@@ -133,32 +133,23 @@ pub trait BaseFdw {
         Ok(Some(()))
     }
 
-    fn end_scan_impl(&mut self) -> Result<()> {
+    fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
         self.clear_stream();
         Ok(())
     }
 }
 
-pub struct ErrorReportWrapper(pg_sys::panic::ErrorReport);
-
-impl From<Error> for ErrorReportWrapper {
-    fn from(value: Error) -> Self {
-        ErrorReportWrapper(pg_sys::panic::ErrorReport::new(
-            PgSqlErrorCode::ERRCODE_FDW_ERROR,
-            format!("{}", value.0),
-            "",
-        ))
-    }
-}
-
-impl From<ErrorReportWrapper> for pg_sys::panic::ErrorReport {
-    fn from(value: ErrorReportWrapper) -> Self {
-        value.0
+impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
+    fn from(value: BaseFdwError) -> Self {
+        pg_sys::panic::ErrorReport::new(PgSqlErrorCode::ERRCODE_FDW_ERROR, format!("{}", value), "")
     }
 }
 
 #[derive(Error, Debug)]
 pub enum BaseFdwError {
+    #[error(transparent)]
+    Anyhow(#[from] anyhow::Error),
+
     #[error(transparent)]
     ArrowError(#[from] ArrowError),
 

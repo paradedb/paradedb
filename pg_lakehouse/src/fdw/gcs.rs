@@ -23,7 +23,7 @@ use super::base::*;
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",
-    error_type = "Error"
+    error_type = "BaseFdwError"
 )]
 pub(crate) struct GcsFdw {
     dataframe: Option<DataFrame>,
@@ -225,12 +225,12 @@ impl BaseFdw for GcsFdw {
     }
 }
 
-impl ForeignDataWrapper<Error> for GcsFdw {
+impl ForeignDataWrapper<BaseFdwError> for GcsFdw {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
-    ) -> Result<Self> {
+    ) -> Result<Self, BaseFdwError> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
         let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
 
@@ -250,7 +250,10 @@ impl ForeignDataWrapper<Error> for GcsFdw {
         })
     }
 
-    fn validator(opt_list: Vec<Option<String>>, catalog: Option<pg_sys::Oid>) -> Result<()> {
+    fn validator(
+        opt_list: Vec<Option<String>>,
+        catalog: Option<pg_sys::Oid>,
+    ) -> Result<(), BaseFdwError> {
         if let Some(oid) = catalog {
             match oid {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
@@ -294,15 +297,15 @@ impl ForeignDataWrapper<Error> for GcsFdw {
         _sorts: &[Sort],
         limit: &Option<Limit>,
         options: HashMap<String, String>,
-    ) -> Result<()> {
+    ) -> Result<(), BaseFdwError> {
         task::block_on(self.begin_scan_impl(_quals, columns, _sorts, limit, options))
     }
 
-    fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>> {
+    fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
         task::block_on(self.iter_scan_impl(row))
     }
 
-    fn end_scan(&mut self) -> Result<()> {
+    fn end_scan(&mut self) -> Result<(), BaseFdwError> {
         self.end_scan_impl()
     }
 }

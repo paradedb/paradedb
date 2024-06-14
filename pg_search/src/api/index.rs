@@ -242,14 +242,14 @@ pub fn fuzzy_term(
 #[allow(clippy::too_many_arguments)]
 #[pg_extern(name = "more_like_this_raw", immutable, parallel_safe)]
 pub fn more_like_this(
-    min_doc_frequency: default!(Option<i32>, "NULL"),
-    max_doc_frequency: default!(Option<i32>, "NULL"),
-    min_term_frequency: default!(Option<i32>, "NULL"),
-    max_query_terms: default!(Option<i32>, "NULL"),
-    min_word_length: default!(Option<i32>, "NULL"),
-    max_word_length: default!(Option<i32>, "NULL"),
-    boost_factor: default!(Option<f32>, "NULL"),
-    stop_words: default!(Option<Vec<String>>, "NULL"),
+    with_min_doc_frequency: default!(Option<i32>, "NULL"),
+    with_max_doc_frequency: default!(Option<i32>, "NULL"),
+    with_min_term_frequency: default!(Option<i32>, "NULL"),
+    with_max_query_terms: default!(Option<i32>, "NULL"),
+    with_min_word_length: default!(Option<i32>, "NULL"),
+    with_max_word_length: default!(Option<i32>, "NULL"),
+    with_boost_factor: default!(Option<f32>, "NULL"),
+    with_stop_words: default!(Option<Vec<String>>, "NULL"),
     with_document_fields: default!(Option<String>, "'{}'"),
     with_document_id: default!(Option<i64>, "NULL"),
 ) -> SearchQueryInput {
@@ -264,16 +264,16 @@ pub fn more_like_this(
     }
 
     SearchQueryInput::MoreLikeThis {
-        min_doc_frequency: min_doc_frequency.map(|n| n as u64),
-        max_doc_frequency: max_doc_frequency.map(|n| n as u64),
-        min_term_frequency: min_term_frequency.map(|n| n as usize),
-        max_query_terms: max_query_terms.map(|n| n as usize),
-        min_word_length: min_word_length.map(|n| n as usize),
-        max_word_length: max_word_length.map(|n| n as usize),
-        boost_factor,
-        stop_words,
-        fields: document_fields.into_iter().collect(),
-        with_document_id,
+        min_doc_frequency: with_min_doc_frequency.map(|n| n as u64),
+        max_doc_frequency: with_max_doc_frequency.map(|n| n as u64),
+        min_term_frequency: with_min_term_frequency.map(|n| n as usize),
+        max_query_terms: with_max_query_terms.map(|n| n as usize),
+        min_word_length: with_min_word_length.map(|n| n as usize),
+        max_word_length: with_max_word_length.map(|n| n as usize),
+        boost_factor: with_boost_factor,
+        stop_words: with_stop_words,
+        document_fields: document_fields.into_iter().collect(),
+        document_id: with_document_id,
     }
 }
 

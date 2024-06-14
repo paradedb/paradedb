@@ -368,8 +368,8 @@ fn more_like_this_raw(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_index.search(
         query => paradedb.more_like_this_raw(
-            min_doc_frequency => 0,
-            min_term_frequency => 0,
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
             with_document_fields => '{"flavour": "banana"}'
         ),
         stable_sort => true
@@ -381,8 +381,8 @@ fn more_like_this_raw(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_index.search(
         query => paradedb.more_like_this_raw(
-            min_doc_frequency => 0,
-            min_term_frequency => 0,
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
             with_document_id => 0
         ),
         stable_sort => true

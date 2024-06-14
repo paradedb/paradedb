@@ -308,8 +308,8 @@ impl SearchQueryInput {
                 max_word_length,
                 boost_factor,
                 stop_words,
-                fields,
-                with_document_id,
+                document_fields,
+                document_id,
             } => {
                 let mut builder = MoreLikeThisQuery::builder();
 
@@ -338,7 +338,7 @@ impl SearchQueryInput {
                     builder = builder.with_stop_words(stop_words);
                 }
 
-                if let Some(document_id) = with_document_id {
+                if let Some(document_id) = document_id {
                     return Ok(Box::new(
                         // TODO: We need to get the segment ord from somewhere
                         builder.with_document(DocAddress::new(0, document_id as u32)),
@@ -346,7 +346,7 @@ impl SearchQueryInput {
                 }
 
                 let mut fields_map = HashMap::new();
-                for (field_name, value) in fields {
+                for (field_name, value) in document_fields {
                     if !field_lookup.is_field_type(&field_name, &value) {
                         return Err(Box::new(QueryError::WrongFieldType(field_name)));
                     }

@@ -1,20 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
-//
-// This file is part of ParadeDB - Postgres for Search and Analytics
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
-
+use anyhow::{Error, Result};
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::CatalogProvider;
@@ -44,7 +28,7 @@ pub trait BaseFdw {
         format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
-    ) -> Result<(), ContextError>;
+    ) -> Result<()>;
 
     // Getter methods
     fn get_current_batch(&self) -> Option<RecordBatch>;
@@ -55,12 +39,12 @@ pub trait BaseFdw {
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
     fn set_current_batch_index(&mut self, index: usize);
     fn set_dataframe(&mut self, dataframe: DataFrame);
-    async fn create_stream(&mut self) -> Result<(), BaseFdwError>;
+    async fn create_stream(&mut self) -> Result<()>;
     fn clear_stream(&mut self);
     fn set_target_columns(&mut self, columns: &[Column]);
 
     // DataFusion methods
-    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>, BaseFdwError>;
+    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>>;
 
     // Default trait methods
     async fn begin_scan_impl(
@@ -70,7 +54,7 @@ pub trait BaseFdw {
         _sorts: &[Sort],
         limit: &Option<Limit>,
         options: HashMap<String, String>,
-    ) -> Result<(), BaseFdwError> {
+    ) -> Result<()> {
         self.set_target_columns(columns);
 
         let oid_u32: u32 = options
@@ -105,7 +89,7 @@ pub trait BaseFdw {
         Ok(())
     }
 
-    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
+    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>> {
         self.create_stream().await?;
 
         if self.get_current_batch().is_none()
@@ -149,15 +133,27 @@ pub trait BaseFdw {
         Ok(Some(()))
     }
 
-    fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
+    fn end_scan_impl(&mut self) -> Result<()> {
         self.clear_stream();
         Ok(())
     }
 }
 
-impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
-    fn from(value: BaseFdwError) -> Self {
-        pg_sys::panic::ErrorReport::new(PgSqlErrorCode::ERRCODE_FDW_ERROR, format!("{}", value), "")
+pub struct ErrorReportWrapper(pg_sys::panic::ErrorReport);
+
+impl From<Error> for ErrorReportWrapper {
+    fn from(value: Error) -> Self {
+        ErrorReportWrapper(pg_sys::panic::ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_FDW_ERROR,
+            format!("{}", value.0),
+            "",
+        ))
+    }
+}
+
+impl From<ErrorReportWrapper> for pg_sys::panic::ErrorReport {
+    fn from(value: ErrorReportWrapper) -> Self {
+        value.0
     }
 }
 

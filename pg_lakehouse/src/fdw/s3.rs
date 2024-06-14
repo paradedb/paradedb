@@ -1,20 +1,4 @@
-// Copyright (c) 2023-2024 Retake, Inc.
-//
-// This file is part of ParadeDB - Postgres for Search and Analytics
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
-
+use anyhow::{Error, Result};
 use async_std::stream::StreamExt;
 use async_std::task;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -39,7 +23,7 @@ use super::base::*;
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",
-    error_type = "BaseFdwError"
+    error_type = "Error"
 )]
 pub(crate) struct S3Fdw {
     dataframe: Option<DataFrame>,
@@ -94,9 +78,9 @@ impl AmazonUserMappingOption {
 }
 
 impl TryFrom<ObjectStoreConfig> for S3 {
-    type Error = ContextError;
+    type Error = Error;
 
-    fn try_from(options: ObjectStoreConfig) -> Result<Self, Self::Error> {
+    fn try_from(options: ObjectStoreConfig) -> Result<Self> {
         let url = options.url();
         let server_options = options.server_options();
         let user_mapping_options = options.user_mapping_options();
@@ -153,7 +137,7 @@ impl BaseFdw for S3Fdw {
         format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
-    ) -> Result<(), ContextError> {
+    ) -> Result<()> {
         let context = Session::session_context()?;
 
         let builder = S3::try_from(ObjectStoreConfig::new(
@@ -197,7 +181,7 @@ impl BaseFdw for S3Fdw {
         self.dataframe = Some(dataframe);
     }
 
-    async fn create_stream(&mut self) -> Result<(), BaseFdwError> {
+    async fn create_stream(&mut self) -> Result<()> {
         if self.stream.is_none() {
             self.stream = Some(
                 self.dataframe
@@ -219,7 +203,7 @@ impl BaseFdw for S3Fdw {
         self.target_columns = columns.to_vec();
     }
 
-    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>, BaseFdwError> {
+    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>> {
         match self
             .stream
             .as_mut()
@@ -229,17 +213,17 @@ impl BaseFdw for S3Fdw {
         {
             Some(Ok(batch)) => Ok(Some(batch)),
             None => Ok(None),
-            Some(Err(err)) => Err(BaseFdwError::DataFusionError(err)),
+            Some(Err(err)) => Err(err.into()),
         }
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
+impl ForeignDataWrapper<Error> for S3Fdw {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
-    ) -> Result<Self, BaseFdwError> {
+    ) -> Result<Self> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
         let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
 
@@ -259,10 +243,7 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         })
     }
 
-    fn validator(
-        opt_list: Vec<Option<String>>,
-        catalog: Option<pg_sys::Oid>,
-    ) -> Result<(), BaseFdwError> {
+    fn validator(opt_list: Vec<Option<String>>, catalog: Option<pg_sys::Oid>) -> Result<()> {
         if let Some(oid) = catalog {
             match oid {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
@@ -306,17 +287,17 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         _sorts: &[Sort],
         limit: &Option<Limit>,
         options: HashMap<String, String>,
-    ) -> Result<(), BaseFdwError> {
+    ) -> Result<()> {
         task::block_on(self.begin_scan_impl(_quals, columns, _sorts, limit, options))
             .expect("begin_scan failed");
         Ok(())
     }
 
-    fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
+    fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>> {
         task::block_on(self.iter_scan_impl(row))
     }
 
-    fn end_scan(&mut self) -> Result<(), BaseFdwError> {
+    fn end_scan(&mut self) -> Result<()> {
         self.end_scan_impl()
     }
 }

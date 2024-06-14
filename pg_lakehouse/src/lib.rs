@@ -17,6 +17,7 @@
 
 mod api;
 mod datafusion;
+mod duckdb;
 mod fdw;
 mod hooks;
 mod schema;

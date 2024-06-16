@@ -16,14 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::{anyhow, Result};
-use async_std::task;
 use datafusion::common::arrow::array::RecordBatch;
 use datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::context::ContextError;
-use crate::datafusion::plan::QueryString;
 use crate::datafusion::session::Session;
 use crate::duckdb::connection::duckdb_connection;
 use crate::schema::cell::*;

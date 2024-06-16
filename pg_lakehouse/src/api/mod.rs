@@ -15,13 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use async_std::task;
-use chrono::Datelike;
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use supabase_wrappers::prelude::*;
-use url::Url;
 
 use crate::duckdb::connection::duckdb_connection;
 use crate::fdw::handler::*;
@@ -113,19 +110,21 @@ extern "C" fn pg_finfo_connect_table() -> &'static pg_sys::Pg_finfo_record {
 
 #[inline]
 async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
-    let table_name: String =
+    let table: String =
         unsafe { fcinfo::pg_getarg(fcinfo, 0).ok_or_else(|| anyhow!("table_name not provided"))? };
-    let pg_relation = unsafe { PgRelation::open_with_name(&table_name) }
-        .map_err(|err| anyhow!(err.to_string()))?;
+    let pg_relation =
+        unsafe { PgRelation::open_with_name(&table) }.map_err(|err| anyhow!(err.to_string()))?;
 
     if !pg_relation.is_foreign_table() {
-        return Err(anyhow!("table {table_name} is not a foreign table"));
+        return Err(anyhow!("table {table} is not a foreign table"));
     }
 
     let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
     let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
     let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
     let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
+    let schema_name = pg_relation.namespace();
+    let table_name = pg_relation.name();
 
     let conn = duckdb_connection();
 
@@ -168,7 +167,7 @@ async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
             conn.execute(
                 format!(
                     r#"
-                        CREATE VIEW IF NOT EXISTS hits 
+                        CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} 
                         AS SELECT * FROM read_parquet(
                             {files_string},
                             binary_as_string = {binary_as_string},

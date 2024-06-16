@@ -1,12 +1,14 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_std::stream::StreamExt;
+use async_std::sync::RwLock;
 use async_std::task;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
-use duckdb::params;
+use duckdb::{params, Arrow, Connection, Statement};
 use pgrx::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
 
@@ -21,11 +23,12 @@ use super::base::*;
     website = "https://github.com/paradedb/paradedb",
     error_type = "BaseFdwError"
 )]
-pub(crate) struct ParquetFdw {
-    dataframe: Option<DataFrame>,
-    stream: Option<SendableRecordBatchStream>,
+pub(crate) struct ParquetFdw<'a> {
+    connection: Arc<Connection>,
+    arrow: Option<Arc<RwLock<Arrow<'a>>>>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
+    sql: Option<String>,
     target_columns: Vec<Column>,
 }
 
@@ -78,28 +81,7 @@ impl ParquetOption {
     }
 }
 
-impl BaseFdw for ParquetFdw {
-    fn register_object_store(table_options: HashMap<String, String>) -> Result<()> {
-        // let files = require_option(ParquetOption::Files.as_str(), &table_options)?;
-        // let binary_as_string = require_option_or(
-        //     ParquetOption::BinaryAsString.as_str(),
-        //     &table_options,
-        //     "false",
-        // );
-
-        // let conn = duckdb_connection();
-        // conn.execute(
-        //     format!(
-        //         "CREATE VIEW IF NOT EXISTS hits AS SELECT * FROM read_parquet('{}')",
-        //         url.path().to_string()
-        //     )
-        //     .as_str(),
-        //     [],
-        // )?;
-
-        Ok(())
-    }
-
+impl<'a> BaseFdw<'a> for ParquetFdw<'a> {
     fn get_current_batch(&self) -> Option<RecordBatch> {
         self.current_batch.clone()
     }
@@ -108,8 +90,20 @@ impl BaseFdw for ParquetFdw {
         self.current_batch_index
     }
 
+    fn get_sql(&self) -> Option<String> {
+        self.sql.clone()
+    }
+
     fn get_target_columns(&self) -> Vec<Column> {
         self.target_columns.clone()
+    }
+
+    fn scan_started(&self) -> bool {
+        self.arrow.is_some()
+    }
+
+    fn set_arrow(&mut self, arrow: Option<Arc<RwLock<Arrow<'a>>>>) {
+        self.arrow = arrow;
     }
 
     fn set_current_batch(&mut self, batch: Option<RecordBatch>) {
@@ -120,26 +114,8 @@ impl BaseFdw for ParquetFdw {
         self.current_batch_index = index;
     }
 
-    fn set_dataframe(&mut self, dataframe: DataFrame) {
-        self.dataframe = Some(dataframe);
-    }
-
-    async fn create_stream(&mut self) -> Result<()> {
-        if self.stream.is_none() {
-            self.stream = Some(
-                self.dataframe
-                    .clone()
-                    .ok_or(BaseFdwError::DataFrameNotFound)?
-                    .execute_stream()
-                    .await?,
-            );
-        }
-
-        Ok(())
-    }
-
-    fn clear_stream(&mut self) {
-        self.stream = None;
+    fn set_sql(&mut self, sql: Option<String>) {
+        self.sql = sql;
     }
 
     fn set_target_columns(&mut self, columns: &[Column]) {
@@ -147,33 +123,28 @@ impl BaseFdw for ParquetFdw {
     }
 
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        match self
-            .stream
+        Ok(self
+            .arrow
             .as_mut()
-            .ok_or(BaseFdwError::StreamNotFound)?
-            .next()
+            .ok_or_else(|| anyhow!("no Arrow batches found"))?
+            .write()
             .await
-        {
-            Some(Ok(batch)) => Ok(Some(batch)),
-            None => Ok(None),
-            Some(Err(err)) => Err(err.into()),
-        }
+            .next())
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
+impl<'a> ForeignDataWrapper<BaseFdwError> for ParquetFdw<'a> {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        ParquetFdw::register_object_store(table_options)?;
-
         Ok(Self {
-            dataframe: None,
+            arrow: None,
+            connection: duckdb_connection(),
             current_batch: None,
             current_batch_index: 0,
-            stream: None,
+            sql: None,
             target_columns: Vec::new(),
         })
     }
@@ -210,14 +181,14 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
 
     fn begin_scan(
         &mut self,
-        _quals: &[Qual],
+        quals: &[Qual],
         columns: &[Column],
-        _sorts: &[Sort],
+        sorts: &[Sort],
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
+        task::block_on(self.begin_scan_impl(quals, columns, sorts, limit, options));
         Ok(())
-        // task::block_on(self.begin_scan_impl(_quals, columns, _sorts, limit, options))
     }
 
     fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {

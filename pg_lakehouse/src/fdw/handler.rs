@@ -24,7 +24,6 @@ use crate::datafusion::format::TableFormat;
 
 // use super::azblob::AzblobFdw;
 // use super::azdls::AzdlsFdw;
-use super::base::BaseFdw;
 // use super::gcs::GcsFdw;
 // use super::local::LocalFileFdw;
 // use super::s3::S3Fdw;
@@ -87,24 +86,7 @@ pub fn register_object_store(
     server_options: HashMap<String, String>,
     user_mapping_options: HashMap<String, String>,
 ) -> Result<()> {
-    match handler {
-        // FdwHandler::S3 => {
-        //     S3Fdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        // }
-        // FdwHandler::LocalFile => {
-        //     LocalFileFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        // }
-        // FdwHandler::Gcs => {
-        //     GcsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        // }
-        // FdwHandler::Azdls => {
-        //     AzdlsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        // }
-        // FdwHandler::Azblob => {
-        //     AzblobFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        // }
-        _ => {}
-    }
+    {}
 
     Ok(())
 }

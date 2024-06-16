@@ -1,11 +1,10 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use async_std::sync::RwLock;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::catalog::CatalogProvider;
 use datafusion::common::DataFusionError;
-use datafusion::prelude::DataFrame;
-use datafusion::sql::TableReference;
 use deltalake::DeltaTableError;
+use duckdb::{Arrow};
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,36 +15,31 @@ use url::Url;
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
-use crate::datafusion::schema::LakehouseSchemaProvider;
 use crate::datafusion::session::*;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;
 
-pub trait BaseFdw {
-    // Public methods
-    fn register_object_store(table_options: HashMap<String, String>) -> Result<()>;
-
+pub trait BaseFdw<'a> {
     // Getter methods
     fn get_current_batch(&self) -> Option<RecordBatch>;
     fn get_current_batch_index(&self) -> usize;
+    fn get_sql(&self) -> Option<String>;
     fn get_target_columns(&self) -> Vec<Column>;
+    fn scan_started(&self) -> bool;
 
     // Setter methods
+    fn set_arrow(&mut self, arrow: Option<Arc<RwLock<Arrow<'a>>>>);
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
-    fn set_current_batch_index(&mut self, index: usize);
-    fn set_dataframe(&mut self, dataframe: DataFrame);
-    async fn create_stream(&mut self) -> Result<()>;
-    fn clear_stream(&mut self);
+    fn set_current_batch_index(&mut self, idx: usize);
+    fn set_sql(&mut self, statement: Option<String>);
     fn set_target_columns(&mut self, columns: &[Column]);
 
-    // DataFusion methods
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>>;
-
     async fn begin_scan_impl(
         &mut self,
         _quals: &[Qual],
         columns: &[Column],
-        _sorts: &[Sort],
+        sorts: &[Sort],
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
@@ -57,41 +51,55 @@ pub trait BaseFdw {
             .parse()?;
         let table_oid = pg_sys::Oid::from(oid_u32);
         let pg_relation = unsafe { PgRelation::open(table_oid) };
-        let schema_name = pg_relation.namespace().to_string();
-        let catalog = Session::catalog()?;
+        let schema_name = pg_relation.namespace();
+        let table_name = pg_relation.name();
 
-        if catalog.schema(&schema_name).is_none() {
-            let new_schema_provider = Arc::new(LakehouseSchemaProvider::new(&schema_name));
-            catalog.register_schema(&schema_name, new_schema_provider)?;
+        let targets = if columns.is_empty() {
+            "*".to_string()
+        } else {
+            columns
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<String>>()
+                .join(", ")
+        };
+
+        let mut sql = format!("SELECT {targets} FROM {schema_name}.{table_name}");
+
+        if !sorts.is_empty() {
+            let order_by = sorts
+                .iter()
+                .map(|sort| sort.deparse())
+                .collect::<Vec<String>>()
+                .join(", ");
+            sql.push_str(&format!(" ORDER BY {}", order_by));
         }
 
-        let limit = limit.clone();
-        let context = Session::session_context()?;
-
-        let reference = TableReference::full(
-            Session::catalog_name()?,
-            pg_relation.namespace(),
-            pg_relation.name(),
-        );
-        let mut dataframe = context.table(reference).await?;
         if let Some(limit) = limit {
-            dataframe = dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
+            let real_limit = limit.offset + limit.count;
+            sql.push_str(&format!(" LIMIT {}", real_limit));
         }
 
-        self.set_dataframe(dataframe);
+        self.set_sql(Some(sql));
 
         Ok(())
     }
 
     async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        self.create_stream().await?;
+        // if !self.scan_started() {
+        //     let mut statement = self
+        //         .connection
+        //         .prepare(self.sql.as_ref().ok_or_else(|| anyhow!("sql not found"))?.as_str())?;
+        //     let arrow = statement.query_arrow([])?;
+        //     self.set_arrow(Some(Arc::new(RwLock::new(arrow))));
+        // }
 
         if self.get_current_batch().is_none()
             || self.get_current_batch_index()
                 >= self
                     .get_current_batch()
                     .as_ref()
-                    .ok_or(BaseFdwError::BatchNotFound)?
+                    .ok_or_else(|| anyhow!("current batch not found"))?
                     .num_rows()
         {
             self.set_current_batch_index(0);
@@ -107,7 +115,7 @@ pub trait BaseFdw {
         let current_batch_binding = self.get_current_batch();
         let current_batch = current_batch_binding
             .as_ref()
-            .ok_or(BaseFdwError::BatchNotFound)?;
+            .ok_or_else(|| anyhow!("current batch not found"))?;
         let current_batch_index = self.get_current_batch_index();
 
         for (column_index, target_column) in
@@ -128,7 +136,6 @@ pub trait BaseFdw {
     }
 
     fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
-        self.clear_stream();
         Ok(())
     }
 }
@@ -158,6 +165,9 @@ pub enum BaseFdwError {
 
     #[error(transparent)]
     DeltaTableError(#[from] DeltaTableError),
+
+    #[error(transparent)]
+    DuckDBError(#[from] duckdb::Error),
 
     #[error(transparent)]
     FormatError(#[from] FormatError),

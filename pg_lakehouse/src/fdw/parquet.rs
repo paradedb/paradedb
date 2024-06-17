@@ -13,7 +13,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use crate::datafusion::format::TableFormat;
-use crate::duckdb::connection::{duckdb_connection, ConnectionWrapper};
+use crate::duckdb::connection;
 use crate::fdw::options::*;
 
 use super::base::*;
@@ -23,8 +23,7 @@ use super::base::*;
     website = "https://github.com/paradedb/paradedb",
     error_type = "BaseFdwError"
 )]
-pub(crate) struct ParquetFdw<'a> {
-    connection: ConnectionWrapper<'a>,
+pub(crate) struct ParquetFdw {
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
     sql: Option<String>,
@@ -80,7 +79,7 @@ impl ParquetOption {
     }
 }
 
-impl BaseFdw for ParquetFdw<'_> {
+impl BaseFdw for ParquetFdw {
     fn get_current_batch(&self) -> Option<RecordBatch> {
         self.current_batch.clone()
     }
@@ -98,7 +97,7 @@ impl BaseFdw for ParquetFdw<'_> {
     }
 
     fn scan_started(&self) -> bool {
-        self.connection.arrow.is_some()
+        connection::has_results()
     }
 
     fn set_arrow(&mut self) {
@@ -122,25 +121,17 @@ impl BaseFdw for ParquetFdw<'_> {
     }
 
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        Ok(self
-            .connection
-            .arrow
-            .as_mut()
-            .ok_or_else(|| anyhow!("no Arrow batches found"))?
-            .write()
-            .await
-            .next())
+        connection::get_next_batch()
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for ParquetFdw<'_> {
+impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         Ok(Self {
-            connection: ConnectionWrapper::new()?,
             current_batch: None,
             current_batch_index: 0,
             sql: None,

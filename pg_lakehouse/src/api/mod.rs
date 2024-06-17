@@ -20,7 +20,7 @@ use async_std::task;
 use pgrx::*;
 use supabase_wrappers::prelude::*;
 
-use crate::duckdb::connection::duckdb_connection;
+use crate::duckdb::connection;
 use crate::fdw::handler::*;
 use crate::fdw::parquet::ParquetOption;
 
@@ -126,8 +126,6 @@ async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
     let schema_name = pg_relation.namespace();
     let table_name = pg_relation.name();
 
-    let conn = duckdb_connection();
-
     match FdwHandler::from(foreign_server) {
         FdwHandler::Parquet => {
             let files = require_option(ParquetOption::Files.as_str(), &table_options)?;
@@ -164,7 +162,7 @@ async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
             let union_by_name =
                 require_option_or(ParquetOption::UnionByName.as_str(), &table_options, "false");
 
-            conn.execute(
+            connection::execute(
                 format!(
                     r#"
                         CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} 

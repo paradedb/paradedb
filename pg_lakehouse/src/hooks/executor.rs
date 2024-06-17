@@ -21,7 +21,7 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::session::Session;
-use crate::duckdb::connection::duckdb_connection;
+use crate::duckdb::connection;
 use crate::schema::cell::*;
 
 use super::query::*;
@@ -59,24 +59,20 @@ pub fn executor_run(
         return Ok(());
     }
 
-    let conn = duckdb_connection();
-    let mut statement = match conn.prepare(query.as_str()) {
-        Ok(statement) => statement,
-        Err(err) => {
-            fallback_warning!(err.to_string());
-            prev_hook(query_desc, direction, count, execute_once);
-            return Ok(());
-        }
-    };
+    if let Err(err) = connection::create_arrow(query.as_str()) {
+        fallback_warning!(err.to_string());
+        prev_hook(query_desc, direction, count, execute_once);
+        return Ok(());
+    }
 
-    match statement.query_arrow([]) {
-        Ok(result) => write_batches_to_slots(query_desc, result.collect())?,
+    match connection::get_batches() {
+        Ok(batches) => write_batches_to_slots(query_desc, batches)?,
         Err(err) => {
             fallback_warning!(err.to_string());
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }
-    };
+    }
 
     Ok(())
 }

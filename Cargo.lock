@@ -5582,6 +5582,7 @@ dependencies = [
  "deltalake",
  "duckdb",
  "futures",
+ "lazy_static",
  "object_store",
  "object_store_opendal",
  "opendal",

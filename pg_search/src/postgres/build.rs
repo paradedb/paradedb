@@ -238,8 +238,8 @@ unsafe fn build_callback_internal(
     // By running in our own memory context, we can force the memory to be freed with
     // the call to reset().
     unsafe {
-        state.memctx.reset();
-        state.memctx.switch_to(|_| {
+        // state.memctx.reset();
+        // state.memctx.switch_to(|_| {
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
             let index_name = index_relation_ref.name();
@@ -260,7 +260,7 @@ unsafe fn build_callback_internal(
 
             register_commit_callback(&writer_client, search_index.directory.clone())
                 .expect("could not register commit callbacks for build operation");
-        });
-        state.memctx.reset();
+    //     });
+    //     state.memctx.reset();
     }
 }

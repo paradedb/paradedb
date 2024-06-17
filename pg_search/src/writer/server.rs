@@ -96,6 +96,8 @@ where
             let request: Result<ServerRequest<T>, ServerError> = bincode::deserialize_from(reader)
                 .map_err(|err| ServerError::Unexpected(err.into()));
 
+            log::debug!("received request");
+
             match request {
                 Ok(req) => match req {
                     ServerRequest::Shutdown => {
@@ -107,8 +109,10 @@ where
                     ServerRequest::Transfer(pipe_path) => {
                         // We must respond with OK before initiating the transfer.
                         if let Err(err) = incoming.respond(Self::response_ok()) {
+                            log::debug!("err: {:?}", err);
                             error!("server error responding to transfer: {err}");
                         } else if let Err(err) = self.listen_transfer(pipe_path) {
+                            log::debug!("listen err: {:?}", err);
                             error!("error listening to transfer: {err}")
                         }
                     }

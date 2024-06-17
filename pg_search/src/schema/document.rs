@@ -50,49 +50,61 @@ where
 {
     // let mut buffer = Vec::new();
     // // BinarySerializable::serialize(doc, &mut buffer).map_err(serde::ser::Error::custom)?;
-    // // let field_values = doc.field_values();
-    // // BinarySerializable::serialize(VInt(field_values.len() as u64), &mut buffer).unwrap();
-    // // for field_value in field_values {
-    // //     // field_value.serialize(&mut buffer).unwrap();
-    // //     BinarySerializable::serialize(field_value.field, &mut buffer).unwrap();
-    // //     BinarySerializable::serialize(field_value.value, &mut buffer).unwrap();
-    // // }
+    // let field_values = doc.field_values();
+    // BinarySerializable::serialize(&VInt(field_values.len() as u64), &mut buffer).unwrap();
+    // for field_value in field_values {
+    //     // field_value.serialize(&mut buffer).unwrap();
+    //     BinarySerializable::serialize(&field_value.field, &mut buffer).unwrap();
+    //     BinarySerializable::serialize(&field_value.value, &mut buffer).unwrap();
+    // }
     // serializer.serialize_bytes(&buffer)
-    doc.serialize(serializer)
+    // doc.serialize(serializer)
+    let doc_string = serde_json::to_string(doc).unwrap();
+    serializer.serialize_str(&doc_string)
 }
 
 fn deserialize_document<'de, D>(deserializer: D) -> Result<TantivyDocument, D::Error>
 where
     D: Deserializer<'de>,
 {
-    // struct DocumentVisitor;
+    struct DocumentVisitor;
 
-    // impl<'de> Visitor<'de> for DocumentVisitor {
-    //     type Value = TantivyDocument;
+    impl<'de> Visitor<'de> for DocumentVisitor {
+        type Value = TantivyDocument;
 
-    //     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-    //         formatter.write_str("a byte array representing a TantivyDocument")
-    //     }
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            // formatter.write_str("a byte array representing a TantivyDocument")
+            formatter.write_str("a str representing a TantivyDocument")
+        }
 
-    //     fn visit_bytes<E>(self, value: &[u8]) -> Result<TantivyDocument, E>
-    //     where
-    //         E: serde::de::Error,
-    //     {
-    //         // let mut cursor = Cursor::new(value);
-    //         // // BinarySerializable::deserialize(&mut cursor)
-    //         // //     .map_err(|err| E::custom(format!("Error deserializing TantivyDocument: {}", err)))
+        // fn visit_bytes<E>(self, value: &[u8]) -> Result<TantivyDocument, E>
+        // where
+        //     E: serde::de::Error,
+        // {
+        //     // let mut cursor = Cursor::new(value);
+        //     // // BinarySerializable::deserialize(&mut cursor)
+        //     // //     .map_err(|err| E::custom(format!("Error deserializing TantivyDocument: {}", err)))
 
-    //         // let num_field_values = VInt::deserialize(&mut cursor).unwrap().val() as usize;
-    //         // let field_values = (0..num_field_values)
-    //         //     .map(|_| FieldValue::deserialize(&mut cursor ))
-    //         //     .collect::<io::Result<Vec<FieldValue>>>().unwrap();
-    //         let field_values: Vec<FieldValue> = vec![];
-    //         Ok(TantivyDocument::from(field_values))
-    //     }
-    // }
+        //     // let num_field_values = VInt::deserialize(&mut cursor).unwrap().val() as usize;
+        //     // let field_values = (0..num_field_values)
+        //     //     .map(|_| FieldValue::deserialize(&mut cursor ))
+        //     //     .collect::<io::Result<Vec<FieldValue>>>().unwrap();
+        //     let field_values: Vec<FieldValue> = vec![];
+        //     Ok(TantivyDocument::from(field_values))
+        // }
+
+        fn visit_str<E>(self, value: &str) -> Result<TantivyDocument, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(serde_json::from_str(value).unwrap())
+        }
+    }
+
+    deserializer.deserialize_str(DocumentVisitor)
 
     // deserializer.deserialize_bytes(DocumentVisitor)
-    TantivyDocument::deserialize(deserializer)
+    // TantivyDocument::deserialize(deserializer)
 }
 
 #[cfg(test)]

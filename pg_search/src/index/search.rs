@@ -231,12 +231,19 @@ impl SearchIndex {
         // Send the insert requests to the writer server.
         let request = WriterRequest::Insert {
             directory: self.directory.clone(),
-            document,
+            document: document.clone(),
         };
+
+        pgrx::info!("insert 1 {:?}", document);
 
         let WriterTransferPipeFilePath(pipe_path) =
             self.directory.writer_transfer_pipe_path(true)?;
+
+        pgrx::info!("insert 2");
+
         writer.lock()?.transfer(pipe_path, request)?;
+
+        pgrx::info!("insert 3");
 
         Ok(())
     }

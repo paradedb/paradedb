@@ -97,18 +97,23 @@ impl<T: Serialize> Client<T> {
         pipe_path: P,
         request: T,
     ) -> Result<(), ClientError> {
+        pgrx::info!("send_transfer 1");
         if self.producer.is_none() {
+            pgrx::info!("send_transfer 2");
             // Send a request to open a transfer to the server.
             self.send_request(ServerRequest::Transfer(
                 pipe_path.as_ref().display().to_string(),
             ))?;
+            pgrx::info!("send_transfer 3");
             // Store a new transfer producer in the client state.
             self.producer
                 .replace(WriterTransferProducer::new(pipe_path)?);
+            pgrx::info!("send_transfer 4");
         }
 
         // There is an existing producer in client state, use it to send the request.
         self.producer.as_mut().unwrap().write_message(&request)?;
+        pgrx::info!("send_transfer 5");
         Ok(())
     }
 

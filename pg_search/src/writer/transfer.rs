@@ -59,6 +59,7 @@ where
     type Item = bincode::Result<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        log::debug!("WriterTransferMessageIterator next");
         match bincode::deserialize_from(&mut self.stream) {
             Err(err) => Some(Err(err)),
             Ok(WriterTransferMessage::Done) => None,
@@ -88,11 +89,21 @@ impl<T: Serialize> WriterTransferProducer<T> {
     }
 
     pub fn write_message(&mut self, data: &T) -> std::io::Result<()> {
+        pgrx::info!("write_message 1");
         let message = WriterTransferMessage::Data(data);
         let serialized = bincode::serialize(&message)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-        self.write_all(&serialized)?;
-        self.flush()
+        pgrx::info!("write_message 2: {:?}", serialized);
+        let res = self.write_all(&serialized);
+        pgrx::info!("write_message 3");
+        if let Err(err) = res {
+            pgrx::info!("write_message err: {:?}", err);
+            return Err(err);
+        }
+        let ret = self.flush();
+        pgrx::info!("write_message 4");
+
+        ret
     }
 
     pub fn write_done_message(&mut self) -> std::io::Result<()> {

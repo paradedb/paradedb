@@ -30,6 +30,7 @@ deltalake = { git = "https://github.com/delta-io/delta-rs.git", features = [
   "azure",
 ] }
 duckdb = { version = "0.10.2", features = ["bundled"] }
+lazy_static = "1.4.0"
 object_store = { version = "0.9.1", features = ["aws", "http"] }
 object_store_opendal = { git = "https://github.com/apache/opendal.git", rev = "79ab57f" }
 opendal = { git = "https://github.com/apache/opendal.git", features = [

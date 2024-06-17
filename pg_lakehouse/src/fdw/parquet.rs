@@ -2,9 +2,9 @@ use anyhow::{anyhow, Result};
 use async_std::stream::StreamExt;
 use async_std::sync::RwLock;
 use async_std::task;
-use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
+use duckdb::arrow::array::RecordBatch;
 use duckdb::{params, Arrow, Connection, Statement};
 use pgrx::*;
 use std::collections::HashMap;
@@ -13,7 +13,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use crate::datafusion::format::TableFormat;
-use crate::duckdb::connection::duckdb_connection;
+use crate::duckdb::connection::{ConnectionWrapper, duckdb_connection};
 use crate::fdw::options::*;
 
 use super::base::*;
@@ -24,7 +24,7 @@ use super::base::*;
     error_type = "BaseFdwError"
 )]
 pub(crate) struct ParquetFdw<'a> {
-    connection: Arc<Connection>,
+    connection: ConnectionWrapper<'a>,
     arrow: Option<Arc<RwLock<Arrow<'a>>>>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
@@ -81,7 +81,7 @@ impl ParquetOption {
     }
 }
 
-impl<'a> BaseFdw<'a> for ParquetFdw<'a> {
+impl BaseFdw for ParquetFdw<'_> {
     fn get_current_batch(&self) -> Option<RecordBatch> {
         self.current_batch.clone()
     }
@@ -102,8 +102,8 @@ impl<'a> BaseFdw<'a> for ParquetFdw<'a> {
         self.arrow.is_some()
     }
 
-    fn set_arrow(&mut self, arrow: Option<Arc<RwLock<Arrow<'a>>>>) {
-        self.arrow = arrow;
+    fn set_arrow(&mut self) {
+        // self.arrow = arrow;
     }
 
     fn set_current_batch(&mut self, batch: Option<RecordBatch>) {
@@ -133,15 +133,17 @@ impl<'a> BaseFdw<'a> for ParquetFdw<'a> {
     }
 }
 
-impl<'a> ForeignDataWrapper<BaseFdwError> for ParquetFdw<'a> {
+impl ForeignDataWrapper<BaseFdwError> for ParquetFdw<'_> {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
+        let connection = Arc::new(Connection::open_in_memory()?);
+
         Ok(Self {
             arrow: None,
-            connection: duckdb_connection(),
+            connection: ConnectionWrapper(&connection),
             current_batch: None,
             current_batch_index: 0,
             sql: None,

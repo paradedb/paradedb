@@ -11,3 +11,5 @@ thread_local! {
 pub fn duckdb_connection() -> Arc<Connection> {
     THREAD_LOCAL_DATA.with(|data| data.borrow().clone())
 }
+
+pub struct ConnectionWrapper<'conn>(pub &'conn Arc<Connection>);

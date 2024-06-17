@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
 use async_std::sync::RwLock;
 use datafusion::arrow::error::ArrowError;
-use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::DataFusionError;
 use deltalake::DeltaTableError;
-use duckdb::{Arrow};
+use duckdb::arrow::array::RecordBatch;
+use duckdb::Arrow;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use crate::datafusion::session::*;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;
 
-pub trait BaseFdw<'a> {
+pub trait BaseFdw {
     // Getter methods
     fn get_current_batch(&self) -> Option<RecordBatch>;
     fn get_current_batch_index(&self) -> usize;
@@ -28,7 +28,7 @@ pub trait BaseFdw<'a> {
     fn scan_started(&self) -> bool;
 
     // Setter methods
-    fn set_arrow(&mut self, arrow: Option<Arc<RwLock<Arrow<'a>>>>);
+    fn set_arrow(&mut self);
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
     fn set_current_batch_index(&mut self, idx: usize);
     fn set_sql(&mut self, statement: Option<String>);

@@ -13,7 +13,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use crate::datafusion::format::TableFormat;
-use crate::duckdb::connection::{ConnectionWrapper, duckdb_connection};
+use crate::duckdb::connection::{duckdb_connection, ConnectionWrapper};
 use crate::fdw::options::*;
 
 use super::base::*;
@@ -25,7 +25,6 @@ use super::base::*;
 )]
 pub(crate) struct ParquetFdw<'a> {
     connection: ConnectionWrapper<'a>,
-    arrow: Option<Arc<RwLock<Arrow<'a>>>>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
     sql: Option<String>,
@@ -99,7 +98,7 @@ impl BaseFdw for ParquetFdw<'_> {
     }
 
     fn scan_started(&self) -> bool {
-        self.arrow.is_some()
+        self.connection.arrow.is_some()
     }
 
     fn set_arrow(&mut self) {
@@ -124,6 +123,7 @@ impl BaseFdw for ParquetFdw<'_> {
 
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>> {
         Ok(self
+            .connection
             .arrow
             .as_mut()
             .ok_or_else(|| anyhow!("no Arrow batches found"))?
@@ -139,11 +139,8 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw<'_> {
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        let connection = Arc::new(Connection::open_in_memory()?);
-
         Ok(Self {
-            arrow: None,
-            connection: ConnectionWrapper(&connection),
+            connection: ConnectionWrapper::new()?,
             current_batch: None,
             current_batch_index: 0,
             sql: None,

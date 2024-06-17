@@ -16,8 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::{anyhow, Result};
-use datafusion::common::arrow::array::RecordBatch;
-use datafusion::logical_expr::LogicalPlan;
+use duckdb::arrow::array::RecordBatch;
 use pgrx::*;
 use std::ffi::CStr;
 
@@ -80,14 +79,6 @@ pub fn executor_run(
     };
 
     Ok(())
-}
-
-#[inline]
-async fn get_datafusion_batches(logical_plan: LogicalPlan) -> Result<Vec<RecordBatch>> {
-    // Execute the logical plan and collect the resulting batches
-    let context = Session::session_context()?;
-    let dataframe = context.execute_logical_plan(logical_plan).await?;
-    Ok(dataframe.collect().await?)
 }
 
 #[inline]

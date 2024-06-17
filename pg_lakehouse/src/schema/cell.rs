@@ -15,19 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::arrow::array::types::{
+use duckdb::arrow::array::types::{
     ArrowTemporalType, Date32Type, Date64Type, Decimal128Type, Time32MillisecondType,
     Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
     TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type,
     UInt64Type, UInt8Type,
 };
-use datafusion::arrow::array::{
+use duckdb::arrow::array::{
     timezone::Tz, Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray,
     BooleanArray, Decimal128Array, Float16Array, Float32Array, Float64Array, GenericByteArray,
     Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, StringArray,
 };
-use datafusion::arrow::datatypes::{DataType, DecimalType, GenericStringType, TimeUnit};
-use datafusion::arrow::error::ArrowError;
+use duckdb::arrow::datatypes::{DataType, DecimalType, GenericStringType, TimeUnit};
+use duckdb::arrow::error::ArrowError;
 use datafusion::common::{downcast_value, DataFusionError};
 use pgrx::*;
 use std::fmt::Debug;

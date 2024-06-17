@@ -251,9 +251,7 @@ CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
 )
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
-fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
-    let schema_name = schema_name.unwrap_or("current_schema()");
-
+fn drop_bm25(index_name: &str, schema_name: &str) -> Result<()> {
     Spi::run(&format!(
         r#"
         DO $$

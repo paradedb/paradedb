@@ -30,7 +30,7 @@ use tantivy::{
     },
     query_grammar::Occur,
     schema::{Field, FieldType, IndexRecordOption, OwnedValue},
-    DocAddress, Term,
+    DocAddress, Searcher, Term,
 };
 use thiserror::Error;
 
@@ -202,6 +202,7 @@ impl SearchQueryInput {
         self,
         field_lookup: &impl AsFieldType<String>,
         parser: &mut QueryParser,
+        searcher: &Searcher,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::All => Ok(Box::new(AllQuery)),
@@ -212,28 +213,31 @@ impl SearchQueryInput {
             } => {
                 let mut subqueries = vec![];
                 for input in must {
-                    subqueries.push((Occur::Must, input.into_tantivy_query(field_lookup, parser)?));
+                    subqueries.push((
+                        Occur::Must,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                    ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(field_lookup, parser)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(field_lookup, parser)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(field_lookup, parser)?,
+                query.into_tantivy_query(field_lookup, parser, searcher)?,
                 boost,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(field_lookup, parser)?,
+                query.into_tantivy_query(field_lookup, parser, searcher)?,
                 score,
             ))),
             Self::DisjunctionMax {
@@ -242,7 +246,7 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(field_lookup, parser))
+                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher))
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -339,6 +343,9 @@ impl SearchQueryInput {
                 }
 
                 if let Some(document_id) = document_id {
+                    searcher
+                        .doc_id(document_id as u32)
+                        .ok_or_else(|| QueryError::NonIndexedField("id".to_string()))?;
                     return Ok(Box::new(
                         // TODO: We need to get the segment ord from somewhere
                         builder.with_document(DocAddress::new(0, document_id as u32)),

@@ -237,15 +237,16 @@ impl SearchState {
     pub fn new(search_index: &SearchIndex, config: &SearchConfig) -> Self {
         let schema = search_index.schema.clone();
         let mut parser = search_index.query_parser();
+        let searcher = search_index.searcher();
         let query = config
             .query
             .clone()
-            .into_tantivy_query(&schema, &mut parser)
+            .into_tantivy_query(&schema, &mut parser, &searcher)
             .expect("could not parse query");
         SearchState {
             query: Arc::new(query),
             config: config.clone(),
-            searcher: search_index.searcher(),
+            searcher,
             schema: schema.clone(),
         }
     }

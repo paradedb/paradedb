@@ -80,6 +80,8 @@ pub trait BaseFdw {
 
         self.set_sql(Some(sql));
 
+        connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
+
         Ok(())
     }
 

@@ -37,6 +37,15 @@ pub fn create_arrow(sql: &str) -> Result<()> {
     })
 }
 
+pub fn clear_arrow() {
+    THREAD_LOCAL_STATEMENT.with(|stmt| {
+        *stmt.borrow_mut() = None;
+    });
+    THREAD_LOCAL_ARROW.with(|arrow| {
+        *arrow.borrow_mut() = None;
+    });
+}
+
 pub fn get_next_batch() -> Result<Option<RecordBatch>> {
     THREAD_LOCAL_ARROW.with(|arrow| {
         let mut arrow = arrow.borrow_mut();

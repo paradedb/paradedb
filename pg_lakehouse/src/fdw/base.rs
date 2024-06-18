@@ -12,11 +12,13 @@ use supabase_wrappers::prelude::*;
 use thiserror::Error;
 use url::Url;
 
+use super::handler::FdwHandler;
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::*;
 use crate::duckdb::connection;
+use crate::duckdb::parquet::create_parquet_view;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;
 
@@ -52,6 +54,24 @@ pub trait BaseFdw {
         let schema_name = pg_relation.namespace();
         let table_name = pg_relation.name();
 
+        if !connection::view_exists(table_name, schema_name)? {
+            let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+            let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+            let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+
+            match FdwHandler::from(foreign_server) {
+                FdwHandler::Parquet => {
+                    create_parquet_view(table_name, schema_name, table_options)?;
+                }
+                _ => {
+                    todo!()
+                }
+            }
+        }
+
+        connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
+
+        // Construct SQL scan statement
         let targets = if columns.is_empty() {
             "*".to_string()
         } else {
@@ -79,9 +99,6 @@ pub trait BaseFdw {
         }
 
         self.set_sql(Some(sql));
-
-        connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
-
         Ok(())
     }
 

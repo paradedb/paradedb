@@ -1,22 +1,12 @@
-use anyhow::{anyhow, Result};
-use async_std::stream::StreamExt;
-use async_std::sync::RwLock;
+use anyhow::Result;
 use async_std::task;
-use datafusion::physical_plan::SendableRecordBatchStream;
-use datafusion::prelude::DataFrame;
 use duckdb::arrow::array::RecordBatch;
-use duckdb::{params, Arrow, Connection, Statement};
 use pgrx::*;
 use std::collections::HashMap;
-use std::sync::Arc;
 use supabase_wrappers::prelude::*;
-use url::Url;
-
-use crate::duckdb::connection;
-use crate::duckdb::parquet::ParquetOption;
-use crate::fdw::options::*;
 
 use super::base::*;
+use crate::duckdb::parquet::ParquetOption;
 
 #[wrappers_fdw(
     author = "ParadeDB",
@@ -28,6 +18,7 @@ pub(crate) struct ParquetFdw {
     current_batch_index: usize,
     sql: Option<String>,
     target_columns: Vec<Column>,
+    user_mapping_options: HashMap<String, String>,
 }
 
 impl BaseFdw for ParquetFdw {
@@ -45,6 +36,10 @@ impl BaseFdw for ParquetFdw {
 
     fn get_target_columns(&self) -> Vec<Column> {
         self.target_columns.clone()
+    }
+
+    fn get_user_mapping_options(&self) -> HashMap<String, String> {
+        self.user_mapping_options.clone()
     }
 
     fn set_current_batch(&mut self, batch: Option<RecordBatch>) {
@@ -66,8 +61,8 @@ impl BaseFdw for ParquetFdw {
 
 impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
     fn new(
-        table_options: HashMap<String, String>,
-        server_options: HashMap<String, String>,
+        _table_options: HashMap<String, String>,
+        _server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         Ok(Self {
@@ -75,6 +70,7 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
             current_batch_index: 0,
             sql: None,
             target_columns: Vec::new(),
+            user_mapping_options,
         })
     }
 
@@ -99,6 +95,7 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
                         }
                     }
                 }
+                // TODO: Sanitize user mapping options
                 _ => {}
             }
         }

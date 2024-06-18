@@ -21,7 +21,6 @@ pg_test = []
 anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
-dashmap = "5.5.3"
 datafusion = { version = "37.1.0", features = ["avro"] }
 duckdb = { version = "0.10.2", features = ["bundled"] }
 lazy_static = "1.4.0"
@@ -43,6 +42,7 @@ url = "2.5.0"
 [dev-dependencies]
 aws-config = "1.5.1"
 aws-sdk-s3 = "1.34.0"
+deltalake = "0.17.3"
 futures = "0.3.30"
 pgrx-tests = "0.11.3"
 rstest = "0.19.0"

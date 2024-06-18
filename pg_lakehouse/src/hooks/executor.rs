@@ -60,6 +60,7 @@ pub fn executor_run(
     }
 
     if let Err(err) = connection::create_arrow(query.as_str()) {
+        connection::clear_arrow();
         fallback_warning!(err.to_string());
         prev_hook(query_desc, direction, count, execute_once);
         return Ok(());

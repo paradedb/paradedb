@@ -16,6 +16,7 @@ use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::*;
+use crate::duckdb::connection;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;
 
@@ -25,16 +26,13 @@ pub trait BaseFdw {
     fn get_current_batch_index(&self) -> usize;
     fn get_sql(&self) -> Option<String>;
     fn get_target_columns(&self) -> Vec<Column>;
-    fn scan_started(&self) -> bool;
 
     // Setter methods
-    fn set_arrow(&mut self);
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
     fn set_current_batch_index(&mut self, idx: usize);
     fn set_sql(&mut self, statement: Option<String>);
     fn set_target_columns(&mut self, columns: &[Column]);
 
-    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>>;
     async fn begin_scan_impl(
         &mut self,
         _quals: &[Qual],
@@ -86,13 +84,12 @@ pub trait BaseFdw {
     }
 
     async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        // if !self.scan_started() {
-        //     let mut statement = self
-        //         .connection
-        //         .prepare(self.sql.as_ref().ok_or_else(|| anyhow!("sql not found"))?.as_str())?;
-        //     let arrow = statement.query_arrow([])?;
-        //     self.set_arrow(Some(Arc::new(RwLock::new(arrow))));
-        // }
+        if !connection::has_results() {
+            let sql = self
+                .get_sql()
+                .ok_or_else(|| anyhow!("sql statement was not cached"))?;
+            connection::create_arrow(sql.as_str())?;
+        }
 
         if self.get_current_batch().is_none()
             || self.get_current_batch_index()
@@ -103,7 +100,7 @@ pub trait BaseFdw {
                     .num_rows()
         {
             self.set_current_batch_index(0);
-            let next_batch = self.get_next_batch().await?;
+            let next_batch = connection::get_next_batch()?;
 
             if next_batch.is_none() {
                 return Ok(None);
@@ -136,6 +133,7 @@ pub trait BaseFdw {
     }
 
     fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
+        connection::clear_arrow();
         Ok(())
     }
 }

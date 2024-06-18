@@ -96,14 +96,6 @@ impl BaseFdw for ParquetFdw {
         self.target_columns.clone()
     }
 
-    fn scan_started(&self) -> bool {
-        connection::has_results()
-    }
-
-    fn set_arrow(&mut self) {
-        // self.arrow = arrow;
-    }
-
     fn set_current_batch(&mut self, batch: Option<RecordBatch>) {
         self.current_batch = batch;
     }
@@ -118,10 +110,6 @@ impl BaseFdw for ParquetFdw {
 
     fn set_target_columns(&mut self, columns: &[Column]) {
         self.target_columns = columns.to_vec();
-    }
-
-    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        connection::get_next_batch()
     }
 }
 

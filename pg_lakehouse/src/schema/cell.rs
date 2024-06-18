@@ -28,7 +28,6 @@ use duckdb::arrow::array::{
 };
 use duckdb::arrow::datatypes::{DataType, DecimalType, GenericStringType, TimeUnit};
 use duckdb::arrow::error::ArrowError;
-use datafusion::common::{downcast_value, DataFusionError};
 use pgrx::*;
 use std::fmt::Debug;
 use std::str::FromStr;

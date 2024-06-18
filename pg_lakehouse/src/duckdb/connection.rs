@@ -80,3 +80,14 @@ pub fn execute<P: Params>(sql: &str, params: P) -> Result<usize> {
         conn.execute(sql, params).map_err(|err| anyhow!("{err}"))
     })
 }
+
+pub fn view_exists(table_name: &str, schema_name: &str) -> Result<bool> {
+    THREAD_LOCAL_CONNECTION.with(|connection| {
+        let conn = connection.borrow_mut();
+        let mut statement = conn.prepare(format!("SELECT * from information_schema.tables WHERE table_schema = '{schema_name}' AND table_name = '{table_name}' AND table_type = 'VIEW'").as_str())?;
+        match statement.query([])?.next() {
+            Ok(Some(_)) => Ok(true),
+            _ => Ok(false),
+        }
+    })
+}

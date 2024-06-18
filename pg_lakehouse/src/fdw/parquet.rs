@@ -12,7 +12,6 @@ use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
 
-use crate::datafusion::format::TableFormat;
 use crate::duckdb::connection;
 use crate::duckdb::parquet::ParquetOption;
 use crate::fdw::options::*;

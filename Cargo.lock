@@ -420,7 +420,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02d9483aaabe910c4781153ae1b6ae0393f72d9ef757d38d09d450070cf2e528"
 dependencies = [
  "bitflags 2.5.0",
- "serde",
 ]
 
 [[package]]
@@ -762,29 +761,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-sdk-dynamodb"
-version = "1.35.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf1197c148da452ab5f654aa2a189bf00d58bffda74ece6809083b3b37478422"
-dependencies = [
- "aws-credential-types",
- "aws-runtime",
- "aws-smithy-async",
- "aws-smithy-http",
- "aws-smithy-json",
- "aws-smithy-runtime",
- "aws-smithy-runtime-api",
- "aws-smithy-types",
- "aws-types",
- "bytes",
- "fastrand 2.1.0",
- "http 0.2.12",
- "once_cell",
- "regex-lite",
- "tracing",
-]
-
-[[package]]
 name = "aws-sdk-s3"
 version = "1.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1090,20 +1066,6 @@ dependencies = [
  "http 0.2.12",
  "rustc_version 0.4.0",
  "tracing",
-]
-
-[[package]]
-name = "backoff"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b62ddb9cb1ec0a098ad4bbf9344d0713fa193ae1a80af55febcff2627b6a00c1"
-dependencies = [
- "futures-core",
- "getrandom",
- "instant",
- "pin-project-lite",
- "rand",
- "tokio",
 ]
 
 [[package]]
@@ -2668,21 +2630,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "datafusion-proto"
-version = "37.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db73393e42f35e165d31399192fbf41691967d428ebed47875ad34239fbcfc16"
-dependencies = [
- "arrow",
- "chrono",
- "datafusion 37.1.0",
- "datafusion-common 37.1.0",
- "datafusion-expr 37.1.0",
- "object_store",
- "prost",
-]
-
-[[package]]
 name = "datafusion-sql"
 version = "37.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2712,141 +2659,6 @@ dependencies = [
  "log",
  "sqlparser 0.45.0",
  "strum 0.26.2",
-]
-
-[[package]]
-name = "deltalake"
-version = "0.17.1"
-source = "git+https://github.com/delta-io/delta-rs.git?rev=27c1e48#27c1e48cd98465f41fd718bbbe433ee1f40f394c"
-dependencies = [
- "deltalake-aws",
- "deltalake-azure",
- "deltalake-core",
- "deltalake-gcp",
-]
-
-[[package]]
-name = "deltalake-aws"
-version = "0.1.1"
-source = "git+https://github.com/delta-io/delta-rs.git?rev=27c1e48#27c1e48cd98465f41fd718bbbe433ee1f40f394c"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-credential-types",
- "aws-sdk-dynamodb",
- "aws-sdk-sts",
- "aws-smithy-runtime-api",
- "backoff",
- "bytes",
- "deltalake-core",
- "futures",
- "lazy_static",
- "maplit",
- "object_store",
- "regex",
- "thiserror",
- "tokio",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "deltalake-azure"
-version = "0.1.0"
-source = "git+https://github.com/delta-io/delta-rs.git?rev=27c1e48#27c1e48cd98465f41fd718bbbe433ee1f40f394c"
-dependencies = [
- "async-trait",
- "bytes",
- "deltalake-core",
- "futures",
- "lazy_static",
- "object_store",
- "regex",
- "thiserror",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "deltalake-core"
-version = "0.17.3"
-source = "git+https://github.com/delta-io/delta-rs.git?rev=27c1e48#27c1e48cd98465f41fd718bbbe433ee1f40f394c"
-dependencies = [
- "arrow",
- "arrow-arith",
- "arrow-array",
- "arrow-buffer",
- "arrow-cast",
- "arrow-ipc",
- "arrow-json",
- "arrow-ord",
- "arrow-row",
- "arrow-schema",
- "arrow-select",
- "async-trait",
- "bytes",
- "cfg-if",
- "chrono",
- "dashmap",
- "datafusion 37.1.0",
- "datafusion-common 37.1.0",
- "datafusion-expr 37.1.0",
- "datafusion-functions 37.1.0",
- "datafusion-functions-array 37.1.0",
- "datafusion-physical-expr 37.1.0",
- "datafusion-proto",
- "datafusion-sql 37.1.0",
- "either",
- "errno",
- "fix-hidden-lifetime-bug",
- "futures",
- "hashbrown 0.14.5",
- "indexmap 2.2.6",
- "itertools 0.12.1",
- "lazy_static",
- "libc",
- "maplit",
- "num-bigint",
- "num-traits",
- "num_cpus",
- "object_store",
- "once_cell",
- "parking_lot",
- "parquet",
- "percent-encoding",
- "pin-project-lite",
- "rand",
- "regex",
- "roaring",
- "serde",
- "serde_json",
- "sqlparser 0.44.0",
- "thiserror",
- "tokio",
- "tracing",
- "url",
- "uuid",
- "z85",
-]
-
-[[package]]
-name = "deltalake-gcp"
-version = "0.2.0"
-source = "git+https://github.com/delta-io/delta-rs.git?rev=27c1e48#27c1e48cd98465f41fd718bbbe433ee1f40f394c"
-dependencies = [
- "async-trait",
- "bytes",
- "deltalake-core",
- "futures",
- "lazy_static",
- "object_store",
- "regex",
- "thiserror",
- "tokio",
- "tracing",
- "url",
 ]
 
 [[package]]
@@ -3352,24 +3164,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "fix-hidden-lifetime-bug"
-version = "0.2.5"
+name = "finl_unicode"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4ae9c2016a663983d4e40a9ff967d6dcac59819672f0b47f2b17574e99c33c8"
-dependencies = [
- "fix-hidden-lifetime-bug-proc_macros",
-]
-
-[[package]]
-name = "fix-hidden-lifetime-bug-proc_macros"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4c81935e123ab0741c4c4f0d9b8377e5fb21d3de7e062fa4b1263b1fbcba1ea"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
+checksum = "8fcfdc7a0362c9f4444381a9e697c79d435fe65b52a37466fc2c1184cee9edc6"
 
 [[package]]
 name = "fixedbitset"
@@ -4815,12 +4613,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "maplit"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
-
-[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5121,7 +4913,6 @@ dependencies = [
  "rand",
  "reqwest 0.11.27",
  "ring",
- "rustls-pemfile 2.1.2",
  "serde",
  "serde_json",
  "snafu",
@@ -5579,7 +5370,6 @@ dependencies = [
  "chrono",
  "dashmap",
  "datafusion 37.1.0",
- "deltalake",
  "duckdb",
  "futures",
  "lazy_static",
@@ -6122,29 +5912,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prost"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
-dependencies = [
- "bytes",
- "prost-derive",
-]
-
-[[package]]
-name = "prost-derive"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
-dependencies = [
- "anyhow",
- "itertools 0.12.1",
- "proc-macro2",
- "quote",
- "syn 2.0.66",
-]
-
-[[package]]
 name = "ptr_meta"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6598,16 +6365,6 @@ name = "rle-decode-fast"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3582f63211428f83597b51b2ddb88e2a91a9d52d12831f9d08f5e624e8977422"
-
-[[package]]
-name = "roaring"
-version = "0.10.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7699249cc2c7d71939f30868f47e9d7add0bdc030d90ee10bfd16887ff8bb1c8"
-dependencies = [
- "bytemuck",
- "byteorder",
-]
 
 [[package]]
 name = "rsa"
@@ -8347,7 +8104,6 @@ dependencies = [
  "libc",
  "mio",
  "num_cpus",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.5.7",
@@ -9228,12 +8984,6 @@ name = "yansi"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
-
-[[package]]
-name = "z85"
-version = "3.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a599daf1b507819c1121f0bf87fa37eb19daac6aff3aefefd4e6e2e0f2020fc"
 
 [[package]]
 name = "zerocopy"

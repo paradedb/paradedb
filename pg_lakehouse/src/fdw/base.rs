@@ -1,8 +1,5 @@
 use anyhow::{anyhow, Result};
 use async_std::sync::RwLock;
-use datafusion::arrow::error::ArrowError;
-use datafusion::common::DataFusionError;
-use deltalake::DeltaTableError;
 use duckdb::arrow::array::RecordBatch;
 use duckdb::Arrow;
 use pgrx::*;
@@ -13,10 +10,6 @@ use thiserror::Error;
 use url::Url;
 
 use super::handler::FdwHandler;
-use crate::datafusion::context::ContextError;
-use crate::datafusion::format::*;
-use crate::datafusion::provider::*;
-use crate::datafusion::session::*;
 use crate::duckdb::connection;
 use crate::duckdb::parquet::create_parquet_view;
 use crate::schema::attribute::*;

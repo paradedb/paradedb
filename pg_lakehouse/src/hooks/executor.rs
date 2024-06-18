@@ -20,7 +20,6 @@ use duckdb::arrow::array::RecordBatch;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::session::Session;
 use crate::duckdb::connection;
 use crate::schema::cell::*;
 

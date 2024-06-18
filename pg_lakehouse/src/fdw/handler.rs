@@ -20,14 +20,6 @@ use pgrx::*;
 use std::collections::HashMap;
 use url::Url;
 
-use crate::datafusion::format::TableFormat;
-
-// use super::azblob::AzblobFdw;
-// use super::azdls::AzdlsFdw;
-// use super::gcs::GcsFdw;
-// use super::local::LocalFileFdw;
-// use super::s3::S3Fdw;
-
 #[derive(PartialEq)]
 pub enum FdwHandler {
     Csv,
@@ -77,16 +69,4 @@ impl From<*mut pg_sys::ForeignTable> for FdwHandler {
         let server = unsafe { pg_sys::GetForeignServer((*table).serverid) };
         FdwHandler::from(server)
     }
-}
-
-pub fn register_object_store(
-    handler: FdwHandler,
-    url: &Url,
-    format: TableFormat,
-    server_options: HashMap<String, String>,
-    user_mapping_options: HashMap<String, String>,
-) -> Result<()> {
-    {}
-
-    Ok(())
 }

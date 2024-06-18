@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::fdw::base::BaseFdwError;
+use anyhow::{anyhow, Result};
 use pgrx::*;
 use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
@@ -92,13 +93,13 @@ impl ObjectStoreConfig {
 }
 
 pub trait ForeignOptions {
-    fn table_options(&self) -> Result<HashMap<String, String>, OptionsError>;
-    fn server_options(&self) -> Result<HashMap<String, String>, OptionsError>;
-    fn user_mapping_options(&self) -> Result<HashMap<String, String>, OptionsError>;
+    fn table_options(&self) -> Result<HashMap<String, String>>;
+    fn server_options(&self) -> Result<HashMap<String, String>>;
+    fn user_mapping_options(&self) -> Result<HashMap<String, String>>;
 }
 
 impl ForeignOptions for PgRelation {
-    fn table_options(&self) -> Result<HashMap<String, String>, OptionsError> {
+    fn table_options(&self) -> Result<HashMap<String, String>> {
         if !self.is_foreign_table() {
             return Ok(HashMap::new());
         }
@@ -109,7 +110,7 @@ impl ForeignOptions for PgRelation {
         Ok(table_options)
     }
 
-    fn server_options(&self) -> Result<HashMap<String, String>, OptionsError> {
+    fn server_options(&self) -> Result<HashMap<String, String>> {
         if !self.is_foreign_table() {
             return Ok(HashMap::new());
         }
@@ -121,7 +122,7 @@ impl ForeignOptions for PgRelation {
         Ok(server_options)
     }
 
-    fn user_mapping_options(&self) -> Result<HashMap<String, String>, OptionsError> {
+    fn user_mapping_options(&self) -> Result<HashMap<String, String>> {
         if !self.is_foreign_table() {
             return Ok(HashMap::new());
         }
@@ -134,17 +135,18 @@ impl ForeignOptions for PgRelation {
     }
 }
 
-pub fn validate_options(
-    opt_list: Vec<Option<String>>,
-    valid_options: Vec<String>,
-) -> Result<(), BaseFdwError> {
+pub fn validate_options(opt_list: Vec<Option<String>>, valid_options: Vec<String>) -> Result<()> {
     for opt in opt_list
         .iter()
         .flatten()
         .map(|opt| opt.split('=').next().unwrap_or(""))
     {
         if !valid_options.contains(&opt.to_string()) {
-            return Err(BaseFdwError::InvalidOption(opt.to_string(), valid_options));
+            return Err(anyhow!(
+                "invalid option: {}. valid options are: {}",
+                opt,
+                valid_options.join(", ")
+            ));
         }
     }
 

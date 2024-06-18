@@ -40,12 +40,12 @@ pub trait BaseFdw {
         sorts: &[Sort],
         limit: &Option<Limit>,
         options: HashMap<String, String>,
-    ) -> Result<(), BaseFdwError> {
+    ) -> Result<()> {
         self.set_target_columns(columns);
 
         let oid_u32: u32 = options
             .get(OPTS_TABLE_KEY)
-            .ok_or(BaseFdwError::TableOidNotFound)?
+            .ok_or_else(|| anyhow!("table oid not found"))?
             .parse()?;
         let table_oid = pg_sys::Oid::from(oid_u32);
         let pg_relation = unsafe { PgRelation::open(table_oid) };
@@ -85,7 +85,7 @@ pub trait BaseFdw {
         Ok(())
     }
 
-    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
+    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>> {
         if !connection::has_results() {
             let sql = self
                 .get_sql()
@@ -134,9 +134,8 @@ pub trait BaseFdw {
         Ok(Some(()))
     }
 
-    fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
+    fn end_scan_impl(&mut self) {
         connection::clear_arrow();
-        Ok(())
     }
 }
 
@@ -152,62 +151,5 @@ pub enum BaseFdwError {
     Anyhow(#[from] anyhow::Error),
 
     #[error(transparent)]
-    ArrowError(#[from] ArrowError),
-
-    #[error(transparent)]
-    ContextError(#[from] ContextError),
-
-    #[error(transparent)]
-    DataFusionError(#[from] DataFusionError),
-
-    #[error(transparent)]
-    DataTypeError(#[from] DataTypeError),
-
-    #[error(transparent)]
-    DeltaTableError(#[from] DeltaTableError),
-
-    #[error(transparent)]
-    DuckDBError(#[from] duckdb::Error),
-
-    #[error(transparent)]
-    FormatError(#[from] FormatError),
-
-    #[error(transparent)]
-    OptionsError(#[from] supabase_wrappers::options::OptionsError),
-
-    #[error(transparent)]
-    ParseIntError(#[from] std::num::ParseIntError),
-
-    #[error(transparent)]
-    SchemaError(#[from] SchemaError),
-
-    #[error(transparent)]
-    SessionError(#[from] SessionError),
-
-    #[error(transparent)]
-    TableProviderError(#[from] TableProviderError),
-
-    #[error(transparent)]
-    UrlParseError(#[from] url::ParseError),
-
-    #[error("Unexpected error: Expected RecordBatch but found None")]
-    BatchNotFound,
-
-    #[error("Unexpected error: DataFrame not found")]
-    DataFrameNotFound,
-
-    #[error("Received unexpected option \"{0}\". Valid options are: {1:?}")]
-    InvalidOption(String, Vec<String>),
-
-    #[error("Unexpected error: Expected SendableRecordBatchStream but found None")]
-    StreamNotFound,
-
-    #[error("Unexpected error: Table OID not found")]
-    TableOidNotFound,
-
-    #[error("Received unsupported FDW oid {0:?}")]
-    UnsupportedFdwOid(PgOid),
-
-    #[error("Url path {0:?} cannot be a base")]
-    UrlNotBase(Url),
+    Options(#[from] OptionsError),
 }

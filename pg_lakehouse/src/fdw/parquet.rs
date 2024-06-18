@@ -14,6 +14,7 @@ use url::Url;
 
 use crate::datafusion::format::TableFormat;
 use crate::duckdb::connection;
+use crate::duckdb::parquet::ParquetOption;
 use crate::fdw::options::*;
 
 use super::base::*;
@@ -28,55 +29,6 @@ pub(crate) struct ParquetFdw {
     current_batch_index: usize,
     sql: Option<String>,
     target_columns: Vec<Column>,
-}
-
-pub enum ParquetOption {
-    BinaryAsString,
-    EncryptionConfig,
-    FileName,
-    FileRowNumber,
-    Files,
-    HivePartitioning,
-    UnionByName,
-}
-
-impl ParquetOption {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::BinaryAsString => "binary_as_string",
-            Self::EncryptionConfig => "encryption_config",
-            Self::FileName => "file_name",
-            Self::FileRowNumber => "file_row_number",
-            Self::Files => "files",
-            Self::HivePartitioning => "hive_partitioning",
-            Self::UnionByName => "union_by_name",
-        }
-    }
-
-    pub fn is_required(&self) -> bool {
-        match self {
-            Self::BinaryAsString => false,
-            Self::EncryptionConfig => false,
-            Self::FileName => false,
-            Self::FileRowNumber => false,
-            Self::Files => true,
-            Self::HivePartitioning => false,
-            Self::UnionByName => false,
-        }
-    }
-
-    pub fn iter() -> impl Iterator<Item = Self> {
-        [
-            Self::BinaryAsString,
-            Self::EncryptionConfig,
-            Self::FileName,
-            Self::FileRowNumber,
-            Self::Files,
-            Self::HivePartitioning,
-            Self::UnionByName,
-        ]
-        .into_iter()
-    }
 }
 
 impl BaseFdw for ParquetFdw {
@@ -148,9 +100,7 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
                         }
                     }
                 }
-                unsupported => {
-                    return Err(BaseFdwError::UnsupportedFdwOid(PgOid::from(unsupported)))
-                }
+                _ => {}
             }
         }
 
@@ -165,15 +115,17 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
-        task::block_on(self.begin_scan_impl(quals, columns, sorts, limit, options));
-        Ok(())
+        Ok(task::block_on(
+            self.begin_scan_impl(quals, columns, sorts, limit, options),
+        )?)
     }
 
     fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        task::block_on(self.iter_scan_impl(row))
+        Ok(task::block_on(self.iter_scan_impl(row))?)
     }
 
     fn end_scan(&mut self) -> Result<(), BaseFdwError> {
-        self.end_scan_impl()
+        self.end_scan_impl();
+        Ok(())
     }
 }

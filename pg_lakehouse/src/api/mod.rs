@@ -163,6 +163,10 @@ async fn connect_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
                 require_option_or(ParquetOption::UnionByName.as_str(), &table_options, "false");
 
             connection::execute(
+                format!("CREATE SCHEMA IF NOT EXISTS {schema_name}").as_str(),
+                [],
+            )?;
+            connection::execute(
                 format!(
                     r#"
                         CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} 

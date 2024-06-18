@@ -27,7 +27,9 @@ pub fn create_arrow(sql: &str) -> Result<()> {
             if let Some(static_statement) = borrowed_statement.as_mut() {
                 let arrow = static_statement.query_arrow([])?;
                 THREAD_LOCAL_ARROW.with(|arr| {
-                    *arr.borrow_mut() = Some(unsafe { std::mem::transmute(arrow) });
+                    *arr.borrow_mut() = Some(unsafe {
+                        std::mem::transmute::<duckdb::Arrow<'_>, duckdb::Arrow<'_>>(arrow)
+                    });
                 });
             }
             Ok(())

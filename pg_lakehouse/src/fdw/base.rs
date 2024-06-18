@@ -1,19 +1,17 @@
 use anyhow::{anyhow, Result};
-use async_std::sync::RwLock;
 use duckdb::arrow::array::RecordBatch;
-use duckdb::Arrow;
 use pgrx::*;
 use std::collections::HashMap;
-use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
-use url::Url;
 
 use super::handler::FdwHandler;
 use crate::duckdb::connection;
 use crate::duckdb::parquet::create_parquet_view;
-use crate::schema::attribute::*;
+use crate::duckdb::secret::create_secret;
 use crate::schema::cell::*;
+
+const DEFAULT_SECRET: &str = "default_secret";
 
 pub trait BaseFdw {
     // Getter methods
@@ -21,6 +19,7 @@ pub trait BaseFdw {
     fn get_current_batch_index(&self) -> usize;
     fn get_sql(&self) -> Option<String>;
     fn get_target_columns(&self) -> Vec<Column>;
+    fn get_user_mapping_options(&self) -> HashMap<String, String>;
 
     // Setter methods
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
@@ -36,8 +35,6 @@ pub trait BaseFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<()> {
-        self.set_target_columns(columns);
-
         let oid_u32: u32 = options
             .get(OPTS_TABLE_KEY)
             .ok_or_else(|| anyhow!("table oid not found"))?
@@ -47,6 +44,13 @@ pub trait BaseFdw {
         let schema_name = pg_relation.namespace();
         let table_name = pg_relation.name();
 
+        // Cache target columns
+        self.set_target_columns(columns);
+
+        // Create DuckDB secret from user mapping options
+        create_secret(DEFAULT_SECRET, self.get_user_mapping_options())?;
+
+        // Create DuckDB view
         if !connection::view_exists(table_name, schema_name)? {
             let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
             let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
@@ -62,6 +66,7 @@ pub trait BaseFdw {
             }
         }
 
+        // Ensure we are in the same DuckDB schema as the Postgres schema
         connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
 
         // Construct SQL scan statement
@@ -153,6 +158,24 @@ impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
     fn from(value: BaseFdwError) -> Self {
         pg_sys::panic::ErrorReport::new(PgSqlErrorCode::ERRCODE_FDW_ERROR, format!("{}", value), "")
     }
+}
+
+pub fn validate_options(opt_list: Vec<Option<String>>, valid_options: Vec<String>) -> Result<()> {
+    for opt in opt_list
+        .iter()
+        .flatten()
+        .map(|opt| opt.split('=').next().unwrap_or(""))
+    {
+        if !valid_options.contains(&opt.to_string()) {
+            return Err(anyhow!(
+                "invalid option: {}. valid options are: {}",
+                opt,
+                valid_options.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Error, Debug)]

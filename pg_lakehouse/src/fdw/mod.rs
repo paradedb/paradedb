@@ -17,5 +17,4 @@
 
 pub mod base;
 pub mod handler;
-pub mod options;
 pub mod parquet;

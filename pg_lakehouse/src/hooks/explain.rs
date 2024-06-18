@@ -1,15 +1,11 @@
 use anyhow::Result;
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use std::ffi::CStr;
-use thiserror::Error;
-
-use super::query::*;
 
 pub async unsafe fn explain(
-    plan: *mut pg_sys::PlannedStmt,
-    query: &CStr,
-    dest: &PgBox<pg_sys::DestReceiver>,
+    _plan: *mut pg_sys::PlannedStmt,
+    _query: &CStr,
+    _dest: &PgBox<pg_sys::DestReceiver>,
 ) -> Result<bool> {
     Ok(false)
     // let query = get_current_query(plan, query)?;

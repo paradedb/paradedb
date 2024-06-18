@@ -14,7 +14,7 @@ thread_local! {
 
 pub fn create_arrow(sql: &str) -> Result<()> {
     THREAD_LOCAL_CONNECTION.with(|connection| -> Result<()> {
-        let mut conn = connection.borrow_mut();
+        let conn = connection.borrow_mut();
         let statement = conn.prepare(sql)?;
         let static_statement: Statement<'static> = unsafe { std::mem::transmute(statement) };
 

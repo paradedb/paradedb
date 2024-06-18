@@ -17,7 +17,7 @@
 
 use std::{io, io::Cursor};
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use tantivy::schema::{FieldValue, OwnedValue};
+use tantivy::schema::{Field, FieldValue, OwnedValue, Schema, Value};
 use tantivy::TantivyDocument;
 use tantivy_common::{BinarySerializable, VInt};
 
@@ -48,18 +48,20 @@ fn serialize_document<S>(doc: &TantivyDocument, serializer: S) -> Result<S::Ok, 
 where
     S: Serializer,
 {
-    // let mut buffer = Vec::new();
-    // // BinarySerializable::serialize(doc, &mut buffer).map_err(serde::ser::Error::custom)?;
-    // let field_values = doc.field_values();
-    // BinarySerializable::serialize(&VInt(field_values.len() as u64), &mut buffer).unwrap();
-    // for field_value in field_values {
-    //     // field_value.serialize(&mut buffer).unwrap();
-    //     BinarySerializable::serialize(&field_value.field, &mut buffer).unwrap();
-    //     BinarySerializable::serialize(&field_value.value, &mut buffer).unwrap();
-    // }
-    // serializer.serialize_bytes(&buffer)
-    // doc.serialize(serializer)
-    let doc_string = serde_json::to_string(doc).unwrap();
+    let mut field_values: Vec<(String, String, OwnedValue)> = vec![];
+    for field_value in doc.field_values() {
+        let field_string = serde_json::to_string(&field_value.field()).unwrap();
+        // We have to store the type for the following because positive i64s and dates get automatically deserialized as u64s
+        let (value_type, value) = match field_value.value() {
+            tantivy::schema::document::OwnedValue::I64(i64) => ("i64".into(), &tantivy::schema::document::OwnedValue::Str(serde_json::to_string(i64).unwrap())),
+            tantivy::schema::document::OwnedValue::Date(date) => ("date".into(), &tantivy::schema::document::OwnedValue::Str(serde_json::to_string(date).unwrap())),
+            val => ("other".into(), val),
+        };
+        field_values.push((field_string, value_type, value.clone()));
+    }
+
+    let doc_string = serde_json::to_string(&field_values).unwrap();
+
     serializer.serialize_str(&doc_string)
 }
 
@@ -73,38 +75,32 @@ where
         type Value = TantivyDocument;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            // formatter.write_str("a byte array representing a TantivyDocument")
             formatter.write_str("a str representing a TantivyDocument")
         }
-
-        // fn visit_bytes<E>(self, value: &[u8]) -> Result<TantivyDocument, E>
-        // where
-        //     E: serde::de::Error,
-        // {
-        //     // let mut cursor = Cursor::new(value);
-        //     // // BinarySerializable::deserialize(&mut cursor)
-        //     // //     .map_err(|err| E::custom(format!("Error deserializing TantivyDocument: {}", err)))
-
-        //     // let num_field_values = VInt::deserialize(&mut cursor).unwrap().val() as usize;
-        //     // let field_values = (0..num_field_values)
-        //     //     .map(|_| FieldValue::deserialize(&mut cursor ))
-        //     //     .collect::<io::Result<Vec<FieldValue>>>().unwrap();
-        //     let field_values: Vec<FieldValue> = vec![];
-        //     Ok(TantivyDocument::from(field_values))
-        // }
 
         fn visit_str<E>(self, value: &str) -> Result<TantivyDocument, E>
         where
             E: serde::de::Error,
         {
-            Ok(serde_json::from_str(value).unwrap())
+            let doc_vec: Vec<(String, String, OwnedValue)> = serde_json::from_str(value).unwrap();
+            let mut field_values: Vec<FieldValue> = vec![];
+            for vec_entry in doc_vec {
+                let field: Field = serde_json::from_str(&vec_entry.0).unwrap();
+                let value_type: String = vec_entry.1;
+                let owned_value: OwnedValue = match value_type.as_str() {
+                    "i64" => tantivy::schema::document::OwnedValue::I64(serde_json::from_str((&vec_entry.2).as_str().unwrap()).unwrap()),
+                    "date" => tantivy::schema::document::OwnedValue::Date(serde_json::from_str((&vec_entry.2).as_str().unwrap()).unwrap()),
+                    _ => vec_entry.2
+                };
+
+                field_values.push(FieldValue::new(field, owned_value));
+            }
+
+            Ok(TantivyDocument::from(field_values))
         }
     }
 
     deserializer.deserialize_str(DocumentVisitor)
-
-    // deserializer.deserialize_bytes(DocumentVisitor)
-    // TantivyDocument::deserialize(deserializer)
 }
 
 #[cfg(test)]

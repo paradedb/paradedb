@@ -21,7 +21,7 @@ mod handler;
 mod index;
 
 use crate::schema::{
-    SearchTantivyDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
+    SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
 };
 pub use crate::writer::SearchFs;
 pub use client::*;
@@ -39,7 +39,7 @@ pub fn simple_schema(
 }
 
 #[fixture]
-pub fn simple_doc(simple_schema: SearchIndexSchema) -> SearchTantivyDocument {
+pub fn simple_doc(simple_schema: SearchIndexSchema) -> SearchDocument {
     let mut search_document = simple_schema.new_document();
 
     let ids: Vec<_> = simple_schema.fields.into_iter().map(|f| f.id).collect();

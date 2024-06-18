@@ -126,7 +126,6 @@ impl Writer {
 
 impl Handler<WriterRequest> for Writer {
     fn handle(&mut self, request: WriterRequest) -> Result<(), ServerError> {
-        log::debug!("handle: {:?}", request);
         match request {
             WriterRequest::Insert {
                 directory,

@@ -234,16 +234,10 @@ impl SearchIndex {
             document: document.clone(),
         };
 
-        pgrx::info!("insert 1 {:?}", document);
-
         let WriterTransferPipeFilePath(pipe_path) =
             self.directory.writer_transfer_pipe_path(true)?;
 
-        pgrx::info!("insert 2");
-
         writer.lock()?.transfer(pipe_path, request)?;
-
-        pgrx::info!("insert 3");
 
         Ok(())
     }
@@ -452,7 +446,7 @@ mod tests {
             .search(index.executor)
             .first()
             .expect("query returned no results");
-        let found = state
+        let found: tantivy::TantivyDocument = state
             .searcher
             .doc(doc_address)
             .expect("no document at address");

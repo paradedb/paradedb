@@ -58,6 +58,7 @@ pub fn get_query_relations(planned_stmt: *mut pg_sys::PlannedStmt) -> Vec<PgRela
         let rtable = (*planned_stmt).rtable;
 
         if rtable.is_null() {
+            info!("rtable is null");
             return relations;
         }
 

@@ -3,9 +3,9 @@ use pgrx::*;
 use std::ffi::CStr;
 
 pub async unsafe fn explain(
-    _plan: *mut pg_sys::PlannedStmt,
-    _query: &CStr,
-    _dest: &PgBox<pg_sys::DestReceiver>,
+    plan: *mut pg_sys::PlannedStmt,
+    query: &CStr,
+    dest: &PgBox<pg_sys::DestReceiver>,
 ) -> Result<bool> {
     Ok(false)
     // let query = get_current_query(plan, query)?;

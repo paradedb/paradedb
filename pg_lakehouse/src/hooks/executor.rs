@@ -31,7 +31,7 @@ macro_rules! fallback_warning {
     };
 }
 
-pub fn executor_run(
+pub async fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
     direction: pg_sys::ScanDirection,
     count: u64,
@@ -58,12 +58,20 @@ pub fn executor_run(
         return Ok(());
     }
 
-    if let Err(err) = connection::create_arrow(query.as_str()) {
-        connection::clear_arrow();
-        fallback_warning!(err.to_string());
-        prev_hook(query_desc, direction, count, execute_once);
-        return Ok(());
+    match connection::create_arrow(query.as_str()).await {
+        Err(err) => {
+            connection::clear_arrow();
+            fallback_warning!(err.to_string());
+            prev_hook(query_desc, direction, count, execute_once);
+            return Ok(());
+        }
+        Ok(false) => {
+            return Ok(());
+        }
+        _ => {}
     }
+
+    info!("getting batches");
 
     match connection::get_batches() {
         Ok(batches) => write_batches_to_slots(query_desc, batches)?,

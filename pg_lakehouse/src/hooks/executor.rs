@@ -19,8 +19,10 @@ use anyhow::{anyhow, Result};
 use duckdb::arrow::array::RecordBatch;
 use pgrx::*;
 use std::ffi::CStr;
+use std::sync::Arc;
 
 use crate::duckdb::connection;
+use crate::fdw::handler::FdwHandler;
 use crate::schema::cell::*;
 
 use super::query::*;
@@ -46,11 +48,25 @@ pub async fn executor_run(
     let ps = query_desc.plannedstmt;
     let rtable = unsafe { (*ps).rtable };
     let query = get_current_query(ps, unsafe { CStr::from_ptr(query_desc.sourceText) })?;
-    let query_type = get_query_type(ps);
+    let query_relations = get_query_relations(ps);
+    let is_duckdb_query = query_relations.iter().all(|pg_relation| {
+        if pg_relation.is_foreign_table() {
+            let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+            let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+            let fdw_handler = FdwHandler::from(foreign_server);
+            if fdw_handler != FdwHandler::Other {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    });
 
     if rtable.is_null()
         || query_desc.operation != pg_sys::CmdType_CMD_SELECT
-        || query_type != QueryType::DataFusion
+        || !is_duckdb_query
         // Tech Debt: Find a less hacky way to let COPY go through
         || query.to_lowercase().starts_with("copy")
     {
@@ -66,6 +82,10 @@ pub async fn executor_run(
             return Ok(());
         }
         Ok(false) => {
+            unsafe {
+                duckdb::ffi::duckdb_interrupt(Arc::as_ptr(&connection::inner_connection())
+                    as *mut duckdb::ffi::_duckdb_connection)
+            };
             return Ok(());
         }
         _ => {}

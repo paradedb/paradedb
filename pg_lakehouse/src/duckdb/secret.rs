@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
@@ -155,10 +155,14 @@ pub fn create_secret(
     secret_name: &str,
     user_mapping_options: HashMap<String, String>,
 ) -> Result<()> {
-    let secret_type = SecretType::try_from(require_option(
-        UserMappingOptions::Type.into(),
-        &user_mapping_options,
-    )?)?;
+    if user_mapping_options.is_empty() {
+        return Ok(());
+    }
+
+    let secret_type = SecretType::try_from(
+        require_option(UserMappingOptions::Type.into(), &user_mapping_options)
+            .map_err(|_| anyhow!("USER MAPPING OPTION requires TYPE option"))?,
+    )?;
 
     let type_str = Some(format!("TYPE {}", <&str>::from(secret_type)));
     let provider = user_mapping_options

@@ -1,14 +1,57 @@
 use anyhow::Result;
 use pgrx::*;
 use std::ffi::CStr;
+use supabase_wrappers::prelude::options_to_hashmap;
+
+use super::query::{get_current_query, get_query_relations};
+use crate::duckdb::connection;
+use crate::duckdb::parquet::create_parquet_view;
+use crate::fdw::handler::FdwHandler;
 
 pub async unsafe fn explain(
     plan: *mut pg_sys::PlannedStmt,
     query: &CStr,
     dest: &PgBox<pg_sys::DestReceiver>,
 ) -> Result<bool> {
-    Ok(false)
+    info!("explain");
     // let query = get_current_query(plan, query)?;
+    // let utility = (*plan).utilityStmt;
+
+    // if (*utility).type_ == pg_sys::NodeTag::T_ExplainStmt {
+    //     let query_relations = get_query_relations(plan);
+    //     for pg_relation in query_relations {
+    //         info!("here");
+    //         if pg_relation.is_foreign_table() {
+    //             let foreign_table = pg_sys::GetForeignTable(pg_relation.oid());
+    //             let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+    //             let table_name = pg_relation.name();
+    //             let schema_name = pg_relation.namespace();
+    //             match FdwHandler::from(foreign_table) {
+    //                 FdwHandler::Parquet => {
+    //                     create_parquet_view(table_name, schema_name, table_options)?;
+    //                 }
+    //                 _ => {
+    //                     todo!()
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     let connection = connection::inner_connection();
+    //     info!("preparing");
+    //     let mut statement = connection.prepare(&query).expect("failed to prepare");
+    //     info!("prepared");
+    //     let mut rows = statement.query([])?;
+
+    //     let mut names = Vec::new();
+    //     info!("here");
+    //     while let Some(row) = rows.next()? {
+    //         info!("got rows");
+    //         names.push(row.get::<_, String>(1)?);
+    //     }
+
+    //     info!("got rows {:?}", names);
+    // }
 
     // match LogicalPlan::try_from(QueryString(&query)) {
     //     Ok(logical_plan) => {
@@ -57,4 +100,6 @@ pub async unsafe fn explain(
     //     }
     //     Err(_) => Ok(false),
     // }
+
+    Ok(false)
 }

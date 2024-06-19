@@ -2,84 +2,78 @@ use crate::once_cell::sync::Lazy;
 use anyhow::{anyhow, Result};
 use async_std::stream::StreamExt;
 use duckdb::arrow::array::RecordBatch;
-use duckdb::{Arrow, Connection, Params, Statement};
+use duckdb::{Arrow, Connection, Params, Rows, Statement};
 use signal_hook::consts::signal::*;
 use signal_hook_async_std::Signals;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
-use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::Notify;
-use tokio::task::{block_in_place, spawn_local, LocalSet};
+use std::thread;
 
 thread_local! {
-    static THREAD_LOCAL_CONNECTION: Rc<RefCell<Connection>> = Rc::new(RefCell::new(
-        Connection::open_in_memory().expect("failed to open duckdb connection")
+    static THREAD_LOCAL_CONNECTION: Rc<RefCell<Arc<Connection>>> = Rc::new(RefCell::new(
+        Arc::new(Connection::open_in_memory().expect("failed to open duckdb connection"))
     ));
     static THREAD_LOCAL_STATEMENT: Rc<RefCell<Option<Statement<'static>>>> = Rc::new(RefCell::new(None));
     static THREAD_LOCAL_ARROW: Rc<RefCell<Option<duckdb::Arrow<'static>>>> = Rc::new(RefCell::new(None));
 }
 
-async fn await_cancel() -> Result<()> {
+async fn await_cancel(sender: Sender<bool>) -> Result<()> {
+    pgrx::info!("await_cancel");
     let mut signals = Signals::new([SIGTERM, SIGINT, SIGQUIT])?;
     signals.next().await;
-    pgrx::info!("await_cancel done");
+    sender.send(false)?;
     Ok(())
 }
 
-async fn create_arrow_impl(sql: &str) -> Result<bool> {
-    let local = LocalSet::new();
+fn create_arrow_impl(sql: &str, sender: Sender<bool>) -> Result<()> {
     let sql = sql.to_string();
 
-    local
-        .run_until(async move {
-            spawn_local(async move {
-                THREAD_LOCAL_CONNECTION.with(|connection| -> Result<bool> {
-                    let conn = connection.borrow_mut();
-                    let statement = conn.prepare(&sql)?;
-                    let static_statement: Statement<'static> =
-                        unsafe { std::mem::transmute(statement) };
+    THREAD_LOCAL_CONNECTION.with(|connection| -> Result<()> {
+        let conn = connection.borrow_mut();
+        let statement = conn.prepare(&sql)?;
+        let static_statement: Statement<'static> = unsafe { std::mem::transmute(statement) };
 
-                    THREAD_LOCAL_STATEMENT.with(|stmt| {
-                        *stmt.borrow_mut() = Some(static_statement);
+        THREAD_LOCAL_STATEMENT.with(|stmt| {
+            *stmt.borrow_mut() = Some(static_statement);
+        });
+
+        THREAD_LOCAL_STATEMENT.with(|stmt| -> Result<()> {
+            let mut borrowed_statement = stmt.borrow_mut();
+            if let Some(static_statement) = borrowed_statement.as_mut() {
+                let arrow = static_statement.query_arrow([])?;
+                THREAD_LOCAL_ARROW.with(|arr| {
+                    *arr.borrow_mut() = Some(unsafe {
+                        std::mem::transmute::<duckdb::Arrow<'_>, duckdb::Arrow<'_>>(arrow)
                     });
+                });
+            }
+            Ok(())
+        })?;
 
-                    THREAD_LOCAL_STATEMENT.with(|stmt| -> Result<()> {
-                        let mut borrowed_statement = stmt.borrow_mut();
-                        if let Some(static_statement) = borrowed_statement.as_mut() {
-                            pgrx::info!("querying arrow");
-                            let arrow = static_statement.query_arrow([])?;
-                            pgrx::info!("got arrow");
-                            THREAD_LOCAL_ARROW.with(|arr| {
-                                *arr.borrow_mut() = Some(unsafe {
-                                    std::mem::transmute::<duckdb::Arrow<'_>, duckdb::Arrow<'_>>(
-                                        arrow,
-                                    )
-                                });
-                            });
-                        }
-                        Ok(())
-                    })?;
+        sender.send(true)?;
+        Ok(())
+    })
+}
 
-                    Ok(true)
-                })
-            })
-            .await?
-        })
-        .await
+pub fn inner_connection() -> Arc<Connection> {
+    THREAD_LOCAL_CONNECTION.with(|connection| connection.borrow().clone())
 }
 
 pub async fn create_arrow(sql: &str) -> Result<bool> {
-    let cancel_task = tokio::spawn(async move { await_cancel().await });
+    let (sender, receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+    let sender_clone = sender.clone();
 
-    tokio::select! {
-        _ = cancel_task => {
-            println!("Cancellation task completed");
-            Ok(false)
+    thread::spawn(move || async_std::task::block_on(await_cancel(sender_clone)));
+    create_arrow_impl(sql, sender)?;
+    
+    match receiver.recv() {
+        Ok(result) => {
+            pgrx::info!("create_arrow result: {result}");
+            Ok(result)
         }
-        query_result = create_arrow_impl(sql) => {
-            query_result
-        }
+        Err(err) => Err(anyhow!("{err}")),
     }
 }
 

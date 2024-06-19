@@ -52,29 +52,24 @@ fn get_global_arrow() -> &'static UnsafeCell<Option<duckdb::Arrow<'static>>> {
     unsafe { GLOBAL_ARROW.as_ref().expect("Arrow not initialized") }
 }
 
-fn create_arrow_impl(sql: &str) -> Result<bool> {
-    let sql = sql.to_string();
-    let handle = thread::spawn(move || unsafe {
-        let conn = &mut *get_global_connection().get();
-        let statement = conn.prepare(&sql)?;
-        let static_statement: Statement<'static> = std::mem::transmute(statement);
+unsafe fn create_arrow_impl(sql: &str) -> Result<bool> {
+    let conn = &mut *get_global_connection().get();
+    let statement = conn.prepare(&sql)?;
+    let static_statement: Statement<'static> = std::mem::transmute(statement);
 
-        *get_global_statement().get() = Some(static_statement);
+    *get_global_statement().get() = Some(static_statement);
 
-        if let Some(static_statement) = get_global_statement().get().as_mut().unwrap() {
-            pgrx::info!("querying arrow");
-            let arrow = static_statement.query_arrow([])?;
-            pgrx::info!("got arrow");
-            *get_global_arrow().get() = Some(std::mem::transmute(arrow));
-        }
-        Ok(true)
-    });
-
-    handle.join().unwrap()
+    if let Some(static_statement) = get_global_statement().get().as_mut().unwrap() {
+        pgrx::info!("querying arrow");
+        let arrow = static_statement.query_arrow([])?;
+        pgrx::info!("got arrow");
+        *get_global_arrow().get() = Some(std::mem::transmute(arrow));
+    }
+    Ok(true)
 }
 
 pub fn create_arrow(sql: &str) -> Result<bool> {
-    let query_result = create_arrow_impl(sql);
+    let query_result = unsafe { create_arrow_impl(sql) };
     let cancel_handle = thread::spawn(move || {
         let mut signals =
             Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).expect("error registering signal listener");

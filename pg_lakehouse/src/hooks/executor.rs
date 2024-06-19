@@ -74,7 +74,7 @@ pub async fn executor_run(
         return Ok(());
     }
 
-    match connection::create_arrow(query.as_str()).await {
+    match connection::create_arrow(query.as_str()) {
         Err(err) => {
             connection::clear_arrow();
             fallback_warning!(err.to_string());

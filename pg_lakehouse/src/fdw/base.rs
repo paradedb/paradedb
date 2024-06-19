@@ -105,7 +105,7 @@ pub trait BaseFdw {
             let sql = self
                 .get_sql()
                 .ok_or_else(|| anyhow!("sql statement was not cached"))?;
-            connection::create_arrow(sql.as_str()).await?;
+            connection::create_arrow(sql.as_str())?;
         }
 
         if self.get_current_batch().is_none()

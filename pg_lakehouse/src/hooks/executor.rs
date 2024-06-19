@@ -82,10 +82,6 @@ pub async fn executor_run(
             return Ok(());
         }
         Ok(false) => {
-            unsafe {
-                duckdb::ffi::duckdb_interrupt(Arc::as_ptr(&connection::inner_connection())
-                    as *mut duckdb::ffi::_duckdb_connection)
-            };
             return Ok(());
         }
         _ => {}

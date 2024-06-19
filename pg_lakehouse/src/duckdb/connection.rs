@@ -1,131 +1,151 @@
-use crate::once_cell::sync::Lazy;
 use anyhow::{anyhow, Result};
-use async_std::stream::StreamExt;
 use duckdb::arrow::array::RecordBatch;
-use duckdb::{Arrow, Connection, Params, Rows, Statement};
+use duckdb::ffi::duckdb_interrupt;
+use duckdb::{Arrow, Connection, Params, Statement};
 use signal_hook::consts::signal::*;
-use signal_hook_async_std::Signals;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
+use signal_hook::iterator::Signals;
+use std::cell::UnsafeCell;
+use std::sync::{Mutex, Once};
 use std::thread;
 
-thread_local! {
-    static THREAD_LOCAL_CONNECTION: Rc<RefCell<Arc<Connection>>> = Rc::new(RefCell::new(
-        Arc::new(Connection::open_in_memory().expect("failed to open duckdb connection"))
-    ));
-    static THREAD_LOCAL_STATEMENT: Rc<RefCell<Option<Statement<'static>>>> = Rc::new(RefCell::new(None));
-    static THREAD_LOCAL_ARROW: Rc<RefCell<Option<duckdb::Arrow<'static>>>> = Rc::new(RefCell::new(None));
-}
+// Global mutable static variables
+static mut GLOBAL_CONNECTION: Option<UnsafeCell<Connection>> = None;
+static mut GLOBAL_STATEMENT: Option<UnsafeCell<Option<Statement<'static>>>> = None;
+static mut GLOBAL_ARROW: Option<UnsafeCell<Option<duckdb::Arrow<'static>>>> = None;
+static INIT: Once = Once::new();
 
-async fn await_cancel(sender: Sender<bool>) -> Result<()> {
-    pgrx::info!("await_cancel");
-    let mut signals = Signals::new([SIGTERM, SIGINT, SIGQUIT])?;
-    signals.next().await;
-    sender.send(false)?;
-    Ok(())
-}
-
-fn create_arrow_impl(sql: &str, sender: Sender<bool>) -> Result<()> {
-    let sql = sql.to_string();
-
-    THREAD_LOCAL_CONNECTION.with(|connection| -> Result<()> {
-        let conn = connection.borrow_mut();
-        let statement = conn.prepare(&sql)?;
-        let static_statement: Statement<'static> = unsafe { std::mem::transmute(statement) };
-
-        THREAD_LOCAL_STATEMENT.with(|stmt| {
-            *stmt.borrow_mut() = Some(static_statement);
-        });
-
-        THREAD_LOCAL_STATEMENT.with(|stmt| -> Result<()> {
-            let mut borrowed_statement = stmt.borrow_mut();
-            if let Some(static_statement) = borrowed_statement.as_mut() {
-                let arrow = static_statement.query_arrow([])?;
-                THREAD_LOCAL_ARROW.with(|arr| {
-                    *arr.borrow_mut() = Some(unsafe {
-                        std::mem::transmute::<duckdb::Arrow<'_>, duckdb::Arrow<'_>>(arrow)
-                    });
-                });
-            }
-            Ok(())
-        })?;
-
-        sender.send(true)?;
-        Ok(())
-    })
-}
-
-pub fn inner_connection() -> Arc<Connection> {
-    THREAD_LOCAL_CONNECTION.with(|connection| connection.borrow().clone())
-}
-
-pub async fn create_arrow(sql: &str) -> Result<bool> {
-    let (sender, receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
-    let sender_clone = sender.clone();
-
-    thread::spawn(move || async_std::task::block_on(await_cancel(sender_clone)));
-    create_arrow_impl(sql, sender)?;
-    
-    match receiver.recv() {
-        Ok(result) => {
-            pgrx::info!("create_arrow result: {result}");
-            Ok(result)
-        }
-        Err(err) => Err(anyhow!("{err}")),
+fn init_globals() {
+    let conn = Connection::open_in_memory().expect("failed to open duckdb connection");
+    unsafe {
+        GLOBAL_CONNECTION = Some(UnsafeCell::new(conn));
+        GLOBAL_STATEMENT = Some(UnsafeCell::new(None));
+        GLOBAL_ARROW = Some(UnsafeCell::new(None));
     }
 }
 
+fn get_global_connection() -> &'static UnsafeCell<Connection> {
+    INIT.call_once(|| {
+        init_globals();
+    });
+    unsafe {
+        GLOBAL_CONNECTION
+            .as_ref()
+            .expect("Connection not initialized")
+    }
+}
+
+fn get_global_statement() -> &'static UnsafeCell<Option<Statement<'static>>> {
+    INIT.call_once(|| {
+        init_globals();
+    });
+    unsafe {
+        GLOBAL_STATEMENT
+            .as_ref()
+            .expect("Statement not initialized")
+    }
+}
+
+fn get_global_arrow() -> &'static UnsafeCell<Option<duckdb::Arrow<'static>>> {
+    INIT.call_once(|| {
+        init_globals();
+    });
+    unsafe { GLOBAL_ARROW.as_ref().expect("Arrow not initialized") }
+}
+
+fn create_arrow_impl(sql: &str) -> Result<bool> {
+    let sql = sql.to_string();
+    let handle = thread::spawn(move || unsafe {
+        let conn = &mut *get_global_connection().get();
+        let statement = conn.prepare(&sql)?;
+        let static_statement: Statement<'static> = std::mem::transmute(statement);
+
+        *get_global_statement().get() = Some(static_statement);
+
+        if let Some(static_statement) = get_global_statement().get().as_mut().unwrap() {
+            pgrx::info!("querying arrow");
+            let arrow = static_statement.query_arrow([])?;
+            pgrx::info!("got arrow");
+            *get_global_arrow().get() = Some(std::mem::transmute(arrow));
+        }
+        Ok(true)
+    });
+
+    handle.join().unwrap()
+}
+
+pub fn create_arrow(sql: &str) -> Result<bool> {
+    let query_result = create_arrow_impl(sql);
+    let cancel_handle = thread::spawn(move || {
+        let mut signals =
+            Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).expect("error registering signal listener");
+        for _ in signals.forever() {
+            unsafe {
+                // TODO: need to get raw connection somehow
+                // let conn = &mut *get_global_connection().get();
+                // duckdb_interrupt(conn as *mut Connection);
+            }
+            pgrx::info!("await_cancel done");
+            break;
+        }
+    });
+
+    cancel_handle
+        .join()
+        .map_err(|err| anyhow!("error joining signal listener: {err:?}"));
+
+    query_result
+}
+
 pub fn clear_arrow() {
-    THREAD_LOCAL_STATEMENT.with(|stmt| {
-        *stmt.borrow_mut() = None;
-    });
-    THREAD_LOCAL_ARROW.with(|arrow| {
-        *arrow.borrow_mut() = None;
-    });
+    unsafe {
+        *get_global_statement().get() = None;
+        *get_global_arrow().get() = None;
+    }
 }
 
 pub fn get_next_batch() -> Result<Option<RecordBatch>> {
-    THREAD_LOCAL_ARROW.with(|arrow| {
-        let mut arrow = arrow.borrow_mut();
-        if let Some(arrow) = arrow.as_mut() {
+    unsafe {
+        if let Some(arrow) = get_global_arrow().get().as_mut().unwrap() {
             Ok(arrow.next())
         } else {
-            Err(anyhow!("No Arrow batches found in THREAD_LOCAL_ARROW"))
+            Err(anyhow!("No Arrow batches found in GLOBAL_ARROW"))
         }
-    })
+    }
 }
 
 pub fn get_batches() -> Result<Vec<RecordBatch>> {
-    THREAD_LOCAL_ARROW.with(|arrow| {
-        let mut arrow = arrow.borrow_mut();
-        if let Some(arrow) = arrow.as_mut() {
+    unsafe {
+        if let Some(arrow) = get_global_arrow().get().as_mut().unwrap() {
             Ok(arrow.collect())
         } else {
-            Err(anyhow!("No Arrow batches found in THREAD_LOCAL_ARROW"))
+            Err(anyhow!("No Arrow batches found in GLOBAL_ARROW"))
         }
-    })
+    }
 }
 
 pub fn has_results() -> bool {
-    THREAD_LOCAL_ARROW.with(|arrow| arrow.borrow().is_some())
+    unsafe {
+        get_global_arrow()
+            .get()
+            .as_ref()
+            .map_or(false, |arrow| arrow.is_some())
+    }
 }
 
 pub fn execute<P: Params>(sql: &str, params: P) -> Result<usize> {
-    THREAD_LOCAL_CONNECTION.with(|connection| {
-        let conn = connection.borrow();
+    unsafe {
+        let conn = &*get_global_connection().get();
         conn.execute(sql, params).map_err(|err| anyhow!("{err}"))
-    })
+    }
 }
 
 pub fn view_exists(table_name: &str, schema_name: &str) -> Result<bool> {
-    THREAD_LOCAL_CONNECTION.with(|connection| {
-        let conn = connection.borrow_mut();
+    unsafe {
+        let conn = &mut *get_global_connection().get();
         let mut statement = conn.prepare(format!("SELECT * from information_schema.tables WHERE table_schema = '{schema_name}' AND table_name = '{table_name}' AND table_type = 'VIEW'").as_str())?;
         match statement.query([])?.next() {
             Ok(Some(_)) => Ok(true),
             _ => Ok(false),
         }
-    })
+    }
 }

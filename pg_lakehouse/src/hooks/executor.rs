@@ -87,8 +87,6 @@ pub async fn executor_run(
         _ => {}
     }
 
-    info!("getting batches");
-
     match connection::get_batches() {
         Ok(batches) => write_batches_to_slots(query_desc, batches)?,
         Err(err) => {

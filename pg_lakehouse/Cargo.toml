@@ -23,12 +23,12 @@ async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
 dashmap = "5.5.3"
 datafusion = { version = "37.1.0", features = ["avro"] }
-deltalake = { version = "0.17.3", features = [
+deltalake = { git = "https://github.com/delta-io/delta-rs.git", features = [
   "datafusion",
   "s3",
   "gcs",
   "azure",
-] }
+], rev = "27c1e48" }
 object_store = { version = "0.9.1", features = ["aws", "http"] }
 object_store_opendal = { git = "https://github.com/apache/opendal.git", rev = "79ab57f" }
 opendal = { git = "https://github.com/apache/opendal.git", features = [

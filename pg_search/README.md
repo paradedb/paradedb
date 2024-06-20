@@ -13,6 +13,8 @@
 
 Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 
+`pg_search` uses Tantivy version 0.22.0.
+
 ### Roadmap
 
 - [x] Custom tokenizers and multi-language support

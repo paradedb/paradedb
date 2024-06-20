@@ -26,12 +26,10 @@ fn init_globals() {
             Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).expect("error registering signal listener");
         for _ in signals.forever() {
             unsafe {
-                let conn = Arc::new(get_global_connection().get());
-                duckdb::ffi::duckdb_interrupt(
-                    Arc::as_ptr(&conn) as *mut duckdb::ffi::_duckdb_connection
-                )
+                let conn = &mut *get_global_connection().get();
+                conn.interrupt();
             };
-            pgrx::info!("await_cancel done");
+            pgrx::log!("await_cancel done");
         }
     });
 }
@@ -74,9 +72,7 @@ pub fn create_arrow(sql: &str) -> Result<bool> {
         *get_global_statement().get() = Some(static_statement);
 
         if let Some(static_statement) = get_global_statement().get().as_mut().unwrap() {
-            pgrx::info!("querying arrow");
             let arrow = static_statement.query_arrow([])?;
-            pgrx::info!("got arrow");
             *get_global_arrow().get() = Some(std::mem::transmute(arrow));
         }
     }

@@ -35,6 +35,7 @@ pub trait BaseFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<()> {
+        info!("begin scan");
         let oid_u32: u32 = options
             .get(OPTS_TABLE_KEY)
             .ok_or_else(|| anyhow!("table oid not found"))?
@@ -135,6 +136,13 @@ pub trait BaseFdw {
 
     fn end_scan_impl(&mut self) {
         connection::clear_arrow();
+    }
+
+    fn explain_impl(&self) -> Result<Option<Vec<(String, String)>>> {
+        let sql = self
+            .get_sql()
+            .ok_or_else(|| anyhow!("sql statement was not cached"))?;
+        Ok(Some(vec![("DuckDB Scan".to_string(), sql)]))
     }
 }
 

@@ -17,6 +17,7 @@
 
 use anyhow::{anyhow, Result};
 use duckdb::arrow::array::RecordBatch;
+use duckdb::*;
 use pgrx::*;
 use std::ffi::CStr;
 use std::sync::Arc;

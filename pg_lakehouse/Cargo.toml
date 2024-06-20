@@ -38,7 +38,7 @@ serde = "1.0.201"
 shared = { path = "../shared" }
 signal-hook = "0.3.17"
 signal-hook-async-std = "0.2.2"
-supabase-wrappers = { path = "../../wrappers/supabase-wrappers", default-features = false }
+supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false, rev = "8e3b96d" }
 thiserror = "1.0.59"
 tokio = { version = "1.38.0", features = ["signal"] }
 url = "2.5.0"

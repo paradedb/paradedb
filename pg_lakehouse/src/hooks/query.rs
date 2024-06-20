@@ -19,8 +19,6 @@ use pgrx::*;
 use std::ffi::CStr;
 use std::str::Utf8Error;
 
-use crate::fdw::handler::FdwHandler;
-
 #[allow(dead_code)]
 #[derive(PartialEq, Clone)]
 pub enum QueryType {

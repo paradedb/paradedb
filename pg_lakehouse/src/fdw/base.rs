@@ -8,7 +8,6 @@ use thiserror::Error;
 use super::handler::FdwHandler;
 use crate::duckdb::connection;
 use crate::duckdb::parquet::create_parquet_view;
-use crate::duckdb::secret::create_secret;
 use crate::schema::cell::*;
 
 const DEFAULT_SECRET: &str = "default_secret";
@@ -35,7 +34,6 @@ pub trait BaseFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<()> {
-        info!("begin scan");
         let oid_u32: u32 = options
             .get(OPTS_TABLE_KEY)
             .ok_or_else(|| anyhow!("table oid not found"))?
@@ -48,11 +46,27 @@ pub trait BaseFdw {
         // Cache target columns
         self.set_target_columns(columns);
 
-        // Create DuckDB secret from user mapping options
-        create_secret(DEFAULT_SECRET, self.get_user_mapping_options())?;
+        // Create DuckDB view
+        if !connection::view_exists(table_name, schema_name)? {
+            let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+            let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+            let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+
+            match FdwHandler::from(foreign_server) {
+                FdwHandler::Parquet => {
+                    create_parquet_view(table_name, schema_name, table_options)?;
+                }
+                _ => {
+                    todo!()
+                }
+            }
+        }
 
         // Ensure we are in the same DuckDB schema as the Postgres schema
         connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
+
+        // Create DuckDB secret from user mapping options
+        connection::create_secret(DEFAULT_SECRET, self.get_user_mapping_options())?;
 
         // Construct SQL scan statement
         let targets = if columns.is_empty() {
@@ -124,7 +138,7 @@ pub trait BaseFdw {
             let cell = batch_column.get_cell(
                 current_batch_index,
                 target_column.type_oid,
-                target_column.type_mod,
+                target_column.name.as_str(),
             )?;
             row.push(target_column.name.as_str(), cell);
         }

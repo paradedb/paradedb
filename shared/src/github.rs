@@ -24,7 +24,7 @@ const BASE_GITHUB_URL: &str = "https://github.com";
     END $$;
 "#)]
 pub fn help(subject: &str, body: &str) -> String {
-    let mut url = Url::parse(BASE_GITHUB_URL).expect("Failed to parse Github URL");
+    let mut url = Url::parse(BASE_GITHUB_URL).expect("Failed to parse GitHub URL");
     url.set_path("/orgs/paradedb/discussions/new");
 
     let query = form_urlencoded::Serializer::new(String::new())

@@ -25,7 +25,7 @@ All development of ParadeDB is done via Docker and Compose. Our Docker setup is 
 
 ### Pull Request Worfklow
 
-All changes to ParadeDB happen through Github Pull Requests. Here is the recommended
+All changes to ParadeDB happen through GitHub Pull Requests. Here is the recommended
 flow for making a change:
 
 1. Before working on a change, please check to see if there is already a GitHub

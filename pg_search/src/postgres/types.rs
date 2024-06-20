@@ -216,7 +216,8 @@ impl PartialOrd for TantivyValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.tantivy_schema_value() {
             tantivy::schema::OwnedValue::Str(string) => {
-                if let tantivy::schema::OwnedValue::Str(other_string) = other.tantivy_schema_value() {
+                if let tantivy::schema::OwnedValue::Str(other_string) = other.tantivy_schema_value()
+                {
                     string.partial_cmp(&other_string)
                 } else {
                     None
@@ -244,14 +245,17 @@ impl PartialOrd for TantivyValue {
                 }
             }
             tantivy::schema::OwnedValue::Bool(bool) => {
-                if let tantivy::schema::OwnedValue::Bool(other_bool) = other.tantivy_schema_value() {
+                if let tantivy::schema::OwnedValue::Bool(other_bool) = other.tantivy_schema_value()
+                {
                     bool.partial_cmp(&other_bool)
                 } else {
                     None
                 }
             }
             tantivy::schema::OwnedValue::Date(datetime) => {
-                if let tantivy::schema::OwnedValue::Date(other_datetime) = other.tantivy_schema_value() {
+                if let tantivy::schema::OwnedValue::Date(other_datetime) =
+                    other.tantivy_schema_value()
+                {
                     datetime.partial_cmp(&other_datetime)
                 } else {
                     None
@@ -508,7 +512,9 @@ impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val.try_into()?)))
+        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+            val.try_into()?,
+        )))
     }
 }
 
@@ -552,8 +558,12 @@ impl TryFrom<pgrx::JsonString> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonString) -> Result<Self, Self::Error> {
+        let de_map = serde_json::from_str::<Map<String, serde_json::Value>>(&val.0)?;
         Ok(TantivyValue(tantivy::schema::OwnedValue::Object(
-            serde_json::from_str::<Map<String, serde_json::Value>>(&val.0)?,
+            de_map
+                .into_iter()
+                .map(|(k, v)| (k, tantivy::schema::OwnedValue::from(v)))
+                .collect(),
         )))
     }
 }
@@ -563,7 +573,7 @@ impl TryFrom<TantivyValue> for pgrx::JsonString {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Object(val) = value.0 {
-            Ok(pgrx::JsonString(serde_json::Value::from(val).to_string()))
+            Ok(pgrx::JsonString(serde_json::to_string(&val)?))
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "json".to_string(),
@@ -576,8 +586,13 @@ impl TryFrom<pgrx::JsonB> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonB) -> Result<Self, Self::Error> {
+        let de_map =
+            serde_json::from_slice::<Map<String, serde_json::Value>>(&serde_json::to_vec(&val.0)?)?;
         Ok(TantivyValue(tantivy::schema::OwnedValue::Object(
-            serde_json::from_slice::<Map<String, serde_json::Value>>(&serde_json::to_vec(&val.0)?)?,
+            de_map
+                .into_iter()
+                .map(|(k, v)| (k, tantivy::schema::OwnedValue::from(v)))
+                .collect(),
         )))
     }
 }
@@ -587,7 +602,7 @@ impl TryFrom<TantivyValue> for pgrx::JsonB {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Object(val) = value.0 {
-            Ok(pgrx::JsonB(serde_json::Value::from(val)))
+            Ok(pgrx::JsonB(serde_json::to_value(val)?))
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "jsonb".to_string(),
@@ -766,7 +781,9 @@ impl TryFrom<pgrx::Uuid> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Uuid) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(val.to_string())))
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
+            val.to_string(),
+        )))
     }
 }
 

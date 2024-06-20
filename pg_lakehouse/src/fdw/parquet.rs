@@ -124,4 +124,8 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
         self.end_scan_impl();
         Ok(())
     }
+
+    fn explain(&self) -> Result<Option<Vec<(String, String)>>, BaseFdwError> {
+        Ok(self.explain_impl()?)
+    }
 }

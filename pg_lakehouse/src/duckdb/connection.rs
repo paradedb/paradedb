@@ -25,11 +25,8 @@ fn init_globals() {
         let mut signals =
             Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).expect("error registering signal listener");
         for _ in signals.forever() {
-            unsafe {
-                let conn = &mut *get_global_connection().get();
-                conn.interrupt();
-            };
-            pgrx::log!("await_cancel done");
+            let conn = unsafe { &mut *get_global_connection().get() };
+            conn.interrupt();
         }
     });
 }

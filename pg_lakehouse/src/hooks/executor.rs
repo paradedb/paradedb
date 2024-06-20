@@ -87,12 +87,14 @@ pub async fn executor_run(
     match connection::get_batches() {
         Ok(batches) => write_batches_to_slots(query_desc, batches)?,
         Err(err) => {
+            connection::clear_arrow();
             fallback_warning!(err.to_string());
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }
     }
 
+    connection::clear_arrow();
     Ok(())
 }
 

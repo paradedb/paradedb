@@ -19,6 +19,7 @@ mod executor;
 mod explain;
 mod process;
 mod query;
+mod start;
 
 use async_std::task::block_on;
 use pgrx::*;
@@ -100,8 +101,9 @@ impl hooks::PgHooks for LakehouseHook {
         eflags: i32,
         prev_hook: fn(query_desc: PgBox<pg_sys::QueryDesc>, eflags: i32) -> HookResult<()>,
     ) -> HookResult<()> {
-        let query_relations = crate::hooks::query::get_query_relations(query_desc.plannedstmt);
-        info!("executor start {:?}", query_relations.len());
+        start::executor_start(query_desc.clone(), eflags, prev_hook).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
         prev_hook(query_desc, eflags)
     }
 }

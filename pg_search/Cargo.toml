@@ -51,8 +51,6 @@ walkdir = "2.5.0"
 num_cpus = "1.16.0"
 zstd-sys = "=2.0.9"
 chrono = "0.4.38"
-simple-logging = "2.0.2"
-log = "0.4.21"
 ron = "0.8.1"
 
 [dev-dependencies]

@@ -15,11 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::{io, io::Cursor};
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use tantivy::schema::{Field, FieldValue, OwnedValue, Schema, Value};
+use tantivy::schema::{Field, FieldValue, OwnedValue, Value};
 use tantivy::TantivyDocument;
-use tantivy_common::{BinarySerializable, VInt};
 
 use crate::schema::SearchFieldId;
 
@@ -53,9 +51,15 @@ where
         let field_string = serde_json::to_string(&field_value.field()).unwrap();
         // We have to store the type for the following because positive i64s and dates get automatically deserialized as u64s
         let (value_type, value) = match field_value.value() {
-            tantivy::schema::document::OwnedValue::I64(i64) => ("i64".into(), &tantivy::schema::document::OwnedValue::Str(serde_json::to_string(i64).unwrap())),
-            tantivy::schema::document::OwnedValue::Date(date) => ("date".into(), &tantivy::schema::document::OwnedValue::Str(serde_json::to_string(date).unwrap())),
-            val => ("other".into(), val),
+            tantivy::schema::document::OwnedValue::I64(i64) => (
+                "i64".into(),
+                tantivy::schema::document::OwnedValue::Str(serde_json::to_string(i64).unwrap()),
+            ),
+            tantivy::schema::document::OwnedValue::Date(date) => (
+                "date".into(),
+                tantivy::schema::document::OwnedValue::Str(serde_json::to_string(date).unwrap()),
+            ),
+            val => ("other".into(), val.clone()),
         };
         field_values.push((field_string, value_type, value.clone()));
     }
@@ -88,9 +92,13 @@ where
                 let field: Field = serde_json::from_str(&vec_entry.0).unwrap();
                 let value_type: String = vec_entry.1;
                 let owned_value: OwnedValue = match value_type.as_str() {
-                    "i64" => tantivy::schema::document::OwnedValue::I64(serde_json::from_str((&vec_entry.2).as_str().unwrap()).unwrap()),
-                    "date" => tantivy::schema::document::OwnedValue::Date(serde_json::from_str((&vec_entry.2).as_str().unwrap()).unwrap()),
-                    _ => vec_entry.2
+                    "i64" => tantivy::schema::document::OwnedValue::I64(
+                        serde_json::from_str((&vec_entry.2).as_str().unwrap()).unwrap(),
+                    ),
+                    "date" => tantivy::schema::document::OwnedValue::Date(
+                        serde_json::from_str((&vec_entry.2).as_str().unwrap()).unwrap(),
+                    ),
+                    _ => vec_entry.2,
                 };
 
                 field_values.push(FieldValue::new(field, owned_value));

@@ -91,10 +91,7 @@ impl<T: Serialize> WriterTransferProducer<T> {
         let message = WriterTransferMessage::Data(data);
         let serialized = bincode::serialize(&message)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-        let res = self.write_all(&serialized);
-        if let Err(err) = res {
-            return Err(err);
-        }
+        self.write_all(&serialized)?;
         self.flush()
     }
 

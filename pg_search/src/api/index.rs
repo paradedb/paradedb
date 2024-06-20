@@ -472,10 +472,16 @@ macro_rules! term_fn {
 term_fn!(term_bytes, Vec<u8>, tantivy::schema::OwnedValue::Bytes);
 term_fn!(term_str, String, tantivy::schema::OwnedValue::Str);
 term_fn!(term_i8, i8, |v| tantivy::schema::OwnedValue::I64(v as i64));
-term_fn!(term_i16, i16, |v| tantivy::schema::OwnedValue::I64(v as i64));
-term_fn!(term_i32, i32, |v| tantivy::schema::OwnedValue::I64(v as i64));
+term_fn!(term_i16, i16, |v| tantivy::schema::OwnedValue::I64(
+    v as i64
+));
+term_fn!(term_i32, i32, |v| tantivy::schema::OwnedValue::I64(
+    v as i64
+));
 term_fn!(term_i64, i64, tantivy::schema::OwnedValue::I64);
-term_fn!(term_f32, f32, |v| tantivy::schema::OwnedValue::F64(v as f64));
+term_fn!(term_f32, f32, |v| tantivy::schema::OwnedValue::F64(
+    v as f64
+));
 term_fn!(term_f64, f64, tantivy::schema::OwnedValue::F64);
 term_fn!(term_bool, bool, tantivy::schema::OwnedValue::Bool);
 term_fn!(json, pgrx::Json, |_v| unimplemented!(

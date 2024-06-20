@@ -520,7 +520,7 @@ fn value_to_term(
         OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
         OwnedValue::Object(_) => panic!("json cannot be converted to term"),
         OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, ip),
-        _ => panic!("Tantivy OwnedValue type not supported")
+        _ => panic!("Tantivy OwnedValue type not supported"),
     })
 }
 

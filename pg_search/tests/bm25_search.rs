@@ -522,7 +522,9 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
 
     // For this test, we'll turn off autovacuum, as we'll be measuring the size of the index.
     // We don't want a vacuum to happen and unexpectedly change the size.
-    format!("ALTER TABLE mock_items SET (autovacuum_enabled = false)",).execute(&mut conn);
+    "ALTER TABLE mock_items SET (autovacuum_enabled = false)"
+        .to_string()
+        .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
             index_name => 'search_idx',

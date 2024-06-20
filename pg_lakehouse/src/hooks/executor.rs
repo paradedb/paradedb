@@ -48,16 +48,17 @@ pub async fn executor_run(
     let rtable = unsafe { (*ps).rtable };
     let query = get_current_query(ps, unsafe { CStr::from_ptr(query_desc.sourceText) })?;
     let query_relations = get_query_relations(ps);
-    let is_duckdb_query = query_relations.iter().all(|pg_relation| {
-        if pg_relation.is_foreign_table() {
-            let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
-            let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
-            let fdw_handler = FdwHandler::from(foreign_server);
-            fdw_handler != FdwHandler::Other
-        } else {
-            false
-        }
-    });
+    let is_duckdb_query = !query_relations.is_empty()
+        && query_relations.iter().all(|pg_relation| {
+            if pg_relation.is_foreign_table() {
+                let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+                let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+                let fdw_handler = FdwHandler::from(foreign_server);
+                fdw_handler != FdwHandler::Other
+            } else {
+                false
+            }
+        });
 
     if rtable.is_null()
         || query_desc.operation != pg_sys::CmdType_CMD_SELECT

@@ -228,4 +228,4 @@ DATABASE_URL=postgres://<username>@<host>:<port>/<database>
 
 ## License
 
-`pg_lakehouse` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+`pg_lakehouse` is licensed under the [GNU Affero General Public License v3.0](../LICENSE) and as commercial software. For commercial licensing, please contact us at [sales@paradedb.com](mailto:sales@paradedb.com).

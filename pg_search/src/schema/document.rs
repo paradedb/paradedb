@@ -48,23 +48,28 @@ where
 {
     let mut field_values: Vec<(String, String, OwnedValue)> = vec![];
     for field_value in doc.field_values() {
-        let field_string = serde_json::to_string(&field_value.field()).unwrap();
+        let field_string =
+            serde_json::to_string(&field_value.field()).map_err(serde::ser::Error::custom)?;
         // We have to store the type for the following because positive i64s and dates get automatically deserialized as u64s
         let (value_type, value) = match field_value.value() {
             tantivy::schema::document::OwnedValue::I64(i64) => (
                 "i64".into(),
-                tantivy::schema::document::OwnedValue::Str(serde_json::to_string(i64).unwrap()),
+                tantivy::schema::document::OwnedValue::Str(
+                    serde_json::to_string(i64).map_err(serde::ser::Error::custom)?,
+                ),
             ),
             tantivy::schema::document::OwnedValue::Date(date) => (
                 "date".into(),
-                tantivy::schema::document::OwnedValue::Str(serde_json::to_string(date).unwrap()),
+                tantivy::schema::document::OwnedValue::Str(
+                    serde_json::to_string(date).map_err(serde::ser::Error::custom)?,
+                ),
             ),
             val => ("other".into(), val.clone()),
         };
         field_values.push((field_string, value_type, value.clone()));
     }
 
-    let doc_string = serde_json::to_string(&field_values).unwrap();
+    let doc_string = serde_json::to_string(&field_values).map_err(serde::ser::Error::custom)?;
 
     serializer.serialize_str(&doc_string)
 }
@@ -86,17 +91,39 @@ where
         where
             E: serde::de::Error,
         {
-            let doc_vec: Vec<(String, String, OwnedValue)> = serde_json::from_str(value).unwrap();
+            let doc_vec: Vec<(String, String, OwnedValue)> =
+                serde_json::from_str(value).map_err(|err| {
+                    E::custom(format!(
+                        "Error deserializing TantivyDocument string: {}",
+                        err
+                    ))
+                })?;
             let mut field_values: Vec<FieldValue> = vec![];
             for vec_entry in doc_vec {
-                let field: Field = serde_json::from_str(&vec_entry.0).unwrap();
+                let field: Field = serde_json::from_str(&vec_entry.0).map_err(|err| {
+                    E::custom(format!("Error deserializing Field from string: {}", err))
+                })?;
                 let value_type: String = vec_entry.1;
                 let owned_value: OwnedValue = match value_type.as_str() {
                     "i64" => tantivy::schema::document::OwnedValue::I64(
-                        serde_json::from_str((&vec_entry.2).as_str().unwrap()).unwrap(),
+                        serde_json::from_str(
+                            (&vec_entry.2)
+                                .as_str()
+                                .ok_or(E::custom("Could not get OwnedValue as str".to_string()))?,
+                        )
+                        .map_err(|err| {
+                            E::custom(format!("Error deserializing i64 from string: {}", err))
+                        })?,
                     ),
                     "date" => tantivy::schema::document::OwnedValue::Date(
-                        serde_json::from_str((&vec_entry.2).as_str().unwrap()).unwrap(),
+                        serde_json::from_str(
+                            (&vec_entry.2)
+                                .as_str()
+                                .ok_or(E::custom("Could not get OwnedValue as str".to_string()))?,
+                        )
+                        .map_err(|err| {
+                            E::custom(format!("Error deserializing DateTime from string: {}", err))
+                        })?,
                     ),
                     _ => vec_entry.2,
                 };

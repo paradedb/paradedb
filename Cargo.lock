@@ -5502,7 +5502,6 @@ dependencies = [
  "pgvector",
  "pretty_assertions",
  "reqwest 0.11.27",
- "ron",
  "rstest 0.18.2",
  "rustc-hash",
  "serde",
@@ -6416,18 +6415,6 @@ checksum = "7699249cc2c7d71939f30868f47e9d7add0bdc030d90ee10bfd16887ff8bb1c8"
 dependencies = [
  "bytemuck",
  "byteorder",
-]
-
-[[package]]
-name = "ron"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b91f7eff05f748767f183df4320a63d6936e9c6107d97c9e6bdd9784f4289c94"
-dependencies = [
- "base64 0.21.7",
- "bitflags 2.5.0",
- "serde",
- "serde_derive",
 ]
 
 [[package]]

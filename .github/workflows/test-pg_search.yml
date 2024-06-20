@@ -75,7 +75,7 @@ jobs:
       # This checks that the version in Cargo.toml is incremented to the next release. We only run it
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
         working-directory: pg_search/
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
@@ -153,7 +153,7 @@ jobs:
           mkdir -p ../target/coverage ../target/coverage-report
 
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
-          if [[ "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then

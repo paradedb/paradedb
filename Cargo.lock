@@ -3253,7 +3253,7 @@ checksum = "1ee447700ac8aa0b2f2bd7bc4462ad686ba06baa6727ac149a2d6277f0d240fd"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.4.1",
  "windows-sys 0.52.0",
 ]
 
@@ -3373,7 +3373,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7e180ac76c23b45e767bd7ae9579bc0bb458618c4bc71835926e098e61d15f8"
 dependencies = [
  "rustix 0.38.34",
- "windows-sys 0.48.0",
  "windows-sys 0.52.0",
 ]
 
@@ -7770,7 +7769,7 @@ source = "git+https://github.com/paradedb/tantivy.git?rev=c7f13ef#c7f13efdd67ce1
 dependencies = [
  "aho-corasick",
  "arc-swap",
- "base64 0.22.0",
+ "base64 0.22.1",
  "bitpacking",
  "byteorder",
  "census",
@@ -7855,7 +7854,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d60769b80ad7953d8a7b2c70cdfe722bbcdcac6bccc8ac934c40c034d866fc18"
 dependencies = [
  "byteorder",
- "regex-syntax 0.8.3",
+ "regex-syntax 0.8.4",
  "utf8-ranges",
 ]
 
@@ -8734,7 +8733,7 @@ version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a44ab49fad634e88f55bf8f9bb3abd2f27d7204172a112c7c9987e01c1c94ea9"
 dependencies = [
- "redox_syscall",
+ "redox_syscall 0.4.1",
  "wasite",
  "web-sys",
 ]

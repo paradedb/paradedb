@@ -289,20 +289,20 @@ pub fn range_i32(field: String, range: Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
             field,
-            lower_bound: Bound::Included(Value::I64(0)),
-            upper_bound: Bound::Excluded(Value::I64(0)),
+            lower_bound: Bound::Included(OwnedValue::I64(0)),
+            upper_bound: Bound::Excluded(OwnedValue::I64(0)),
         },
         Some((lower, upper)) => SearchQueryInput::Range {
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(Value::I64(n as i64)),
-                RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n as i64)),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(Value::I64(n as i64)),
-                RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n as i64)),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
             },
         },
     }
@@ -313,20 +313,20 @@ pub fn range_i64(field: String, range: Range<i64>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
             field,
-            lower_bound: Bound::Included(Value::I64(0)),
-            upper_bound: Bound::Excluded(Value::I64(0)),
+            lower_bound: Bound::Included(OwnedValue::I64(0)),
+            upper_bound: Bound::Excluded(OwnedValue::I64(0)),
         },
         Some((lower, upper)) => SearchQueryInput::Range {
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(Value::I64(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n)),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(Value::I64(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n)),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
             },
         },
     }
@@ -337,20 +337,20 @@ pub fn range_numeric(field: String, range: Range<pgrx::AnyNumeric>) -> SearchQue
     match range.into_inner() {
         None => SearchQueryInput::Range {
             field,
-            lower_bound: Bound::Included(Value::F64(0.0)),
-            upper_bound: Bound::Excluded(Value::F64(0.0)),
+            lower_bound: Bound::Included(OwnedValue::F64(0.0)),
+            upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
         },
         Some((lower, upper)) => SearchQueryInput::Range {
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(Value::F64(n.try_into().unwrap())),
-                RangeBound::Exclusive(n) => Bound::Excluded(Value::F64(n.try_into().unwrap())),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(n.try_into().unwrap())),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(n.try_into().unwrap())),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(Value::F64(n.try_into().unwrap())),
-                RangeBound::Exclusive(n) => Bound::Excluded(Value::F64(n.try_into().unwrap())),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(n.try_into().unwrap())),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(n.try_into().unwrap())),
             },
         },
     }
@@ -361,10 +361,10 @@ pub fn range_date(field: String, range: Range<pgrx::Date>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
             field,
-            lower_bound: Bound::Included(tantivy::schema::Value::Date(
+            lower_bound: Bound::Included(OwnedValue::Date(
                 tantivy::DateTime::from_timestamp_micros(0),
             )),
-            upper_bound: Bound::Excluded(tantivy::schema::Value::Date(
+            upper_bound: Bound::Excluded(OwnedValue::Date(
                 tantivy::DateTime::from_timestamp_micros(0),
             )),
         },
@@ -389,10 +389,10 @@ pub fn range_timestamp(field: String, range: Range<pgrx::Timestamp>) -> SearchQu
     match range.into_inner() {
         None => SearchQueryInput::Range {
             field,
-            lower_bound: Bound::Included(tantivy::schema::Value::Date(
+            lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
                 tantivy::DateTime::from_timestamp_micros(0),
             )),
-            upper_bound: Bound::Excluded(tantivy::schema::Value::Date(
+            upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
                 tantivy::DateTime::from_timestamp_micros(0),
             )),
         },
@@ -420,10 +420,10 @@ pub fn range_timestamptz(
     match range.into_inner() {
         None => SearchQueryInput::Range {
             field,
-            lower_bound: Bound::Included(tantivy::schema::Value::Date(
+            lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
                 tantivy::DateTime::from_timestamp_micros(0),
             )),
-            upper_bound: Bound::Excluded(tantivy::schema::Value::Date(
+            upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
                 tantivy::DateTime::from_timestamp_micros(0),
             )),
         },
@@ -469,15 +469,21 @@ macro_rules! term_fn {
 }
 
 // Generate functions for each type
-term_fn!(term_bytes, Vec<u8>, tantivy::schema::Value::Bytes);
-term_fn!(term_str, String, tantivy::schema::Value::Str);
-term_fn!(term_i8, i8, |v| tantivy::schema::Value::I64(v as i64));
-term_fn!(term_i16, i16, |v| tantivy::schema::Value::I64(v as i64));
-term_fn!(term_i32, i32, |v| tantivy::schema::Value::I64(v as i64));
-term_fn!(term_i64, i64, tantivy::schema::Value::I64);
-term_fn!(term_f32, f32, |v| tantivy::schema::Value::F64(v as f64));
-term_fn!(term_f64, f64, tantivy::schema::Value::F64);
-term_fn!(term_bool, bool, tantivy::schema::Value::Bool);
+term_fn!(term_bytes, Vec<u8>, tantivy::schema::OwnedValue::Bytes);
+term_fn!(term_str, String, tantivy::schema::OwnedValue::Str);
+term_fn!(term_i8, i8, |v| tantivy::schema::OwnedValue::I64(v as i64));
+term_fn!(term_i16, i16, |v| tantivy::schema::OwnedValue::I64(
+    v as i64
+));
+term_fn!(term_i32, i32, |v| tantivy::schema::OwnedValue::I64(
+    v as i64
+));
+term_fn!(term_i64, i64, tantivy::schema::OwnedValue::I64);
+term_fn!(term_f32, f32, |v| tantivy::schema::OwnedValue::F64(
+    v as f64
+));
+term_fn!(term_f64, f64, tantivy::schema::OwnedValue::F64);
+term_fn!(term_bool, bool, tantivy::schema::OwnedValue::Bool);
 term_fn!(json, pgrx::Json, |_v| unimplemented!(
     "json in term query not implemented"
 ));
@@ -513,7 +519,7 @@ term_fn!(inet, pgrx::Inet, |_v| unimplemented!(
     "inet in term query not implemented"
 ));
 term_fn!(numeric, pgrx::AnyNumeric, |v: pgrx::AnyNumeric| {
-    tantivy::schema::Value::F64(v.try_into().unwrap())
+    tantivy::schema::OwnedValue::F64(v.try_into().unwrap())
 });
 term_fn!(int4range, pgrx::Range<i32>, |_v| unimplemented!(
     "int4 range in term query not implemented"

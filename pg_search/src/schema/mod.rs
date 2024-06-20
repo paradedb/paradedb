@@ -424,7 +424,7 @@ impl SearchIndexSchema {
     }
 
     pub fn new_document(&self) -> SearchDocument {
-        let doc = tantivy::Document::new();
+        let doc = tantivy::TantivyDocument::new();
         let key = self.key_field().id;
         let ctid = self.ctid_field().id;
         SearchDocument { doc, key, ctid }

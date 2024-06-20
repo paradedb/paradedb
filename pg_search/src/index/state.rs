@@ -25,9 +25,9 @@ use shared::postgres::transaction::{Transaction, TransactionError};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::collector::TopDocs;
-use tantivy::schema::FieldType;
+use tantivy::schema::{FieldType, Value};
 use tantivy::{query::Query, DocAddress, Score, Searcher};
-use tantivy::{Executor, Snippet, SnippetGenerator};
+use tantivy::{Executor, Snippet, SnippetGenerator, TantivyDocument};
 use thiserror::Error;
 
 static SEARCH_STATE_MANAGER: Lazy<Arc<Mutex<SearchStateManager>>> = Lazy::new(|| {
@@ -111,7 +111,7 @@ impl SearchStateManager {
             .get(&alias)
             .and_then(|inner_map| inner_map.get(&key))
             .ok_or(SearchStateError::DocLookup(key))?;
-        let doc = state
+        let doc: TantivyDocument = state
             .searcher
             .doc(*doc_address)
             .expect("could not find document in searcher");
@@ -361,7 +361,7 @@ impl SearchState {
     }
 
     pub fn key_value(&self, doc_address: DocAddress) -> i64 {
-        let retrieved_doc = self
+        let retrieved_doc: TantivyDocument = self
             .searcher
             .doc(doc_address)
             .expect("could not retrieve document by address");
@@ -374,7 +374,7 @@ impl SearchState {
     }
 
     pub fn ctid_value(&self, doc_address: DocAddress) -> u64 {
-        let retrieved_doc = self
+        let retrieved_doc: TantivyDocument = self
             .searcher
             .doc(doc_address)
             .expect("could not retrieve document by address");
@@ -387,7 +387,7 @@ impl SearchState {
     }
 
     pub fn key_and_ctid_value(&self, doc_address: DocAddress) -> (i64, u64) {
-        let retrieved_doc = self
+        let retrieved_doc: TantivyDocument = self
             .searcher
             .doc(doc_address)
             .expect("could not retrieve document by address");

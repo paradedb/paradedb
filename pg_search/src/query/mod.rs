@@ -29,7 +29,7 @@ use tantivy::{
         Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
-    schema::{Field, FieldType, IndexRecordOption, Value},
+    schema::{Field, FieldType, IndexRecordOption, OwnedValue},
     Term,
 };
 use thiserror::Error;
@@ -77,7 +77,7 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
-        fields: Vec<(String, tantivy::schema::Value)>,
+        fields: Vec<(String, tantivy::schema::OwnedValue)>,
     },
     Parse {
         query_string: String,
@@ -94,8 +94,8 @@ pub enum SearchQueryInput {
     },
     Range {
         field: String,
-        lower_bound: std::ops::Bound<tantivy::schema::Value>,
-        upper_bound: std::ops::Bound<tantivy::schema::Value>,
+        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
     },
     Regex {
         field: String,
@@ -103,10 +103,10 @@ pub enum SearchQueryInput {
     },
     Term {
         field: Option<String>,
-        value: tantivy::schema::Value,
+        value: tantivy::schema::OwnedValue,
     },
     TermSet {
-        terms: Vec<(String, tantivy::schema::Value)>,
+        terms: Vec<(String, tantivy::schema::OwnedValue)>,
     },
 }
 
@@ -115,19 +115,19 @@ pub trait AsFieldType<T> {
 
     fn as_field_type(&self, from: &T) -> Option<(FieldType, Field)>;
 
-    fn is_field_type(&self, from: &T, value: &Value) -> bool {
+    fn is_field_type(&self, from: &T, value: &OwnedValue) -> bool {
         matches!(
             (self.as_field_type(from), value),
-            (Some((FieldType::Str(_), _)), Value::Str(_))
-                | (Some((FieldType::U64(_), _)), Value::U64(_))
-                | (Some((FieldType::I64(_), _)), Value::I64(_))
-                | (Some((FieldType::F64(_), _)), Value::F64(_))
-                | (Some((FieldType::Bool(_), _)), Value::Bool(_))
-                | (Some((FieldType::Date(_), _)), Value::Date(_))
-                | (Some((FieldType::Facet(_), _)), Value::Facet(_))
-                | (Some((FieldType::Bytes(_), _)), Value::Bytes(_))
-                | (Some((FieldType::JsonObject(_), _)), Value::JsonObject(_))
-                | (Some((FieldType::IpAddr(_), _)), Value::IpAddr(_))
+            (Some((FieldType::Str(_), _)), OwnedValue::Str(_))
+                | (Some((FieldType::U64(_), _)), OwnedValue::U64(_))
+                | (Some((FieldType::I64(_), _)), OwnedValue::I64(_))
+                | (Some((FieldType::F64(_), _)), OwnedValue::F64(_))
+                | (Some((FieldType::Bool(_), _)), OwnedValue::Bool(_))
+                | (Some((FieldType::Date(_), _)), OwnedValue::Date(_))
+                | (Some((FieldType::Facet(_), _)), OwnedValue::Facet(_))
+                | (Some((FieldType::Bytes(_), _)), OwnedValue::Bytes(_))
+                | (Some((FieldType::JsonObject(_), _)), OwnedValue::Object(_))
+                | (Some((FieldType::IpAddr(_), _)), OwnedValue::IpAddr(_))
         )
     }
 
@@ -476,11 +476,11 @@ impl SearchQueryInput {
 
 fn value_to_term(
     field: Field,
-    value: Value,
+    value: OwnedValue,
     field_type: &FieldType,
 ) -> Result<Term, Box<dyn std::error::Error>> {
     Ok(match value {
-        Value::Str(text) => {
+        OwnedValue::Str(text) => {
             match field_type {
                 FieldType::Date(_) => {
                     // Serialization turns date into string, so we have to turn it back into a Tantivy date
@@ -502,8 +502,8 @@ fn value_to_term(
                 _ => Term::from_field_text(field, &text),
             }
         }
-        Value::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
-        Value::U64(u64) => {
+        OwnedValue::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
+        OwnedValue::U64(u64) => {
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
             //     so we should use the field type to assign the term type
             match field_type {
@@ -512,14 +512,15 @@ fn value_to_term(
                 _ => panic!("invalid field type for u64 value"),
             }
         }
-        Value::I64(i64) => Term::from_field_i64(field, i64),
-        Value::F64(f64) => Term::from_field_f64(field, f64),
-        Value::Bool(bool) => Term::from_field_bool(field, bool),
-        Value::Date(date) => Term::from_field_date(field, date),
-        Value::Facet(facet) => Term::from_facet(field, &facet),
-        Value::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
-        Value::JsonObject(_) => panic!("json cannot be converted to term"),
-        Value::IpAddr(ip) => Term::from_field_ip_addr(field, ip),
+        OwnedValue::I64(i64) => Term::from_field_i64(field, i64),
+        OwnedValue::F64(f64) => Term::from_field_f64(field, f64),
+        OwnedValue::Bool(bool) => Term::from_field_bool(field, bool),
+        OwnedValue::Date(date) => Term::from_field_date(field, date),
+        OwnedValue::Facet(facet) => Term::from_facet(field, &facet),
+        OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
+        OwnedValue::Object(_) => panic!("json cannot be converted to term"),
+        OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, ip),
+        _ => panic!("Tantivy OwnedValue type not supported"),
     })
 }
 

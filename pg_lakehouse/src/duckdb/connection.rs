@@ -21,6 +21,20 @@ fn init_globals() {
         GLOBAL_STATEMENT = Some(UnsafeCell::new(None));
         GLOBAL_ARROW = Some(UnsafeCell::new(None));
     }
+
+    thread::spawn(move || {
+        let mut signals =
+            Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).expect("error registering signal listener");
+        for _ in signals.forever() {
+            unsafe {
+                // TODO: need to get raw connection somehow
+                // let conn = &mut *get_global_connection().get();
+                // duckdb_interrupt(conn as *mut Connection);
+            }
+            pgrx::info!("await_cancel done");
+            // break;
+        }
+    });
 }
 
 fn get_global_connection() -> &'static UnsafeCell<Connection> {
@@ -52,43 +66,23 @@ fn get_global_arrow() -> &'static UnsafeCell<Option<duckdb::Arrow<'static>>> {
     unsafe { GLOBAL_ARROW.as_ref().expect("Arrow not initialized") }
 }
 
-unsafe fn create_arrow_impl(sql: &str) -> Result<bool> {
-    let conn = &mut *get_global_connection().get();
-    let statement = conn.prepare(&sql)?;
-    let static_statement: Statement<'static> = std::mem::transmute(statement);
-
-    *get_global_statement().get() = Some(static_statement);
-
-    if let Some(static_statement) = get_global_statement().get().as_mut().unwrap() {
-        pgrx::info!("querying arrow");
-        let arrow = static_statement.query_arrow([])?;
-        pgrx::info!("got arrow");
-        *get_global_arrow().get() = Some(std::mem::transmute(arrow));
-    }
-    Ok(true)
-}
-
 pub fn create_arrow(sql: &str) -> Result<bool> {
-    let query_result = unsafe { create_arrow_impl(sql) };
-    let cancel_handle = thread::spawn(move || {
-        let mut signals =
-            Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).expect("error registering signal listener");
-        for _ in signals.forever() {
-            unsafe {
-                // TODO: need to get raw connection somehow
-                // let conn = &mut *get_global_connection().get();
-                // duckdb_interrupt(conn as *mut Connection);
-            }
-            pgrx::info!("await_cancel done");
-            break;
+    unsafe {
+        let conn = &mut *get_global_connection().get();
+        let statement = conn.prepare(&sql)?;
+        let static_statement: Statement<'static> = std::mem::transmute(statement);
+
+        *get_global_statement().get() = Some(static_statement);
+
+        if let Some(static_statement) = get_global_statement().get().as_mut().unwrap() {
+            pgrx::info!("querying arrow");
+            let arrow = static_statement.query_arrow([])?;
+            pgrx::info!("got arrow");
+            *get_global_arrow().get() = Some(std::mem::transmute(arrow));
         }
-    });
+    }
 
-    cancel_handle
-        .join()
-        .map_err(|err| anyhow!("error joining signal listener: {err:?}"));
-
-    query_result
+    Ok(true)
 }
 
 pub fn clear_arrow() {

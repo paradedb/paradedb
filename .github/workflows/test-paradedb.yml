@@ -28,7 +28,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-22.04-4
+    runs-on: depot-ubuntu-22.04-8
     if: github.event.pull_request.draft == false
     strategy:
       matrix:

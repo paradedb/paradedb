@@ -30,7 +30,7 @@ jobs:
       matrix:
         include:
           # Ubuntu 22.04
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: ubuntu:22.04
             pg_version: 14
             arch: amd64
@@ -38,7 +38,7 @@ jobs:
             image: ubuntu:22.04
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: ubuntu:22.04
             pg_version: 15
             arch: amd64
@@ -46,7 +46,7 @@ jobs:
             image: ubuntu:22.04
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: ubuntu:22.04
             pg_version: 16
             arch: amd64
@@ -55,7 +55,7 @@ jobs:
             pg_version: 16
             arch: arm64
           # Debian 11
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: debian:11-slim
             pg_version: 14
             arch: amd64
@@ -63,7 +63,7 @@ jobs:
             image: debian:11-slim
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: debian:11-slim
             pg_version: 15
             arch: amd64
@@ -71,7 +71,7 @@ jobs:
             image: debian:11-slim
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: debian:11-slim
             pg_version: 16
             arch: amd64
@@ -80,7 +80,7 @@ jobs:
             pg_version: 16
             arch: arm64
           # Debian 12
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: debian:12-slim
             pg_version: 14
             arch: amd64
@@ -88,7 +88,7 @@ jobs:
             image: debian:12-slim
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: debian:12-slim
             pg_version: 15
             arch: amd64
@@ -96,7 +96,7 @@ jobs:
             image: debian:12-slim
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: debian:12-slim
             pg_version: 16
             arch: amd64
@@ -105,7 +105,7 @@ jobs:
             pg_version: 16
             arch: arm64
           # Red Hat Enterprise Linux 9
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: redhat/ubi9:latest
             pg_version: 14
             arch: amd64
@@ -113,7 +113,7 @@ jobs:
             image: redhat/ubi9:latest
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: redhat/ubi9:latest
             pg_version: 15
             arch: amd64
@@ -121,7 +121,7 @@ jobs:
             image: redhat/ubi9:latest
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             image: redhat/ubi9:latest
             pg_version: 16
             arch: amd64

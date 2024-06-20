@@ -20,7 +20,7 @@ concurrency:
 jobs:
   publish-github-release:
     name: Publish ParadeDB GitHub Release
-    runs-on: depot-ubuntu-22.04-4
+    runs-on: depot-ubuntu-22.04-2
 
     steps:
       - name: Checkout Git Repository

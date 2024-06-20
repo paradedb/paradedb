@@ -77,6 +77,7 @@ pub async fn executor_run(
             return Ok(());
         }
         Ok(false) => {
+            connection::clear_arrow();
             return Ok(());
         }
         _ => {}

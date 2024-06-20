@@ -56,7 +56,6 @@ pub fn get_query_relations(planned_stmt: *mut pg_sys::PlannedStmt) -> Vec<PgRela
         let rtable = (*planned_stmt).rtable;
 
         if rtable.is_null() {
-            info!("rtable is null");
             return relations;
         }
 
@@ -83,26 +82,8 @@ pub fn get_query_relations(planned_stmt: *mut pg_sys::PlannedStmt) -> Vec<PgRela
             let relation = pg_sys::RelationIdGetRelation((*rte).relid);
             let pg_relation = PgRelation::from_pg_owned(relation);
             relations.push(pg_relation);
-
-            // if pg_relation.is_foreign_table() {
-            //     let foreign_table = pg_sys::GetForeignTable(pg_relation.oid());
-            //     let foreign_server = pg_sys::GetForeignServer((*foreign_table).serverid);
-            //     let fdw_handler = FdwHandler::from(foreign_server);
-            //     if fdw_handler != FdwHandler::Other {
-            //         col_tables.push(pg_relation)
-            //     }
-            // } else {
-            //     row_tables.push(pg_relation)
-            // }
         }
     }
-
-    // match (row_tables.is_empty(), col_tables.is_empty()) {
-    //     (true, true) => QueryType::Postgres,
-    //     (false, true) => QueryType::Postgres,
-    //     (true, false) => QueryType::DataFusion,
-    //     (false, false) => QueryType::Postgres,
-    // }
 
     relations
 }

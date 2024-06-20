@@ -48,7 +48,10 @@ where
         for<'a> &'a A: ArrayAccessor,
         for<'a> <&'a A as ArrayAccessor>::Item: AsRef<[u8]>,
     {
-        let downcast_array = downcast_value!(self, A);
+        let downcast_array = self
+            .as_any()
+            .downcast_ref::<A>()
+            .ok_or_else(|| anyhow!("failed to downcast binary array"))?;
 
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => {
@@ -94,7 +97,10 @@ where
         A: Array + Debug + 'static,
         for<'a> &'a A: ArrayAccessor,
     {
-        let downcast_array = downcast_value!(self, A);
+        let downcast_array = self
+            .as_any()
+            .downcast_ref::<A>()
+            .ok_or_else(|| anyhow!("failed to downcast primitive array"))?;
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => Ok(Some(downcast_array.value(index))),
             true => Ok(None),
@@ -111,7 +117,10 @@ where
         N: std::marker::Send + std::marker::Sync + TryFrom<AnyNumeric>,
         <N as TryFrom<pgrx::AnyNumeric>>::Error: Sync + Send + std::error::Error + 'static, // DataTypeError: From<<N as TryFrom<pgrx::AnyNumeric>>::Error>,
     {
-        let downcast_array = downcast_value!(self, Decimal128Array);
+        let downcast_array = self
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .ok_or_else(|| anyhow!("failed to downcast Decimal128 array"))?;
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => {
                 let value = downcast_array.value(index);
@@ -185,7 +194,6 @@ where
         T: ArrowPrimitiveType<Native = i64> + ArrowTemporalType,
     {
         let downcast_array = self.as_primitive::<T>();
-
         if downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             return Ok(None);
         }

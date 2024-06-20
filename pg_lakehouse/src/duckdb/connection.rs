@@ -1,11 +1,10 @@
 use anyhow::{anyhow, Result};
 use duckdb::arrow::array::RecordBatch;
-use duckdb::ffi::duckdb_interrupt;
-use duckdb::{Arrow, Connection, Params, Statement};
+use duckdb::{Connection, Params, Statement};
 use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
 use std::cell::UnsafeCell;
-use std::sync::{Mutex, Once};
+use std::sync::{Arc, Once};
 use std::thread;
 
 // Global mutable static variables
@@ -27,12 +26,12 @@ fn init_globals() {
             Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).expect("error registering signal listener");
         for _ in signals.forever() {
             unsafe {
-                // TODO: need to get raw connection somehow
-                // let conn = &mut *get_global_connection().get();
-                // duckdb_interrupt(conn as *mut Connection);
-            }
+                let conn = Arc::new(get_global_connection().get());
+                duckdb::ffi::duckdb_interrupt(
+                    Arc::as_ptr(&conn) as *mut duckdb::ffi::_duckdb_connection
+                )
+            };
             pgrx::info!("await_cancel done");
-            // break;
         }
     });
 }

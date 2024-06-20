@@ -47,6 +47,9 @@ pub trait BaseFdw {
         // Cache target columns
         self.set_target_columns(columns);
 
+        // Create DuckDB secret from user mapping options
+        connection::create_secret(DEFAULT_SECRET, self.get_user_mapping_options())?;
+
         // Create DuckDB view
         if !connection::view_exists(table_name, schema_name)? {
             let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
@@ -65,9 +68,6 @@ pub trait BaseFdw {
 
         // Ensure we are in the same DuckDB schema as the Postgres schema
         connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
-
-        // Create DuckDB secret from user mapping options
-        connection::create_secret(DEFAULT_SECRET, self.get_user_mapping_options())?;
 
         // Construct SQL scan statement
         let targets = if columns.is_empty() {

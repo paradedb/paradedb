@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use super::handler::FdwHandler;
 use crate::duckdb::connection;
+use crate::duckdb::csv::create_csv_view;
 use crate::duckdb::parquet::create_parquet_view;
 use crate::schema::cell::*;
 
@@ -54,11 +55,20 @@ pub trait BaseFdw {
 
         // Create DuckDB view
         if !connection::view_exists(table_name, schema_name)? {
+            // Create schema if it does not exist
+            connection::execute(
+                format!("CREATE SCHEMA IF NOT EXISTS {schema_name}").as_str(),
+                [],
+            )?;
+
             let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
             let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
             let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
 
             match FdwHandler::from(foreign_server) {
+                FdwHandler::Csv => {
+                    create_csv_view(table_name, schema_name, table_options)?;
+                }
                 FdwHandler::Parquet => {
                     create_parquet_view(table_name, schema_name, table_options)?;
                 }

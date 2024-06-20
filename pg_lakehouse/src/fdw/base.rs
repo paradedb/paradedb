@@ -28,6 +28,7 @@ pub trait BaseFdw {
 
     async fn begin_scan_impl(
         &mut self,
+        // TODO: Push down quals
         _quals: &[Qual],
         columns: &[Column],
         sorts: &[Sort],

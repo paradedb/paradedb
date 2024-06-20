@@ -17,10 +17,8 @@
 
 use anyhow::{anyhow, Result};
 use duckdb::arrow::array::RecordBatch;
-use duckdb::*;
 use pgrx::*;
 use std::ffi::CStr;
-use std::sync::Arc;
 
 use crate::duckdb::connection;
 use crate::fdw::handler::FdwHandler;
@@ -30,7 +28,7 @@ use super::query::*;
 
 macro_rules! fallback_warning {
     ($msg:expr) => {
-        warning!("This query was not fully pushed down to DuckDB because DuckDB returned an error: {}. Query times may be impacted. Please submit a request at https://github.com/paradedb/paradedb/issues if you would like to see this query pushed down.", $msg);
+        warning!("This query was not fully pushed down to DuckDB because DuckDB returned an error. Query times may be impacted. If you would like to see this query pushed down, please submit a request to https://github.com/paradedb/paradedb/issues with the following context:\n{}", $msg);
     };
 }
 
@@ -55,11 +53,7 @@ pub async fn executor_run(
             let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
             let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
             let fdw_handler = FdwHandler::from(foreign_server);
-            if fdw_handler != FdwHandler::Other {
-                true
-            } else {
-                false
-            }
+            fdw_handler != FdwHandler::Other
         } else {
             false
         }
@@ -136,7 +130,7 @@ fn write_batches_to_slots(
                     let tts_value = (*tuple_table_slot).tts_values.add(col_index);
                     let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
 
-                    match column.get_cell(row_index, attribute.atttypid, attribute.type_mod())? {
+                    match column.get_cell(row_index, attribute.atttypid, attribute.name())? {
                         Some(cell) => {
                             if let Some(datum) = cell.into_datum() {
                                 *tts_value = datum;

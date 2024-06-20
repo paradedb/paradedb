@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::{anyhow, Result};
 use duckdb::arrow::array::types::{
     ArrowTemporalType, Date32Type, Date64Type, Decimal128Type, Time32MillisecondType,
     Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
@@ -27,13 +28,11 @@ use duckdb::arrow::array::{
     Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, StringArray,
 };
 use duckdb::arrow::datatypes::{DataType, DecimalType, GenericStringType, TimeUnit};
-use duckdb::arrow::error::ArrowError;
 use pgrx::*;
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::Arc;
 use supabase_wrappers::interface::Cell;
-use thiserror::Error;
 
 use super::datetime::*;
 
@@ -43,7 +42,7 @@ pub trait GetBinaryValue
 where
     Self: Array + AsArray,
 {
-    fn get_binary_value<A>(&self, index: usize) -> Result<Option<String>, DataTypeError>
+    fn get_binary_value<A>(&self, index: usize) -> Result<Option<String>>
     where
         A: Array + Debug + 'static,
         for<'a> &'a A: ArrayAccessor,
@@ -65,7 +64,7 @@ pub trait GetDateValue
 where
     Self: Array + AsArray,
 {
-    fn get_date_value<N, T>(&self, index: usize) -> Result<Option<datum::Date>, DataTypeError>
+    fn get_date_value<N, T>(&self, index: usize) -> Result<Option<datum::Date>>
     where
         N: std::marker::Send + std::marker::Sync,
         i64: From<N>,
@@ -77,7 +76,7 @@ where
             false => {
                 let date = downcast_array
                     .value_as_date(index)
-                    .ok_or(DataTypeError::DateConversion)?;
+                    .ok_or_else(|| anyhow!("failed to convert date to NaiveDate"))?;
 
                 Ok(Some(datum::Date::try_from(Date(date))?))
             }
@@ -90,10 +89,7 @@ pub trait GetPrimitiveValue
 where
     Self: Array + AsArray,
 {
-    fn get_primitive_value<A>(
-        &self,
-        index: usize,
-    ) -> Result<Option<<&A as ArrayAccessor>::Item>, DataTypeError>
+    fn get_primitive_value<A>(&self, index: usize) -> Result<Option<<&A as ArrayAccessor>::Item>>
     where
         A: Array + Debug + 'static,
         for<'a> &'a A: ArrayAccessor,
@@ -110,15 +106,10 @@ pub trait GetDecimalValue
 where
     Self: Array + AsArray,
 {
-    fn get_decimal_value<N>(
-        &self,
-        index: usize,
-        precision: u8,
-        scale: i8,
-    ) -> Result<Option<N>, DataTypeError>
+    fn get_decimal_value<N>(&self, index: usize, precision: u8, scale: i8) -> Result<Option<N>>
     where
         N: std::marker::Send + std::marker::Sync + TryFrom<AnyNumeric>,
-        DataTypeError: From<<N as TryFrom<pgrx::AnyNumeric>>::Error>,
+        <N as TryFrom<pgrx::AnyNumeric>>::Error: Sync + Send + std::error::Error + 'static, // DataTypeError: From<<N as TryFrom<pgrx::AnyNumeric>>::Error>,
     {
         let downcast_array = downcast_value!(self, Decimal128Array);
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
@@ -137,7 +128,7 @@ pub trait GetTimeValue
 where
     Self: Array + AsArray,
 {
-    fn get_time_value<N, T>(&self, index: usize) -> Result<Option<datum::Time>, DataTypeError>
+    fn get_time_value<N, T>(&self, index: usize) -> Result<Option<datum::Time>>
     where
         N: std::marker::Send + std::marker::Sync,
         i64: From<N>,
@@ -149,7 +140,7 @@ where
             false => {
                 let time = downcast_array
                     .value_as_time(index)
-                    .ok_or(DataTypeError::DateTimeConversion)?;
+                    .ok_or_else(|| anyhow!("failed to convert timestamp to NaiveDateTime"))?;
 
                 Ok(Some(datum::Time::try_from(Time(time))?))
             }
@@ -162,10 +153,7 @@ pub trait GetTimestampValue
 where
     Self: Array + AsArray,
 {
-    fn get_timestamp_value<T>(
-        &self,
-        index: usize,
-    ) -> Result<Option<datum::Timestamp>, DataTypeError>
+    fn get_timestamp_value<T>(&self, index: usize) -> Result<Option<datum::Timestamp>>
     where
         T: ArrowPrimitiveType<Native = i64> + ArrowTemporalType,
     {
@@ -175,7 +163,7 @@ where
             false => {
                 let datetime = downcast_array
                     .value_as_datetime(index)
-                    .ok_or(DataTypeError::DateTimeConversion)?;
+                    .ok_or_else(|| anyhow!("failed to convert timestamp to NaiveDateTime"))?;
 
                 Ok(Some(datum::Timestamp::try_from(DateTimeNoTz(datetime))?))
             }
@@ -192,7 +180,7 @@ where
         &self,
         index: usize,
         tz: Option<Arc<str>>,
-    ) -> Result<Option<datum::TimestampWithTimeZone>, DataTypeError>
+    ) -> Result<Option<datum::TimestampWithTimeZone>>
     where
         T: ArrowPrimitiveType<Native = i64> + ArrowTemporalType,
     {
@@ -206,7 +194,7 @@ where
             Some(tz) => {
                 let datetime = downcast_array
                     .value_as_datetime_with_tz(index, Tz::from_str(&tz)?)
-                    .ok_or(DataTypeError::DateTimeConversion)?;
+                    .ok_or_else(|| anyhow!("failed to convert timestamp to NaiveDateTime"))?;
 
                 Ok(Some(datum::TimestampWithTimeZone::try_from(
                     DateTimeTz::new(datetime, &tz),
@@ -215,7 +203,7 @@ where
             None => {
                 let datetime = downcast_array
                     .value_as_datetime(index)
-                    .ok_or(DataTypeError::DateTimeConversion)?;
+                    .ok_or_else(|| anyhow!("failed to convert timestamp to NaiveDateTime"))?;
 
                 Ok(Some(datum::TimestampWithTimeZone::try_from(DateTimeNoTz(
                     datetime,
@@ -229,18 +217,18 @@ pub trait GetUIntValue
 where
     Self: Array + AsArray,
 {
-    fn get_uint_value<A>(&self, index: usize) -> Result<Option<i64>, DataTypeError>
+    fn get_uint_value<A>(&self, index: usize) -> Result<Option<i64>>
     where
         A: ArrowPrimitiveType,
         i64: TryFrom<A::Native>,
+        <i64 as TryFrom<<A as duckdb::arrow::array::ArrowPrimitiveType>::Native>>::Error:
+            Send + Sync + std::error::Error,
     {
         let downcast_array = self.as_primitive::<A>();
         match downcast_array.is_null(index) {
             false => {
                 let value: A::Native = downcast_array.value(index);
-                Ok(Some(
-                    i64::try_from(value).map_err(|_| DataTypeError::UIntConversionError)?,
-                ))
+                Ok(Some(i64::try_from(value)?))
             }
             true => Ok(None),
         }
@@ -260,12 +248,7 @@ where
         + GetTimestampTzValue
         + GetUIntValue,
 {
-    fn get_cell(
-        &self,
-        index: usize,
-        oid: pg_sys::Oid,
-        _type_mod: i32,
-    ) -> Result<Option<Cell>, DataTypeError> {
+    fn get_cell(&self, index: usize, oid: pg_sys::Oid, name: &str) -> Result<Option<Cell>> {
         match oid {
             pg_sys::BOOLOID => match self.get_primitive_value::<BooleanArray>(index)? {
                 Some(value) => Ok(Some(Cell::Bool(value))),
@@ -323,9 +306,11 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::INT4OID => match self.data_type() {
                 DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
@@ -379,9 +364,11 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::INT8OID => match self.data_type() {
                 DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
@@ -435,9 +422,11 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::FLOAT4OID => match self.data_type() {
                 DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
@@ -491,9 +480,11 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::FLOAT8OID => match self.data_type() {
                 DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
@@ -547,9 +538,11 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::NUMERICOID => match self.data_type() {
                 DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
@@ -605,9 +598,11 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID | pg_sys::BYTEAOID => {
                 match self.data_type() {
@@ -632,9 +627,11 @@ where
                         }
                     }
                     unsupported => Err(DataTypeError::DataTypeMismatch(
+                        name.to_string(),
                         unsupported.clone(),
                         PgOid::from(oid),
-                    )),
+                    )
+                    .into()),
                 }
             }
             pg_sys::DATEOID => match self.data_type() {
@@ -647,9 +644,11 @@ where
                     None => Ok(None),
                 },
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::TIMEOID => match self.data_type() {
                 DataType::Time64(TimeUnit::Nanosecond) => {
@@ -677,9 +676,11 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::TIMESTAMPOID => match self.data_type() {
                 DataType::Timestamp(TimeUnit::Nanosecond, _) => {
@@ -707,9 +708,11 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::TIMESTAMPTZOID => match self.data_type() {
                 DataType::Timestamp(TimeUnit::Nanosecond, tz) => {
@@ -743,21 +746,27 @@ where
                     }
                 }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             pg_sys::VOIDOID => match self.data_type() {
                 DataType::Null => Ok(None),
                 unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
                     unsupported.clone(),
                     PgOid::from(oid),
-                )),
+                )
+                .into()),
             },
             unsupported => Err(DataTypeError::DataTypeMismatch(
+                name.to_string(),
                 self.data_type().clone(),
                 PgOid::from(unsupported),
-            )),
+            )
+            .into()),
         }
     }
 }
@@ -772,35 +781,17 @@ impl GetTimestampValue for ArrayRef {}
 impl GetTimestampTzValue for ArrayRef {}
 impl GetUIntValue for ArrayRef {}
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum DataTypeError {
-    #[error(transparent)]
-    ArrowError(#[from] ArrowError),
-
-    #[error(transparent)]
-    DateTimeConversionError(#[from] datum::datetime_support::DateTimeConversionError),
-
-    #[error(transparent)]
-    DataFusionError(#[from] DataFusionError),
-
-    #[error(transparent)]
-    FromUtf8Error(#[from] std::string::FromUtf8Error),
-
-    #[error(transparent)]
-    NumericError(#[from] numeric::Error),
-
-    #[error("Failed to convert date to NaiveDate")]
-    DateConversion,
-
-    #[error("Failed to convert timestamp to NaiveDateTime")]
-    DateTimeConversion,
-
-    #[error("Received unsupported data type {0:?} for {1:?}. Please submit a request at https://github.com/paradedb/paradedb/issues if you believe this conversion should be supported")]
-    DataTypeMismatch(DataType, PgOid),
-
-    #[error("Downcast Arrow array failed")]
-    DowncastError,
-
-    #[error("Failed to convert UInt to i64")]
-    UIntConversionError,
+    DataTypeMismatch(String, DataType, PgOid),
 }
+
+impl std::fmt::Display for DataTypeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataTypeError::DataTypeMismatch(arg1, arg2, arg3) => write!(f, "Column {} has Arrow data type {:?} but is mapped to the {:?} type in Postgres, which are incompatible. If you believe this conversion should be supported, please submit a request at https://github.com/paradedb/paradedb/issues.", arg1, arg2, arg3),
+        }
+    }
+}
+
+impl std::error::Error for DataTypeError {}

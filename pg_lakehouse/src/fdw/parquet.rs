@@ -16,6 +16,7 @@ use crate::duckdb::parquet::ParquetOption;
 pub(crate) struct ParquetFdw {
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
+    scan_started: bool,
     sql: Option<String>,
     target_columns: Vec<Column>,
     user_mapping_options: HashMap<String, String>,
@@ -28,6 +29,10 @@ impl BaseFdw for ParquetFdw {
 
     fn get_current_batch_index(&self) -> usize {
         self.current_batch_index
+    }
+
+    fn get_scan_started(&self) -> bool {
+        self.scan_started
     }
 
     fn get_sql(&self) -> Option<String> {
@@ -50,6 +55,10 @@ impl BaseFdw for ParquetFdw {
         self.current_batch_index = index;
     }
 
+    fn set_scan_started(&mut self) {
+        self.scan_started = true;
+    }
+
     fn set_sql(&mut self, sql: Option<String>) {
         self.sql = sql;
     }
@@ -68,6 +77,7 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
         Ok(Self {
             current_batch: None,
             current_batch_index: 0,
+            scan_started: false,
             sql: None,
             target_columns: Vec::new(),
             user_mapping_options,

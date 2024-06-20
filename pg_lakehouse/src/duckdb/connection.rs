@@ -226,15 +226,6 @@ pub fn get_batches() -> Result<Vec<RecordBatch>> {
     }
 }
 
-pub fn has_results() -> bool {
-    unsafe {
-        get_global_arrow()
-            .get()
-            .as_ref()
-            .map_or(false, |arrow| arrow.is_some())
-    }
-}
-
 pub fn execute<P: Params>(sql: &str, params: P) -> Result<usize> {
     unsafe {
         let conn = &*get_global_connection().get();

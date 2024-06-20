@@ -16,6 +16,7 @@ pub trait BaseFdw {
     // Getter methods
     fn get_current_batch(&self) -> Option<RecordBatch>;
     fn get_current_batch_index(&self) -> usize;
+    fn get_scan_started(&self) -> bool;
     fn get_sql(&self) -> Option<String>;
     fn get_target_columns(&self) -> Vec<Column>;
     fn get_user_mapping_options(&self) -> HashMap<String, String>;
@@ -23,6 +24,7 @@ pub trait BaseFdw {
     // Setter methods
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
     fn set_current_batch_index(&mut self, idx: usize);
+    fn set_scan_started(&mut self);
     fn set_sql(&mut self, statement: Option<String>);
     fn set_target_columns(&mut self, columns: &[Column]);
 
@@ -101,7 +103,8 @@ pub trait BaseFdw {
     }
 
     async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>> {
-        if !connection::has_results() {
+        if !self.get_scan_started() {
+            self.set_scan_started();
             let sql = self
                 .get_sql()
                 .ok_or_else(|| anyhow!("sql statement was not cached"))?;

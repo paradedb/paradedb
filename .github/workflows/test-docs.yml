@@ -10,7 +10,6 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
-      - staging
       - dev
     paths:
       - "docs/**"
@@ -24,7 +23,7 @@ concurrency:
 jobs:
   test-docs:
     name: Test Docs for Broken Links
-    runs-on: depot-ubuntu-22.04-4
+    runs-on: depot-ubuntu-22.04-2
     if: github.event.pull_request.draft == false
 
     steps:

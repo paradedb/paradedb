@@ -45,7 +45,5 @@ pub fn create_view(
         .collect::<Vec<String>>()
         .join(", ");
 
-    Ok(
-        format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM iceberg_scan({create_iceberg_str})",
-        ))
+    Ok(format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM iceberg_scan({create_iceberg_str})"))
 }

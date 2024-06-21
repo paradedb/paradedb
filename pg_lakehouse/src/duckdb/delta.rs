@@ -31,7 +31,5 @@ pub fn create_view(
 ) -> Result<String> {
     let files = require_option(DeltaOption::Files.as_str(), &table_options)?;
 
-    Ok(
-        format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM delta_scan('{files}')",
-        ))
+    Ok(format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM delta_scan('{files}')"))
 }

@@ -2,8 +2,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
-use super::connection;
-
 pub enum DeltaOption {
     Files,
 }
@@ -26,19 +24,14 @@ impl DeltaOption {
     }
 }
 
-pub fn create_delta_view(
+pub fn create_view(
     table_name: &str,
     schema_name: &str,
     table_options: HashMap<String, String>,
-) -> Result<()> {
+) -> Result<String> {
     let files = require_option(DeltaOption::Files.as_str(), &table_options)?;
 
-    connection::execute(
+    Ok(
         format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM delta_scan('{files}')",
-        )
-        .as_str(),
-        [],
-    )?;
-
-    Ok(())
+        ))
 }

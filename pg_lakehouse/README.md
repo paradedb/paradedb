@@ -27,7 +27,7 @@ With `pg_lakehouse` installed, Postgres can query foreign object stores like S3 
 - [x] Apache Iceberg
 - [x] Delta Lake
 
-`pg_lakehouse` is supported on Postgres 14, 15, and 16. Support for Postgres 12 and 13 is coming soon.
+`pg_lakehouse` uses DuckDB v1.0.0 and is supported on Postgres 14, 15, and 16. Support for Postgres 12 and 13 is coming soon.
 
 ## Motivation
 

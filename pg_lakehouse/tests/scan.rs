@@ -158,7 +158,7 @@ async fn test_arrow_types_s3_delta(
     let delta_schema = deltalake::kernel::Schema::try_from(batch.schema().as_ref())?;
     let mut table = CreateBuilder::new()
         .with_location(temp_path.to_string_lossy())
-        .with_columns(delta_schema.fields().to_vec())
+        .with_columns(delta_schema.fields().cloned())
         .await?;
     let mut writer = RecordBatchWriter::for_table(&table)?;
     writer.write(batch.clone()).await?;
@@ -201,7 +201,7 @@ async fn test_s3_delta_connect_success(
     let delta_schema = deltalake::kernel::Schema::try_from(batch.schema().as_ref())?;
     let mut table = CreateBuilder::new()
         .with_location(temp_path.to_string_lossy())
-        .with_columns(delta_schema.fields().to_vec())
+        .with_columns(delta_schema.fields().cloned())
         .await?;
     let mut writer = RecordBatchWriter::for_table(&table)?;
     writer.write(batch.clone()).await?;
@@ -260,7 +260,7 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
     let delta_schema = deltalake::kernel::Schema::try_from(batch.schema().as_ref())?;
     let mut table = CreateBuilder::new()
         .with_location(temp_path.to_string_lossy().as_ref())
-        .with_columns(delta_schema.fields().to_vec())
+        .with_columns(delta_schema.fields().cloned())
         .await?;
     let mut writer = RecordBatchWriter::for_table(&table)?;
     writer.write(batch.clone()).await?;
@@ -297,7 +297,7 @@ async fn test_local_file_delta_connect_success(
     let delta_schema = deltalake::kernel::Schema::try_from(batch.schema().as_ref())?;
     let mut table = CreateBuilder::new()
         .with_location(temp_path.to_string_lossy().as_ref())
-        .with_columns(delta_schema.fields().to_vec())
+        .with_columns(delta_schema.fields().cloned())
         .await?;
     let mut writer = RecordBatchWriter::for_table(&table)?;
     writer.write(batch.clone()).await?;
@@ -326,7 +326,7 @@ async fn test_local_file_delta_connect_failure(
     let delta_schema = deltalake::kernel::Schema::try_from(batch.schema().as_ref())?;
     let mut table = CreateBuilder::new()
         .with_location(temp_path.to_string_lossy().as_ref())
-        .with_columns(delta_schema.fields().to_vec())
+        .with_columns(delta_schema.fields().cloned())
         .await?;
     let mut writer = RecordBatchWriter::for_table(&table)?;
     writer.write(batch.clone()).await?;

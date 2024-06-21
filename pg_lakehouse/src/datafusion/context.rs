@@ -82,21 +82,21 @@ impl ContextProvider for QueryContext {
         &self.options
     }
 
-    fn udfs_names(&self) -> Vec<String> {
+    fn udf_names(&self) -> Vec<String> {
         Vec::new()
     }
 
-    fn udafs_names(&self) -> Vec<String> {
+    fn udaf_names(&self) -> Vec<String> {
         Vec::new()
     }
 
-    fn udwfs_names(&self) -> Vec<String> {
+    fn udwf_names(&self) -> Vec<String> {
         Vec::new()
     }
 }
 
 pub async fn get_table_source(
-    reference: TableReference<'_>,
+    reference: TableReference,
 ) -> Result<Arc<dyn TableSource>, ContextError> {
     let catalog_name = Session::catalog_name()?;
     let schema_name = reference.schema();

@@ -105,67 +105,87 @@ pub fn create_secret(
     )?;
 
     let type_str = Some(format!("TYPE {}", <&str>::from(secret_type)));
+
     let provider = user_mapping_options
         .get(UserMappingOptions::Provider.into())
         .map(|provider| format!("PROVIDER {}", provider));
+
     let scope = user_mapping_options
         .get(UserMappingOptions::Scope.into())
         .map(|scope| format!("SCOPE {}", scope));
+
     let chain = user_mapping_options
         .get(UserMappingOptions::Chain.into())
         .map(|chain| format!("CHAIN {}", chain));
+
     let key_id = user_mapping_options
         .get(UserMappingOptions::KeyId.into())
         .map(|key_id| format!("KEY_ID '{}'", key_id));
+
     let secret = user_mapping_options
         .get(UserMappingOptions::Secret.into())
         .map(|secret| format!("SECRET '{}'", secret));
+
     let region = user_mapping_options
         .get(UserMappingOptions::Region.into())
         .map(|region| format!("REGION '{}'", region));
+
     let session_token = user_mapping_options
         .get(UserMappingOptions::SessionToken.into())
         .map(|session_token| format!("SESSION_TOKEN '{}'", session_token));
+
     let endpoint = user_mapping_options
         .get(UserMappingOptions::Endpoint.into())
         .map(|endpoint| format!("ENDPOINT '{}'", endpoint));
+
     let url_style = user_mapping_options
         .get(UserMappingOptions::UrlStyle.into())
         .map(|url_style| format!("URL_STYLE '{}'", url_style));
+
     let use_ssl = user_mapping_options
         .get(UserMappingOptions::UseSsl.into())
         .map(|use_ssl| format!("USE_SSL {}", use_ssl));
+
     let url_compatibility_mode = user_mapping_options
         .get(UserMappingOptions::UrlCompatibilityMode.into())
         .map(|url_compatibility_mode| {
             format!("URL_COMPATIBILITY_MODE '{}'", url_compatibility_mode)
         });
+
     let connection_string = user_mapping_options
         .get(UserMappingOptions::ConnectionString.into())
         .map(|connection_string| format!("CONNECTION_STRING '{}'", connection_string));
+
     let account_name = user_mapping_options
         .get(UserMappingOptions::AccountName.into())
         .map(|account_name| format!("ACCOUNT_NAME '{}'", account_name));
+
     let tenant_id = user_mapping_options
         .get(UserMappingOptions::TenantId.into())
         .map(|tenant_id| format!("TENANT_ID '{}'", tenant_id));
+
     let client_id = user_mapping_options
         .get(UserMappingOptions::ClientId.into())
         .map(|client_id| format!("CLIENT_ID '{}'", client_id));
+
     let client_secret = user_mapping_options
         .get(UserMappingOptions::ClientSecret.into())
         .map(|client_secret| format!("CLIENT_SECRET '{}'", client_secret));
+
     let client_certificate_path = user_mapping_options
         .get(UserMappingOptions::ClientCertificatePath.into())
         .map(|client_certificate_path| {
             format!("CLIENT_CERTIFICATE_PATH '{}'", client_certificate_path)
         });
+
     let http_proxy = user_mapping_options
         .get(UserMappingOptions::HttpProxy.into())
         .map(|http_proxy| format!("HTTP_PROXY '{}'", http_proxy));
+
     let http_user_name = user_mapping_options
         .get(UserMappingOptions::HttpUserName.into())
         .map(|http_user_name| format!("HTTP_USER_NAME '{}'", http_user_name));
+
     let http_password = user_mapping_options
         .get(UserMappingOptions::HttpPassword.into())
         .map(|http_password| format!("HTTP_PASSWORD '{}'", http_password));
@@ -222,6 +242,17 @@ pub fn get_batches() -> Result<Vec<RecordBatch>> {
             Ok(arrow.collect())
         } else {
             Err(anyhow!("No Arrow batches found in GLOBAL_ARROW"))
+        }
+    }
+}
+
+pub fn iceberg_loaded() -> Result<bool> {
+    unsafe {
+        let conn = &mut *get_global_connection().get();
+        let mut statement = conn.prepare("SELECT * FROM duckdb_extensions() WHERE extension_name = 'iceberg' AND installed = true AND loaded = true")?;
+        match statement.query([])?.next() {
+            Ok(Some(_)) => Ok(true),
+            _ => Ok(false),
         }
     }
 }

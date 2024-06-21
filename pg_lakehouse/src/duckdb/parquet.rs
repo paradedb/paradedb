@@ -10,6 +10,8 @@ pub enum ParquetOption {
     FileRowNumber,
     Files,
     HivePartitioning,
+    HiveTypes,
+    HiveTypesAutocast,
     UnionByName,
     // TODO: EncryptionConfig
 }
@@ -22,6 +24,8 @@ impl ParquetOption {
             Self::FileRowNumber => "file_row_number",
             Self::Files => "files",
             Self::HivePartitioning => "hive_partitioning",
+            Self::HiveTypes => "hive_types",
+            Self::HiveTypesAutocast => "hive_types_autocast",
             Self::UnionByName => "union_by_name",
         }
     }
@@ -33,6 +37,8 @@ impl ParquetOption {
             Self::FileRowNumber => false,
             Self::Files => true,
             Self::HivePartitioning => false,
+            Self::HiveTypes => false,
+            Self::HiveTypesAutocast => false,
             Self::UnionByName => false,
         }
     }
@@ -44,6 +50,8 @@ impl ParquetOption {
             Self::FileRowNumber,
             Self::Files,
             Self::HivePartitioning,
+            Self::HiveTypes,
+            Self::HiveTypesAutocast,
             Self::UnionByName,
         ]
         .into_iter()
@@ -69,38 +77,51 @@ pub fn create_parquet_view(
         ),
     };
 
-    let binary_as_string = require_option_or(
-        ParquetOption::BinaryAsString.as_str(),
-        &table_options,
-        "false",
-    );
-    let file_name = require_option_or(ParquetOption::FileName.as_str(), &table_options, "false");
-    let file_row_number = require_option_or(
-        ParquetOption::FileRowNumber.as_str(),
-        &table_options,
-        "false",
-    );
-    let hive_partitioning = require_option_or(
-        ParquetOption::HivePartitioning.as_str(),
-        &table_options,
-        "false",
-    );
-    let union_by_name =
-        require_option_or(ParquetOption::UnionByName.as_str(), &table_options, "false");
+    let binary_as_string = table_options
+        .get(ParquetOption::BinaryAsString.as_str())
+        .map(|option| format!("binary_as_string = {option}"));
+
+    let file_name = table_options
+        .get(ParquetOption::FileName.as_str())
+        .map(|option| format!("filename = {option}"));
+
+    let file_row_number = table_options
+        .get(ParquetOption::FileRowNumber.as_str())
+        .map(|option| format!("file_row_number = {option}"));
+
+    let hive_partitioning = table_options
+        .get(ParquetOption::HivePartitioning.as_str())
+        .map(|option| format!("hive_partitioning = {option}"));
+
+    let hive_types = table_options
+        .get(ParquetOption::HiveTypes.as_str())
+        .map(|option| format!("hive_types = {option}"));
+
+    let hive_types_autocast = table_options
+        .get(ParquetOption::HiveTypesAutocast.as_str())
+        .map(|option| format!("hive_types_autocast = {option}"));
+
+    let union_by_name = table_options
+        .get(ParquetOption::UnionByName.as_str())
+        .map(|option| format!("union_by_name = {option}"));
+
+    let create_parquet_str = [
+        Some(files_str),
+        binary_as_string,
+        file_name,
+        file_row_number,
+        hive_partitioning,
+        hive_types,
+        hive_types_autocast,
+        union_by_name,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<String>>()
+    .join(", ");
 
     connection::execute(
-        format!(
-            r#"
-                CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} 
-                AS SELECT * FROM read_parquet(
-                    {files_str},
-                    binary_as_string = {binary_as_string},
-                    filename = {file_name},
-                    file_row_number = {file_row_number},
-                    hive_partitioning = {hive_partitioning},
-                    union_by_name = {union_by_name}
-                )
-            "#,
+        format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_parquet({create_parquet_str})",
         )
         .as_str(),
         [],

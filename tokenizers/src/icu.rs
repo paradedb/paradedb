@@ -738,4 +738,147 @@ mod tests {
         ];
         assert_eq!(result, expected);
     }
+
+        #[rstest]
+    fn test_czech() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("tvář je zkažená prachem, potem a krví; kdo se statečně snaží; kdo se mýlí, kdo znovu a znovu přichází zkrátka");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 8,
+                position: 0,
+                text: "tvář".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 10,
+                offset_to: 16,
+                position: 1,
+                text: "je".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 18,
+                offset_to: 27,
+                position: 2,
+                text: "zkažená".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 29,
+                offset_to: 31,
+                position: 3,
+                text: "prachem".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 32,
+                offset_to: 43,
+                position: 4,
+                text: "potem".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 44,
+                offset_to: 49,
+                position: 5,
+                text: "a".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 50,
+                offset_to: 57,
+                position: 6,
+                text: "krví".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 58,
+                offset_to: 64,
+                position: 7,
+                text: "kdo".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 65,
+                offset_to: 71,
+                position: 8,
+                text: "se".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 73,
+                offset_to: 76,
+                position: 9,
+                text: "statečně".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 77,
+                offset_to: 80,
+                position: 10,
+                text: "kdo".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 81,
+                offset_to: 83,
+                position: 11,
+                text: "se".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 84,
+                offset_to: 89,
+                position: 12,
+                text: "mýlí".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 90,
+                offset_to: 91,
+                position: 13,
+                text: "kdo".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 92,
+                offset_to: 96,
+                position: 14,
+                text: "znovu".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 98,
+                offset_to: 99,
+                position: 15,
+                text: " a".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 100,
+                offset_to: 111,
+                position: 16,
+                text: "znovu".to_string(),
+                position_length: 1,
+            },
+
+            Token {
+                offset_from: 100,
+                offset_to: 111,
+                position: 16,
+                text: "přichází".to_string(),
+                position_length: 1,
+            },
+                        Token {
+                offset_from: 100,
+                offset_to: 111,
+                position: 16,
+                text: "zkrátka".to_string(),
+                position_length: 1,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
 }

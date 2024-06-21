@@ -2,8 +2,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
-use super::connection;
-
 pub enum ParquetOption {
     BinaryAsString,
     FileName,
@@ -58,11 +56,11 @@ impl ParquetOption {
     }
 }
 
-pub fn create_parquet_view(
+pub fn create_view(
     table_name: &str,
     schema_name: &str,
     table_options: HashMap<String, String>,
-) -> Result<()> {
+) -> Result<String> {
     let files = require_option(ParquetOption::Files.as_str(), &table_options)?;
     let files_split = files.split(',').collect::<Vec<&str>>();
     let files_str = match files_split.len() {
@@ -120,12 +118,33 @@ pub fn create_parquet_view(
     .collect::<Vec<String>>()
     .join(", ");
 
-    connection::execute(
-        format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_parquet({create_parquet_str})",
-        )
-        .as_str(),
-        [],
-    )?;
+    Ok(format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_parquet({create_parquet_str})"))
+}
 
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_parquet_view_no_options() {
+        let table_name = "test_table";
+        let schema_name = "test_schema";
+        let table_options = HashMap::new();
+    }
+
+    #[test]
+    fn test_create_parquet_view_with_options() {
+        let table_name = "test_table";
+        let schema_name = "test_schema";
+        let table_options = HashMap::from([
+            (ParquetOption::Files.as_str(), "test_file"),
+            (ParquetOption::BinaryAsString.as_str(), "true"),
+            (ParquetOption::FileName.as_str(), "test_file_name"),
+            (ParquetOption::FileRowNumber.as_str(), "true"),
+            (ParquetOption::HivePartitioning.as_str(), "true"),
+            (ParquetOption::HiveTypes.as_str(), "true"),
+            (ParquetOption::HiveTypesAutocast.as_str(), "true"),
+            (ParquetOption::UnionByName.as_str(), "true"),
+        ]);
+    }
 }

@@ -2,8 +2,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
-use super::connection;
-
 pub enum CsvOption {
     AllVarchar,
     AllowQuotedNulls,
@@ -145,11 +143,11 @@ impl CsvOption {
     }
 }
 
-pub fn create_csv_view(
+pub fn create_view(
     table_name: &str,
     schema_name: &str,
     table_options: HashMap<String, String>,
-) -> Result<()> {
+) -> Result<String> {
     let files = require_option(CsvOption::Files.as_str(), &table_options)?;
     let files_split = files.split(',').collect::<Vec<&str>>();
     let files_str = match files_split.len() {
@@ -317,12 +315,5 @@ pub fn create_csv_view(
     .collect::<Vec<String>>()
     .join(", ");
 
-    connection::execute(
-        format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_csv({create_csv_str})",
-        )
-        .as_str(),
-        [],
-    )?;
-
-    Ok(())
+    Ok(format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_csv({create_csv_str})"))
 }

@@ -2,8 +2,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
-use super::connection;
-
 pub enum IcebergOption {
     AllowMovedPaths,
     Files,
@@ -29,11 +27,11 @@ impl IcebergOption {
     }
 }
 
-pub fn create_iceberg_view(
+pub fn create_view(
     table_name: &str,
     schema_name: &str,
     table_options: HashMap<String, String>,
-) -> Result<()> {
+) -> Result<String> {
     let files = require_option(IcebergOption::Files.as_str(), &table_options)?;
     let files_str = format!("'{}'", files);
 
@@ -47,17 +45,7 @@ pub fn create_iceberg_view(
         .collect::<Vec<String>>()
         .join(", ");
 
-    if !connection::iceberg_loaded()? {
-        connection::execute("INSTALL iceberg", [])?;
-        connection::execute("LOAD iceberg", [])?;
-    }
-
-    connection::execute(
+    Ok(
         format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM iceberg_scan({create_iceberg_str})",
-        )
-        .as_str(),
-        [],
-    )?;
-
-    Ok(())
+        ))
 }

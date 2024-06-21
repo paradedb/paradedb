@@ -9,6 +9,10 @@ use std::sync::Once;
 use std::thread;
 use supabase_wrappers::prelude::require_option;
 
+use super::csv;
+use super::delta;
+use super::iceberg;
+use super::parquet;
 use super::secret::{SecretType, UserMappingOptions};
 
 // Global mutable static variables
@@ -33,6 +37,17 @@ fn init_globals() {
             conn.interrupt();
         }
     });
+}
+
+fn iceberg_loaded() -> Result<bool> {
+    unsafe {
+        let conn = &mut *get_global_connection().get();
+        let mut statement = conn.prepare("SELECT * FROM duckdb_extensions() WHERE extension_name = 'iceberg' AND installed = true AND loaded = true")?;
+        match statement.query([])?.next() {
+            Ok(Some(_)) => Ok(true),
+            _ => Ok(false),
+        }
+    }
 }
 
 fn get_global_connection() -> &'static UnsafeCell<Connection> {
@@ -62,6 +77,47 @@ fn get_global_arrow() -> &'static UnsafeCell<Option<duckdb::Arrow<'static>>> {
         init_globals();
     });
     unsafe { GLOBAL_ARROW.as_ref().expect("Arrow not initialized") }
+}
+
+pub fn create_csv_view(
+    table_name: &str,
+    schema_name: &str,
+    table_options: HashMap<String, String>,
+) -> Result<usize> {
+    let statement = csv::create_view(table_name, schema_name, table_options)?;
+    execute(statement.as_str(), [])
+}
+
+pub fn create_delta_view(
+    table_name: &str,
+    schema_name: &str,
+    table_options: HashMap<String, String>,
+) -> Result<usize> {
+    let statement = delta::create_view(table_name, schema_name, table_options)?;
+    execute(statement.as_str(), [])
+}
+
+pub fn create_iceberg_view(
+    table_name: &str,
+    schema_name: &str,
+    table_options: HashMap<String, String>,
+) -> Result<usize> {
+    if !iceberg_loaded()? {
+        execute("INSTALL iceberg", [])?;
+        execute("LOAD iceberg", [])?;
+    }
+
+    let statement = iceberg::create_view(table_name, schema_name, table_options)?;
+    execute(statement.as_str(), [])
+}
+
+pub fn create_parquet_view(
+    table_name: &str,
+    schema_name: &str,
+    table_options: HashMap<String, String>,
+) -> Result<usize> {
+    let statement = parquet::create_view(table_name, schema_name, table_options)?;
+    execute(statement.as_str(), [])
 }
 
 pub fn create_arrow(sql: &str) -> Result<bool> {
@@ -242,17 +298,6 @@ pub fn get_batches() -> Result<Vec<RecordBatch>> {
             Ok(arrow.collect())
         } else {
             Err(anyhow!("No Arrow batches found in GLOBAL_ARROW"))
-        }
-    }
-}
-
-pub fn iceberg_loaded() -> Result<bool> {
-    unsafe {
-        let conn = &mut *get_global_connection().get();
-        let mut statement = conn.prepare("SELECT * FROM duckdb_extensions() WHERE extension_name = 'iceberg' AND installed = true AND loaded = true")?;
-        match statement.query([])?.next() {
-            Ok(Some(_)) => Ok(true),
-            _ => Ok(false),
         }
     }
 }

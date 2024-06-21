@@ -152,7 +152,7 @@ pub fn create_csv_view(
 ) -> Result<()> {
     let files = require_option(CsvOption::Files.as_str(), &table_options)?;
     let files_split = files.split(',').collect::<Vec<&str>>();
-    let files_string = match files_split.len() {
+    let files_str = match files_split.len() {
         1 => format!("'{}'", files),
         _ => format!(
             "[{}]",
@@ -280,7 +280,8 @@ pub fn create_csv_view(
         .get(CsvOption::UnionByName.as_str())
         .map(|option| format!("union_by_name = {option}"));
 
-    let options_str = vec![
+    let create_csv_str = vec![
+        Some(files_str),
         all_varchar,
         allow_quoted_nulls,
         auto_detect,
@@ -315,8 +316,6 @@ pub fn create_csv_view(
     .flatten()
     .collect::<Vec<String>>()
     .join(", ");
-
-    let create_csv_str = [files_string, options_str].join(", ");
 
     connection::execute(
         format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_csv({create_csv_str})",

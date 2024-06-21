@@ -16,14 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::SearchIndex;
-use crate::postgres::datetime::{
-    pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value, pgrx_timestamp_to_tantivy_value,
-    pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value,
-};
+use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
 use pgrx::*;
-use serde_json::Map;
 
 pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
     let directory = WriterDirectory::from_index_name(index_name);
@@ -58,109 +54,15 @@ pub unsafe fn row_to_search_document(
 
         let datum = *values.add(attno);
 
-        match &base_oid {
-            PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => {
-                    let value = bool::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, value.into());
-                }
-                PgBuiltInOids::INT2OID => {
-                    let value = i16::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, (value as i64).into());
-                }
-                PgBuiltInOids::INT4OID => {
-                    let value = i32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, (value as i64).into());
-                }
-                PgBuiltInOids::INT8OID => {
-                    let value = i64::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, value.into());
-                }
-                PgBuiltInOids::OIDOID => {
-                    let value = u32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, (value as u64).into());
-                }
-                PgBuiltInOids::FLOAT4OID => {
-                    let value = f32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, (value as f64).into());
-                }
-                PgBuiltInOids::FLOAT8OID => {
-                    let value = f64::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, value.into());
-                }
-                PgBuiltInOids::NUMERICOID => {
-                    let value =
-                        pgrx::AnyNumeric::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(
-                        search_field.id,
-                        TryInto::<f64>::try_into(value).unwrap().into(),
-                    );
-                }
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                    if is_array {
-                        let array: Array<pg_sys::Datum> =
-                            Array::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                        for element_datum in array.iter().flatten() {
-                            let value = String::from_datum(element_datum, false)
-                                .ok_or(IndexError::DatumDeref)?;
-                            document.insert(search_field.id, value.into())
-                        }
-                    } else {
-                        let value =
-                            String::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                        document.insert(search_field.id, value.into())
-                    }
-                }
-                PgBuiltInOids::JSONOID => {
-                    let JsonString(value) =
-                        JsonString::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(
-                        search_field.id,
-                        serde_json::from_str::<Map<String, serde_json::Value>>(&value)?.into(),
-                    );
-                }
-                PgBuiltInOids::JSONBOID => {
-                    let JsonB(serde_value) =
-                        JsonB::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    let value = serde_json::to_vec(&serde_value)?;
-                    document.insert(
-                        search_field.id,
-                        serde_json::from_slice::<Map<String, serde_json::Value>>(&value)?.into(),
-                    );
-                }
-                PgBuiltInOids::DATEOID => {
-                    let value = pgrx::datum::Date::from_datum(datum, false)
-                        .ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, pgrx_date_to_tantivy_value(value));
-                }
-                PgBuiltInOids::TIMESTAMPOID => {
-                    let value = pgrx::datum::Timestamp::from_datum(datum, false)
-                        .ok_or(IndexError::DatumDeref)?;
-
-                    document.insert(search_field.id, pgrx_timestamp_to_tantivy_value(value));
-                }
-                PgBuiltInOids::TIMESTAMPTZOID => {
-                    let value = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
-                        .ok_or(IndexError::DatumDeref)?;
-
-                    document.insert(search_field.id, pgrx_timestamptz_to_tantivy_value(value));
-                }
-                PgBuiltInOids::TIMEOID => {
-                    let value = pgrx::datum::Time::from_datum(datum, false)
-                        .ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, pgrx_time_to_tantivy_value(value));
-                }
-                PgBuiltInOids::TIMETZOID => {
-                    let value = pgrx::datum::TimeWithTimeZone::from_datum(datum, false)
-                        .ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id, pgrx_timetz_to_tantivy_value(value));
-                }
-                unsupported => Err(IndexError::UnsupportedValue(
-                    search_field.name.0.to_string(),
-                    format!("{unsupported:?}"),
-                ))?,
-            },
-            _ => Err(IndexError::InvalidOid(search_field.name.0.to_string()))?,
+        if is_array {
+            for value in TantivyValue::try_from_datum_array(datum, base_oid).unwrap() {
+                document.insert(search_field.id, value.tantivy_schema_value());
+            }
+        } else {
+            document.insert(
+                search_field.id,
+                TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),
+            );
         }
     }
     Ok(document)

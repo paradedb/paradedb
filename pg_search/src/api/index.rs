@@ -18,10 +18,7 @@
 use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
-use crate::postgres::datetime::{
-    pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value, pgrx_timestamp_to_tantivy_value,
-    pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value,
-};
+use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;
 use crate::schema::ToString;
@@ -356,92 +353,61 @@ pub fn range_numeric(field: String, range: Range<pgrx::AnyNumeric>) -> SearchQue
     }
 }
 
-#[pg_extern(name = "range", immutable, parallel_safe)]
-pub fn range_date(field: String, range: Range<pgrx::Date>) -> SearchQueryInput {
-    match range.into_inner() {
-        None => SearchQueryInput::Range {
-            field,
-            lower_bound: Bound::Included(OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-            upper_bound: Bound::Excluded(OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-        },
-        Some((lower, upper)) => SearchQueryInput::Range {
-            field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_value(n)),
-            },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_value(n)),
-            },
-        },
-    }
+macro_rules! datetime_range_fn {
+    ($func_name:ident, $value_type:ty) => {
+        #[pg_extern(name = "range", immutable, parallel_safe)]
+        pub fn $func_name(field: String, range: Range<$value_type>) -> SearchQueryInput {
+            match range.into_inner() {
+                None => SearchQueryInput::Range {
+                    field,
+                    lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
+                        tantivy::DateTime::from_timestamp_micros(0),
+                    )),
+                    upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
+                        tantivy::DateTime::from_timestamp_micros(0),
+                    )),
+                },
+                Some((lower, upper)) => SearchQueryInput::Range {
+                    field,
+                    lower_bound: match lower {
+                        RangeBound::Infinite => Bound::Unbounded,
+                        RangeBound::Inclusive(n) => Bound::Included(
+                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                                .as_datetime()
+                                .unwrap()
+                                .into(),
+                        ),
+                        RangeBound::Exclusive(n) => Bound::Excluded(
+                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                                .as_datetime()
+                                .unwrap()
+                                .into(),
+                        ),
+                    },
+                    upper_bound: match upper {
+                        RangeBound::Infinite => Bound::Unbounded,
+                        RangeBound::Inclusive(n) => Bound::Included(
+                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                                .as_datetime()
+                                .unwrap()
+                                .into(),
+                        ),
+                        RangeBound::Exclusive(n) => Bound::Excluded(
+                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                                .as_datetime()
+                                .unwrap()
+                                .into(),
+                        ),
+                    },
+                },
+            }
+        }
+    };
 }
 
-#[pg_extern(name = "range", immutable, parallel_safe)]
-pub fn range_timestamp(field: String, range: Range<pgrx::Timestamp>) -> SearchQueryInput {
-    match range.into_inner() {
-        None => SearchQueryInput::Range {
-            field,
-            lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-            upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-        },
-        Some((lower, upper)) => SearchQueryInput::Range {
-            field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamp_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamp_to_tantivy_value(n)),
-            },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamp_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamp_to_tantivy_value(n)),
-            },
-        },
-    }
-}
-
-#[pg_extern(name = "range", immutable, parallel_safe)]
-pub fn range_timestamptz(
-    field: String,
-    range: Range<pgrx::TimestampWithTimeZone>,
-) -> SearchQueryInput {
-    match range.into_inner() {
-        None => SearchQueryInput::Range {
-            field,
-            lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-            upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
-                tantivy::DateTime::from_timestamp_micros(0),
-            )),
-        },
-        Some((lower, upper)) => SearchQueryInput::Range {
-            field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamptz_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamptz_to_tantivy_value(n)),
-            },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamptz_to_tantivy_value(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamptz_to_tantivy_value(n)),
-            },
-        },
-    }
-}
+datetime_range_fn!(range_date, pgrx::Date);
+datetime_range_fn!(range_timestamp, pgrx::Timestamp);
+datetime_range_fn!(range_timestamptz, pgrx::TimestampWithTimeZone);
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn regex(field: String, pattern: String) -> SearchQueryInput {
@@ -449,17 +415,18 @@ pub fn regex(field: String, pattern: String) -> SearchQueryInput {
 }
 
 macro_rules! term_fn {
-    ($func_name:ident, $value_type:ty, $conversion:expr) => {
+    ($func_name:ident, $value_type:ty) => {
         #[pg_extern(name = "term", immutable, parallel_safe)]
         pub fn $func_name(
             field: default!(Option<String>, "NULL"),
             value: default!(Option<$value_type>, "NULL"),
         ) -> SearchQueryInput {
-            let convert = $conversion;
             if let Some(value) = value {
                 SearchQueryInput::Term {
                     field,
-                    value: convert(value),
+                    value: TantivyValue::try_from(value)
+                        .unwrap()
+                        .tantivy_schema_value(),
                 }
             } else {
                 panic!("no value provided to term query")
@@ -468,84 +435,57 @@ macro_rules! term_fn {
     };
 }
 
+macro_rules! term_fn_unsupported {
+    ($func_name:ident, $value_type:ty, $term_type:literal) => {
+        #[pg_extern(name = "term", immutable, parallel_safe)]
+        #[allow(unused)]
+        pub fn $func_name(
+            field: default!(Option<String>, "NULL"),
+            value: default!(Option<$value_type>, "NULL"),
+        ) -> SearchQueryInput {
+            unimplemented!("{} in term query not implemented", $term_type)
+        }
+    };
+}
+
 // Generate functions for each type
-term_fn!(term_bytes, Vec<u8>, tantivy::schema::OwnedValue::Bytes);
-term_fn!(term_str, String, tantivy::schema::OwnedValue::Str);
-term_fn!(term_i8, i8, |v| tantivy::schema::OwnedValue::I64(v as i64));
-term_fn!(term_i16, i16, |v| tantivy::schema::OwnedValue::I64(
-    v as i64
-));
-term_fn!(term_i32, i32, |v| tantivy::schema::OwnedValue::I64(
-    v as i64
-));
-term_fn!(term_i64, i64, tantivy::schema::OwnedValue::I64);
-term_fn!(term_f32, f32, |v| tantivy::schema::OwnedValue::F64(
-    v as f64
-));
-term_fn!(term_f64, f64, tantivy::schema::OwnedValue::F64);
-term_fn!(term_bool, bool, tantivy::schema::OwnedValue::Bool);
-term_fn!(json, pgrx::Json, |_v| unimplemented!(
-    "json in term query not implemented"
-));
-term_fn!(jsonb, pgrx::JsonB, |_v| unimplemented!(
-    "jsonb in term query not implemented"
-));
-term_fn!(date, pgrx::Date, pgrx_date_to_tantivy_value);
-term_fn!(time, pgrx::Time, pgrx_time_to_tantivy_value);
-term_fn!(timestamp, pgrx::Timestamp, pgrx_timestamp_to_tantivy_value);
-term_fn!(
-    time_with_time_zone,
-    pgrx::TimeWithTimeZone,
-    pgrx_timetz_to_tantivy_value
-);
-term_fn!(
-    timestamp_with_time_zome,
-    pgrx::TimestampWithTimeZone,
-    pgrx_timestamptz_to_tantivy_value
-);
-term_fn!(anyarray, pgrx::AnyArray, |_v| unimplemented!(
-    "array in term query not implemented"
-));
-term_fn!(pg_box, pgrx::pg_sys::BOX, |_v| unimplemented!(
-    "box in term query not implemented"
-));
-term_fn!(point, pgrx::pg_sys::Point, |_v| unimplemented!(
-    "point in term query not implemented"
-));
-term_fn!(tid, pgrx::pg_sys::ItemPointerData, |_v| unimplemented!(
-    "tid in term query not implemented"
-));
-term_fn!(inet, pgrx::Inet, |_v| unimplemented!(
-    "inet in term query not implemented"
-));
-term_fn!(numeric, pgrx::AnyNumeric, |v: pgrx::AnyNumeric| {
-    tantivy::schema::OwnedValue::F64(v.try_into().unwrap())
-});
-term_fn!(int4range, pgrx::Range<i32>, |_v| unimplemented!(
-    "int4 range in term query not implemented"
-));
-term_fn!(int8range, pgrx::Range<i64>, |_v| unimplemented!(
-    "int8 range in term query not implemented"
-));
-term_fn!(
-    numrange,
-    pgrx::Range<pgrx::AnyNumeric>,
-    |_v| unimplemented!("numeric range in term query not implemented")
-);
-term_fn!(daterange, pgrx::Range<pgrx::Date>, |_v| unimplemented!(
-    "date range in term query not implemented"
-));
-term_fn!(tsrange, pgrx::Range<pgrx::Timestamp>, |_v| unimplemented!(
-    "timestamp ranges in term query not implemented"
-));
-term_fn!(
+// NOTE: We cannot use AnyElement for `term` because it sullies the user experience.
+//       For example, searching for a string value is an ambiguous type, so the user
+//       would have to search for 'string'::text or 'string'::varchar in the `value`
+//       argument.
+term_fn!(term_bytes, Vec<u8>);
+term_fn!(term_str, String);
+term_fn!(term_i8, i8);
+term_fn!(term_i16, i16);
+term_fn!(term_i32, i32);
+term_fn!(term_i64, i64);
+term_fn!(term_f32, f32);
+term_fn!(term_f64, f64);
+term_fn!(term_bool, bool);
+term_fn!(date, pgrx::Date);
+term_fn!(time, pgrx::Time);
+term_fn!(timestamp, pgrx::Timestamp);
+term_fn!(time_with_time_zone, pgrx::TimeWithTimeZone);
+term_fn!(timestamp_with_time_zome, pgrx::TimestampWithTimeZone);
+term_fn!(numeric, pgrx::AnyNumeric);
+term_fn!(uuid, pgrx::Uuid);
+term_fn_unsupported!(json, pgrx::Json, "json");
+term_fn_unsupported!(jsonb, pgrx::JsonB, "jsonb");
+term_fn_unsupported!(anyarray, pgrx::AnyArray, "array");
+term_fn_unsupported!(pg_box, pgrx::pg_sys::BOX, "box");
+term_fn_unsupported!(point, pgrx::pg_sys::Point, "point");
+term_fn_unsupported!(tid, pgrx::pg_sys::ItemPointerData, "tid");
+term_fn_unsupported!(inet, pgrx::Inet, "inet");
+term_fn_unsupported!(int4range, pgrx::Range<i32>, "int4 range");
+term_fn_unsupported!(int8range, pgrx::Range<i64>, "int8 range");
+term_fn_unsupported!(numrange, pgrx::Range<pgrx::AnyNumeric>, "numeric range");
+term_fn_unsupported!(daterange, pgrx::Range<pgrx::Date>, "date range");
+term_fn_unsupported!(tsrange, pgrx::Range<pgrx::Timestamp>, "timestamp range");
+term_fn_unsupported!(
     tstzrange,
     pgrx::Range<pgrx::TimestampWithTimeZone>,
-    |_v| unimplemented!("timestamp ranges with time zone in term query not implemented")
+    "timestamp ranges with time zone"
 );
-term_fn!(uuid, pgrx::Uuid, |_v| unimplemented!(
-    "uuid in term query not implemented"
-));
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(

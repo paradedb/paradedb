@@ -16,13 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use chrono::{NaiveDate, NaiveDateTime};
+use pgrx::datum::datetime_support::DateTimeConversionError;
 
-static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
+pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
-fn datetime_components_to_tantivy_date(
+pub fn datetime_components_to_tantivy_date(
     ymd: Option<(i32, u8, u8)>,
     hms_micro: (u8, u8, u8, u32),
-) -> tantivy::schema::OwnedValue {
+) -> Result<tantivy::schema::OwnedValue, DateTimeConversionError> {
     let naive_dt = match ymd {
         Some(ymd) => NaiveDate::from_ymd_opt(ymd.0, ymd.1.into(), ymd.2.into()).unwrap(),
         None => NaiveDateTime::UNIX_EPOCH.date(),
@@ -33,45 +34,10 @@ fn datetime_components_to_tantivy_date(
         hms_micro.2.into(),
         hms_micro.3 % MICROSECONDS_IN_SECOND,
     )
-    .unwrap()
+    .ok_or(DateTimeConversionError::OutOfRange)?
     .and_utc();
 
-    tantivy::schema::OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(
-        naive_dt.timestamp_micros(),
+    Ok(tantivy::schema::OwnedValue::Date(
+        tantivy::DateTime::from_timestamp_micros(naive_dt.timestamp_micros()),
     ))
-}
-
-pub fn pgrx_time_to_tantivy_value(value: pgrx::Time) -> tantivy::schema::OwnedValue {
-    let (v_h, v_m, v_s, v_ms) = value.to_hms_micro();
-    datetime_components_to_tantivy_date(None, (v_h, v_m, v_s, v_ms))
-}
-
-pub fn pgrx_timetz_to_tantivy_value(value: pgrx::TimeWithTimeZone) -> tantivy::schema::OwnedValue {
-    let (v_h, v_m, v_s, v_ms) = value.to_utc().to_hms_micro();
-    datetime_components_to_tantivy_date(None, (v_h, v_m, v_s, v_ms))
-}
-
-pub fn pgrx_date_to_tantivy_value(value: pgrx::Date) -> tantivy::schema::OwnedValue {
-    datetime_components_to_tantivy_date(
-        Some((value.year(), value.month(), value.day())),
-        (0, 0, 0, 0),
-    )
-}
-
-pub fn pgrx_timestamp_to_tantivy_value(value: pgrx::Timestamp) -> tantivy::schema::OwnedValue {
-    let (v_h, v_m, v_s, v_ms) = value.to_hms_micro();
-    datetime_components_to_tantivy_date(
-        Some((value.year(), value.month(), value.day())),
-        (v_h, v_m, v_s, v_ms),
-    )
-}
-
-pub fn pgrx_timestamptz_to_tantivy_value(
-    value: pgrx::TimestampWithTimeZone,
-) -> tantivy::schema::OwnedValue {
-    let (v_h, v_m, v_s, v_ms) = value.to_utc().to_hms_micro();
-    datetime_components_to_tantivy_date(
-        Some((value.year(), value.month(), value.day())),
-        (v_h, v_m, v_s, v_ms),
-    )
 }

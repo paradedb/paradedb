@@ -21,6 +21,7 @@ mod index;
 mod server;
 mod transfer;
 
+use crate::postgres::types::TantivyValueError;
 use crate::schema::SearchDocument;
 pub use client::{Client, ClientError};
 pub use directory::*;
@@ -86,17 +87,8 @@ pub trait WriterClient<T: Serialize> {
 
 #[derive(Error, Debug)]
 pub enum IndexError {
-    #[error("unsupported value for attribute '{0}': {1}")]
-    UnsupportedValue(String, String),
-
-    #[error("could not dereference postgres datum")]
-    DatumDeref,
-
     #[error("couldn't get writer for {0:?}: {1}")]
     GetWriterFailed(WriterDirectory, String),
-
-    #[error("{0} has a type oid of InvalidOid")]
-    InvalidOid(String),
 
     #[error(transparent)]
     TantivyError(#[from] tantivy::TantivyError),
@@ -109,6 +101,9 @@ pub enum IndexError {
 
     #[error("couldn't remove index files on drop_index: {0}")]
     DeleteDirectory(#[from] SearchDirectoryError),
+
+    #[error(transparent)]
+    TantivyValueError(#[from] TantivyValueError),
 }
 
 #[cfg(test)]

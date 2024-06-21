@@ -23,9 +23,8 @@ use pgrx::{
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
-use tantivy::schema::document::Value;
 use tantivy::{query::QueryParser, Executor, Index, Searcher};
-use tantivy::{IndexReader, IndexWriter, TantivyDocument, TantivyError};
+use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::{error, info};

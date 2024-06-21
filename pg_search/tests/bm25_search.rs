@@ -243,21 +243,18 @@ fn uuid(mut conn: PgConnection) {
     CALL paradedb.drop_bm25('uuid_table');"#
         .execute(&mut conn);
 
-    match r#"
+    r#"
     CALL paradedb.create_bm25(
         index_name => 'uuid_table',
         table_name => 'uuid_table',
         key_field => 'id',
         text_fields => '{"some_text": {}, "random_uuid": {}}'
     )"#
-    .execute_result(&mut conn)
-    {
-        Err(err) => assert!(
-            err.to_string().contains("cannot be indexed"),
-            "received {err:?}"
-        ),
-        _ => panic!("uuid fields in bm25 index should not be supported"),
-    };
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = r#"SELECT * FROM uuid_table.search('some_text:some')"#.fetch(&mut conn);
+
+    assert_eq!(rows.len(), 10);
 }
 
 #[rstest]

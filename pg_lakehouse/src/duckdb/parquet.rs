@@ -126,25 +126,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_parquet_view_no_options() {
+    fn test_create_parquet_view_single_file() {
         let table_name = "test_table";
         let schema_name = "test_schema";
+        let files = "/data/file.parquet";
         let table_options = HashMap::new();
+
+        let expected = "
+            CREATE VIEW IF NOT EXISTS test_table.test_schema 
+            AS SELECT * FROM read_parquet('/data/file.parquet')
+        ";
+
+        let actual = create_view(table_name, schema_name, table_options).unwrap();
+        assert_eq!(expected, actual);
     }
 
     #[test]
-    fn test_create_parquet_view_with_options() {
+    fn test_create_parquet_view_multiple_files() {
         let table_name = "test_table";
         let schema_name = "test_schema";
-        let table_options = HashMap::from([
-            (ParquetOption::Files.as_str(), "test_file"),
-            (ParquetOption::BinaryAsString.as_str(), "true"),
-            (ParquetOption::FileName.as_str(), "test_file_name"),
-            (ParquetOption::FileRowNumber.as_str(), "true"),
-            (ParquetOption::HivePartitioning.as_str(), "true"),
-            (ParquetOption::HiveTypes.as_str(), "true"),
-            (ParquetOption::HiveTypesAutocast.as_str(), "true"),
-            (ParquetOption::UnionByName.as_str(), "true"),
-        ]);
+        let files = "/data/file1.parquet, /data/file2.parquet";
+        let table_options = HashMap::new();
+
+        let expected = "
+            CREATE VIEW IF NOT EXISTS test_table.test_schema 
+            AS SELECT * FROM read_parquet(['/data/file1.parquet', '/data/file2.parquet'])
+        ";
+
+        let actual = create_view(table_name, schema_name, table_options).unwrap();
+        assert_eq!(expected, actual);
     }
+
+    // #[test]
+    // fn test_create_parquet_view_with_options() {
+    //     let table_name = "test_table";
+    //     let schema_name = "test_schema";
+    //     let table_options = HashMap::from([
+    //         (ParquetOption::Files.as_str(), "/data/file.parquet"),
+    //         (ParquetOption::BinaryAsString.as_str(), "true"),
+    //         (ParquetOption::FileName.as_str(), "test_file_name"),
+    //         (ParquetOption::FileRowNumber.as_str(), "true"),
+    //         (ParquetOption::HivePartitioning.as_str(), "true"),
+    //         (ParquetOption::HiveTypes.as_str(), "true"),
+    //         (ParquetOption::HiveTypesAutocast.as_str(), "true"),
+    //         (ParquetOption::UnionByName.as_str(), "true"),
+    //     ]);
+    // }
 }

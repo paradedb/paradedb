@@ -17,12 +17,15 @@
 
 mod fixtures;
 
+use anyhow::Result;
 use approx::assert_relative_eq;
 use core::panic;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use std::path::PathBuf;
+use tantivy::Index;
 
 #[rstest]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
@@ -240,21 +243,18 @@ fn uuid(mut conn: PgConnection) {
     CALL paradedb.drop_bm25('uuid_table');"#
         .execute(&mut conn);
 
-    match r#"
+    r#"
     CALL paradedb.create_bm25(
         index_name => 'uuid_table',
         table_name => 'uuid_table',
         key_field => 'id',
         text_fields => '{"some_text": {}, "random_uuid": {}}'
     )"#
-    .execute_result(&mut conn)
-    {
-        Err(err) => assert!(
-            err.to_string().contains("cannot be indexed"),
-            "received {err:?}"
-        ),
-        _ => panic!("uuid fields in bm25 index should not be supported"),
-    };
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = r#"SELECT * FROM uuid_table.search('some_text:some')"#.fetch(&mut conn);
+
+    assert_eq!(rows.len(), 10);
 }
 
 #[rstest]
@@ -512,9 +512,17 @@ fn explain(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn update_time(mut conn: PgConnection) {
+fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
+    // Create the test table and index.
     "CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');"
         .execute(&mut conn);
+
+    // For this test, we'll turn off autovacuum, as we'll be measuring the size of the index.
+    // We don't want a vacuum to happen and unexpectedly change the size.
+    "ALTER TABLE mock_items SET (autovacuum_enabled = false)"
+        .to_string()
+        .execute(&mut conn);
+
     "CALL paradedb.create_bm25(
             index_name => 'search_idx',
             schema_name => 'public',
@@ -524,17 +532,62 @@ fn update_time(mut conn: PgConnection) {
     )"
     .execute(&mut conn);
 
-    let start_time = std::time::Instant::now();
-    "UPDATE mock_items set category = 'Keyboards' WHERE description = 'Plastic Keyboard'"
-        .execute(&mut conn);
-    let elapsed_with_index = start_time.elapsed().as_millis() as i64;
+    // Build the index directory path.
+    let (db_oid,) = "SELECT oid::int4 FROM pg_database WHERE datname = current_database();"
+        .fetch_one::<(i32,)>(&mut conn);
+    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
+    let index_dir_path = PathBuf::from(data_directory)
+        .join("paradedb")
+        .join("pg_search")
+        .join(format!("{db_oid}_search_idx_bm25_index"))
+        .join("tantivy");
 
-    "CALL paradedb.drop_bm25('search_idx')".execute(&mut conn);
-    let start_time = std::time::Instant::now();
-    "UPDATE mock_items set category = 'Instruments' WHERE description = 'Plastic Keyboard'"
-        .execute(&mut conn);
-    let elapsed_without_index = start_time.elapsed().as_millis() as i64;
+    assert!(index_dir_path.exists());
 
-    // There should be a negligible difference in time between the two updates
-    assert!((elapsed_without_index - elapsed_with_index).abs() < 3);
+    // Get the index metadata
+    let index = Index::open_in_dir(&index_dir_path)?;
+    let reader = index.reader()?;
+    let searcher = reader.searcher();
+    let total_docs = searcher
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| segment_reader.num_docs())
+        .reduce(|acc, count| acc + count)
+        .unwrap_or(0);
+
+    assert_eq!(total_docs, 41);
+
+    // Update an indexed column.
+    "UPDATE mock_items set description = 'Organic blue tea' WHERE description = 'Organic green tea'"
+        .execute(&mut conn);
+
+    reader.reload()?;
+
+    let searcher = reader.searcher();
+    let total_docs = searcher
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| segment_reader.num_docs())
+        .reduce(|acc, count| acc + count)
+        .unwrap_or(0);
+
+    // The total document should be higher, as a new document was created for the updated row.
+    assert_eq!(total_docs, 42);
+
+    // Update a non-indexed column.
+    "UPDATE mock_items set category = 'Books' WHERE description = 'Sleek running shoes'"
+        .execute(&mut conn);
+
+    let searcher = reader.searcher();
+    let total_docs = searcher
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| segment_reader.num_docs())
+        .reduce(|acc, count| acc + count)
+        .unwrap_or(0);
+
+    // The total document count should not have changed when updating a non-indexed column.
+    assert_eq!(total_docs, 42);
+
+    Ok(())
 }

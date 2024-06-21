@@ -186,7 +186,8 @@ mod tests {
             .create_in_dir(tantivy_path)
             .unwrap();
 
-        let mut writer = index.writer(500_000_000).unwrap();
+        let mut writer: tantivy::IndexWriter<tantivy::TantivyDocument> =
+            index.writer(500_000_000).unwrap();
         writer.add_document(simple_doc.into()).unwrap();
         writer.commit().unwrap();
 

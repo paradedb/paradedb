@@ -180,9 +180,25 @@ fn create_bm25(
         &format!("RETURN QUERY SELECT * FROM paradedb.schema_bm25({})", spi::quote_literal(index_name))
     ))?;
 
+    // Get the type and type oid of the key column
+    let (key_oid, key_type) = match Spi::get_two::<pg_sys::Oid, String>(&format!(
+        "SELECT a.atttypid AS type_oid, CAST(t.typname AS TEXT) AS type_name
+            FROM pg_attribute a
+            JOIN pg_type t ON a.atttypid = t.oid
+            JOIN pg_class c ON a.attrelid = c.oid
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            WHERE c.relname = {} AND a.attname = {} AND n.nspname = {}",
+        spi::quote_literal(table_name),
+        spi::quote_literal(key_field),
+        spi::quote_literal(schema_name)
+    ))? {
+        (Some(key_oid), Some(key_type)) => (key_oid, key_type),
+        _ => bail!("could not select key field type and type oid"),
+    };
+
     Spi::run(&format_hybrid_function(
         &spi::quote_qualified_identifier(index_name, "rank_hybrid"),
-        &format!("TABLE({} bigint, rank_hybrid real)", spi::quote_identifier(key_field)),
+        &format!("TABLE({} {}, rank_hybrid real)", spi::quote_identifier(key_field), key_type),
         &format!(
             "
                 WITH similarity AS (
@@ -201,9 +217,9 @@ fn create_bm25(
                 ),
                 bm25 AS (
                     SELECT 
-                        id as key_field, 
+                        id as key_field,
                         rank_bm25 as score 
-                    FROM paradedb.minmax_bm25($1)
+                    FROM paradedb.minmax_bm25($1, NULL::{}, {})
                 )
                 SELECT
                     COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,
@@ -213,7 +229,9 @@ fn create_bm25(
                 ORDER BY score_hybrid DESC;
             ",
             spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name)
+            spi::quote_identifier(table_name),
+            key_type,
+            key_oid.as_u32()
         ),
         &index_json
     ))?;

@@ -10,7 +10,6 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - dev
-      - staging
       - main
     paths:
       - "pg_search/**"
@@ -40,19 +39,19 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             pg_version: 12
             arch: amd64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             pg_version: 13
             arch: amd64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             pg_version: 14
             arch: amd64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             pg_version: 15
             arch: amd64
-          - runner: depot-ubuntu-22.04-4
+          - runner: depot-ubuntu-22.04-8
             pg_version: 16
             arch: amd64
     env:

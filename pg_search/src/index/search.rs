@@ -23,8 +23,8 @@ use pgrx::{
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
-use tantivy::{query::QueryParser, Executor, Index, IndexSettings, Searcher};
-use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
+use tantivy::{query::QueryParser, Executor, Index, Searcher};
+use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::{error, info};
@@ -90,21 +90,10 @@ impl SearchIndex {
         directory.remove().map_err(SearchIndexError::from)?;
 
         let schema = SearchIndexSchema::new(fields)?;
-        let settings = IndexSettings {
-            // Fields should be returned in the order of their key_field (if their bm25 scores match).
-            // Pre-sorting these fields at insert time saves work at query time.
-            sort_by_field: Some(IndexSortByField {
-                field: schema.key_field().name.as_ref().into(),
-                order: Order::Asc,
-            }),
-            // docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
-            ..Default::default()
-        };
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
         let mut underlying_index = Index::builder()
             .schema(schema.schema.clone())
-            .settings(settings.clone())
             .create_in_dir(tantivy_dir_path)
             .expect("failed to create index");
 
@@ -241,11 +230,12 @@ impl SearchIndex {
         // Send the insert requests to the writer server.
         let request = WriterRequest::Insert {
             directory: self.directory.clone(),
-            document,
+            document: document.clone(),
         };
 
         let WriterTransferPipeFilePath(pipe_path) =
             self.directory.writer_transfer_pipe_path(true)?;
+
         writer.lock()?.transfer(pipe_path, request)?;
 
         Ok(())
@@ -267,8 +257,10 @@ impl SearchIndex {
 
             for (delete, ctid) in (0..segment_reader.num_docs())
                 .filter_map(|id| store_reader.get(id).ok())
-                .filter_map(|doc| doc.get_first(self.schema.ctid_field().id.0).cloned())
-                .filter_map(|value| value.as_u64())
+                .filter_map(|doc: TantivyDocument| {
+                    doc.get_first(self.schema.ctid_field().id.0).cloned()
+                })
+                .filter_map(|value| (&value).as_u64())
                 .map(|ctid_val| {
                     let mut ctid = ItemPointerData::default();
                     pgrx::u64_to_item_pointer(ctid_val, &mut ctid);
@@ -411,7 +403,7 @@ impl<T> From<PoisonError<T>> for SearchIndexError {
 mod tests {
     use crate::{fixtures::*, schema::SearchConfig};
     use rstest::*;
-    use tantivy::schema::Value;
+    use tantivy::schema::OwnedValue;
 
     use super::SearchIndex;
 
@@ -434,9 +426,9 @@ mod tests {
         let id_field = schema.key_field();
         let ctid_field = schema.ctid_field();
         let author_field = schema.get_search_field(&"author".into()).unwrap();
-        doc.insert(id_field.id, Value::I64(0));
-        doc.insert(ctid_field.id, Value::U64(0));
-        doc.insert(author_field.id, Value::Str("张伟".into()));
+        doc.insert(id_field.id, OwnedValue::I64(0));
+        doc.insert(ctid_field.id, OwnedValue::U64(0));
+        doc.insert(author_field.id, OwnedValue::Str("张伟".into()));
 
         // Insert document into index.
         index.insert(&client, doc.clone()).unwrap();
@@ -455,7 +447,7 @@ mod tests {
             .search(index.executor)
             .first()
             .expect("query returned no results");
-        let found = state
+        let found: tantivy::TantivyDocument = state
             .searcher
             .doc(doc_address)
             .expect("no document at address");

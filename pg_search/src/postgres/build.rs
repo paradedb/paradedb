@@ -25,6 +25,8 @@ use crate::writer::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
+use tantivy::schema::IndexRecordOption;
+use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 // For now just pass the count on the build callback state
 struct BuildState {
@@ -94,9 +96,9 @@ pub extern "C" fn ambuild(
         .get_numeric_fields()
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::I64) | Some(field_type @ SearchFieldType::F64) => {
-                (name, config, *field_type)
-            }
+            Some(field_type @ SearchFieldType::U64)
+            | Some(field_type @ SearchFieldType::I64)
+            | Some(field_type @ SearchFieldType::F64) => (name, config, *field_type),
             _ => panic!("'{name}' cannot be indexed as a numeric field"),
         });
 
@@ -126,11 +128,46 @@ pub extern "C" fn ambuild(
         });
 
     let key_field = rdopts.get_key_field().expect("must specify key field");
-
-    match name_type_map.get(&key_field) {
-        Some(SearchFieldType::I64) => {}
+    let key_field_type = match name_type_map.get(&key_field) {
+        Some(field_type) => field_type,
         None => panic!("key field does not exist"),
-        _ => panic!("key field must be an integer"),
+    };
+    let key_config = match key_field_type {
+        SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
+            SearchFieldConfig::Numeric {
+                indexed: true,
+                fast: true,
+                stored: true,
+            }
+        }
+        SearchFieldType::Text => SearchFieldConfig::Text {
+            indexed: true,
+            fast: true,
+            stored: true,
+            fieldnorms: false,
+            tokenizer: SearchTokenizer::Raw,
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+        },
+        SearchFieldType::Json => SearchFieldConfig::Json {
+            indexed: true,
+            fast: true,
+            stored: true,
+            expand_dots: false,
+            tokenizer: SearchTokenizer::Raw,
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+        },
+        SearchFieldType::Bool => SearchFieldConfig::Boolean {
+            indexed: true,
+            fast: true,
+            stored: true,
+        },
+        SearchFieldType::Date => SearchFieldConfig::Date {
+            indexed: true,
+            fast: true,
+            stored: true,
+        },
     };
 
     // Concatenate the separate lists of fields.
@@ -141,8 +178,8 @@ pub extern "C" fn ambuild(
         .chain(datetime_fields)
         .chain(std::iter::once((
             key_field,
-            SearchFieldConfig::Key,
-            SearchFieldType::I64,
+            SearchFieldConfig::Key(key_config.into()),
+            *key_field_type,
         )))
         // "ctid" is a reserved column name in Postgres, so we don't need to worry about
         // creating a name conflict with a user-named column.

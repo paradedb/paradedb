@@ -19,7 +19,7 @@ concurrency:
 jobs:
   lint-pr-title:
     name: Validate PR Title
-    runs-on: depot-ubuntu-22.04-4
+    runs-on: depot-ubuntu-22.04-2
     if: github.event.pull_request.draft == false
 
     steps:

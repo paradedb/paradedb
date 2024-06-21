@@ -153,7 +153,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[1].3, Vector::from(vec![1.0, 2.0, 3.0]));
     assert_eq!(rows[2].3, Vector::from(vec![1.0, 2.0, 3.0]));
 
-    let rows: Vec<(i64, f32)> = r#"
+    let rows: Vec<(i32, f32)> = r#"
     SELECT * FROM search_idx.rank_hybrid(
         bm25_query => 'description:keyboard OR category:electronics',
         similarity_query => '''[1,2,3]'' <-> embedding',

@@ -178,14 +178,15 @@ fn text_term(mut conn: PgConnection) {
     CREATE TABLE test_table (
         id SERIAL PRIMARY KEY,
         value_text TEXT,
-        value_varchar VARCHAR(64)
+        value_varchar VARCHAR(64),
+        value_uuid UUID
     );
 
-    INSERT INTO test_table (value_text, value_varchar) VALUES 
-        ('abc', 'var abc'), 
-        ('def', 'var def'), 
-        ('ghi', 'var ghi'), 
-        ('jkl', 'var jkl');
+    INSERT INTO test_table (value_text, value_varchar, value_uuid) VALUES
+        ('abc', 'var abc', 'a99e7330-37e6-4f14-8c95-985052ee74f3'::uuid),
+        ('def', 'var def', '2fe779f1-2a74-4035-9f1a-9477bae0364c'::uuid),
+        ('ghi', 'var ghi', 'b9592b87-82ea-4d7b-8865-f6be819d4f0f'::uuid),
+        ('jkl', 'var jkl', 'ae9d4a8c-8382-452d-96fb-a9a1c4192a03'::uuid);
     "#
     .execute(&mut conn);
 
@@ -194,7 +195,7 @@ fn text_term(mut conn: PgConnection) {
         table_name => 'test_table',
         index_name => 'test_index',
         key_field => 'id',
-        text_fields => '{"value_text": {}, "value_varchar": {}}'
+        text_fields => '{"value_text": {}, "value_varchar": {}, "value_uuid": {tokenizer: { type: "raw" }, normalizer: "raw", record: "basic", fieldnorms: false}}'
     );
     "#
     .execute(&mut conn);
@@ -218,6 +219,16 @@ fn text_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(3, "var ghi".into())]);
+
+    // UUID - sqlx doesn't have a uuid type, so we just look for id
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_index.search(
+        query => paradedb.term(field => 'value_uuid', value => 'ae9d4a8c-8382-452d-96fb-a9a1c4192a03'),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(4,)]);
 }
 
 #[rstest]

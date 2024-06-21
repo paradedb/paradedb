@@ -71,9 +71,9 @@ impl TryFrom<&PgOid> for SearchFieldType {
                     Ok(SearchFieldType::I64)
                 }
                 PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => Ok(SearchFieldType::U64),
-                PgBuiltInOids::FLOAT4OID | PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
-                    Ok(SearchFieldType::F64)
-                }
+                // See types.rs to understand why f32 is represented as a u64 instead of f64
+                PgBuiltInOids::FLOAT4OID => Ok(SearchFieldType::U64),
+                PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => Ok(SearchFieldType::F64),
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => Ok(SearchFieldType::Json),
                 PgBuiltInOids::DATEOID

@@ -420,11 +420,22 @@ impl TryFrom<TantivyValue> for i64 {
     }
 }
 
+const U32_HIGHEST_BIT: u32 = 1 << 31;
 impl TryFrom<f32> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: f32) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val as f64)))
+        // Casting f32 to f64 causes some precision errors when Tantivy writes the document.
+        //     For now, we store the bit representation of the f32 as a u32 and cast to a u64.
+        let bits = val.to_bits();
+        let val_as_u32: u32 = if val.is_sign_positive() {
+            bits ^ U32_HIGHEST_BIT
+        } else {
+            !bits
+        };
+        Ok(TantivyValue(tantivy::schema::OwnedValue::U64(
+            val_as_u32 as u64,
+        )))
     }
 }
 
@@ -432,8 +443,16 @@ impl TryFrom<TantivyValue> for f32 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::F64(val) = value.0 {
-            Ok(val as f32)
+        if let tantivy::schema::OwnedValue::U64(val) = value.0 {
+            // Casting f32 to f64 causes some precision errors when Tantivy writes the document.
+            //     For now, we store the bit representation of the f32 as a u32 and cast to a u64.
+            let val = val as u32;
+            let val_as_f32 = f32::from_bits(if val & U32_HIGHEST_BIT != 0 {
+                val ^ U32_HIGHEST_BIT
+            } else {
+                !val
+            });
+            Ok(val_as_f32)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "f32".to_string(),

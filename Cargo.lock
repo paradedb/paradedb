@@ -3147,8 +3147,8 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
 name = "duckdb"
-version = "0.10.2"
-source = "git+https://github.com/paradedb/duckdb-rs.git?rev=3a32d90#3a32d90ce2573214e65b53083fd8712e19a7c42a"
+version = "1.0.0"
+source = "git+https://github.com/paradedb/duckdb-rs.git?rev=15c09f4#15c09f46989943f618a536890d24980dcd9f670b"
 dependencies = [
  "arrow 52.0.0",
  "cast",
@@ -4594,8 +4594,8 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 
 [[package]]
 name = "libduckdb-sys"
-version = "0.10.2"
-source = "git+https://github.com/paradedb/duckdb-rs.git?rev=3a32d90#3a32d90ce2573214e65b53083fd8712e19a7c42a"
+version = "1.0.0"
+source = "git+https://github.com/paradedb/duckdb-rs.git?rev=15c09f4#15c09f46989943f618a536890d24980dcd9f670b"
 dependencies = [
  "autocfg",
  "cc",

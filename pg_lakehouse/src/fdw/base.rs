@@ -8,6 +8,7 @@ use thiserror::Error;
 use super::handler::FdwHandler;
 use crate::duckdb::connection;
 use crate::duckdb::csv::create_csv_view;
+use crate::duckdb::delta::create_delta_view;
 use crate::duckdb::parquet::create_parquet_view;
 use crate::schema::cell::*;
 
@@ -68,6 +69,9 @@ pub trait BaseFdw {
             match FdwHandler::from(foreign_server) {
                 FdwHandler::Csv => {
                     create_csv_view(table_name, schema_name, table_options)?;
+                }
+                FdwHandler::Delta => {
+                    create_delta_view(table_name, schema_name, table_options)?;
                 }
                 FdwHandler::Parquet => {
                     create_parquet_view(table_name, schema_name, table_options)?;

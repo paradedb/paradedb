@@ -21,7 +21,7 @@ pg_test = []
 anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
-duckdb = { git = "https://github.com/paradedb/duckdb-rs.git", features = ["bundled"], rev = "3a32d90" }
+duckdb = { git = "https://github.com/paradedb/duckdb-rs.git", features = ["bundled", "httpfs", "parquet"], rev = "15c09f4" }
 futures-lite = "2.3.0"
 lazy_static = "1.4.0"
 object_store = { version = "0.9.1", features = ["aws", "http"] }

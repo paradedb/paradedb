@@ -19,14 +19,6 @@ use pgrx::*;
 use std::ffi::CStr;
 use std::str::Utf8Error;
 
-#[allow(dead_code)]
-#[derive(PartialEq, Clone)]
-pub enum QueryType {
-    Federated,
-    DataFusion,
-    Postgres,
-}
-
 pub fn get_current_query(
     planned_stmt: *mut pg_sys::PlannedStmt,
     query_string: &CStr,

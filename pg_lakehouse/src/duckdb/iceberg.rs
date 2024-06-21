@@ -47,6 +47,11 @@ pub fn create_iceberg_view(
         .collect::<Vec<String>>()
         .join(", ");
 
+    if !connection::iceberg_loaded()? {
+        connection::execute("INSTALL iceberg", [])?;
+        connection::execute("LOAD iceberg", [])?;
+    }
+
     connection::execute(
         format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM iceberg_scan({create_iceberg_str})",
         )

@@ -57,7 +57,7 @@ pub fn create_parquet_view(
 ) -> Result<()> {
     let files = require_option(ParquetOption::Files.as_str(), &table_options)?;
     let files_split = files.split(',').collect::<Vec<&str>>();
-    let files_string = match files_split.len() {
+    let files_str = match files_split.len() {
         1 => format!("'{}'", files),
         _ => format!(
             "[{}]",
@@ -93,7 +93,7 @@ pub fn create_parquet_view(
             r#"
                 CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} 
                 AS SELECT * FROM read_parquet(
-                    {files_string},
+                    {files_str},
                     binary_as_string = {binary_as_string},
                     filename = {file_name},
                     file_row_number = {file_row_number},

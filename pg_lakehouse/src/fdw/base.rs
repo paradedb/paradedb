@@ -9,6 +9,7 @@ use super::handler::FdwHandler;
 use crate::duckdb::connection;
 use crate::duckdb::csv::create_csv_view;
 use crate::duckdb::delta::create_delta_view;
+use crate::duckdb::iceberg::create_iceberg_view;
 use crate::duckdb::parquet::create_parquet_view;
 use crate::schema::cell::*;
 
@@ -72,6 +73,9 @@ pub trait BaseFdw {
                 }
                 FdwHandler::Delta => {
                     create_delta_view(table_name, schema_name, table_options)?;
+                }
+                FdwHandler::Iceberg => {
+                    create_iceberg_view(table_name, schema_name, table_options)?;
                 }
                 FdwHandler::Parquet => {
                     create_parquet_view(table_name, schema_name, table_options)?;

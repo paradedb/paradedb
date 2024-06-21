@@ -21,17 +21,7 @@ pg_test = []
 anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
-duckdb = { git = "https://github.com/paradedb/duckdb-rs.git", features = ["bundled", "httpfs", "parquet"], rev = "15c09f4" }
-futures-lite = "2.3.0"
-lazy_static = "1.4.0"
-object_store = { version = "0.9.1", features = ["aws", "http"] }
-object_store_opendal = { git = "https://github.com/apache/opendal.git", rev = "79ab57f" }
-opendal = { git = "https://github.com/apache/opendal.git", features = [
-  "services-azblob",
-  "services-azdls",
-  "services-gcs",
-  "services-s3",
-], rev = "79ab57f" }
+duckdb = { git = "https://github.com/paradedb/duckdb-rs.git", features = ["bundled", "extensions-full"], rev = "15c09f4" }
 pgrx = "0.11.3"
 serde = "1.0.201"
 shared = { path = "../shared" }
@@ -39,8 +29,6 @@ signal-hook = "0.3.17"
 signal-hook-async-std = "0.2.2"
 supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false, rev = "8e3b96d" }
 thiserror = "1.0.59"
-tokio = { version = "1.38.0", features = ["signal"] }
-url = "2.5.0"
 
 [dev-dependencies]
 aws-config = "1.5.1"

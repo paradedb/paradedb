@@ -96,9 +96,9 @@ pub extern "C" fn ambuild(
         .get_numeric_fields()
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::I64) | Some(field_type @ SearchFieldType::F64) => {
-                (name, config, *field_type)
-            }
+            Some(field_type @ SearchFieldType::U64)
+            | Some(field_type @ SearchFieldType::I64)
+            | Some(field_type @ SearchFieldType::F64) => (name, config, *field_type),
             _ => panic!("'{name}' cannot be indexed as a numeric field"),
         });
 

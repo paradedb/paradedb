@@ -319,11 +319,7 @@ pub fn create_csv_view(
     let create_csv_str = [files_string, options_str].join(", ");
 
     connection::execute(
-        format!(
-            r#"
-                CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} 
-                AS SELECT * FROM read_csv({create_csv_str})
-            "#,
+        format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_csv({create_csv_str})",
         )
         .as_str(),
         [],

@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
+use super::utils;
+
 pub enum CsvOption {
     AllVarchar,
     AllowQuotedNulls,
@@ -155,22 +157,11 @@ pub fn create_view(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
-    let files = table_options
-        .get(CsvOption::Files.as_str())
-        .ok_or_else(|| anyhow!("files option is required"))?;
-
-    let files_split = files.split(',').collect::<Vec<&str>>();
-    let files_str = match files_split.len() {
-        1 => format!("'{}'", files),
-        _ => format!(
-            "[{}]",
-            files_split
-                .iter()
-                .map(|&chunk| format!("'{}'", chunk.trim()))
-                .collect::<Vec<String>>()
-                .join(", ")
-        ),
-    };
+    let files = Some(utils::format_csv(
+        table_options
+            .get(CsvOption::Files.as_str())
+            .ok_or_else(|| anyhow!("files option is required"))?,
+    ));
 
     let all_varchar = table_options
         .get(CsvOption::AllVarchar.as_str())
@@ -186,7 +177,7 @@ pub fn create_view(
 
     let auto_type_candidates = table_options
         .get(CsvOption::AutoTypeCandidates.as_str())
-        .map(|option| format!("auto_type_candidates = {option}"));
+        .map(|option| format!("auto_type_candidates = {}", utils::format_csv(option)));
 
     let columns = table_options
         .get(CsvOption::Columns.as_str())
@@ -218,7 +209,7 @@ pub fn create_view(
 
     let force_not_null = table_options
         .get(CsvOption::ForceNotNull.as_str())
-        .map(|option| format!("force_not_null = {option}"));
+        .map(|option| format!("force_not_null = {}", utils::format_csv(option)));
 
     let header = table_options
         .get(CsvOption::Header.as_str())
@@ -246,7 +237,7 @@ pub fn create_view(
 
     let names = table_options
         .get(CsvOption::Names.as_str())
-        .map(|option| format!("names = {option}"));
+        .map(|option| format!("names = {}", utils::format_csv(option)));
 
     let new_line = table_options
         .get(CsvOption::NewLine.as_str())
@@ -262,7 +253,7 @@ pub fn create_view(
 
     let nullstr = table_options
         .get(CsvOption::Nullstr.as_str())
-        .map(|option| format!("nullstr = '{option}'"));
+        .map(|option| format!("nullstr = {}", utils::format_csv(option)));
 
     let parallel = table_options
         .get(CsvOption::Parallel.as_str())
@@ -290,14 +281,14 @@ pub fn create_view(
 
     let types = table_options
         .get(CsvOption::Types.as_str())
-        .map(|option| format!("types = '{option}'"));
+        .map(|option| format!("types = {}", utils::format_csv(option)));
 
     let union_by_name = table_options
         .get(CsvOption::UnionByName.as_str())
         .map(|option| format!("union_by_name = {option}"));
 
     let create_csv_str = vec![
-        Some(files_str),
+        files,
         all_varchar,
         allow_quoted_nulls,
         auto_detect,
@@ -359,6 +350,147 @@ mod tests {
 
         let conn = Connection::open_in_memory().unwrap();
         match conn.prepare(&actual) {
+            Ok(_) => panic!("invalid csv file should throw an error"),
+            Err(e) => assert!(e.to_string().contains("file.csv")),
+        }
+    }
+
+    #[test]
+    fn test_create_csv_view_multiple_files() {
+        let table_name = "test";
+        let schema_name = "main";
+        let table_options = HashMap::from([(
+            CsvOption::Files.as_str().to_string(),
+            "/data/file1.csv, /data/file2.csv".to_string(),
+        )]);
+
+        let expected = "CREATE VIEW IF NOT EXISTS main.test AS SELECT * FROM read_csv(['/data/file1.csv', '/data/file2.csv'])";
+        let actual = create_view(table_name, schema_name, table_options).unwrap();
+
+        assert_eq!(expected, actual);
+
+        let conn = Connection::open_in_memory().unwrap();
+        match conn.prepare(&actual) {
+            Ok(_) => panic!("invalid csv file should throw an error"),
+            Err(e) => assert!(e.to_string().contains("file1.csv")),
+        }
+    }
+
+    #[test]
+    fn test_create_csv_view_with_options() {
+        let table_name = "test";
+        let schema_name = "main";
+        let table_options = HashMap::from([
+            (
+                CsvOption::Files.as_str().to_string(),
+                "/data/file.csv".to_string(),
+            ),
+            (
+                CsvOption::AllVarchar.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::AllowQuotedNulls.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::AutoDetect.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::AutoTypeCandidates.as_str().to_string(),
+                "BIGINT, DATE".to_string(),
+            ),
+            (
+                CsvOption::Columns.as_str().to_string(),
+                "{'col1': 'INTEGER', 'col2': 'VARCHAR'}".to_string(),
+            ),
+            (
+                CsvOption::Compression.as_str().to_string(),
+                "gzip".to_string(),
+            ),
+            (
+                CsvOption::Dateformat.as_str().to_string(),
+                "%d/%m/%Y".to_string(),
+            ),
+            (
+                CsvOption::DecimalSeparator.as_str().to_string(),
+                ".".to_string(),
+            ),
+            (CsvOption::Delim.as_str().to_string(), ",".to_string()),
+            (CsvOption::Escape.as_str().to_string(), "\"".to_string()),
+            (CsvOption::Filename.as_str().to_string(), "true".to_string()),
+            (
+                CsvOption::ForceNotNull.as_str().to_string(),
+                "col1, col2".to_string(),
+            ),
+            (CsvOption::Header.as_str().to_string(), "true".to_string()),
+            (
+                CsvOption::HivePartitioning.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::HiveTypes.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::HiveTypesAutocast.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::IgnoreErrors.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::MaxLineSize.as_str().to_string(),
+                "1000".to_string(),
+            ),
+            (
+                CsvOption::Names.as_str().to_string(),
+                "col1, col2".to_string(),
+            ),
+            (CsvOption::NewLine.as_str().to_string(), "\n".to_string()),
+            (
+                CsvOption::NormalizeNames.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::NullPadding.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                CsvOption::Nullstr.as_str().to_string(),
+                "none, null".to_string(),
+            ),
+            (CsvOption::Parallel.as_str().to_string(), "true".to_string()),
+            (CsvOption::Quote.as_str().to_string(), "\"".to_string()),
+            (
+                CsvOption::SampleSize.as_str().to_string(),
+                "100".to_string(),
+            ),
+            (CsvOption::Sep.as_str().to_string(), ",".to_string()),
+            (CsvOption::Skip.as_str().to_string(), "0".to_string()),
+            (
+                CsvOption::Timestampformat.as_str().to_string(),
+                "yyyy-MM-dd HH:mm:ss".to_string(),
+            ),
+            (
+                CsvOption::Types.as_str().to_string(),
+                "BIGINT, VARCHAR".to_string(),
+            ),
+            (
+                CsvOption::UnionByName.as_str().to_string(),
+                "true".to_string(),
+            ),
+        ]);
+
+        let expected = "CREATE VIEW IF NOT EXISTS main.test AS SELECT * FROM read_csv('/data/file.csv', all_varchar = true, allow_quoted_nulls = true, auto_detect = true, auto_type_candidates = ['BIGINT', 'DATE'], columns = {'col1': 'INTEGER', 'col2': 'VARCHAR'}, compression = 'gzip', dateformat = '%d/%m/%Y', decimal_separator = '.', delim = ',', escape = '\"', filename = true, force_not_null = ['col1', 'col2'], header = true, hive_partitioning = true, hive_types = true, hive_types_autocast = true, ignore_errors = true, max_line_size = 1000, names = ['col1', 'col2'], new_line = '\n', normalize_names = true, null_padding = true, nullstr = ['none', 'null'], parallel = true, quote = '\"', sample_size = 100, sep = ',', skip = 0, timestampformat = 'yyyy-MM-dd HH:mm:ss', types = ['BIGINT', 'VARCHAR'], union_by_name = true)";
+        let actual = create_view(table_name, schema_name, table_options).unwrap();
+
+        assert_eq!(expected, actual);
+
+        let conn = Connection::open_in_memory().unwrap();
+        match conn.prepare(&expected) {
             Ok(_) => panic!("invalid csv file should throw an error"),
             Err(e) => assert!(e.to_string().contains("file.csv")),
         }

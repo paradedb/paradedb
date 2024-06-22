@@ -74,7 +74,7 @@ pub fn setup_background_workers() {
         // It doesn't seem like bgworkers will start without this.
         .enable_spi_access()
         // RecoveryFinished is the last available stage for bgworker startup.
-        // Allows time for all boostrapped tables to be created.
+        // Allows time for all bootstrapped tables to be created.
         .set_start_time(bgworkers::BgWorkerStartTime::RecoveryFinished)
         .load();
 
@@ -103,7 +103,7 @@ pub extern "C" fn pg_search_insert_worker(_arg: pg_sys::Datum) {
     let mut server = writer::Server::new(writer).expect("error starting writer server");
 
     // Retrieve the assigned port and assign to global state.
-    // Note that we do not derefence the WRITER to mutate it, due to PGRX shared struct rules.
+    // Note that we do not deference the WRITER to mutate it, due to PGRX shared struct rules.
     // We also acquire its lock with `.exclusive` inside an enclosing block to ensure that
     // it is dropped after we are done with it.
     {

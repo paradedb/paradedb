@@ -28,9 +28,9 @@ use crate::writer::{self, WriterRequest};
 pub static WRITER_GLOBAL: PgLwLock<WriterGlobal> = PgLwLock::new();
 
 /// A global singleton for the instance of the client to the background writer process.
-/// The client is agnotistic to which index we're writing to, so keeping a global one
+/// The client is agnostic to which index we're writing to, so keeping a global one
 /// ensures that the instance can be re-used if a single transaction needs to write to
-/// multiple indexes. Note this must NOT be accesssed before the server is started.
+/// multiple indexes. Note this must NOT be accessed before the server is started.
 pub static mut SEARCH_INDEX_WRITER_CLIENT: Lazy<Arc<Mutex<writer::Client<writer::WriterRequest>>>> =
     Lazy::new(|| Arc::new(Mutex::new(writer::Client::from_global())));
 

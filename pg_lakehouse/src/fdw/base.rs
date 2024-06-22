@@ -49,7 +49,10 @@ pub trait BaseFdw {
         self.set_target_columns(columns);
 
         // Create DuckDB secret from user mapping options
-        connection::create_secret(DEFAULT_SECRET, self.get_user_mapping_options())?;
+        let user_mapping_options = self.get_user_mapping_options();
+        if !user_mapping_options.is_empty() {
+            connection::create_secret(DEFAULT_SECRET, self.get_user_mapping_options())?;
+        }
 
         // Create DuckDB view
         if !connection::view_exists(table_name, schema_name)? {

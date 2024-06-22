@@ -7,7 +7,6 @@ use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::sync::Once;
 use std::thread;
-use supabase_wrappers::prelude::require_option;
 
 use super::csv;
 use super::delta;
@@ -156,8 +155,10 @@ pub fn create_secret(
     }
 
     let secret_type = SecretType::try_from(
-        require_option(UserMappingOptions::Type.into(), &user_mapping_options)
-            .map_err(|_| anyhow!("USER MAPPING OPTION requires TYPE option"))?,
+        user_mapping_options
+            .get(UserMappingOptions::Type.into())
+            .ok_or_else(|| anyhow!("USER MAPPING OPTION requires TYPE option"))?
+            .as_str(),
     )?;
 
     let type_str = Some(format!("TYPE {}", <&str>::from(secret_type)));

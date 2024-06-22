@@ -1,6 +1,5 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use supabase_wrappers::prelude::*;
 
 pub enum IcebergOption {
     AllowMovedPaths,
@@ -32,7 +31,10 @@ pub fn create_view(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
-    let files = require_option(IcebergOption::Files.as_str(), &table_options)?;
+    let files = table_options
+        .get(IcebergOption::Files.as_str())
+        .ok_or_else(|| anyhow!("files option is required"))?;
+
     let files_str = format!("'{}'", files);
 
     let allow_moved_paths = table_options

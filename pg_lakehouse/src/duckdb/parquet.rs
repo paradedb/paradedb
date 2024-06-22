@@ -1,6 +1,5 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use supabase_wrappers::prelude::*;
 
 pub enum ParquetOption {
     BinaryAsString,
@@ -61,7 +60,10 @@ pub fn create_view(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
-    let files = require_option(ParquetOption::Files.as_str(), &table_options)?;
+    let files = table_options
+        .get(ParquetOption::Files.as_str())
+        .ok_or_else(|| anyhow!("files option is required"))?;
+
     let files_split = files.split(',').collect::<Vec<&str>>();
     let files_str = match files_split.len() {
         1 => format!("'{}'", files),
@@ -69,7 +71,7 @@ pub fn create_view(
             "[{}]",
             files_split
                 .iter()
-                .map(|&chunk| format!("'{}'", chunk))
+                .map(|&chunk| format!("'{}'", chunk.trim()))
                 .collect::<Vec<String>>()
                 .join(", ")
         ),
@@ -124,52 +126,95 @@ pub fn create_view(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use duckdb::Connection;
 
     #[test]
     fn test_create_parquet_view_single_file() {
-        let table_name = "test_table";
-        let schema_name = "test_schema";
+        let table_name = "test";
+        let schema_name = "main";
         let files = "/data/file.parquet";
-        let table_options = HashMap::new();
-
-        let expected = "
-            CREATE VIEW IF NOT EXISTS test_table.test_schema 
-            AS SELECT * FROM read_parquet('/data/file.parquet')
-        ";
-
+        let table_options =
+            HashMap::from([(ParquetOption::Files.as_str().to_string(), files.to_string())]);
+        let expected = "CREATE VIEW IF NOT EXISTS main.test AS SELECT * FROM read_parquet('/data/file.parquet')";
         let actual = create_view(table_name, schema_name, table_options).unwrap();
+
         assert_eq!(expected, actual);
+
+        let conn = Connection::open_in_memory().unwrap();
+        match conn.prepare(&actual) {
+            Ok(_) => panic!("invalid parquet file should throw an error"),
+            Err(e) => assert!(e.to_string().contains("file.parquet")),
+        }
     }
 
     #[test]
     fn test_create_parquet_view_multiple_files() {
-        let table_name = "test_table";
-        let schema_name = "test_schema";
+        let table_name = "test";
+        let schema_name = "main";
         let files = "/data/file1.parquet, /data/file2.parquet";
-        let table_options = HashMap::new();
+        let table_options =
+            HashMap::from([(ParquetOption::Files.as_str().to_string(), files.to_string())]);
 
-        let expected = "
-            CREATE VIEW IF NOT EXISTS test_table.test_schema 
-            AS SELECT * FROM read_parquet(['/data/file1.parquet', '/data/file2.parquet'])
-        ";
-
+        let expected = "CREATE VIEW IF NOT EXISTS main.test AS SELECT * FROM read_parquet(['/data/file1.parquet', '/data/file2.parquet'])";
         let actual = create_view(table_name, schema_name, table_options).unwrap();
+
         assert_eq!(expected, actual);
+
+        let conn = Connection::open_in_memory().unwrap();
+        match conn.prepare(&actual) {
+            Ok(_) => panic!("invalid parquet file should throw an error"),
+            Err(e) => assert!(e.to_string().contains("file.parquet")),
+        }
     }
 
-    // #[test]
-    // fn test_create_parquet_view_with_options() {
-    //     let table_name = "test_table";
-    //     let schema_name = "test_schema";
-    //     let table_options = HashMap::from([
-    //         (ParquetOption::Files.as_str(), "/data/file.parquet"),
-    //         (ParquetOption::BinaryAsString.as_str(), "true"),
-    //         (ParquetOption::FileName.as_str(), "test_file_name"),
-    //         (ParquetOption::FileRowNumber.as_str(), "true"),
-    //         (ParquetOption::HivePartitioning.as_str(), "true"),
-    //         (ParquetOption::HiveTypes.as_str(), "true"),
-    //         (ParquetOption::HiveTypesAutocast.as_str(), "true"),
-    //         (ParquetOption::UnionByName.as_str(), "true"),
-    //     ]);
-    // }
+    #[test]
+    fn test_create_parquet_view_with_options() {
+        let table_name = "test";
+        let schema_name = "main";
+        let table_options = HashMap::from([
+            (
+                ParquetOption::Files.as_str().to_string(),
+                "/data/file.parquet".to_string(),
+            ),
+            (
+                ParquetOption::BinaryAsString.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                ParquetOption::FileName.as_str().to_string(),
+                "false".to_string(),
+            ),
+            (
+                ParquetOption::FileRowNumber.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                ParquetOption::HivePartitioning.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                ParquetOption::HiveTypes.as_str().to_string(),
+                "{'release': DATE, 'orders': BIGINT}".to_string(),
+            ),
+            (
+                ParquetOption::HiveTypesAutocast.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                ParquetOption::UnionByName.as_str().to_string(),
+                "true".to_string(),
+            ),
+        ]);
+
+        let expected = "CREATE VIEW IF NOT EXISTS main.test AS SELECT * FROM read_parquet('/data/file.parquet', binary_as_string = true, filename = false, file_row_number = true, hive_partitioning = true, hive_types = {'release': DATE, 'orders': BIGINT}, hive_types_autocast = true, union_by_name = true)";
+        let actual = create_view(table_name, schema_name, table_options).unwrap();
+
+        assert_eq!(expected, actual);
+
+        let conn = Connection::open_in_memory().unwrap();
+        match conn.prepare(&expected) {
+            Ok(_) => panic!("invalid parquet file should throw an error"),
+            Err(e) => assert!(e.to_string().contains("file.parquet")),
+        }
+    }
 }

@@ -287,6 +287,7 @@ jobs:
           cargo pgrx package
 
       - name: Create .deb Package
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: |
           # Create installable package
           mkdir archive

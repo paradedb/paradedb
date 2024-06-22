@@ -136,7 +136,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Debian Dependencies
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
       - name: Install RHEL Dependencies
@@ -235,7 +235,7 @@ jobs:
           fi
 
       - name: Install & Configure Supported PostgreSQL Version on Debian
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04'}}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'

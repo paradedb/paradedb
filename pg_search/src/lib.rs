@@ -103,7 +103,7 @@ pub extern "C" fn pg_search_insert_worker(_arg: pg_sys::Datum) {
     let mut server = writer::Server::new(writer).expect("error starting writer server");
 
     // Retrieve the assigned port and assign to global state.
-    // Note that we do not deference the WRITER to mutate it, due to PGRX shared struct rules.
+    // Note that we do not dereference the WRITER to mutate it, due to PGRX shared struct rules.
     // We also acquire its lock with `.exclusive` inside an enclosing block to ensure that
     // it is dropped after we are done with it.
     {

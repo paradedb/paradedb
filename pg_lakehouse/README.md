@@ -150,7 +150,7 @@ rustup install <version>
 rustup default <version>
 ```
 
-Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconistencies with Homebrew's Rust installation on macOS.
+Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconsistencies with Homebrew's Rust installation on macOS.
 
 Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
 

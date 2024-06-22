@@ -1,6 +1,5 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use supabase_wrappers::prelude::*;
 
 pub enum DeltaOption {
     Files,
@@ -29,7 +28,9 @@ pub fn create_view(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
-    let files = require_option(DeltaOption::Files.as_str(), &table_options)?;
+    let files = table_options
+        .get(DeltaOption::Files.as_str())
+        .ok_or_else(|| anyhow!("files option is required"))?;
 
     Ok(format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM delta_scan('{files}')"))
 }

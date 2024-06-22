@@ -1,6 +1,5 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use supabase_wrappers::prelude::*;
 
 pub enum CsvOption {
     AllVarchar,
@@ -18,6 +17,8 @@ pub enum CsvOption {
     ForceNotNull,
     Header,
     HivePartitioning,
+    HiveTypes,
+    HiveTypesAutocast,
     IgnoreErrors,
     MaxLineSize,
     Names,
@@ -53,6 +54,8 @@ impl CsvOption {
             Self::ForceNotNull => "force_not_null",
             Self::Header => "header",
             Self::HivePartitioning => "hive_partitioning",
+            Self::HiveTypes => "hive_types",
+            Self::HiveTypesAutocast => "hive_types_autocast",
             Self::IgnoreErrors => "ignore_errors",
             Self::MaxLineSize => "max_line_size",
             Self::Names => "names",
@@ -88,6 +91,8 @@ impl CsvOption {
             Self::ForceNotNull => false,
             Self::Header => false,
             Self::HivePartitioning => false,
+            Self::HiveTypes => false,
+            Self::HiveTypesAutocast => false,
             Self::IgnoreErrors => false,
             Self::MaxLineSize => false,
             Self::Names => false,
@@ -123,6 +128,8 @@ impl CsvOption {
             Self::ForceNotNull,
             Self::Header,
             Self::HivePartitioning,
+            Self::HiveTypes,
+            Self::HiveTypesAutocast,
             Self::IgnoreErrors,
             Self::MaxLineSize,
             Self::Names,
@@ -148,7 +155,10 @@ pub fn create_view(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
-    let files = require_option(CsvOption::Files.as_str(), &table_options)?;
+    let files = table_options
+        .get(CsvOption::Files.as_str())
+        .ok_or_else(|| anyhow!("files option is required"))?;
+
     let files_split = files.split(',').collect::<Vec<&str>>();
     let files_str = match files_split.len() {
         1 => format!("'{}'", files),
@@ -156,7 +166,7 @@ pub fn create_view(
             "[{}]",
             files_split
                 .iter()
-                .map(|&chunk| format!("'{}'", chunk))
+                .map(|&chunk| format!("'{}'", chunk.trim()))
                 .collect::<Vec<String>>()
                 .join(", ")
         ),
@@ -217,6 +227,14 @@ pub fn create_view(
     let hive_partitioning = table_options
         .get(CsvOption::HivePartitioning.as_str())
         .map(|option| format!("hive_partitioning = {option}"));
+
+    let hive_types = table_options
+        .get(CsvOption::HiveTypes.as_str())
+        .map(|option| format!("hive_types = {option}"));
+
+    let hive_types_autocast = table_options
+        .get(CsvOption::HiveTypesAutocast.as_str())
+        .map(|option| format!("hive_types_autocast = {option}"));
 
     let ignore_errors = table_options
         .get(CsvOption::IgnoreErrors.as_str())
@@ -294,6 +312,8 @@ pub fn create_view(
         force_not_null,
         header,
         hive_partitioning,
+        hive_types,
+        hive_types_autocast,
         ignore_errors,
         max_line_size,
         names,
@@ -316,4 +336,31 @@ pub fn create_view(
     .join(", ");
 
     Ok(format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_csv({create_csv_str})"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use duckdb::Connection;
+
+    #[test]
+    fn test_create_csv_view_single_file() {
+        let table_name = "test";
+        let schema_name = "main";
+        let table_options = HashMap::from([(
+            CsvOption::Files.as_str().to_string(),
+            "/data/file.csv".to_string(),
+        )]);
+        let expected =
+            "CREATE VIEW IF NOT EXISTS main.test AS SELECT * FROM read_csv('/data/file.csv')";
+        let actual = create_view(table_name, schema_name, table_options).unwrap();
+
+        assert_eq!(expected, actual);
+
+        let conn = Connection::open_in_memory().unwrap();
+        match conn.prepare(&actual) {
+            Ok(_) => panic!("invalid csv file should throw an error"),
+            Err(e) => assert!(e.to_string().contains("file.csv")),
+        }
+    }
 }

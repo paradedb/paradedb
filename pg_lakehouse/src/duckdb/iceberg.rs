@@ -31,17 +31,18 @@ pub fn create_view(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
-    let files = table_options
-        .get(IcebergOption::Files.as_str())
-        .ok_or_else(|| anyhow!("files option is required"))?;
-
-    let files_str = format!("'{}'", files);
+    let files = Some(format!(
+        "'{}'",
+        table_options
+            .get(IcebergOption::Files.as_str())
+            .ok_or_else(|| anyhow!("files option is required"))?
+    ));
 
     let allow_moved_paths = table_options
         .get(IcebergOption::AllowMovedPaths.as_str())
         .map(|option| format!("allow_moved_paths = {option}"));
 
-    let create_iceberg_str = [Some(files_str), allow_moved_paths]
+    let create_iceberg_str = [files, allow_moved_paths]
         .into_iter()
         .flatten()
         .collect::<Vec<String>>()

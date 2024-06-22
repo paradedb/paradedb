@@ -28,9 +28,14 @@ pub fn create_view(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
-    let files = table_options
-        .get(DeltaOption::Files.as_str())
-        .ok_or_else(|| anyhow!("files option is required"))?;
+    let files = format!(
+        "'{}'",
+        table_options
+            .get(DeltaOption::Files.as_str())
+            .ok_or_else(|| anyhow!("files option is required"))?
+    );
 
-    Ok(format!("CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM delta_scan('{files}')"))
+    Ok(format!(
+        "CREATE VIEW IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM delta_scan({files})"
+    ))
 }

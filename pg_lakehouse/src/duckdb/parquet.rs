@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
+use super::utils;
+
 pub enum ParquetOption {
     BinaryAsString,
     FileName,
@@ -60,22 +62,11 @@ pub fn create_view(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
-    let files = table_options
-        .get(ParquetOption::Files.as_str())
-        .ok_or_else(|| anyhow!("files option is required"))?;
-
-    let files_split = files.split(',').collect::<Vec<&str>>();
-    let files_str = match files_split.len() {
-        1 => format!("'{}'", files),
-        _ => format!(
-            "[{}]",
-            files_split
-                .iter()
-                .map(|&chunk| format!("'{}'", chunk.trim()))
-                .collect::<Vec<String>>()
-                .join(", ")
-        ),
-    };
+    let files = Some(utils::format_csv(
+        table_options
+            .get(ParquetOption::Files.as_str())
+            .ok_or_else(|| anyhow!("files option is required"))?,
+    ));
 
     let binary_as_string = table_options
         .get(ParquetOption::BinaryAsString.as_str())
@@ -106,7 +97,7 @@ pub fn create_view(
         .map(|option| format!("union_by_name = {option}"));
 
     let create_parquet_str = [
-        Some(files_str),
+        files,
         binary_as_string,
         file_name,
         file_row_number,
@@ -163,7 +154,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         match conn.prepare(&actual) {
             Ok(_) => panic!("invalid parquet file should throw an error"),
-            Err(e) => assert!(e.to_string().contains("file.parquet")),
+            Err(e) => assert!(e.to_string().contains("file1.parquet")),
         }
     }
 

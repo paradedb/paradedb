@@ -4,3 +4,4 @@ pub mod delta;
 pub mod iceberg;
 pub mod parquet;
 pub mod secret;
+mod utils;

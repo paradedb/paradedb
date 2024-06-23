@@ -221,6 +221,10 @@ pub fn primitive_create_server(server: &str, wrapper: &str) -> String {
     format!("CREATE SERVER {server} FOREIGN DATA WRAPPER {wrapper}")
 }
 
+pub fn primitive_create_user_mapping_options(user: &str, server: &str) -> String {
+    format!("CREATE USER MAPPING FOR {user} SERVER {server}",)
+}
+
 pub fn primitive_create_table(server: &str, table: &str) -> String {
     format!(
         "CREATE FOREIGN TABLE {table} (
@@ -274,19 +278,24 @@ pub fn primitive_create_delta_table(server: &str, table: &str) -> String {
 pub fn primitive_setup_fdw_s3_listing(
     s3_endpoint: &str,
     s3_object_path: &str,
-    extension: &str,
     table: &str,
 ) -> String {
-    let create_foreign_data_wrapper =
-        primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
-    let create_server = primitive_create_server("s3_server", "s3_wrapper");
-    let create_table = primitive_create_table("s3_server", table);
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "parquet_wrapper",
+        "parquet_fdw_handler",
+        "parquet_fdw_validator",
+    );
+    let create_user_mapping_options =
+        primitive_create_user_mapping_options("public", "parquet_server");
+    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
+    let create_table = primitive_create_table("parquet_server", table);
 
     format!(
         r#"
         {create_foreign_data_wrapper};
-        {create_server} OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');         
-        {create_table} OPTIONS (path '{s3_object_path}', extension '{extension}'); 
+        {create_server};       
+        {create_user_mapping_options} OPTIONS (allow_anonymous true, region 'us-east-1', endpoint '{s3_endpoint}');
+        {create_table} OPTIONS (files '{s3_object_path}'); 
     "#
     )
 }
@@ -294,63 +303,60 @@ pub fn primitive_setup_fdw_s3_listing(
 pub fn primitive_setup_fdw_s3_delta(
     s3_endpoint: &str,
     s3_object_path: &str,
-    extension: &str,
     table: &str,
 ) -> String {
-    let create_foreign_data_wrapper =
-        primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
-    let create_server = primitive_create_server("s3_server", "s3_wrapper");
-    let create_table = primitive_create_delta_table("s3_server", table);
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "delta_wrapper",
+        "delta_fdw_handler",
+        "delta_fdw_validator",
+    );
+    let create_user_mapping_options =
+        primitive_create_user_mapping_options("public", "delta_server");
+    let create_server = primitive_create_server("delta_server", "delta_wrapper");
+    let create_table = primitive_create_delta_table("delta_server", table);
 
     format!(
         r#"
         {create_foreign_data_wrapper};
-        {create_server} OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');         
-        {create_table} OPTIONS (path '{s3_object_path}', extension '{extension}', format 'delta'); 
+        {create_server};   
+        {create_user_mapping_options} OPTIONS (allow_anonymous true, region 'us-east-1', endpoint '{s3_endpoint}');    
+        {create_table} OPTIONS (files '{s3_object_path}'); 
     "#
     )
 }
 
-pub fn primitive_setup_fdw_local_file_listing(
-    local_file_path: &str,
-    extension: &str,
-    table: &str,
-) -> String {
+pub fn primitive_setup_fdw_local_file_listing(local_file_path: &str, table: &str) -> String {
     let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
-        "local_file_wrapper",
-        "local_file_fdw_handler",
-        "local_file_fdw_validator",
+        "parquet_wrapper",
+        "parquet_fdw_handler",
+        "parquet_fdw_validator",
     );
-    let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
-    let create_table = primitive_create_table("local_file_server", table);
+    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
+    let create_table = primitive_create_table("parquet_server", table);
 
     format!(
         r#"
         {create_foreign_data_wrapper};
         {create_server};
-        {create_table} OPTIONS (path 'file://{local_file_path}', extension '{extension}'); 
+        {create_table} OPTIONS (files '{local_file_path}'); 
     "#
     )
 }
 
-pub fn primitive_setup_fdw_local_file_delta(
-    local_file_path: &str,
-    extension: &str,
-    table: &str,
-) -> String {
+pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, table: &str) -> String {
     let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
-        "local_file_wrapper",
-        "local_file_fdw_handler",
-        "local_file_fdw_validator",
+        "parquet_wrapper",
+        "parquet_fdw_handler",
+        "parquet_fdw_validator",
     );
-    let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
-    let create_table = primitive_create_delta_table("local_file_server", table);
+    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
+    let create_table = primitive_create_delta_table("parquet_server", table);
 
     format!(
         r#"
         {create_foreign_data_wrapper};
         {create_server};
-        {create_table} OPTIONS (path 'file://{local_file_path}', extension '{extension}', format 'delta'); 
+        {create_table} OPTIONS (files '{local_file_path}'); 
     "#
     )
 }

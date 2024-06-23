@@ -2758,6 +2758,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "datafusion-proto"
+version = "37.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db73393e42f35e165d31399192fbf41691967d428ebed47875ad34239fbcfc16"
+dependencies = [
+ "arrow 51.0.0",
+ "chrono",
+ "datafusion 37.1.0",
+ "datafusion-common 37.1.0",
+ "datafusion-expr 37.1.0",
+ "object_store",
+ "prost",
+]
+
+[[package]]
 name = "datafusion-sql"
 version = "37.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2820,6 +2835,14 @@ dependencies = [
  "cfg-if",
  "chrono",
  "dashmap",
+ "datafusion 37.1.0",
+ "datafusion-common 37.1.0",
+ "datafusion-expr 37.1.0",
+ "datafusion-functions 37.1.0",
+ "datafusion-functions-array 37.1.0",
+ "datafusion-physical-expr 37.1.0",
+ "datafusion-proto",
+ "datafusion-sql 37.1.0",
  "either",
  "errno",
  "fix-hidden-lifetime-bug",
@@ -2844,6 +2867,7 @@ dependencies = [
  "roaring",
  "serde",
  "serde_json",
+ "sqlparser 0.44.0",
  "thiserror",
  "tokio",
  "tracing",
@@ -5957,6 +5981,29 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
+]
+
+[[package]]
+name = "prost"
+version = "0.12.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
+dependencies = [
+ "bytes",
+ "prost-derive",
+]
+
+[[package]]
+name = "prost-derive"
+version = "0.12.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
+dependencies = [
+ "anyhow",
+ "itertools 0.10.5",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.55",
 ]
 
 [[package]]

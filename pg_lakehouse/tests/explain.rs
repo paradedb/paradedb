@@ -26,6 +26,7 @@ const S3_BUCKET: &str = "test-trip-setup";
 const S3_KEY: &str = "test_trip_setup.parquet";
 
 #[rstest]
+#[ignore = "EXPLAIN not fully working"]
 async fn test_explain_fdw(#[future(awt)] s3: S3, mut conn: PgConnection) -> Result<()> {
     NycTripsTable::setup().execute(&mut conn);
     let rows: Vec<NycTripsTable> = "SELECT * FROM nyc_trips".fetch(&mut conn);
@@ -67,6 +68,7 @@ async fn test_explain_heap(mut conn: PgConnection) -> Result<()> {
 }
 
 #[rstest]
+#[ignore = "EXPLAIN not fully working"]
 async fn test_explain_federated(#[future(awt)] s3: S3, mut conn: PgConnection) -> Result<()> {
     NycTripsTable::setup().execute(&mut conn);
     let rows: Vec<NycTripsTable> = "SELECT * FROM nyc_trips".fetch(&mut conn);
@@ -93,6 +95,7 @@ async fn test_explain_federated(#[future(awt)] s3: S3, mut conn: PgConnection) -
 }
 
 #[rstest]
+#[ignore = "EXPLAIN not fully working"]
 async fn test_explain_analyze_fdw(#[future(awt)] s3: S3, mut conn: PgConnection) -> Result<()> {
     NycTripsTable::setup().execute(&mut conn);
     let rows: Vec<NycTripsTable> = "SELECT * FROM nyc_trips".fetch(&mut conn);

@@ -124,8 +124,7 @@ async fn test_arrow_types_s3_listing(#[future(awt)] s3: S3, mut conn: PgConnecti
     s3.create_bucket(s3_bucket).await?;
     s3.put_batch(s3_bucket, s3_key, &stored_batch).await?;
 
-    primitive_setup_fdw_s3_listing(&s3_endpoint, &s3_object_path, "parquet", "primitive")
-        .execute(&mut conn);
+    primitive_setup_fdw_s3_listing(&s3_endpoint, &s3_object_path, "primitive").execute(&mut conn);
 
     let retrieved_batch =
         "SELECT * FROM primitive".fetch_recordbatch(&mut conn, &stored_batch.schema());
@@ -167,7 +166,7 @@ async fn test_arrow_types_s3_delta(
     s3.create_bucket(s3_bucket).await?;
     s3.put_directory(s3_bucket, s3_path, temp_path).await?;
 
-    primitive_setup_fdw_s3_delta(&s3_endpoint, &s3_object_path, "parquet", "delta_primitive")
+    primitive_setup_fdw_s3_delta(&s3_endpoint, &s3_object_path, "delta_primitive")
         .execute(&mut conn);
 
     let retrieved_batch =
@@ -210,7 +209,7 @@ async fn test_s3_delta_connect_success(
     s3.create_bucket(s3_bucket).await?;
     s3.put_directory(s3_bucket, s3_path, temp_path).await?;
 
-    primitive_setup_fdw_s3_delta(&s3_endpoint, &s3_object_path, "parquet", "delta_primitive")
+    primitive_setup_fdw_s3_delta(&s3_endpoint, &s3_object_path, "delta_primitive")
         .execute(&mut conn);
 
     "CALL connect_table('delta_primitive')".execute_result(&mut conn)?;
@@ -232,12 +231,8 @@ async fn test_arrow_types_local_file_listing(
     writer.write(&stored_batch)?;
     writer.close()?;
 
-    primitive_setup_fdw_local_file_listing(
-        parquet_path.as_path().to_str().unwrap(),
-        "parquet",
-        "primitive",
-    )
-    .execute(&mut conn);
+    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "primitive")
+        .execute(&mut conn);
 
     let retrieved_batch =
         "SELECT * FROM primitive".fetch_recordbatch(&mut conn, &stored_batch.schema());
@@ -266,12 +261,8 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
     writer.write(batch.clone()).await?;
     writer.flush_and_commit(&mut table).await?;
 
-    primitive_setup_fdw_local_file_delta(
-        &temp_path.to_string_lossy(),
-        "parquet",
-        "delta_primitive",
-    )
-    .execute(&mut conn);
+    primitive_setup_fdw_local_file_delta(&temp_path.to_string_lossy(), "delta_primitive")
+        .execute(&mut conn);
 
     let retrieved_batch =
         "SELECT * FROM delta_primitive".fetch_recordbatch(&mut conn, &batch.schema());
@@ -303,12 +294,8 @@ async fn test_local_file_delta_connect_success(
     writer.write(batch.clone()).await?;
     writer.flush_and_commit(&mut table).await?;
 
-    primitive_setup_fdw_local_file_delta(
-        &temp_path.to_string_lossy(),
-        "parquet",
-        "delta_primitive",
-    )
-    .execute(&mut conn);
+    primitive_setup_fdw_local_file_delta(&temp_path.to_string_lossy(), "delta_primitive")
+        .execute(&mut conn);
 
     "CALL connect_table('delta_primitive')".execute_result(&mut conn)?;
     "CALL connect_table('public.delta_primitive')".execute_result(&mut conn)?;
@@ -332,7 +319,7 @@ async fn test_local_file_delta_connect_failure(
     writer.write(batch.clone()).await?;
     writer.flush_and_commit(&mut table).await?;
 
-    primitive_setup_fdw_local_file_delta("/var/folders/invalid", "parquet", "delta_primitive")
+    primitive_setup_fdw_local_file_delta("/var/folders/invalid", "delta_primitive")
         .execute(&mut conn);
 
     match "CALL connect_table('delta_primitive')".execute_result(&mut conn) {

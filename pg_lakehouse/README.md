@@ -12,20 +12,20 @@ With `pg_lakehouse` installed, Postgres can query foreign object stores like S3 
 ### Object Stores
 
 - [x] Amazon S3
-- [x] S3-compatible object stores (e.g. MinIO)
+- [x] S3-compatible stores (MinIO, R2)
 - [x] Azure Blob Storage
 - [x] Azure Data Lake Storage Gen2
 - [x] Google Cloud Storage
-- [x] Local file system
 - [x] HTTP server
+- [x] Local file system
 
 ### Table Formats
 
 - [x] Parquet
 - [x] CSV
-- [x] JSON
 - [x] Apache Iceberg
 - [x] Delta Lake
+- [ ] JSON (Coming Soon)
 
 `pg_lakehouse` uses DuckDB v1.0.0 and is supported on Postgres 14, 15, and 16. Support for Postgres 12 and 13 is coming soon.
 
@@ -38,7 +38,7 @@ Today, a vast amount of non-operational data — events, metrics, historical sna
 1. Lack of support for most object stores and table formats
 2. Too slow over large datasets to be a viable analytical engine
 
-`pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being ver fast (thanks to DuckDB).
+`pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast (thanks to DuckDB).
 
 ## Getting Started
 
@@ -82,7 +82,7 @@ SELECT COUNT(*) FROM trips;
 (1 row)
 ```
 
-To connect your own object store, please refer to the [documentation](https://docs.paradedb.com/analytics/object_stores).
+To query your own data, please refer to the [documentation](https://docs.paradedb.com/analytics/object_stores).
 
 ## Shared Preload Libraries
 

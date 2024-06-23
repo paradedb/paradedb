@@ -1,19 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use std::collections::HashMap;
 
-pub enum Provider {
-    Config,
-    CredentialChain,
-    ServicePrincipal,
-}
-
-pub enum SecretType {
-    Azure,
-    S3,
-    Gcs,
-    R2,
-}
-
 pub enum UserMappingOptions {
     // Universal
     Type,
@@ -29,6 +16,7 @@ pub enum UserMappingOptions {
     UrlStyle,
     UseSsl,
     UrlCompatibilityMode,
+    AccountId,
     // Azure
     ConnectionString,
     AccountName,
@@ -37,114 +25,93 @@ pub enum UserMappingOptions {
     ClientSecret,
     ClientCertificatePath,
     HttpProxy,
-    HttpUserName,
-    HttpPassword,
+    ProxyUserName,
+    ProxyPassword,
 }
 
-impl TryFrom<&str> for UserMappingOptions {
-    type Error = anyhow::Error;
-
-    fn try_from(option: &str) -> Result<Self> {
-        match option.to_lowercase().as_str() {
-            "type" => Ok(Self::Type),
-            "provider" => Ok(Self::Provider),
-            "scope" => Ok(Self::Scope),
-            "chain" => Ok(Self::Chain),
-            "key_id" => Ok(Self::KeyId),
-            "secret" => Ok(Self::Secret),
-            "region" => Ok(Self::Region),
-            "session_token" => Ok(Self::SessionToken),
-            "endpoint" => Ok(Self::Endpoint),
-            "url_style" => Ok(Self::UrlStyle),
-            "use_ssl" => Ok(Self::UseSsl),
-            "url_compatibility_mode" => Ok(Self::UrlCompatibilityMode),
-            "connection_string" => Ok(Self::ConnectionString),
-            "account_name" => Ok(Self::AccountName),
-            "tenant_id" => Ok(Self::TenantId),
-            "client_id" => Ok(Self::ClientId),
-            "client_secret" => Ok(Self::ClientSecret),
-            "client_certificate_path" => Ok(Self::ClientCertificatePath),
-            "http_proxy" => Ok(Self::HttpProxy),
-            "http_user_name" => Ok(Self::HttpUserName),
-            "http_password" => Ok(Self::HttpPassword),
-            _ => bail!("Invalid user mapping option: {}", option),
+impl UserMappingOptions {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Type => "type",
+            Self::Provider => "provider",
+            Self::Scope => "scope",
+            Self::Chain => "chain",
+            Self::KeyId => "key_id",
+            Self::Secret => "secret",
+            Self::Region => "region",
+            Self::SessionToken => "session_token",
+            Self::Endpoint => "endpoint",
+            Self::UrlStyle => "url_style",
+            Self::UseSsl => "use_ssl",
+            Self::UrlCompatibilityMode => "url_compatibility_mode",
+            Self::AccountId => "account_id",
+            Self::ConnectionString => "connection_string",
+            Self::AccountName => "account_name",
+            Self::TenantId => "tenant_id",
+            Self::ClientId => "client_id",
+            Self::ClientSecret => "client_secret",
+            Self::ClientCertificatePath => "client_certificate_path",
+            Self::HttpProxy => "http_proxy",
+            Self::ProxyUserName => "proxy_user_name",
+            Self::ProxyPassword => "proxy_password",
         }
     }
-}
 
-impl From<UserMappingOptions> for &str {
-    fn from(option: UserMappingOptions) -> &'static str {
-        match option {
-            UserMappingOptions::Type => "type",
-            UserMappingOptions::Provider => "provider",
-            UserMappingOptions::Scope => "scope",
-            UserMappingOptions::Chain => "chain",
-            UserMappingOptions::KeyId => "key_id",
-            UserMappingOptions::Secret => "secret",
-            UserMappingOptions::Region => "region",
-            UserMappingOptions::SessionToken => "session_token",
-            UserMappingOptions::Endpoint => "endpoint",
-            UserMappingOptions::UrlStyle => "url_style",
-            UserMappingOptions::UseSsl => "use_ssl",
-            UserMappingOptions::UrlCompatibilityMode => "url_compatibility_mode",
-            UserMappingOptions::ConnectionString => "connection_string",
-            UserMappingOptions::AccountName => "account_name",
-            UserMappingOptions::TenantId => "tenant_id",
-            UserMappingOptions::ClientId => "client_id",
-            UserMappingOptions::ClientSecret => "client_secret",
-            UserMappingOptions::ClientCertificatePath => "client_certificate_path",
-            UserMappingOptions::HttpProxy => "http_proxy",
-            UserMappingOptions::HttpUserName => "http_user_name",
-            UserMappingOptions::HttpPassword => "http_password",
+    #[allow(unused)]
+    pub fn is_required(&self) -> bool {
+        match self {
+            Self::Type => true,
+            Self::Provider => false,
+            Self::Scope => false,
+            Self::Chain => false,
+            Self::KeyId => false,
+            Self::Secret => false,
+            Self::Region => false,
+            Self::SessionToken => false,
+            Self::Endpoint => false,
+            Self::UrlStyle => false,
+            Self::UseSsl => false,
+            Self::UrlCompatibilityMode => false,
+            Self::AccountId => false,
+            Self::ConnectionString => false,
+            Self::AccountName => false,
+            Self::TenantId => false,
+            Self::ClientId => false,
+            Self::ClientSecret => false,
+            Self::ClientCertificatePath => false,
+            Self::HttpProxy => false,
+            Self::ProxyUserName => false,
+            Self::ProxyPassword => false,
         }
     }
-}
 
-impl TryFrom<&str> for SecretType {
-    type Error = anyhow::Error;
-
-    fn try_from(secret_type: &str) -> Result<Self> {
-        match secret_type.to_uppercase().as_str() {
-            "AZURE" => Ok(Self::Azure),
-            "S3" => Ok(Self::S3),
-            "GCS" => Ok(Self::Gcs),
-            "R2" => Ok(Self::R2),
-            _ => bail!("Invalid secret type: {}", secret_type),
-        }
-    }
-}
-
-impl From<SecretType> for &str {
-    fn from(secret_type: SecretType) -> &'static str {
-        match secret_type {
-            SecretType::Azure => "AZURE",
-            SecretType::S3 => "S3",
-            SecretType::Gcs => "GCS",
-            SecretType::R2 => "R2",
-        }
-    }
-}
-
-impl TryFrom<&str> for Provider {
-    type Error = anyhow::Error;
-
-    fn try_from(provider: &str) -> Result<Self> {
-        match provider.to_uppercase().as_str() {
-            "CONFIG" => Ok(Self::Config),
-            "CREDENTIAL_CHAIN" => Ok(Self::CredentialChain),
-            "SERVICE_PRINCIPAL" => Ok(Self::ServicePrincipal),
-            _ => bail!("Invalid provider: {}", provider),
-        }
-    }
-}
-
-impl From<Provider> for &str {
-    fn from(provider: Provider) -> &'static str {
-        match provider {
-            Provider::Config => "CONFIG",
-            Provider::CredentialChain => "CREDENTIAL_CHAIN",
-            Provider::ServicePrincipal => "SERVICE_PRINCIPAL",
-        }
+    #[allow(unused)]
+    pub fn iter() -> impl Iterator<Item = Self> {
+        [
+            Self::Type,
+            Self::Provider,
+            Self::Scope,
+            Self::Chain,
+            Self::KeyId,
+            Self::Secret,
+            Self::Region,
+            Self::SessionToken,
+            Self::Endpoint,
+            Self::UrlStyle,
+            Self::UseSsl,
+            Self::UrlCompatibilityMode,
+            Self::AccountId,
+            Self::ConnectionString,
+            Self::AccountName,
+            Self::TenantId,
+            Self::ClientId,
+            Self::ClientSecret,
+            Self::ClientCertificatePath,
+            Self::HttpProxy,
+            Self::ProxyUserName,
+            Self::ProxyPassword,
+        ]
+        .into_iter()
     }
 }
 
@@ -152,101 +119,106 @@ pub fn create_secret(
     secret_name: &str,
     user_mapping_options: HashMap<String, String>,
 ) -> Result<String> {
-    let secret_type = SecretType::try_from(
-        user_mapping_options
-            .get(UserMappingOptions::Type.into())
-            .ok_or_else(|| anyhow!("type option required for USER MAPPING"))?
-            .as_str(),
-    )?;
+    if user_mapping_options.is_empty() {
+        bail!("create_secret requires user mapping options")
+    }
 
-    let type_str = Some(format!("TYPE {}", <&str>::from(secret_type)));
+    let secret_type = Some(format!(
+        "TYPE {}",
+        user_mapping_options
+            .get(UserMappingOptions::Type.as_str())
+            .ok_or_else(|| anyhow!("type option required for USER MAPPING"))?
+            .as_str()
+    ));
 
     let provider = user_mapping_options
-        .get(UserMappingOptions::Provider.into())
+        .get(UserMappingOptions::Provider.as_str())
         .map(|provider| format!("PROVIDER {}", provider));
 
     let scope = user_mapping_options
-        .get(UserMappingOptions::Scope.into())
+        .get(UserMappingOptions::Scope.as_str())
         .map(|scope| format!("SCOPE {}", scope));
 
     let chain = user_mapping_options
-        .get(UserMappingOptions::Chain.into())
-        .map(|chain| format!("CHAIN {}", chain));
+        .get(UserMappingOptions::Chain.as_str())
+        .map(|chain| format!("CHAIN '{}'", chain));
 
     let key_id = user_mapping_options
-        .get(UserMappingOptions::KeyId.into())
+        .get(UserMappingOptions::KeyId.as_str())
         .map(|key_id| format!("KEY_ID '{}'", key_id));
 
     let secret = user_mapping_options
-        .get(UserMappingOptions::Secret.into())
+        .get(UserMappingOptions::Secret.as_str())
         .map(|secret| format!("SECRET '{}'", secret));
 
     let region = user_mapping_options
-        .get(UserMappingOptions::Region.into())
+        .get(UserMappingOptions::Region.as_str())
         .map(|region| format!("REGION '{}'", region));
 
     let session_token = user_mapping_options
-        .get(UserMappingOptions::SessionToken.into())
+        .get(UserMappingOptions::SessionToken.as_str())
         .map(|session_token| format!("SESSION_TOKEN '{}'", session_token));
 
     let endpoint = user_mapping_options
-        .get(UserMappingOptions::Endpoint.into())
+        .get(UserMappingOptions::Endpoint.as_str())
         .map(|endpoint| format!("ENDPOINT '{}'", endpoint));
 
     let url_style = user_mapping_options
-        .get(UserMappingOptions::UrlStyle.into())
+        .get(UserMappingOptions::UrlStyle.as_str())
         .map(|url_style| format!("URL_STYLE '{}'", url_style));
 
     let use_ssl = user_mapping_options
-        .get(UserMappingOptions::UseSsl.into())
+        .get(UserMappingOptions::UseSsl.as_str())
         .map(|use_ssl| format!("USE_SSL {}", use_ssl));
 
     let url_compatibility_mode = user_mapping_options
-        .get(UserMappingOptions::UrlCompatibilityMode.into())
-        .map(|url_compatibility_mode| {
-            format!("URL_COMPATIBILITY_MODE '{}'", url_compatibility_mode)
-        });
+        .get(UserMappingOptions::UrlCompatibilityMode.as_str())
+        .map(|url_compatibility_mode| format!("URL_COMPATIBILITY_MODE {}", url_compatibility_mode));
+
+    let account_id = user_mapping_options
+        .get(UserMappingOptions::AccountId.as_str())
+        .map(|account_id| format!("ACCOUNT_ID '{}'", account_id));
 
     let connection_string = user_mapping_options
-        .get(UserMappingOptions::ConnectionString.into())
+        .get(UserMappingOptions::ConnectionString.as_str())
         .map(|connection_string| format!("CONNECTION_STRING '{}'", connection_string));
 
     let account_name = user_mapping_options
-        .get(UserMappingOptions::AccountName.into())
+        .get(UserMappingOptions::AccountName.as_str())
         .map(|account_name| format!("ACCOUNT_NAME '{}'", account_name));
 
     let tenant_id = user_mapping_options
-        .get(UserMappingOptions::TenantId.into())
+        .get(UserMappingOptions::TenantId.as_str())
         .map(|tenant_id| format!("TENANT_ID '{}'", tenant_id));
 
     let client_id = user_mapping_options
-        .get(UserMappingOptions::ClientId.into())
+        .get(UserMappingOptions::ClientId.as_str())
         .map(|client_id| format!("CLIENT_ID '{}'", client_id));
 
     let client_secret = user_mapping_options
-        .get(UserMappingOptions::ClientSecret.into())
+        .get(UserMappingOptions::ClientSecret.as_str())
         .map(|client_secret| format!("CLIENT_SECRET '{}'", client_secret));
 
     let client_certificate_path = user_mapping_options
-        .get(UserMappingOptions::ClientCertificatePath.into())
+        .get(UserMappingOptions::ClientCertificatePath.as_str())
         .map(|client_certificate_path| {
             format!("CLIENT_CERTIFICATE_PATH '{}'", client_certificate_path)
         });
 
     let http_proxy = user_mapping_options
-        .get(UserMappingOptions::HttpProxy.into())
+        .get(UserMappingOptions::HttpProxy.as_str())
         .map(|http_proxy| format!("HTTP_PROXY '{}'", http_proxy));
 
-    let http_user_name = user_mapping_options
-        .get(UserMappingOptions::HttpUserName.into())
-        .map(|http_user_name| format!("HTTP_USER_NAME '{}'", http_user_name));
+    let proxy_user_name = user_mapping_options
+        .get(UserMappingOptions::ProxyUserName.as_str())
+        .map(|proxy_user_name| format!("PROXY_USER_NAME '{}'", proxy_user_name));
 
-    let http_password = user_mapping_options
-        .get(UserMappingOptions::HttpPassword.into())
-        .map(|http_password| format!("HTTP_PASSWORD '{}'", http_password));
+    let proxy_password = user_mapping_options
+        .get(UserMappingOptions::ProxyPassword.as_str())
+        .map(|proxy_password| format!("PROXY_PASSWORD '{}'", proxy_password));
 
     let secret_string = vec![
-        type_str,
+        secret_type,
         provider,
         scope,
         chain,
@@ -258,6 +230,7 @@ pub fn create_secret(
         url_style,
         use_ssl,
         url_compatibility_mode,
+        account_id,
         connection_string,
         account_name,
         tenant_id,
@@ -265,8 +238,8 @@ pub fn create_secret(
         client_secret,
         client_certificate_path,
         http_proxy,
-        http_user_name,
-        http_password,
+        proxy_user_name,
+        proxy_password,
     ]
     .into_iter()
     .flatten()
@@ -276,4 +249,146 @@ pub fn create_secret(
     Ok(format!(
         "CREATE OR REPLACE SECRET {secret_name} ({secret_string})"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use duckdb::Connection;
+
+    #[test]
+    fn test_create_s3_secret_config_valid() {
+        let secret_name = "s3_secret";
+        let user_mapping_options = HashMap::from([
+            (
+                UserMappingOptions::Type.as_str().to_string(),
+                "S3".to_string(),
+            ),
+            (
+                UserMappingOptions::Provider.as_str().to_string(),
+                "CONFIG".to_string(),
+            ),
+            (
+                UserMappingOptions::KeyId.as_str().to_string(),
+                "key_id".to_string(),
+            ),
+            (
+                UserMappingOptions::Secret.as_str().to_string(),
+                "secret".to_string(),
+            ),
+            (
+                UserMappingOptions::Region.as_str().to_string(),
+                "us-west-2".to_string(),
+            ),
+            (
+                UserMappingOptions::SessionToken.as_str().to_string(),
+                "session_token".to_string(),
+            ),
+            (
+                UserMappingOptions::Endpoint.as_str().to_string(),
+                "s3.amazonaws.com".to_string(),
+            ),
+            (
+                UserMappingOptions::UrlStyle.as_str().to_string(),
+                "vhost".to_string(),
+            ),
+            (
+                UserMappingOptions::UseSsl.as_str().to_string(),
+                "true".to_string(),
+            ),
+            (
+                UserMappingOptions::UrlCompatibilityMode
+                    .as_str()
+                    .to_string(),
+                "true".to_string(),
+            ),
+        ]);
+
+        let expected = "CREATE OR REPLACE SECRET s3_secret (TYPE S3, PROVIDER CONFIG, KEY_ID 'key_id', SECRET 'secret', REGION 'us-west-2', SESSION_TOKEN 'session_token', ENDPOINT 's3.amazonaws.com', URL_STYLE 'vhost', USE_SSL true, URL_COMPATIBILITY_MODE true)";
+        let actual = create_secret(secret_name, user_mapping_options).unwrap();
+
+        assert_eq!(expected, actual);
+
+        let conn = Connection::open_in_memory().unwrap();
+        let mut statement = conn.prepare(&actual).unwrap();
+        statement.execute([]).unwrap();
+    }
+
+    #[test]
+    fn test_create_s3_secret_config_invalid() {
+        let secret_name = "s3_secret";
+        let user_mapping_options = HashMap::from([
+            (
+                UserMappingOptions::Type.as_str().to_string(),
+                "S3".to_string(),
+            ),
+            (
+                UserMappingOptions::Provider.as_str().to_string(),
+                "TENANT_ID".to_string(),
+            ),
+        ]);
+
+        let actual = create_secret(secret_name, user_mapping_options).unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        match conn.prepare(&actual) {
+            Ok(_) => panic!("invalid s3 secret should throw an error"),
+            Err(e) => assert!(e.to_string().contains("tenant_id")),
+        }
+    }
+
+    #[test]
+    fn test_create_azure_secret_valid() {
+        let secret_name = "azure_secret";
+        let user_mapping_options = HashMap::from([
+            (
+                UserMappingOptions::Type.as_str().to_string(),
+                "AZURE".to_string(),
+            ),
+            (
+                UserMappingOptions::Provider.as_str().to_string(),
+                "CONFIG".to_string(),
+            ),
+            (
+                UserMappingOptions::ConnectionString.as_str().to_string(),
+                "connection_string".to_string(),
+            ),
+            (
+                UserMappingOptions::HttpProxy.as_str().to_string(),
+                "http_proxy".to_string(),
+            ),
+            (
+                UserMappingOptions::ProxyUserName.as_str().to_string(),
+                "proxy_user_name".to_string(),
+            ),
+            (
+                UserMappingOptions::ProxyPassword.as_str().to_string(),
+                "proxy_password".to_string(),
+            ),
+        ]);
+
+        let expected = "CREATE OR REPLACE SECRET azure_secret (TYPE AZURE, PROVIDER CONFIG, CONNECTION_STRING 'connection_string', HTTP_PROXY 'http_proxy', PROXY_USER_NAME 'proxy_user_name', PROXY_PASSWORD 'proxy_password')";
+        let actual = create_secret(secret_name, user_mapping_options).unwrap();
+
+        assert_eq!(expected, actual);
+
+        let conn = Connection::open_in_memory().unwrap();
+        let mut statement = conn.prepare(&actual).unwrap();
+        statement.execute([]).unwrap();
+    }
+
+    #[test]
+    fn test_create_type_invalid() {
+        let secret_name = "invalid_secret";
+        let user_mapping_options = HashMap::from([(
+            UserMappingOptions::Type.as_str().to_string(),
+            "INVALID".to_string(),
+        )]);
+
+        let actual = create_secret(secret_name, user_mapping_options).unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        match conn.prepare(&actual) {
+            Ok(_) => panic!("invalid secret type should throw an error"),
+            Err(e) => assert!(e.to_string().contains("invalid")),
+        }
+    }
 }

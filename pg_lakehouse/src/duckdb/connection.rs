@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use duckdb::arrow::array::RecordBatch;
 use duckdb::{Connection, Params, Statement};
 use signal_hook::consts::signal::*;
@@ -150,10 +150,6 @@ pub fn create_secret(
     secret_name: &str,
     user_mapping_options: HashMap<String, String>,
 ) -> Result<usize> {
-    if user_mapping_options.is_empty() {
-        bail!("create_secret requires user mapping options")
-    }
-
     let statement = secret::create_secret(secret_name, user_mapping_options)?;
     execute(statement.as_str(), [])
 }

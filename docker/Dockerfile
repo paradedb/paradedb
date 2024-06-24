@@ -130,20 +130,6 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     fi
 
 ######################
-# pg_cron
-######################
-
-FROM builder as builder-pg_cron
-
-# Build the extension
-WORKDIR /tmp
-RUN git clone --branch v1.6.2 https://github.com/citusdata/pg_cron.git
-WORKDIR /tmp/pg_cron
-RUN echo "trusted = true" >> pg_cron.control && \
-    make clean -j && \
-    make USE_PGXS=1 -j
-
-######################
 # pg_ivm
 ######################
 
@@ -175,9 +161,6 @@ COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/sha
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.so /opt/bitnami/postgresql/lib/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.control /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /opt/bitnami/postgresql/share/extension/
@@ -198,7 +181,7 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
-ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_search,pg_lakehouse"
+ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_lakehouse,pg_search"
 
 # We set a default password to enable users to get started quickly, as it is a required
 # environment variable for the Bitnami image.

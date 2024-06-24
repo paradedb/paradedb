@@ -1,0 +1,58 @@
+---
+title: Delta
+---
+
+## Overview
+
+This code block demonstrates how to create a foreign table over a Delta table.
+
+```sql
+CREATE FOREIGN DATA WRAPPER <wrapper_name>
+HANDLER delta_fdw_handler
+VALIDATOR delta_fdw_validator;
+
+CREATE SERVER <server_name>
+FOREIGN DATA WRAPPER <wrapper_name>;
+
+-- Replace the dummy schema with the actual schema
+CREATE FOREIGN TABLE <table_name> (x INT)
+SERVER <server_name>
+OPTIONS (files '<files>');
+```
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN DATA WRAPPER delta_wrapper
+HANDLER delta_fdw_handler
+VALIDATOR delta_fdw_validator;
+
+CREATE SERVER delta_server
+FOREIGN DATA WRAPPER delta_wrapper;
+
+-- Replace the dummy schema with the actual schema
+CREATE FOREIGN TABLE delta_table (x INT)
+SERVER delta_server
+OPTIONS (files 's3://bucket/folder');
+
+```
+</Accordion>
+
+<ParamField body="wrapper_name" required>
+  Foreign data wrapper name. Can be any string.
+</ParamField>
+<ParamField body="server_name" required>
+  Foreign server name. Can be any string.
+</ParamField>
+<ParamField body="table_name" required>
+  Foreign table name. Can be any string.
+</ParamField>
+<ParamField body="files" required>
+The path to the Delta table directory. For instance, `s3://bucket/folder` if the Delta table is in Amazon S3 or
+`/path/to/folder` if the Delta table is on the local file system.
+</ParamField>
+
+## Cloud Object Stores
+
+The [object stores](/analytics/object_stores) documentation explains how to provide secrets and other credentials for
+Delta tables stored in object stores like S3.
+```

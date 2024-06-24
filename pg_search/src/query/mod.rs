@@ -17,12 +17,14 @@
 
 #![allow(dead_code)]
 
+use crate::schema::SearchConfig;
+use anyhow::Result;
 use core::panic;
-use std::{collections::HashMap, ops::Bound};
-
 use pgrx::PostgresType;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, ops::Bound};
 use tantivy::{
+    collector::DocSetCollector,
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
         ExistsQuery, FastFieldRangeWeight, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
@@ -30,7 +32,7 @@ use tantivy::{
     },
     query_grammar::Occur,
     schema::{Field, FieldType, IndexRecordOption, OwnedValue},
-    DocAddress, Searcher, Term,
+    Searcher, Term,
 };
 use thiserror::Error;
 
@@ -80,8 +82,8 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
-        fields: Vec<(String, tantivy::schema::OwnedValue)>,
-        with_document_id: Option<i64>,
+        document_fields: Vec<(String, tantivy::schema::OwnedValue)>,
+        document_id: Option<tantivy::schema::OwnedValue>,
     },
     Parse {
         query_string: String,
@@ -203,6 +205,7 @@ impl SearchQueryInput {
         field_lookup: &impl AsFieldType<String>,
         parser: &mut QueryParser,
         searcher: &Searcher,
+        config: &SearchConfig,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::All => Ok(Box::new(AllQuery)),
@@ -215,29 +218,29 @@ impl SearchQueryInput {
                 for input in must {
                     subqueries.push((
                         Occur::Must,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
                     ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher)?,
+                query.into_tantivy_query(field_lookup, parser, searcher, config)?,
                 boost,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher)?,
+                query.into_tantivy_query(field_lookup, parser, searcher, config)?,
                 score,
             ))),
             Self::DisjunctionMax {
@@ -246,7 +249,7 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher))
+                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher, config))
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -342,14 +345,20 @@ impl SearchQueryInput {
                     builder = builder.with_stop_words(stop_words);
                 }
 
-                if let Some(document_id) = document_id {
-                    searcher
-                        .doc_id(document_id as u32)
-                        .ok_or_else(|| QueryError::NonIndexedField("id".to_string()))?;
-                    return Ok(Box::new(
-                        // TODO: We need to get the segment ord from somewhere
-                        builder.with_document(DocAddress::new(0, document_id as u32)),
-                    ));
+                if let Some(key_value) = document_id {
+                    let (field_type, field) = field_lookup
+                        .as_field_type(&config.key_field)
+                        .expect("internal error, key field should be found here");
+                    let term = value_to_term(field, &key_value, &field_type)?;
+                    let query: Box<dyn Query> =
+                        Box::new(TermQuery::new(term, IndexRecordOption::Basic));
+                    let addresses = searcher.search(&query, &DocSetCollector)?;
+                    let disjuncts: Vec<Box<dyn Query>> = addresses
+                        .into_iter()
+                        .map(|address| builder.clone().with_document(address))
+                        .map(|query| Box::new(query) as Box<dyn Query>)
+                        .collect();
+                    return Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)));
                 }
 
                 let mut fields_map = HashMap::new();
@@ -424,20 +433,20 @@ impl SearchQueryInput {
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, value, &field_type)?)
+                        Bound::Included(value_to_term(field, &value, &field_type)?)
                     }
                     Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, value, &field_type)?)
+                        Bound::Excluded(value_to_term(field, &value, &field_type)?)
                     }
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
                 let upper_bound = match upper_bound {
                     Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, value, &field_type)?)
+                        Bound::Included(value_to_term(field, &value, &field_type)?)
                     }
                     Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, value, &field_type)?)
+                        Bound::Excluded(value_to_term(field, &value, &field_type)?)
                     }
                     Bound::Unbounded => Bound::Unbounded,
                 };
@@ -464,14 +473,14 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(field, value, &field_type)?;
+                    let term = value_to_term(field, &value, &field_type)?;
                     Ok(Box::new(TermQuery::new(term, record_option)))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
                     for (field_type, field) in all_fields {
-                        if let Ok(term) = value_to_term(field, value.clone(), &field_type) {
+                        if let Ok(term) = value_to_term(field, &value, &field_type) {
                             terms.push(term);
                         }
                     }
@@ -485,7 +494,7 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
-                    terms.push(value_to_term(field, field_value, &field_type)?);
+                    terms.push(value_to_term(field, &field_value, &field_type)?);
                 }
 
                 Ok(Box::new(TermSetQuery::new(terms)))
@@ -496,7 +505,7 @@ impl SearchQueryInput {
 
 fn value_to_term(
     field: Field,
-    value: OwnedValue,
+    value: &OwnedValue,
     field_type: &FieldType,
 ) -> Result<Term, Box<dyn std::error::Error>> {
     Ok(match value {
@@ -527,19 +536,19 @@ fn value_to_term(
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
             //     so we should use the field type to assign the term type
             match field_type {
-                FieldType::I64(_) => Term::from_field_i64(field, u64 as i64),
-                FieldType::U64(_) => Term::from_field_u64(field, u64),
+                FieldType::I64(_) => Term::from_field_i64(field, *u64 as i64),
+                FieldType::U64(_) => Term::from_field_u64(field, *u64),
                 _ => panic!("invalid field type for u64 value"),
             }
         }
-        OwnedValue::I64(i64) => Term::from_field_i64(field, i64),
-        OwnedValue::F64(f64) => Term::from_field_f64(field, f64),
-        OwnedValue::Bool(bool) => Term::from_field_bool(field, bool),
-        OwnedValue::Date(date) => Term::from_field_date(field, date),
+        OwnedValue::I64(i64) => Term::from_field_i64(field, *i64),
+        OwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
+        OwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
+        OwnedValue::Date(date) => Term::from_field_date(field, *date),
         OwnedValue::Facet(facet) => Term::from_facet(field, &facet),
         OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
         OwnedValue::Object(_) => panic!("json cannot be converted to term"),
-        OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, ip),
+        OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
         _ => panic!("Tantivy OwnedValue type not supported"),
     })
 }

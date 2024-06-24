@@ -246,9 +246,9 @@ pub fn more_like_this(
     with_boost_factor: default!(Option<f32>, "NULL"),
     with_stop_words: default!(Option<Vec<String>>, "NULL"),
     with_document_fields: default!(Option<String>, "'{}'"),
-    with_document_id: default!(Option<i64>, "NULL"),
+    with_document_id: default!(Option<AnyElement>, "NULL"),
 ) -> SearchQueryInput {
-    let document_fields: HashMap<String, tantivy::schema::Value> =
+    let document_fields: HashMap<String, tantivy::schema::OwnedValue> =
         serde_json::from_str(&with_document_fields.unwrap())
             .expect("could not parse with_document_fields");
 
@@ -268,7 +268,11 @@ pub fn more_like_this(
         boost_factor: with_boost_factor,
         stop_words: with_stop_words,
         document_fields: document_fields.into_iter().collect(),
-        document_id: with_document_id,
+        document_id: with_document_id.map(|element| unsafe {
+            TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
+                .unwrap_or_else(|err| panic!("could not read more_like_this document_id: {err}"))
+                .0
+        }),
     }
 }
 

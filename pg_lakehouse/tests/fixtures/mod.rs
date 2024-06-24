@@ -79,8 +79,8 @@ pub fn conn_with_pg_search(database: Db) -> PgConnection {
 /// and the S3 client. It's important that they be owned together, because
 /// testcontainers will stop the Docker container is stopped once the variable
 /// is dropped.
+#[allow(unused)]
 pub struct S3 {
-    #[allow(unused)]
     container: ContainerAsync<LocalStack>,
     pub client: aws_sdk_s3::Client,
     pub url: String,

@@ -133,18 +133,24 @@
       "pages": [
         "analytics/quickstart",
         {
-          "group": "Object Stores",
+          "group": "Table Formats",
           "pages": [
-            "analytics/object_stores/azblob",
-            "analytics/object_stores/azdls",
-            "analytics/object_stores/gcs",
-            "analytics/object_stores/local",
-            "analytics/object_stores/s3",
-            "analytics/object_stores/unsupported"
+            "analytics/import/overview",
+            "analytics/import/csv",
+            "analytics/import/delta",
+            "analytics/import/iceberg",
+            "analytics/import/parquet"
           ]
         },
-        "analytics/schema",
-        "analytics/acceleration"
+        {
+          "group": "Object Stores",
+          "pages": [
+            "analytics/object_stores/overview",
+            "analytics/object_stores/azure",
+            "analytics/object_stores/gcs",
+            "analytics/object_stores/s3"
+          ]
+        }
       ]
     },
     {

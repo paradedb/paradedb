@@ -4,113 +4,87 @@ title: S3
 
 ## Overview
 
-This code block demonstrates how to create a foreign table over Amazon S3 or an S3-compatible object
-store.
+S3 foreign tables have been tested against the following object stores that implement the S3 API: Amazon S3, MinIO, Cloudflare R2, and
+Google Cloud.
+
+To query file(s) stored in S3, the first step is to create a [foreign data wrapper](/analytics/import/overview#foreign-data-wrapper) and
+[server](/analytics/import/overview#foreign-server) that corresponds to the format of the S3 file(s) (e.g. CSV, Parquet, Delta, or Iceberg).
+
+The next step is to create a foreign table with the S3 file path passed to the `files` option. The file path must start with the `s3`, `gs`, or
+`r2` scheme.
 
 ```sql
-CREATE FOREIGN DATA WRAPPER <wrapper_name>
-HANDLER s3_fdw_handler
-VALIDATOR s3_fdw_validator;
+-- Parquet format is assumed
+CREATE FOREIGN DATA WRAPPER parquet_wrapper
+HANDLER parquet_fdw_handler
+VALIDATOR parquet_fdw_validator;
 
-CREATE SERVER <server_name>
-FOREIGN DATA WRAPPER <wrapper_name>
-OPTIONS (
-    region '<region>',
-    allow_anonymous 'true'
-);
+CREATE SERVER parquet_server
+FOREIGN DATA WRAPPER parquet_wrapper;
 
 -- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE <table_name> ("x" INT)
-SERVER <server_name>
-OPTIONS (path '<path>', extension '<extension>');
+CREATE FOREIGN TABLE parquet_table (x INT)
+SERVER parquet_server
+OPTIONS (files 's3://<bucket>/<path>/<file>.parquet');
 ```
 
-<ParamField body="wrapper_name" required>
-  Foreign data wrapper name. Can be any string.
-</ParamField>
-<ParamField body="server_name" required>
-  Foreign server name. Can be any string.
-</ParamField>
-<ParamField body="table_name" required>
-  Foreign table name. Can be any string.
-</ParamField>
-
-### Options for `CREATE SERVER`
-
-<ParamField body="region">
-  AWS region, e.g. `us-east-1`. Required for Amazon S3, MinIO, Scaleway, and
-  Cloudflare R2.
-</ParamField>
-<ParamField body="endpoint">
-  The endpoint for communicating with the S3 instance. Defaults to the [region
-  endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example,
-  can be set to `http://localhost:4566` if testing against a Localstack
-  instance, or `http://127.0.0.1:9000` for MinIO. Required for all non Amazon S3
-  object stores.
-</ParamField>
-<ParamField body="allow_anonymous">
-  If set to `true`, will not sign requests. This is useful for connecting to
-  public S3 buckets. Defaults to `false`.
-</ParamField>
-
-### Options for `CREATE FOREIGN TABLE`
-
-<ParamField body="path" required>
-  Must start with `s3://` and point to the location of your file. The path
-  should end in a `/` if it points to a directory of partitioned Parquet files.
-</ParamField>
-<ParamField body="extension" required>
-  One of `avro`, `csv`, `json`, and `parquet`.
-</ParamField>
-<ParamField body="format">
-  For now, only `delta` is supported for Delta Lake (Iceberg is coming soon). If
-  omitted, no table format is assumed.
-</ParamField>
-
-## S3 Credentials
-
-`CREATE USER MAPPING` is used to pass in credentials for private buckets.
+The glob pattern can be used to query a directory of files.
 
 ```sql
--- Get the name of the current user
-SELECT current_user;
- current_user
---------------
- myuser
+CREATE FOREIGN TABLE parquet_table (x INT)
+SERVER parquet_server
+OPTIONS (files 's3://<bucket>/<path>/*.parquet');
+```
 
--- Run this before CREATE FOREIGN TABLE
+## Providing Credentials
+
+`CREATE USER MAPPING` is used to provide S3 credentials. These credentials are tied to a specific Postgres user, which enables
+multiple users to query the same foreign table with their own credentials.
+
+```sql
 CREATE USER MAPPING FOR <current_user>
 SERVER <server_name>
 OPTIONS (
-  access_key_id '<access_key_id>',
-  secret_access_key '<secret_access_key>'
+  type 'S3',
+  key_id '<key_id>',
+  secret '<secret>',
+  region 'us-east-1'
 );
-
--- Now, run CREATE FOREIGN TABLE
 ```
 
 <ParamField body="current_user" required>
   The name of the Postgres user. If set to `public`, these credentials will be
-  applied to all users.
+  applied to all users. `SELECT current_user` can be used to get the name of the
+  current Postgres user.
 </ParamField>
 <ParamField body="server_name" required>
   Foreign server name.
 </ParamField>
 
-### Options for `CREATE USER MAPPING`
+## Credentials Options
 
-<ParamField body="access_key_id">AWS access key ID</ParamField>
-<ParamField body="secret_access_key">AWS secret access key</ParamField>
-<ParamField body="security_token">AWS session token</ParamField>
+Below is a complete list of options for `CREATE USER MAPPING`.
 
-## Compatible Services
-
-In addition to Amazon S3, following S3-compatible object stores are supported:
-
-- [x] Alibaba Object Storage Service
-- [x] Cloudflare R2
-- [x] MinIO
-- [x] QingStor Object Storage
-- [x] Scaleway Object Storage
-- [x] Tencent Cloud Object Storage
-- [x] Wasabi Object Storage
+<ParamField body="type" required>
+  Must be one of `S3`, `GCS`, or `R2`.
+</ParamField>
+<ParamField body="secret">The secret key.</ParamField>
+<ParamField body="region" default="us-east-1">
+  The region for which to authenticate (should match the region of the bucket to
+  query).
+</ParamField>
+<ParamField body="session_token">A session token.</ParamField>
+<ParamField body="endpoint">Specify a custom S3 endpoint.</ParamField>
+<ParamField body="url_style">
+  Either `vhost` or `path`. The default for S3 is `vhost` and the default for R2
+  and GCS is `path`.
+</ParamField>
+<ParamField body="use_ssl" default="true">
+  Whether to use HTTPS or HTTP.
+</ParamField>
+<ParamField body="url_compatibility_mode" default="true">
+  Can help when URLs contain problematic characters.
+</ParamField>
+<ParamField body="account_id">
+  The R2 account ID to use for generating the endpoint URL.
+</ParamField>

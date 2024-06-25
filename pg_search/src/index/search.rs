@@ -192,7 +192,7 @@ impl SearchIndex {
         config: &SearchConfig,
         needs_commit: bool,
     ) -> Result<SearchState, SearchIndexError> {
-        // Commit any inserts or deletes that have occured during this transaction.
+        // Commit any inserts or deletes that have occurred during this transaction.
         if needs_commit {
             writer.lock()?.request(WriterRequest::Commit {
                 directory: self.directory.clone(),

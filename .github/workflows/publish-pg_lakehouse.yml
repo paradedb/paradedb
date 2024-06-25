@@ -136,7 +136,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Debian Dependencies
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
       - name: Install RHEL Dependencies
@@ -194,8 +194,10 @@ jobs:
         with:
           toolchain: nightly-2024-04-21
 
+      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Retrieve OS & GitHub Tag Versions
         id: version
+        shell: bash
         run: |
           if [ -z "${{ github.event.inputs.version }}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
@@ -235,7 +237,7 @@ jobs:
           fi
 
       - name: Install & Configure Supported PostgreSQL Version on Debian
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04'}}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -267,8 +269,10 @@ jobs:
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
 
+      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_lakehouse/
+        shell: bash
         run: |
           if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
             PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
@@ -287,6 +291,7 @@ jobs:
           cargo pgrx package
 
       - name: Create .deb Package
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
         run: |
           # Create installable package
           mkdir archive

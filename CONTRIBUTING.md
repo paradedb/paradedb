@@ -7,7 +7,7 @@ to make the process as smooth as possible.
 
 Before submitting a pull request, please review this document, which outlines what
 conventions to follow when submitting changes. If you have any questions not covered
-in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
+in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ)
 or via [email](support@paradedb.com).
 
 ### Development Workflow
@@ -56,7 +56,7 @@ In order for us, Retake, Inc. (dba ParadeDB) to accept patches and other contrib
 
 ParadeDB uses a tool called CLA Assistant to help us keep track of the CLA status of contributors. CLA Assistant will post a comment to your pull request, indicating whether you have signed the CLA or not. If you have not signed the CLA, you will need to do so before we can accept your contribution. Signing the CLA is a one-time process, is valid for all future contributions to ParadeDB, and can be done in under a minute by signing in with your GitHub account.
 
-If you have any questions about the CLA, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
+If you have any questions about the CLA, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
 
 ### License
 

@@ -1,6 +1,6 @@
 # ParadeDB Benchmarks
 
-In the future, we'll be adding benchmarks for workloads intersecting both search and analytics. If there's anything specific you'd like to see, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
+In the future, we'll be adding benchmarks for workloads intersecting both search and analytics. If there's anything specific you'd like to see, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ).
 
 ## pg_search
 
@@ -53,7 +53,7 @@ For query benchmarks, the Rust Criterion library is used. Iterations, warmups, a
 - PostgreSQL: 16.2
 - Elasticsearch: 7.17.20
 
-For any questions, clarifications, or suggestions regarding our benchmarking experimental setup, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
+For any questions, clarifications, or suggestions regarding our benchmarking experimental setup, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ).
 
 ### Results
 

@@ -54,18 +54,6 @@ Note the mandatory `key_field` option. Every BM25 index needs a `key_field`, whi
 be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field`
 can just be the name of your table's primary key column.
 
-<Note>
-Prior to version 0.7.5, only integer IDs were supported in the `key_field` column.
-If your primary key was a composite or a string, you needed to add another column with serial IDs to your table and use that as your `key_field`.
-From version 0.7.6 onwards, [ParadeDB supports non-integer IDs](https://github.com/paradedb/paradedb/pull/1174).
-
-```sql
-ALTER TABLE mock_items
-ADD COLUMN bm25_id SERIAL;
-```
-
-</Note>
-
 We're now ready to execute a full-text search. We'll look for rows with a `rating` greater than `2` where `description` matches `shoes`
 or `category` matches `electronics`.
 

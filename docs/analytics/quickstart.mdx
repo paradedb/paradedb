@@ -2,18 +2,10 @@
 title: Quickstart
 ---
 
-<Note>
-  ParadeDB Analytics is powered by our new extension, `pg_lakehouse`.
-  `pg_analytics`, our original extension for analytics inside Postgres, is being
-  refactored and will be re-released in the coming months. Documentation for
-  `pg_analytics` has been [preserved](/analytics_deprecated/quickstart) for
-  existing users.
-</Note>
-
 ## Overview
 
-ParadeDB Analytics transforms Postgres into a fast analytical query engine over external object stores like Amazon S3, file
-formats like Parquet, and table formats like Delta Lake. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which
+ParadeDB Analytics transforms Postgres into a fast analytical query engine over external object stores like Amazon S3 and table
+formats like CSV, Parquet, Delta, or Iceberg. Queries are pushed down to [DuckDB](https://duckdb.org/), which
 delivers excellent analytical performance.
 
 ## Getting Started
@@ -22,47 +14,36 @@ The following example queries an example dataset of 3 million NYC taxi trips fro
 public S3 bucket provided by ParadeDB.
 
 ```sql
-CREATE FOREIGN DATA WRAPPER s3_wrapper
-HANDLER s3_fdw_handler
-VALIDATOR s3_fdw_validator;
+CREATE FOREIGN DATA WRAPPER parquet_wrapper
+HANDLER parquet_fdw_handler VALIDATOR parquet_fdw_validator;
 
 -- Provide S3 credentials
-CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-OPTIONS (
-    region 'us-east-1',
-    allow_anonymous 'true'
-);
+CREATE SERVER parquet_server FOREIGN DATA WRAPPER parquet_wrapper;
 
 -- Create foreign table
 CREATE FOREIGN TABLE trips (
-    "VendorID"              INT,
-    "tpep_pickup_datetime"  TIMESTAMP,
-    "tpep_dropoff_datetime" TIMESTAMP,
-    "passenger_count"       BIGINT,
-    "trip_distance"         DOUBLE PRECISION,
-    "RatecodeID"            DOUBLE PRECISION,
-    "store_and_fwd_flag"    TEXT,
-    "PULocationID"          REAL,
-    "DOLocationID"          REAL,
-    "payment_type"          DOUBLE PRECISION,
-    "fare_amount"           DOUBLE PRECISION,
-    "extra"                 DOUBLE PRECISION,
-    "mta_tax"               DOUBLE PRECISION,
-    "tip_amount"            DOUBLE PRECISION,
-    "tolls_amount"          DOUBLE PRECISION,
-    "improvement_surcharge" DOUBLE PRECISION,
-    "total_amount"          DOUBLE PRECISION
+    VendorID              INT,
+    tpep_pickup_datetime  TIMESTAMP,
+    tpep_dropoff_datetime TIMESTAMP,
+    passenger_count       BIGINT,
+    trip_distance         DOUBLE PRECISION,
+    RatecodeID            DOUBLE PRECISION,
+    store_and_fwd_flag    TEXT,
+    PULocationID          REAL,
+    DOLocationID          REAL,
+    payment_type          DOUBLE PRECISION,
+    fare_amount           DOUBLE PRECISION,
+    extra                 DOUBLE PRECISION,
+    mta_tax               DOUBLE PRECISION,
+    tip_amount            DOUBLE PRECISION,
+    tolls_amount          DOUBLE PRECISION,
+    improvement_surcharge DOUBLE PRECISION,
+    total_amount          DOUBLE PRECISION
 )
-SERVER s3_server
-OPTIONS (
-    path 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
-    extension 'parquet'
-);
+SERVER parquet_server
+OPTIONS (files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet');
 
--- Optional: Pre-establish the S3 connection
-CALL connect_table('trips');
-
--- Success! Now you can query the file like a regular Postgres table
+-- Success! Now you can query the remote Parquet file like a regular Postgres table
 SELECT COUNT(*) FROM trips;
   count
 ---------
@@ -70,18 +51,7 @@ SELECT COUNT(*) FROM trips;
 (1 row)
 ```
 
-<Note>
-  If `path` points to a directory of partitioned files, it must end in a `/`.
-</Note>
-
-<Note>
-  Column names must be wrapped in double quotes to preserve uppercase letters.
-  This is because DataFusion is case-sensitive and Postgres' foreign table
-  column names must match the foreign table's column names exactly.
-</Note>
-
-That's it! To query your own object store, please refer to the [object stores](/analytics/object_stores) and
-[foreign table schema](/analytics/schema) documentation.
+That's it! To query your own data, please refer to the [data import](/analytics/import) documentation.
 
 ## For Further Assistance
 

@@ -38,7 +38,6 @@ async fn test_table_case_sensitivity(mut conn: PgConnection, tempdir: TempDir) -
 
     primitive_setup_fdw_local_file_listing(
         parquet_path.as_path().to_str().unwrap(),
-        "parquet",
         "\"PrimitiveTable\"",
     )
     .execute(&mut conn);

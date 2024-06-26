@@ -15,11 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod catalog;
-pub mod context;
-pub mod format;
-pub mod object_store;
-pub mod plan;
-pub mod provider;
-pub mod schema;
-pub mod session;
+pub mod connection;
+pub mod csv;
+pub mod delta;
+pub mod iceberg;
+pub mod parquet;
+pub mod secret;
+pub mod utils;

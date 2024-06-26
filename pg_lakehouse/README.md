@@ -5,33 +5,29 @@
 
 ## Overview
 
-`pg_lakehouse` is an extension that transforms Postgres into an analytical query engine over object stores like S3 and table formats like Delta Lake. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which delivers excellent analytical performance. Combinations of the following object stores, table formats, and file formats are supported.
+`pg_lakehouse` puts DuckDB inside Postgres.
+
+With `pg_lakehouse` installed, Postgres can query foreign object stores like S3 and table formats like Iceberg or Delta Lake. Queries are pushed down to DuckDB, a high performance analytical query engine. The following object stores and table formats are supported:
 
 ### Object Stores
 
 - [x] Amazon S3
-- [x] S3-compatible object stores (e.g. MinIO)
+- [x] S3-compatible stores (MinIO, R2)
 - [x] Azure Blob Storage
 - [x] Azure Data Lake Storage Gen2
 - [x] Google Cloud Storage
+- [x] HTTP server
 - [x] Local file system
-
-...and potentially any service supported by [Apache OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
-
-### File Formats
-
-- [x] Parquet
-- [x] CSV
-- [x] JSON
-- [x] Avro
-- [ ] ORC (coming soon)
 
 ### Table Formats
 
+- [x] Parquet
+- [x] CSV
+- [x] Apache Iceberg
 - [x] Delta Lake
-- [ ] Apache Iceberg (coming soon)
+- [ ] JSON (Coming Soon)
 
-`pg_lakehouse` is supported on Postgres 14, 15, and 16. Support for Postgres 12 and 13 is coming soon.
+`pg_lakehouse` uses DuckDB v1.0.0 and is supported on Postgres 14, 15, and 16. Support for Postgres 12 and 13 is coming soon.
 
 ## Motivation
 
@@ -39,48 +35,44 @@ Today, a vast amount of non-operational data — events, metrics, historical sna
 
 `pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs like `aws_s3` have existed in the Postgres extension ecosystem, these FDWs suffer from two limitations:
 
-1. Lack of support for most object stores, files, and table formats
+1. Lack of support for most object stores and table formats
 2. Too slow over large datasets to be a viable analytical engine
 
-`pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats (thanks to [OpenDAL](https://github.com/apache/opendal)) and by being very fast (thanks to [DataFusion](https://github.com/apache/datafusion)).
+`pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast (thanks to DuckDB).
 
 ## Getting Started
 
-The following example uses `pg_lakehouse` to query an example dataset of 3 million NYC taxi trips from January 2024, hosted in a public S3 bucket provided by ParadeDB.
+The following example uses `pg_lakehouse` to query an example dataset of 3 million NYC taxi trips from January 2024, hosted in a public `us-east-1` S3 bucket provided by ParadeDB.
 
 ```sql
 CREATE EXTENSION pg_lakehouse;
-CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
+CREATE FOREIGN DATA WRAPPER parquet_wrapper HANDLER parquet_fdw_handler VALIDATOR parquet_fdw_validator;
 
 -- Provide S3 credentials
-CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-OPTIONS (region 'us-east-1', allow_anonymous 'true');
+CREATE SERVER parquet_server FOREIGN DATA WRAPPER parquet_wrapper;
 
 -- Create foreign table
 CREATE FOREIGN TABLE trips (
-    "VendorID"              INT,
-    "tpep_pickup_datetime"  TIMESTAMP,
-    "tpep_dropoff_datetime" TIMESTAMP,
-    "passenger_count"       BIGINT,
-    "trip_distance"         DOUBLE PRECISION,
-    "RatecodeID"            DOUBLE PRECISION,
-    "store_and_fwd_flag"    TEXT,
-    "PULocationID"          REAL,
-    "DOLocationID"          REAL,
-    "payment_type"          DOUBLE PRECISION,
-    "fare_amount"           DOUBLE PRECISION,
-    "extra"                 DOUBLE PRECISION,
-    "mta_tax"               DOUBLE PRECISION,
-    "tip_amount"            DOUBLE PRECISION,
-    "tolls_amount"          DOUBLE PRECISION,
-    "improvement_surcharge" DOUBLE PRECISION,
-    "total_amount"          DOUBLE PRECISION
+    VendorID              INT,
+    tpep_pickup_datetime  TIMESTAMP,
+    tpep_dropoff_datetime TIMESTAMP,
+    passenger_count       BIGINT,
+    trip_distance         DOUBLE PRECISION,
+    RatecodeID            DOUBLE PRECISION,
+    store_and_fwd_flag    TEXT,
+    PULocationID          REAL,
+    DOLocationID          REAL,
+    payment_type          DOUBLE PRECISION,
+    fare_amount           DOUBLE PRECISION,
+    extra                 DOUBLE PRECISION,
+    mta_tax               DOUBLE PRECISION,
+    tip_amount            DOUBLE PRECISION,
+    tolls_amount          DOUBLE PRECISION,
+    improvement_surcharge DOUBLE PRECISION,
+    total_amount          DOUBLE PRECISION
 )
-SERVER s3_server
-OPTIONS (path 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet', extension 'parquet');
-
--- Optional: Pre-establish the S3 connection
-CALL connect_table('trips');
+SERVER parquet_server
+OPTIONS (files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet');
 
 -- Success! Now you can query the remote Parquet file like a regular Postgres table
 SELECT COUNT(*) FROM trips;
@@ -90,9 +82,7 @@ SELECT COUNT(*) FROM trips;
 (1 row)
 ```
 
-Note: If `path` points to a directory of partitioned files, it should end in a `/`.
-
-Note: Column names must be wrapped in double quotes to preserve uppercase letters. This is because DataFusion is case-sensitive and Postgres' foreign table column names must match the foreign table's column names exactly.
+To query your own data, please refer to the [documentation](https://docs.paradedb.com/analytics/object_stores).
 
 ## Shared Preload Libraries
 
@@ -102,40 +92,6 @@ Because this extension uses Postgres hooks to intercept and push queries down to
 # Inside postgresql.conf
 shared_preload_libraries = 'pg_lakehouse'
 ```
-
-## Inspecting the Foreign Schema
-
-The `arrow_schema` function displays the schema of a foreign table. This can help you decide what Postgres types to assign to each column of the foreign table. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT`, `VARCHAR`, or `BPCHAR` column. If an incompatible Postgres type is chosen, querying the table will fail.
-
-```sql
-SELECT * FROM arrow_schema(
-  server => 's3_server',
-  path => 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
-  extension => 'parquet'
-);
-```
-
-## Connecting to the Foreign Server
-
-The first query to a foreign server in a new Postgres connection may be slower than subsequent queries. This is partially due to the fact that `pg_lakehouse` must first establish a connection with the foreign server before executing the query. To address this, the
-`connect_table` function can be used to pre-establish a connection to the foreign server.
-
-```sql
-CALL connect_table('trips');
--- schema.table is also accepted
-CALL connect_table('public.trips');
-```
-
-This function is also useful for verifying that the server and table credentials you've provided are valid. If the connection is
-unsucessful, an error message will be returned.
-
-## Connect an Object Store
-
-To connect your own object store, please refer to the [documentation](https://docs.paradedb.com/analytics/object_stores).
-
-## Types
-
-Some types like `date`, `timestamp`, and `timestamptz` must be handled carefully. Please refer to the [documentation](https://docs.paradedb.com/analytics/schema#datetime-types).
 
 ## Development
 
@@ -205,16 +161,6 @@ cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
 If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
 
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
-
-### Adding a Service
-
-`pg_lakehouse` uses OpenDAL to integrate with various object stores. As of the time of writing, some — but not all — of the object stores supported by OpenDAL have been integrated.
-
-Adding support for a new object store is as straightforward as
-
-1. Adding the service feature to `opendal` in `Cargo.toml`. For instance, S3 requires `services-s3`.
-2. Creating a file in the `fdw/` folder that implements the `BaseFdw` trait. For instance, `fdw/s3.rs` implements the S3 FDW.
-3. Registering the FDW in `fdw/handler.rs`.
 
 ### Running Tests
 

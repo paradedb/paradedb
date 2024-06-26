@@ -15,109 +15,146 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::arrow::error::ArrowError;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::catalog::CatalogProvider;
-use datafusion::common::DataFusionError;
-use datafusion::prelude::DataFrame;
-use datafusion::sql::TableReference;
-use deltalake::DeltaTableError;
+use anyhow::{anyhow, Result};
+use duckdb::arrow::array::RecordBatch;
 use pgrx::*;
 use std::collections::HashMap;
-use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
-use url::Url;
 
-use crate::datafusion::context::ContextError;
-use crate::datafusion::format::*;
-use crate::datafusion::provider::*;
-use crate::datafusion::schema::LakehouseSchemaProvider;
-use crate::datafusion::session::*;
-use crate::schema::attribute::*;
+use super::handler::FdwHandler;
+use crate::duckdb::connection;
 use crate::schema::cell::*;
 
-pub trait BaseFdw {
-    // Public methods
-    fn register_object_store(
-        url: &Url,
-        format: TableFormat,
-        server_options: HashMap<String, String>,
-        user_mapping_options: HashMap<String, String>,
-    ) -> Result<(), ContextError>;
+const DEFAULT_SECRET: &str = "default_secret";
 
+pub trait BaseFdw {
     // Getter methods
     fn get_current_batch(&self) -> Option<RecordBatch>;
     fn get_current_batch_index(&self) -> usize;
+    fn get_scan_started(&self) -> bool;
+    fn get_sql(&self) -> Option<String>;
     fn get_target_columns(&self) -> Vec<Column>;
+    fn get_user_mapping_options(&self) -> HashMap<String, String>;
 
     // Setter methods
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
-    fn set_current_batch_index(&mut self, index: usize);
-    fn set_dataframe(&mut self, dataframe: DataFrame);
-    async fn create_stream(&mut self) -> Result<(), BaseFdwError>;
-    fn clear_stream(&mut self);
+    fn set_current_batch_index(&mut self, idx: usize);
+    fn set_scan_started(&mut self);
+    fn set_sql(&mut self, statement: Option<String>);
     fn set_target_columns(&mut self, columns: &[Column]);
 
-    // DataFusion methods
-    async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>, BaseFdwError>;
-
-    // Default trait methods
     async fn begin_scan_impl(
         &mut self,
+        // TODO: Push down quals
         _quals: &[Qual],
         columns: &[Column],
-        _sorts: &[Sort],
+        sorts: &[Sort],
         limit: &Option<Limit>,
         options: HashMap<String, String>,
-    ) -> Result<(), BaseFdwError> {
-        self.set_target_columns(columns);
-
+    ) -> Result<()> {
         let oid_u32: u32 = options
             .get(OPTS_TABLE_KEY)
-            .ok_or(BaseFdwError::TableOidNotFound)?
+            .ok_or_else(|| anyhow!("table oid not found"))?
             .parse()?;
         let table_oid = pg_sys::Oid::from(oid_u32);
         let pg_relation = unsafe { PgRelation::open(table_oid) };
-        let schema_name = pg_relation.namespace().to_string();
-        let catalog = Session::catalog()?;
+        let schema_name = pg_relation.namespace();
+        let table_name = pg_relation.name();
 
-        if catalog.schema(&schema_name).is_none() {
-            let new_schema_provider = Arc::new(LakehouseSchemaProvider::new(&schema_name));
-            catalog.register_schema(&schema_name, new_schema_provider)?;
+        // Cache target columns
+        self.set_target_columns(columns);
+
+        // Create DuckDB secret from user mapping options
+        let user_mapping_options = self.get_user_mapping_options();
+        if !user_mapping_options.is_empty() {
+            connection::create_secret(DEFAULT_SECRET, self.get_user_mapping_options())?;
         }
 
-        let limit = limit.clone();
-        let context = Session::session_context()?;
+        // Create DuckDB view
+        if !connection::view_exists(table_name, schema_name)? {
+            // Create schema if it does not exist
+            connection::execute(
+                format!("CREATE SCHEMA IF NOT EXISTS {schema_name}").as_str(),
+                [],
+            )?;
 
-        let reference = TableReference::full(
-            Session::catalog_name()?,
-            pg_relation.namespace(),
-            pg_relation.name(),
-        );
-        let mut dataframe = context.table(reference).await?;
+            let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+            let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+            let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+
+            match FdwHandler::from(foreign_server) {
+                FdwHandler::Csv => {
+                    connection::create_csv_view(table_name, schema_name, table_options)?;
+                }
+                FdwHandler::Delta => {
+                    connection::create_delta_view(table_name, schema_name, table_options)?;
+                }
+                FdwHandler::Iceberg => {
+                    connection::create_iceberg_view(table_name, schema_name, table_options)?;
+                }
+                FdwHandler::Parquet => {
+                    connection::create_parquet_view(table_name, schema_name, table_options)?;
+                }
+                _ => {
+                    todo!()
+                }
+            }
+        }
+
+        // Ensure we are in the same DuckDB schema as the Postgres schema
+        connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
+
+        // Construct SQL scan statement
+        let targets = if columns.is_empty() {
+            "*".to_string()
+        } else {
+            columns
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<String>>()
+                .join(", ")
+        };
+
+        let mut sql = format!("SELECT {targets} FROM {schema_name}.{table_name}");
+
+        if !sorts.is_empty() {
+            let order_by = sorts
+                .iter()
+                .map(|sort| sort.deparse())
+                .collect::<Vec<String>>()
+                .join(", ");
+            sql.push_str(&format!(" ORDER BY {}", order_by));
+        }
+
         if let Some(limit) = limit {
-            dataframe = dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
+            let real_limit = limit.offset + limit.count;
+            sql.push_str(&format!(" LIMIT {}", real_limit));
         }
 
-        self.set_dataframe(dataframe);
-
+        self.set_sql(Some(sql));
         Ok(())
     }
 
-    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        self.create_stream().await?;
+    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>> {
+        if !self.get_scan_started() {
+            self.set_scan_started();
+            let sql = self
+                .get_sql()
+                .ok_or_else(|| anyhow!("sql statement was not cached"))?;
+            connection::create_arrow(sql.as_str())?;
+        }
 
         if self.get_current_batch().is_none()
             || self.get_current_batch_index()
                 >= self
                     .get_current_batch()
                     .as_ref()
-                    .ok_or(BaseFdwError::BatchNotFound)?
+                    .ok_or_else(|| anyhow!("current batch not found"))?
                     .num_rows()
         {
             self.set_current_batch_index(0);
-            let next_batch = self.get_next_batch().await?;
+            let next_batch = connection::get_next_batch()?;
 
             if next_batch.is_none() {
                 return Ok(None);
@@ -129,7 +166,7 @@ pub trait BaseFdw {
         let current_batch_binding = self.get_current_batch();
         let current_batch = current_batch_binding
             .as_ref()
-            .ok_or(BaseFdwError::BatchNotFound)?;
+            .ok_or_else(|| anyhow!("current batch not found"))?;
         let current_batch_index = self.get_current_batch_index();
 
         for (column_index, target_column) in
@@ -139,7 +176,7 @@ pub trait BaseFdw {
             let cell = batch_column.get_cell(
                 current_batch_index,
                 target_column.type_oid,
-                target_column.type_mod,
+                target_column.name.as_str(),
             )?;
             row.push(target_column.name.as_str(), cell);
         }
@@ -149,9 +186,15 @@ pub trait BaseFdw {
         Ok(Some(()))
     }
 
-    fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
-        self.clear_stream();
-        Ok(())
+    fn end_scan_impl(&mut self) {
+        connection::clear_arrow();
+    }
+
+    fn explain_impl(&self) -> Result<Option<Vec<(String, String)>>> {
+        let sql = self
+            .get_sql()
+            .ok_or_else(|| anyhow!("sql statement was not cached"))?;
+        Ok(Some(vec![("DuckDB Scan".to_string(), sql)]))
     }
 }
 
@@ -161,62 +204,29 @@ impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
     }
 }
 
+pub fn validate_options(opt_list: Vec<Option<String>>, valid_options: Vec<String>) -> Result<()> {
+    for opt in opt_list
+        .iter()
+        .flatten()
+        .map(|opt| opt.split('=').next().unwrap_or(""))
+    {
+        if !valid_options.contains(&opt.to_string()) {
+            return Err(anyhow!(
+                "invalid option: {}. valid options are: {}",
+                opt,
+                valid_options.join(", ")
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(Error, Debug)]
 pub enum BaseFdwError {
     #[error(transparent)]
-    ArrowError(#[from] ArrowError),
+    Anyhow(#[from] anyhow::Error),
 
     #[error(transparent)]
-    ContextError(#[from] ContextError),
-
-    #[error(transparent)]
-    DataFusionError(#[from] DataFusionError),
-
-    #[error(transparent)]
-    DataTypeError(#[from] DataTypeError),
-
-    #[error(transparent)]
-    DeltaTableError(#[from] DeltaTableError),
-
-    #[error(transparent)]
-    FormatError(#[from] FormatError),
-
-    #[error(transparent)]
-    OptionsError(#[from] supabase_wrappers::options::OptionsError),
-
-    #[error(transparent)]
-    ParseIntError(#[from] std::num::ParseIntError),
-
-    #[error(transparent)]
-    SchemaError(#[from] SchemaError),
-
-    #[error(transparent)]
-    SessionError(#[from] SessionError),
-
-    #[error(transparent)]
-    TableProviderError(#[from] TableProviderError),
-
-    #[error(transparent)]
-    UrlParseError(#[from] url::ParseError),
-
-    #[error("Unexpected error: Expected RecordBatch but found None")]
-    BatchNotFound,
-
-    #[error("Unexpected error: DataFrame not found")]
-    DataFrameNotFound,
-
-    #[error("Received unexpected option \"{0}\". Valid options are: {1:?}")]
-    InvalidOption(String, Vec<String>),
-
-    #[error("Unexpected error: Expected SendableRecordBatchStream but found None")]
-    StreamNotFound,
-
-    #[error("Unexpected error: Table OID not found")]
-    TableOidNotFound,
-
-    #[error("Received unsupported FDW oid {0:?}")]
-    UnsupportedFdwOid(PgOid),
-
-    #[error("Url path {0:?} cannot be a base")]
-    UrlNotBase(Url),
+    Options(#[from] OptionsError),
 }

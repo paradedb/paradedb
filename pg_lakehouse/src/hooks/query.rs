@@ -19,16 +19,6 @@ use pgrx::*;
 use std::ffi::CStr;
 use std::str::Utf8Error;
 
-use crate::fdw::handler::FdwHandler;
-
-#[allow(dead_code)]
-#[derive(PartialEq, Clone)]
-pub enum QueryType {
-    Federated,
-    DataFusion,
-    Postgres,
-}
-
 pub fn get_current_query(
     planned_stmt: *mut pg_sys::PlannedStmt,
     query_string: &CStr,
@@ -51,12 +41,16 @@ pub fn get_current_query(
     Ok(current_query)
 }
 
-pub fn get_query_type(planned_stmt: *mut pg_sys::PlannedStmt) -> QueryType {
-    let mut row_tables: Vec<PgRelation> = vec![];
-    let mut col_tables: Vec<PgRelation> = vec![];
+pub fn get_query_relations(planned_stmt: *mut pg_sys::PlannedStmt) -> Vec<PgRelation> {
+    let mut relations = Vec::new();
 
     unsafe {
         let rtable = (*planned_stmt).rtable;
+
+        if rtable.is_null() {
+            return relations;
+        }
+
         #[cfg(feature = "pg12")]
         let mut current_cell = (*rtable).head;
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
@@ -79,24 +73,9 @@ pub fn get_query_type(planned_stmt: *mut pg_sys::PlannedStmt) -> QueryType {
             }
             let relation = pg_sys::RelationIdGetRelation((*rte).relid);
             let pg_relation = PgRelation::from_pg_owned(relation);
-
-            if pg_relation.is_foreign_table() {
-                let foreign_table = pg_sys::GetForeignTable(pg_relation.oid());
-                let foreign_server = pg_sys::GetForeignServer((*foreign_table).serverid);
-                let fdw_handler = FdwHandler::from(foreign_server);
-                if fdw_handler != FdwHandler::Other {
-                    col_tables.push(pg_relation)
-                }
-            } else {
-                row_tables.push(pg_relation)
-            }
+            relations.push(pg_relation);
         }
     }
 
-    match (row_tables.is_empty(), col_tables.is_empty()) {
-        (true, true) => QueryType::Postgres,
-        (false, true) => QueryType::Postgres,
-        (true, false) => QueryType::DataFusion,
-        (false, false) => QueryType::Postgres,
-    }
+    relations
 }

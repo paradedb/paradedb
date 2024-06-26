@@ -122,8 +122,8 @@ where
             let rows = sqlx::query(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap();
-            schema_to_batch(schema, &rows).unwrap()
+                .expect("could not fetch rows from Postgres");
+            schema_to_batch(schema, &rows).expect("could not convert rows to RecordBatch")
         })
     }
 

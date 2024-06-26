@@ -225,6 +225,8 @@ pub fn primitive_create_user_mapping_options(user: &str, server: &str) -> String
     format!("CREATE USER MAPPING FOR {user} SERVER {server}",)
 }
 
+// Some fields have been commented out to get tests to pass
+// See https://github.com/paradedb/paradedb/issues/1299
 pub fn primitive_create_table(server: &str, table: &str) -> String {
     format!(
         "CREATE FOREIGN TABLE {table} (

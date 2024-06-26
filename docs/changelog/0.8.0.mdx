@@ -1,0 +1,31 @@
+---
+title: 0.8.0
+---
+
+## pg_search
+
+### Bug Fixes
+
+- Fixed a bug where JSON top-level arrays would cause a WriterIndexError
+
+## pg_lakehouse
+
+### New Features
+
+This new minor version introduces an important refactor in `pg_lakehouse` that replaces the analytics engine from Apache DataFusion with DuckDB. You
+can read more about the release on the [announcement blog post](https://blog.paradedb.com/pages/iceberg_lakehouse). This new release introduces the
+following features:
+
+- Support for querying Apache Iceberg tables
+- Ability to cancel long-running queries
+- Significant performance improvements
+
+## ParadeDB
+
+### New Features
+
+- Removed `pg_cron` from the ParadeDB Docker image since the extension was not being used
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.8.0).

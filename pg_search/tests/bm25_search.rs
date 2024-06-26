@@ -591,3 +591,115 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
 
     Ok(())
 }
+
+#[rstest]
+async fn json_array_flattening(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Insert a JSON array into the metadata field
+    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
+    ('Product with array', 'Electronics', 4, true, '{\"colors\": [\"red\", \"green\", \"blue\"]}', now(), current_date)"
+        .execute(&mut conn);
+
+    // Search for individual elements in the JSON array
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.colors:red', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.colors:green', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.colors:blue', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+}
+
+#[rstest]
+async fn json_array_multiple_documents(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Insert multiple documents with JSON arrays
+    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
+    ('Product 1', 'Electronics', 5, true, '{\"colors\": [\"red\", \"green\"]}', now(), current_date),
+    ('Product 2', 'Electronics', 3, false, '{\"colors\": [\"blue\", \"yellow\"]}', now(), current_date),
+    ('Product 3', 'Electronics', 4, true, '{\"colors\": [\"green\", \"blue\"]}', now(), current_date)"
+        .execute(&mut conn);
+
+    // Search for individual elements and verify the correct documents are returned
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.colors:red', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.colors:green', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42, 44]);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.colors:blue', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![43, 44]);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.colors:yellow', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![43]);
+}
+
+#[rstest]
+async fn json_array_mixed_data(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Insert documents with mixed data types in JSON arrays
+    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
+    ('Product with mixed array', 'Electronics', 5, true, '{\"attributes\": [\"fast\", 4, true]}', now(), current_date)"
+        .execute(&mut conn);
+
+    // Search for each data type element in the JSON array
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.attributes:fast', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+
+    // Searching for numbers in an array isn't supported by Tantivy. No result will be returned.
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.attributes:4', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert!(columns.id.is_empty());
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.attributes:true', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+}
+
+#[rstest]
+async fn json_nested_arrays(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Insert a document with nested JSON arrays into the metadata field
+    "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
+    ('Product with nested array', 'Electronics', 4, true, '{\"specs\": {\"dimensions\": [\"width\", [\"height\", \"depth\"]]}}', now(), current_date)"
+        .execute(&mut conn);
+
+    // Search for elements in the nested JSON arrays
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.specs.dimensions:width', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.specs.dimensions:height', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('metadata.specs.dimensions:depth', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![42]);
+}

@@ -19,6 +19,7 @@ use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
+use pgrx::pg_sys::BuiltinOid;
 use pgrx::*;
 
 pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
@@ -52,9 +53,14 @@ pub unsafe fn row_to_search_document(
             (attribute_type_oid, false)
         };
 
+        let is_json = matches!(
+            base_oid,
+            PgOid::BuiltIn(BuiltinOid::JSONBOID | BuiltinOid::JSONOID)
+        );
+
         let datum = *values.add(attno);
 
-        if is_array {
+        if is_array || is_json {
             for value in TantivyValue::try_from_datum_array(datum, base_oid).unwrap() {
                 document.insert(search_field.id, value.tantivy_schema_value());
             }

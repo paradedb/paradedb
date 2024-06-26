@@ -8,7 +8,7 @@ use pgrx::PostgresType;
 use pgrx::{FromDatum, PgBuiltInOids, PgOid};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::{Deserialize, Deserializer};
-use serde_json::Map;
+use serde_json::Value;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -78,6 +78,21 @@ impl TantivyValue {
         })
     }
 
+    fn json_value_to_tantivy_value(value: Value) -> Vec<TantivyValue> {
+        let mut tantivy_values = vec![];
+        match value {
+            // A tantivy JSON value can't be a top-level array, so we have to make
+            // separate values out of each entry.
+            Value::Array(value_vec) => {
+                for value in value_vec {
+                    tantivy_values.extend_from_slice(&Self::json_value_to_tantivy_value(value));
+                }
+            }
+            _ => tantivy_values.push(TantivyValue(tantivy::schema::OwnedValue::from(value))),
+        }
+        tantivy_values
+    }
+
     pub unsafe fn try_from_datum_array(
         datum: Datum,
         oid: PgOid,
@@ -97,6 +112,23 @@ impl TantivyValue {
                             )
                         })
                         .collect()
+                }
+                // Tantivy has a limitation that prevents JSON top-level arrays from being
+                // inserted into the index. Therefore, we need to flatten the array elements
+                // individually before converting them into Tantivy values.
+                PgBuiltInOids::JSONBOID => {
+                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?;
+                    let json_value: Value =
+                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
+                    Ok(Self::json_value_to_tantivy_value(json_value))
+                }
+                PgBuiltInOids::JSONOID => {
+                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?;
+                    let json_value: Value =
+                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
+                    Ok(Self::json_value_to_tantivy_value(json_value))
                 }
                 _ => Err(TantivyValueError::UnsupportedArrayOid(oid.value())),
             },
@@ -134,13 +166,6 @@ impl TantivyValue {
                 ),
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => TantivyValue::try_from(
                     String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::JSONOID => TantivyValue::try_from(
-                    pgrx::JsonString::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::JSONBOID => TantivyValue::try_from(
-                    pgrx::JsonB::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
                 ),
                 PgBuiltInOids::DATEOID => TantivyValue::try_from(
                     pgrx::datum::Date::from_datum(datum, false)
@@ -570,13 +595,8 @@ impl TryFrom<pgrx::JsonString> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonString) -> Result<Self, Self::Error> {
-        let de_map = serde_json::from_str::<Map<String, serde_json::Value>>(&val.0)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Object(
-            de_map
-                .into_iter()
-                .map(|(k, v)| (k, tantivy::schema::OwnedValue::from(v)))
-                .collect(),
-        )))
+        let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
+        Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
     }
 }
 
@@ -598,14 +618,8 @@ impl TryFrom<pgrx::JsonB> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonB) -> Result<Self, Self::Error> {
-        let de_map =
-            serde_json::from_slice::<Map<String, serde_json::Value>>(&serde_json::to_vec(&val.0)?)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Object(
-            de_map
-                .into_iter()
-                .map(|(k, v)| (k, tantivy::schema::OwnedValue::from(v)))
-                .collect(),
-        )))
+        let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
+        Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
     }
 }
 
@@ -937,6 +951,9 @@ pub enum TantivyValueError {
 
     #[error("Could not dereference postgres datum")]
     DatumDeref,
+
+    #[error("Could not deserialize json object")]
+    JsonDeserializeError,
 
     #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),

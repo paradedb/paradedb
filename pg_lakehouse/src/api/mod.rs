@@ -1,1 +1,2 @@
+mod csv;
 mod parquet;

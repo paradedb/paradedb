@@ -3,9 +3,8 @@ title: Delta
 ---
 
 <Note>
-  We have observed a bug in DuckDB where custom `endpoint`s are not being
-  handled. As a result, Delta scans over object stores with custom endpoints
-  (e.g. MinIO, Localstack) are not supported.
+  Delta scans are currently only supported over S3. This is a limitation of the
+  underlying DuckDB Delta extension and will be addressed soon.
 </Note>
 
 ## Overview

@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(expected, actual);
 
         let conn = Connection::open_in_memory().unwrap();
-        match conn.prepare(&expected) {
+        match conn.prepare(expected) {
             Ok(_) => panic!("invalid parquet file should throw an error"),
             Err(e) => assert!(e.to_string().contains("file.parquet")),
         }

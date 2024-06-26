@@ -158,7 +158,14 @@ OPTIONS (
 
 ## Parquet Schema
 
-The `parquet_schema` function can be used to query the internal schema contained within a Parquet file.
+The `parquet_describe` function returns the column names and types contained within a Parquet file. This function is useful
+for determining the schema of the Postgres foreign table.
+
+```sql
+SELECT * FROM parquet_describe('/path/to/file.parquet')
+```
+
+The `parquet_schema` function returns the internal schema contained within the metadata of a Parquet file.
 
 ```sql
 SELECT * FROM parquet_schema('/path/to/file.parquet');

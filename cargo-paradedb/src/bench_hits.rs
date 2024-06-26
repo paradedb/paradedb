@@ -53,7 +53,10 @@ pub async fn bench_hits(url: &str, workload: &str, full: bool) -> Result<()> {
 
     let root_file_path = PathBuf::from_str("/tmp")?;
     let single_file_path = root_file_path.join("hits.parquet").display().to_string();
-    let partitioned_dir_path = root_file_path.join("partitioned/").display().to_string();
+    let partitioned_dir_path = root_file_path
+        .join("partitioned/*.parquet")
+        .display()
+        .to_string();
 
     let single_url = if full {
         "https://paradedb-benchmarks.s3.amazonaws.com/hits.parquet"

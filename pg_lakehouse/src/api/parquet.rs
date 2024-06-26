@@ -18,6 +18,33 @@ type ParquetSchemaRow = (
     Option<String>,
 );
 
+type ParquetDescribeRow = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+pub fn parquet_describe(
+    files: &str,
+) -> iter::TableIterator<(
+    name!(column_name, Option<String>),
+    name!(column_type, Option<String>),
+    name!(null, Option<String>),
+    name!(key, Option<String>),
+    name!(default, Option<String>),
+    name!(extra, Option<String>),
+)> {
+    let rows = parquet_describe_impl(files).unwrap_or_else(|e| {
+        panic!("{}", e);
+    });
+    iter::TableIterator::new(rows)
+}
+
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 pub fn parquet_schema(
@@ -45,7 +72,7 @@ pub fn parquet_schema(
 fn parquet_schema_impl(files: &str) -> Result<Vec<ParquetSchemaRow>> {
     let schema_str = utils::format_csv(files);
     let conn = unsafe { &*connection::get_global_connection().get() };
-    let query = format!("SELECT * FROM parquet_schema({})", schema_str);
+    let query = format!("SELECT * FROM parquet_schema({schema_str})");
     let mut stmt = conn.prepare(&query)?;
 
     Ok(stmt
@@ -66,4 +93,26 @@ fn parquet_schema_impl(files: &str) -> Result<Vec<ParquetSchemaRow>> {
         })?
         .map(|row| row.unwrap())
         .collect::<Vec<ParquetSchemaRow>>())
+}
+
+#[inline]
+fn parquet_describe_impl(files: &str) -> Result<Vec<ParquetDescribeRow>> {
+    let schema_str = utils::format_csv(files);
+    let conn = unsafe { &*connection::get_global_connection().get() };
+    let query = format!("DESCRIBE SELECT * FROM {schema_str}");
+    let mut stmt = conn.prepare(&query)?;
+
+    Ok(stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?
+        .map(|row| row.unwrap())
+        .collect::<Vec<ParquetDescribeRow>>())
 }

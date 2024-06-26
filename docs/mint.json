@@ -150,6 +150,7 @@
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.7.6",
         "changelog/0.7.5",
         "changelog/0.7.4",
         "changelog/0.7.3",

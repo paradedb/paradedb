@@ -102,6 +102,7 @@
             "search/full-text/index",
             "search/full-text/bm25",
             "search/full-text/complex",
+            "search/full-text/aggregations",
             "search/full-text/scoring",
             "search/full-text/highlighting"
           ]

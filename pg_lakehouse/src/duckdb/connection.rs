@@ -66,7 +66,7 @@ fn iceberg_loaded() -> Result<bool> {
     }
 }
 
-fn get_global_connection() -> &'static UnsafeCell<Connection> {
+pub fn get_global_connection() -> &'static UnsafeCell<Connection> {
     INIT.call_once(|| {
         init_globals();
     });

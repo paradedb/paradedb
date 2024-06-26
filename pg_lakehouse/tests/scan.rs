@@ -88,6 +88,7 @@ async fn test_arrow_types_s3_listing(#[future(awt)] s3: S3, mut conn: PgConnecti
 }
 
 #[rstest]
+#[ignore = "bug in DuckDB delta_scan over custom endpoints"]
 async fn test_arrow_types_s3_delta(
     #[future(awt)] s3: S3,
     mut conn: PgConnection,

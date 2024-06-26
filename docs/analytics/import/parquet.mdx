@@ -156,6 +156,14 @@ OPTIONS (
 );
 ```
 
+## Parquet Schema
+
+The `parquet_schema` function can be used to query the internal schema contained within a Parquet file.
+
+```sql
+SELECT * FROM parquet_schema('/path/to/file.parquet');
+```
+
 ## Cloud Object Stores
 
 The [object stores](/analytics/object_stores) documentation explains how to provide secrets and other credentials for

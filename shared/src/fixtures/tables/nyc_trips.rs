@@ -60,11 +60,15 @@ impl NycTripsTable {
     }
 
     fn create_s3_foreign_data_wrapper() -> String {
-        r#"CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;"#.into()
+        r#"CREATE FOREIGN DATA WRAPPER parquet_wrapper HANDLER parquet_fdw_handler VALIDATOR parquet_fdw_validator"#.into()
     }
 
     fn create_s3_server() -> String {
-        r#"CREATE SERVER nyc_trips_server FOREIGN DATA WRAPPER s3_wrapper"#.into()
+        r#"CREATE SERVER nyc_trips_server FOREIGN DATA WRAPPER parquet_wrapper"#.into()
+    }
+
+    fn create_s3_user_mapping() -> String {
+        r#"CREATE USER MAPPING FOR public SERVER nyc_trips_server"#.into()
     }
 
     fn create_table() -> String {
@@ -98,15 +102,13 @@ impl NycTripsTable {
         let create_foreign_data_wrapper = Self::create_s3_foreign_data_wrapper();
         let create_server = Self::create_s3_server();
         let create_table = Self::create_table();
+        let create_user_mapping = Self::create_s3_user_mapping();
         format!(
             r#"
-        {create_foreign_data_wrapper}
-        
-        {create_server}
-        OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');
-        
-        {create_table}
-        OPTIONS (path '{s3_object_path}', extension 'parquet'); 
+        {create_foreign_data_wrapper};
+        {create_server};
+        {create_user_mapping} OPTIONS (type 'S3', region 'us-east-1', endpoint '{s3_endpoint}', use_ssl 'false', url_style 'path');
+        {create_table} OPTIONS (files '{s3_object_path}'); 
     "#
         )
     }

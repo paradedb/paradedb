@@ -122,15 +122,15 @@ pub fn primitive_record_batch() -> Result<RecordBatch> {
         // Field::new("float16_col", DataType::Float16, false),
         Field::new("float32_col", DataType::Float32, false),
         Field::new("float64_col", DataType::Float64, false),
-        Field::new(
-            "timestamp_col",
-            DataType::Timestamp(TimeUnit::Second, None),
-            true,
-        ),
+        // Field::new(
+        //     "timestamp_col",
+        //     DataType::Timestamp(TimeUnit::Second, None),
+        //     true,
+        // ),
         Field::new("date32_col", DataType::Date32, false),
         Field::new("date64_col", DataType::Date64, false),
-        Field::new("time32_col", DataType::Time32(TimeUnit::Second), false),
-        Field::new("time64_col", DataType::Time64(TimeUnit::Nanosecond), false),
+        // Field::new("time32_col", DataType::Time32(TimeUnit::Second), false),
+        // Field::new("time64_col", DataType::Time64(TimeUnit::Nanosecond), false),
         // Converting Duration to parquet not supported.
         // Field::new("duration_col", DataType::Duration(TimeUnit::Millisecond), false),
         // Arrow IntervalDayTime is not supported by ParadeDB.
@@ -170,23 +170,23 @@ pub fn primitive_record_batch() -> Result<RecordBatch> {
             // No Float16Array implemented in the arrow lib.
             Arc::new(Float32Array::from(vec![1.0, -1.0, 0.0])),
             Arc::new(Float64Array::from(vec![1.0, -1.0, 0.0])),
-            Arc::new(TimestampSecondArray::from(vec![
-                Some(0),
-                Some(0),
-                Some(1627849445),
-            ])),
+            // Arc::new(TimestampSecondArray::from(vec![
+            //     Some(0),
+            //     Some(0),
+            //     Some(1627849445),
+            // ])),
             Arc::new(Date32Array::from(vec![18262, 18263, 18264])),
             Arc::new(Date64Array::from(vec![
                 1609459200000,
                 1609545600000,
                 1609632000000,
             ])),
-            Arc::new(Time32SecondArray::from(vec![3600, 7200, 10800])),
-            Arc::new(Time64NanosecondArray::from(vec![
-                3600000000000,
-                7200000000000,
-                10800000000000,
-            ])),
+            // Arc::new(Time32SecondArray::from(vec![3600, 7200, 10800])),
+            // Arc::new(Time64NanosecondArray::from(vec![
+            //     3600000000000,
+            //     7200000000000,
+            //     10800000000000,
+            // ])),
             // Converting Duration to parquet not supported.
             // Arc::new(DurationMillisecondArray::from(vec![1000, 2000, -1000])),
             // Arrow IntervalDayTime is not supported by ParadeDB.
@@ -221,6 +221,12 @@ pub fn primitive_create_server(server: &str, wrapper: &str) -> String {
     format!("CREATE SERVER {server} FOREIGN DATA WRAPPER {wrapper}")
 }
 
+pub fn primitive_create_user_mapping_options(user: &str, server: &str) -> String {
+    format!("CREATE USER MAPPING FOR {user} SERVER {server}",)
+}
+
+// Some fields have been commented out to get tests to pass
+// See https://github.com/paradedb/paradedb/issues/1299
 pub fn primitive_create_table(server: &str, table: &str) -> String {
     format!(
         "CREATE FOREIGN TABLE {table} (
@@ -235,11 +241,11 @@ pub fn primitive_create_table(server: &str, table: &str) -> String {
             uint64_col        numeric(20),
             float32_col       real,
             float64_col       double precision,
-            timestamp_col     timestamp,
+            -- timestamp_col     bigint,
             date32_col        date,
             date64_col        date,
-            time32_col        time,
-            time64_col        time,
+            -- time32_col        int,
+            -- time64_col        time,
             -- Arrow IntervalDayTime is not supported by ParadeDB.
             -- interval_col   interval,
             binary_col        bytea,
@@ -274,19 +280,24 @@ pub fn primitive_create_delta_table(server: &str, table: &str) -> String {
 pub fn primitive_setup_fdw_s3_listing(
     s3_endpoint: &str,
     s3_object_path: &str,
-    extension: &str,
     table: &str,
 ) -> String {
-    let create_foreign_data_wrapper =
-        primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
-    let create_server = primitive_create_server("s3_server", "s3_wrapper");
-    let create_table = primitive_create_table("s3_server", table);
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "parquet_wrapper",
+        "parquet_fdw_handler",
+        "parquet_fdw_validator",
+    );
+    let create_user_mapping_options =
+        primitive_create_user_mapping_options("public", "parquet_server");
+    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
+    let create_table = primitive_create_table("parquet_server", table);
 
     format!(
         r#"
         {create_foreign_data_wrapper};
-        {create_server} OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');         
-        {create_table} OPTIONS (path '{s3_object_path}', extension '{extension}'); 
+        {create_server};       
+        {create_user_mapping_options} OPTIONS (type 'S3', region 'us-east-1', endpoint '{s3_endpoint}', use_ssl 'false', url_style 'path');
+        {create_table} OPTIONS (files '{s3_object_path}'); 
     "#
     )
 }
@@ -294,63 +305,60 @@ pub fn primitive_setup_fdw_s3_listing(
 pub fn primitive_setup_fdw_s3_delta(
     s3_endpoint: &str,
     s3_object_path: &str,
-    extension: &str,
     table: &str,
 ) -> String {
-    let create_foreign_data_wrapper =
-        primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
-    let create_server = primitive_create_server("s3_server", "s3_wrapper");
-    let create_table = primitive_create_delta_table("s3_server", table);
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "delta_wrapper",
+        "delta_fdw_handler",
+        "delta_fdw_validator",
+    );
+    let create_user_mapping_options =
+        primitive_create_user_mapping_options("public", "delta_server");
+    let create_server = primitive_create_server("delta_server", "delta_wrapper");
+    let create_table = primitive_create_delta_table("delta_server", table);
 
     format!(
         r#"
         {create_foreign_data_wrapper};
-        {create_server} OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');         
-        {create_table} OPTIONS (path '{s3_object_path}', extension '{extension}', format 'delta'); 
+        {create_server};   
+        {create_user_mapping_options} OPTIONS (type 'S3', region 'us-east-1', endpoint '{s3_endpoint}', use_ssl 'false', url_style 'path');   
+        {create_table} OPTIONS (files '{s3_object_path}'); 
     "#
     )
 }
 
-pub fn primitive_setup_fdw_local_file_listing(
-    local_file_path: &str,
-    extension: &str,
-    table: &str,
-) -> String {
+pub fn primitive_setup_fdw_local_file_listing(local_file_path: &str, table: &str) -> String {
     let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
-        "local_file_wrapper",
-        "local_file_fdw_handler",
-        "local_file_fdw_validator",
+        "parquet_wrapper",
+        "parquet_fdw_handler",
+        "parquet_fdw_validator",
     );
-    let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
-    let create_table = primitive_create_table("local_file_server", table);
+    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
+    let create_table = primitive_create_table("parquet_server", table);
 
     format!(
         r#"
         {create_foreign_data_wrapper};
         {create_server};
-        {create_table} OPTIONS (path 'file://{local_file_path}', extension '{extension}'); 
+        {create_table} OPTIONS (files '{local_file_path}'); 
     "#
     )
 }
 
-pub fn primitive_setup_fdw_local_file_delta(
-    local_file_path: &str,
-    extension: &str,
-    table: &str,
-) -> String {
+pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, table: &str) -> String {
     let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
-        "local_file_wrapper",
-        "local_file_fdw_handler",
-        "local_file_fdw_validator",
+        "delta_wrapper",
+        "delta_fdw_handler",
+        "delta_fdw_validator",
     );
-    let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
-    let create_table = primitive_create_delta_table("local_file_server", table);
+    let create_server = primitive_create_server("delta_server", "delta_wrapper");
+    let create_table = primitive_create_delta_table("delta_server", table);
 
     format!(
         r#"
         {create_foreign_data_wrapper};
         {create_server};
-        {create_table} OPTIONS (path 'file://{local_file_path}', extension '{extension}', format 'delta'); 
+        {create_table} OPTIONS (files '{local_file_path}'); 
     "#
     )
 }

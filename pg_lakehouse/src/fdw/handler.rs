@@ -16,26 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::*;
-use std::collections::HashMap;
-use url::Url;
-
-use crate::datafusion::context::ContextError;
-use crate::datafusion::format::TableFormat;
-
-use super::azblob::AzblobFdw;
-use super::azdls::AzdlsFdw;
-use super::base::BaseFdw;
-use super::gcs::GcsFdw;
-use super::local::LocalFileFdw;
-use super::s3::S3Fdw;
 
 #[derive(PartialEq)]
 pub enum FdwHandler {
-    S3,
-    LocalFile,
-    Gcs,
-    Azblob,
-    Azdls,
+    Csv,
+    Json,
+    Parquet,
+    Delta,
+    Iceberg,
     Other,
 }
 
@@ -44,11 +32,11 @@ pub enum FdwHandler {
 impl From<&str> for FdwHandler {
     fn from(handler_name: &str) -> Self {
         match handler_name {
-            "s3_fdw_handler" => FdwHandler::S3,
-            "local_file_fdw_handler" => FdwHandler::LocalFile,
-            "gcs_fdw_handler" => FdwHandler::Gcs,
-            "azblob_fdw_handler" => FdwHandler::Azblob,
-            "azdls_fdw_handler" => FdwHandler::Azdls,
+            "csv_fdw_handler" => FdwHandler::Csv,
+            "json_fdw_handler" => FdwHandler::Json,
+            "parquet_fdw_handler" => FdwHandler::Parquet,
+            "delta_fdw_handler" => FdwHandler::Delta,
+            "iceberg_fdw_handler" => FdwHandler::Iceberg,
             _ => FdwHandler::Other,
         }
     }
@@ -78,33 +66,4 @@ impl From<*mut pg_sys::ForeignTable> for FdwHandler {
         let server = unsafe { pg_sys::GetForeignServer((*table).serverid) };
         FdwHandler::from(server)
     }
-}
-
-pub fn register_object_store(
-    handler: FdwHandler,
-    url: &Url,
-    format: TableFormat,
-    server_options: HashMap<String, String>,
-    user_mapping_options: HashMap<String, String>,
-) -> Result<(), ContextError> {
-    match handler {
-        FdwHandler::S3 => {
-            S3Fdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        FdwHandler::LocalFile => {
-            LocalFileFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        FdwHandler::Gcs => {
-            GcsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        FdwHandler::Azdls => {
-            AzdlsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        FdwHandler::Azblob => {
-            AzblobFdw::register_object_store(url, format, server_options, user_mapping_options)?;
-        }
-        _ => {}
-    }
-
-    Ok(())
 }

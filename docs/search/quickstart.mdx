@@ -54,17 +54,6 @@ Note the mandatory `key_field` option. Every BM25 index needs a `key_field`, whi
 be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field`
 can just be the name of your table's primary key column.
 
-<Note>
-Currently, only integer IDs are supported in the `key_field` column, so if your primary key is a composite
-or a string, just add another column with serial IDs to your table and use that as your `key_field`.
-
-```sql
-ALTER TABLE mock_items
-ADD COLUMN bm25_id SERIAL;
-```
-
-</Note>
-
 We're now ready to execute a full-text search. We'll look for rows with a `rating` greater than `2` where `description` matches `shoes`
 or `category` matches `electronics`.
 

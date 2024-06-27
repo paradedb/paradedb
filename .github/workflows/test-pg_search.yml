@@ -72,6 +72,10 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
+      - name: Install Rust
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
       # This checks that the version in Cargo.toml is incremented to the next release. We only run it
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml

@@ -26,6 +26,7 @@ Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 - [x] Hybrid search
 - [x] JSON fields
 - [x] Datetime fields
+- [x] Aggregations/facets
 - [ ] Distributed search
 
 ## Installation

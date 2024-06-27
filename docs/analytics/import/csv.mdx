@@ -325,6 +325,16 @@ OPTIONS (
 );
 ```
 
+## Sniff CSV
+
+The `sniff_csv` function returns the detected CSV properties as a table with a single row. An optional
+`sample_size` argument configures the number of rows sampled.
+
+```sql
+SELECT * FROM sniff_csv('my_file.csv');
+SELECT * FROM sniff_csv('my_file.csv', sample_size => 1000);
+```
+
 ## Cloud Object Stores
 
 The [object stores](/analytics/object_stores) documentation explains how to provide secrets and other credentials for

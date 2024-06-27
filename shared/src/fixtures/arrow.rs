@@ -65,9 +65,9 @@ fn binary_array_data() -> ArrayData {
         .unwrap()
 }
 
-/// A separate version of the primitive_record_batch fixture,
+/// A separate version of the primitive_record_batch_parquet fixture,
 /// narrowed to only the types that Delta Lake supports.
-pub fn delta_primitive_record_batch() -> Result<RecordBatch> {
+pub fn delta_primitive_record_batch_parquet() -> Result<RecordBatch> {
     let fields = vec![
         Field::new("boolean_col", DataType::Boolean, false),
         Field::new("int8_col", DataType::Int8, false),
@@ -106,7 +106,7 @@ pub fn delta_primitive_record_batch() -> Result<RecordBatch> {
 }
 
 // Blows up deltalake, so comment out for now.
-pub fn primitive_record_batch() -> Result<RecordBatch> {
+pub fn primitive_record_batch_parquet() -> Result<RecordBatch> {
     // Define the fields for each datatype
     let fields = vec![
         Field::new("boolean_col", DataType::Boolean, true),
@@ -172,6 +172,30 @@ pub fn primitive_record_batch() -> Result<RecordBatch> {
     )?)
 }
 
+pub fn flights_record_batch_csv() -> Result<RecordBatch> {
+    // Define the fields for each datatype
+    let fields = vec![
+        Field::new("flight_date", DataType::Date32, true),
+        Field::new("carrier", DataType::Utf8, true),
+    ];
+
+    // Create a schema from the fields
+    let schema = Arc::new(Schema::new(fields));
+
+    // Create a RecordBatch
+    Ok(RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Date32Array::from(vec![18262, 18263, 18264])),
+            Arc::new(StringArray::from(vec![
+                Some("Delta"),
+                Some("American Airlines"),
+                Some("Spirit Airlines"),
+            ])),
+        ],
+    )?)
+}
+
 pub fn primitive_create_foreign_data_wrapper(
     wrapper: &str,
     handler: &str,
@@ -190,7 +214,7 @@ pub fn primitive_create_user_mapping_options(user: &str, server: &str) -> String
 
 // Some fields have been commented out to get tests to pass
 // See https://github.com/paradedb/paradedb/issues/1299
-pub fn primitive_create_table(server: &str, table: &str) -> String {
+pub fn primitive_create_parquet_table(server: &str, table: &str) -> String {
     format!(
         "CREATE FOREIGN TABLE {table} (
             boolean_col       boolean,
@@ -233,7 +257,17 @@ pub fn primitive_create_delta_table(server: &str, table: &str) -> String {
     )
 }
 
-pub fn primitive_setup_fdw_s3_listing(
+pub fn flights_create_csv_table(server: &str, table: &str) -> String {
+    format!(
+        "CREATE FOREIGN TABLE {table} (
+            flight_date date,
+            carrier text
+        )
+        SERVER {server}"
+    )
+}
+
+pub fn primitive_setup_fdw_parquet_s3(
     s3_endpoint: &str,
     s3_object_path: &str,
     table: &str,
@@ -246,7 +280,7 @@ pub fn primitive_setup_fdw_s3_listing(
     let create_user_mapping_options =
         primitive_create_user_mapping_options("public", "parquet_server");
     let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
-    let create_table = primitive_create_table("parquet_server", table);
+    let create_table = primitive_create_parquet_table("parquet_server", table);
 
     format!(
         r#"
@@ -258,7 +292,7 @@ pub fn primitive_setup_fdw_s3_listing(
     )
 }
 
-pub fn primitive_setup_fdw_s3_delta(
+pub fn primitive_setup_fdw_delta_s3(
     s3_endpoint: &str,
     s3_object_path: &str,
     table: &str,
@@ -283,14 +317,14 @@ pub fn primitive_setup_fdw_s3_delta(
     )
 }
 
-pub fn primitive_setup_fdw_local_file_listing(local_file_path: &str, table: &str) -> String {
+pub fn primitive_setup_fdw_parquet_local(local_file_path: &str, table: &str) -> String {
     let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
         "parquet_wrapper",
         "parquet_fdw_handler",
         "parquet_fdw_validator",
     );
     let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
-    let create_table = primitive_create_table("parquet_server", table);
+    let create_table = primitive_create_parquet_table("parquet_server", table);
 
     format!(
         r#"
@@ -301,7 +335,7 @@ pub fn primitive_setup_fdw_local_file_listing(local_file_path: &str, table: &str
     )
 }
 
-pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, table: &str) -> String {
+pub fn primitive_setup_fdw_delta_local(local_file_path: &str, table: &str) -> String {
     let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
         "delta_wrapper",
         "delta_fdw_handler",
@@ -309,6 +343,24 @@ pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, table: &str) 
     );
     let create_server = primitive_create_server("delta_server", "delta_wrapper");
     let create_table = primitive_create_delta_table("delta_server", table);
+
+    format!(
+        r#"
+        {create_foreign_data_wrapper};
+        {create_server};
+        {create_table} OPTIONS (files '{local_file_path}'); 
+    "#
+    )
+}
+
+pub fn flights_setup_fdw_csv_local(local_file_path: &str, table: &str) -> String {
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "csv_wrapper",
+        "csv_fdw_handler",
+        "csv_fdw_validator",
+    );
+    let create_server = primitive_create_server("csv_server", "csv_wrapper");
+    let create_table = flights_create_csv_table("csv_server", table);
 
     format!(
         r#"

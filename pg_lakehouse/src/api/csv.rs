@@ -64,7 +64,7 @@ pub fn sniff_csv(
 fn sniff_csv_impl(files: &str, sample_size: Option<i64>) -> Result<Vec<SniffCsvRow>> {
     let schema_str = vec![
         Some(utils::format_csv(files)),
-        sample_size.map(|s| s.to_string()),
+        sample_size.map(|s| format!("sample_size = {}", s)),
     ]
     .into_iter()
     .flatten()
@@ -83,7 +83,10 @@ fn sniff_csv_impl(files: &str, sample_size: Option<i64>) -> Result<Vec<SniffCsvR
                 row.get::<_, Option<String>>(3)?,
                 row.get::<_, Option<i32>>(4)?,
                 row.get::<_, Option<bool>>(5)?,
-                row.get::<_, Option<Value>>(6)?.map(|v| format!("{:?}", v)),
+                row.get::<_, Option<Value>>(6)?.and_then(|v| match v {
+                    Value::List(vec) => Some(format!("{}", ValueVec(vec))),
+                    _ => None,
+                }),
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
@@ -92,4 +95,43 @@ fn sniff_csv_impl(files: &str, sample_size: Option<i64>) -> Result<Vec<SniffCsvR
         })?
         .map(|row| row.unwrap())
         .collect::<Vec<SniffCsvRow>>())
+}
+
+struct ValueVec(Vec<Value>);
+
+impl std::fmt::Display for ValueVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut formatted_columns = String::from("[");
+        let mut is_first = true;
+
+        for value in &self.0 {
+            if let Value::Struct(ordered_map) = value {
+                if !is_first {
+                    formatted_columns.push_str(", ");
+                }
+                formatted_columns.push('{');
+                let mut name = String::new();
+                let mut type_str = String::new();
+
+                for (key, value) in ordered_map.iter() {
+                    match (key.as_str(), value) {
+                        ("name", Value::Text(name_value)) => {
+                            name.clone_from(name_value);
+                        }
+                        ("type", Value::Text(type_value)) => {
+                            type_str.clone_from(type_value);
+                        }
+                        _ => {}
+                    }
+                }
+
+                formatted_columns.push_str(&format!("'name': {}, 'type': {}", name, type_str));
+                formatted_columns.push('}');
+                is_first = false;
+            }
+        }
+
+        formatted_columns.push(']');
+        write!(f, "{}", formatted_columns)
+    }
 }

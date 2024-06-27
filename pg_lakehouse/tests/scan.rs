@@ -26,9 +26,9 @@ use deltalake::writer::{DeltaWriter, RecordBatchWriter};
 use fixtures::*;
 use rstest::*;
 use shared::fixtures::arrow::{
-    delta_primitive_record_batch, primitive_record_batch, primitive_setup_fdw_local_file_delta,
-    primitive_setup_fdw_local_file_listing, primitive_setup_fdw_s3_delta,
-    primitive_setup_fdw_s3_listing,
+    delta_primitive_record_batch_parquet, primitive_record_batch_parquet,
+    primitive_setup_fdw_delta_local, primitive_setup_fdw_delta_s3,
+    primitive_setup_fdw_parquet_local, primitive_setup_fdw_parquet_s3,
 };
 use shared::fixtures::tempfile::TempDir;
 use sqlx::postgres::types::PgInterval;
@@ -66,17 +66,17 @@ async fn test_trip_count(#[future(awt)] s3: S3, mut conn: PgConnection) -> Resul
 }
 
 #[rstest]
-async fn test_arrow_types_s3_listing(#[future(awt)] s3: S3, mut conn: PgConnection) -> Result<()> {
+async fn test_parquet_s3(#[future(awt)] s3: S3, mut conn: PgConnection) -> Result<()> {
     let s3_bucket = "test-arrow-types-s3-listing";
     let s3_key = "test_arrow_types.parquet";
     let s3_endpoint = s3.url.clone();
     let s3_object_path = format!("s3://{s3_bucket}/{s3_key}");
 
-    let stored_batch = primitive_record_batch()?;
+    let stored_batch = primitive_record_batch_parquet()?;
     s3.create_bucket(s3_bucket).await?;
     s3.put_batch(s3_bucket, s3_key, &stored_batch).await?;
 
-    primitive_setup_fdw_s3_listing(&s3_endpoint, &s3_object_path, "primitive").execute(&mut conn);
+    primitive_setup_fdw_parquet_s3(&s3_endpoint, &s3_object_path, "primitive").execute(&mut conn);
 
     let retrieved_batch =
         "SELECT * FROM primitive".fetch_recordbatch(&mut conn, &stored_batch.schema());
@@ -94,7 +94,7 @@ async fn test_arrow_types_s3_listing(#[future(awt)] s3: S3, mut conn: PgConnecti
 
 #[rstest]
 #[ignore = "bug in DuckDB delta_scan over custom endpoints"]
-async fn test_arrow_types_s3_delta(
+async fn test_delta_s3(
     #[future(awt)] s3: S3,
     mut conn: PgConnection,
     tempdir: TempDir,
@@ -105,7 +105,7 @@ async fn test_arrow_types_s3_delta(
     let s3_object_path = format!("s3://{s3_bucket}/{s3_path}");
     let temp_path = tempdir.path();
 
-    let batch = delta_primitive_record_batch()?;
+    let batch = delta_primitive_record_batch_parquet()?;
 
     let delta_schema = deltalake::kernel::Schema::try_from(batch.schema().as_ref())?;
     let mut table = CreateBuilder::new()
@@ -119,7 +119,7 @@ async fn test_arrow_types_s3_delta(
     s3.create_bucket(s3_bucket).await?;
     s3.put_directory(s3_bucket, s3_path, temp_path).await?;
 
-    primitive_setup_fdw_s3_delta(&s3_endpoint, &s3_object_path, "delta_primitive")
+    primitive_setup_fdw_delta_s3(&s3_endpoint, &s3_object_path, "delta_primitive")
         .execute(&mut conn);
 
     let retrieved_batch =
@@ -137,11 +137,8 @@ async fn test_arrow_types_s3_delta(
 }
 
 #[rstest]
-async fn test_arrow_types_local_file_listing(
-    mut conn: PgConnection,
-    tempdir: TempDir,
-) -> Result<()> {
-    let stored_batch = primitive_record_batch()?;
+async fn test_parquet_local_file(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
+    let stored_batch = primitive_record_batch_parquet()?;
     let parquet_path = tempdir.path().join("test_arrow_types.parquet");
     let parquet_file = File::create(&parquet_path)?;
 
@@ -149,7 +146,7 @@ async fn test_arrow_types_local_file_listing(
     writer.write(&stored_batch)?;
     writer.close()?;
 
-    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "primitive")
+    primitive_setup_fdw_parquet_local(parquet_path.as_path().to_str().unwrap(), "primitive")
         .execute(&mut conn);
 
     let retrieved_batch =
@@ -167,9 +164,9 @@ async fn test_arrow_types_local_file_listing(
 }
 
 #[rstest]
-async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
+async fn test_delta_local_file(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
     let temp_path = tempdir.path();
-    let batch = delta_primitive_record_batch()?;
+    let batch = delta_primitive_record_batch_parquet()?;
     let delta_schema = deltalake::kernel::Schema::try_from(batch.schema().as_ref())?;
     let mut table = CreateBuilder::new()
         .with_location(temp_path.to_string_lossy().as_ref())
@@ -179,7 +176,7 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
     writer.write(batch.clone()).await?;
     writer.flush_and_commit(&mut table).await?;
 
-    primitive_setup_fdw_local_file_delta(&temp_path.to_string_lossy(), "delta_primitive")
+    primitive_setup_fdw_delta_local(&temp_path.to_string_lossy(), "delta_primitive")
         .execute(&mut conn);
 
     let retrieved_batch =

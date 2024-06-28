@@ -21,6 +21,7 @@ use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
 use pgrx::pg_sys::BuiltinOid;
 use pgrx::*;
+use tantivy::schema::document::OwnedValue;
 
 pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
     let directory = WriterDirectory::from_index_name(index_name);
@@ -60,7 +61,10 @@ pub unsafe fn row_to_search_document(
 
         let datum = *values.add(attno);
 
-        if is_array || is_json {
+        if datum.is_null() {
+            info!("is null");
+            document.insert(search_field.id, OwnedValue::Null);
+        } else if is_array || is_json {
             for value in TantivyValue::try_from_datum_array(datum, base_oid).unwrap() {
                 document.insert(search_field.id, value.tantivy_schema_value());
             }
@@ -71,5 +75,6 @@ pub unsafe fn row_to_search_document(
             );
         }
     }
+
     Ok(document)
 }

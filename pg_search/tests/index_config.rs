@@ -467,3 +467,50 @@ fn null_values(mut conn: PgConnection) {
 
     assert_eq!(rows.len(), 13);
 }
+
+#[rstest]
+fn null_key_field_build(mut conn: PgConnection) {
+    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
+    "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 1'), (2, 'Null Item 2')"
+        .execute(&mut conn);
+
+    match "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}'
+    )".execute_result(&mut conn)
+    {
+        Ok(_) => panic!("should fail with null key_field"),
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: error creating index entries for index 'index_config_bm25_index': key_field column 'id' cannot be NULL"
+        ),
+    };
+}
+
+#[rstest]
+fn null_key_field_insert(mut conn: PgConnection) {
+    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
+    "INSERT INTO paradedb.index_config VALUES (1, 'Null Item 1'), (2, 'Null Item 2')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}'
+    )"
+    .execute(&mut conn);
+
+    match "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 3')".execute_result(&mut conn)
+    {
+        Ok(_) => panic!("should fail with null key_field"),
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: error creating index entries for index 'index_config_bm25_index': key_field column 'id' cannot be NULL"
+        ),
+    };
+}

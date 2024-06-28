@@ -285,7 +285,7 @@ unsafe fn build_callback_internal(
             let search_document = search_index
                 .row_to_search_document(ctid, &tupdesc, values, isnull)
                 .unwrap_or_else(|err| {
-                    panic!("error creating index entries for index '{index_name}': {err:?}",)
+                    panic!("error creating index entries for index '{index_name}': {err}",)
                 });
 
             let writer_client = WriterGlobal::client();

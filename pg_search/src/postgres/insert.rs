@@ -25,14 +25,14 @@ use pgrx::*;
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
-    _isnull: *mut bool,
+    isnull: *mut bool,
     heap_tid: pg_sys::ItemPointer,
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck,
     _index_unchanged: bool,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    aminsert_internal(index_relation, values, heap_tid)
+    aminsert_internal(index_relation, values, isnull, heap_tid)
 }
 
 #[cfg(any(feature = "pg12", feature = "pg13"))]
@@ -40,19 +40,20 @@ pub unsafe extern "C" fn aminsert(
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
-    _isnull: *mut bool,
+    isnull: *mut bool,
     heap_tid: pg_sys::ItemPointer,
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    aminsert_internal(index_relation, values, heap_tid)
+    aminsert_internal(index_relation, values, isnull, heap_tid)
 }
 
 #[inline(always)]
 unsafe fn aminsert_internal(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
+    isnull: *mut bool,
     ctid: pg_sys::ItemPointer,
 ) -> bool {
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
@@ -60,9 +61,9 @@ unsafe fn aminsert_internal(
     let index_name = index_relation_ref.name();
     let search_index = get_search_index(index_name);
     let search_document = search_index
-        .row_to_search_document(*ctid, &tupdesc, values)
+        .row_to_search_document(*ctid, &tupdesc, values, isnull)
         .unwrap_or_else(|err| {
-            panic!("error creating index entries for index '{index_name}': {err:?}",)
+            panic!("error creating index entries for index '{index_name}': {err}",)
         });
 
     let writer_client = WriterGlobal::client();

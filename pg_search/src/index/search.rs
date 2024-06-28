@@ -314,9 +314,11 @@ impl SearchIndex {
         ctid: ItemPointerData,
         tupdesc: &PgTupleDesc,
         values: *mut Datum,
+        isnull: *mut bool,
     ) -> Result<SearchDocument, SearchIndexError> {
         // Create a vector of index entries from the postgres row.
-        let mut search_document = unsafe { row_to_search_document(tupdesc, values, &self.schema) }?;
+        let mut search_document =
+            unsafe { row_to_search_document(tupdesc, values, isnull, &self.schema) }?;
 
         // Insert the ctid value into the entries.
         let ctid_index_value = pgrx::item_pointer_to_u64(ctid);

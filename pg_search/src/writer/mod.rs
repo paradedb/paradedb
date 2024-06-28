@@ -99,11 +99,14 @@ pub enum IndexError {
     #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),
 
+    #[error(transparent)]
+    TantivyValueError(#[from] TantivyValueError),
+
     #[error("couldn't remove index files on drop_index: {0}")]
     DeleteDirectory(#[from] SearchDirectoryError),
 
-    #[error(transparent)]
-    TantivyValueError(#[from] TantivyValueError),
+    #[error("key_field column '{0}' cannot be NULL")]
+    KeyIdNull(String),
 }
 
 #[cfg(test)]

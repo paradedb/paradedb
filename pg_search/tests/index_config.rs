@@ -431,3 +431,86 @@ fn multiple_fields(mut conn: PgConnection) {
     assert_eq!(rows[5], ("metadata".into(), "JsonObject".into()));
     assert_eq!(rows[6], ("rating".into(), "I64".into()));
 }
+
+#[rstest]
+fn null_values(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    "INSERT INTO paradedb.index_config (description, category, rating) VALUES ('Null Item 1', NULL, NULL), ('Null Item 2', NULL, 2)"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25( 
+        index_name => 'index_config',
+	    table_name => 'index_config',
+	    schema_name => 'paradedb',
+	    key_field => 'id',
+	    text_fields => '{description: {}, category: {}}',
+	    numeric_fields => '{rating: {}}',
+	    boolean_fields => '{in_stock: {}}',
+	    json_fields => '{metadata: {}}'
+    )"
+    .execute(&mut conn);
+
+    let rows: Vec<(String, Option<String>, Option<i32>)> =
+        "SELECT description, category, rating FROM index_config.search('description:\"Null Item\"', stable_sort => true)"
+            .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0], ("Null Item 1".into(), None, None));
+    assert_eq!(rows[1], ("Null Item 2".into(), None, Some(2)));
+
+    // If incorrectly handled, false booleans can be mistaken as NULL values and ignored during indexing
+    // This tests that false booleans are correctly indexed as such
+    let rows: Vec<(bool,)> =
+        "SELECT in_stock FROM index_config.search('in_stock:false')".fetch(&mut conn);
+
+    assert_eq!(rows.len(), 13);
+}
+
+#[rstest]
+fn null_key_field_build(mut conn: PgConnection) {
+    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
+    "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 1'), (2, 'Null Item 2')"
+        .execute(&mut conn);
+
+    match "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}'
+    )".execute_result(&mut conn)
+    {
+        Ok(_) => panic!("should fail with null key_field"),
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: error creating index entries for index 'index_config_bm25_index': key_field column 'id' cannot be NULL"
+        ),
+    };
+}
+
+#[rstest]
+fn null_key_field_insert(mut conn: PgConnection) {
+    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
+    "INSERT INTO paradedb.index_config VALUES (1, 'Null Item 1'), (2, 'Null Item 2')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}'
+    )"
+    .execute(&mut conn);
+
+    match "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 3')".execute_result(&mut conn)
+    {
+        Ok(_) => panic!("should fail with null key_field"),
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: error creating index entries for index 'index_config_bm25_index': key_field column 'id' cannot be NULL"
+        ),
+    };
+}

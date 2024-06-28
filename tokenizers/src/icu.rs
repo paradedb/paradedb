@@ -7,6 +7,7 @@
  * By using this file, you agree to comply with the Apache v2.0 terms.
  *
  */
+
 use rust_icu_ubrk::UBreakIterator;
 use std::str::Chars;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};

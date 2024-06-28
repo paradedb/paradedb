@@ -61,18 +61,17 @@ pub unsafe fn row_to_search_document(
 
         let datum = *values.add(attno);
 
-        if datum.is_null() {
-            info!("is null");
-            document.insert(search_field.id, OwnedValue::Null);
-        } else if is_array || is_json {
-            for value in TantivyValue::try_from_datum_array(datum, base_oid).unwrap() {
+        if is_array || is_json {
+            for value in TantivyValue::try_from_datum_array(datum, base_oid)? {
                 document.insert(search_field.id, value.tantivy_schema_value());
             }
         } else {
-            document.insert(
-                search_field.id,
-                TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),
-            );
+            match TantivyValue::try_from_datum(datum, base_oid)? {
+                TantivyValue(OwnedValue::Null) => {}
+                value => {
+                    document.insert(search_field.id, value.tantivy_schema_value());
+                }
+            }
         }
     }
 

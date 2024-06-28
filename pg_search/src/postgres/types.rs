@@ -100,35 +100,45 @@ impl TantivyValue {
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                    let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?;
-                    array
-                        .iter()
-                        .flatten()
-                        .map(|element_datum| {
-                            TantivyValue::try_from(
-                                String::from_datum(element_datum, false)
-                                    .ok_or(TantivyValueError::DatumDeref)?,
-                            )
-                        })
-                        .collect()
+                    let array: Option<pgrx::Array<Datum>> = pgrx::Array::from_datum(datum, false);
+
+                    match array {
+                        Some(array) => array
+                            .iter()
+                            .flatten()
+                            .map(|element_datum| {
+                                TantivyValue::try_from(String::from_datum(element_datum, false))
+                            })
+                            .collect(),
+                        None => Ok(vec![]),
+                    }
                 }
                 // Tantivy has a limitation that prevents JSON top-level arrays from being
                 // inserted into the index. Therefore, we need to flatten the array elements
                 // individually before converting them into Tantivy values.
                 PgBuiltInOids::JSONBOID => {
-                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?;
-                    let json_value: Value =
-                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
-                    Ok(Self::json_value_to_tantivy_value(json_value))
+                    let pgrx_value = pgrx::JsonB::from_datum(datum, false);
+
+                    match pgrx_value {
+                        Some(value) => {
+                            let json_value: Value =
+                                serde_json::from_slice(&serde_json::to_vec(&value.0)?)?;
+                            Ok(Self::json_value_to_tantivy_value(json_value))
+                        }
+                        None => Ok(vec![]),
+                    }
                 }
                 PgBuiltInOids::JSONOID => {
-                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?;
-                    let json_value: Value =
-                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
-                    Ok(Self::json_value_to_tantivy_value(json_value))
+                    let pgrx_value = pgrx::JsonB::from_datum(datum, false);
+
+                    match pgrx_value {
+                        Some(value) => {
+                            let json_value: Value =
+                                serde_json::from_slice(&serde_json::to_vec(&value.0)?)?;
+                            Ok(Self::json_value_to_tantivy_value(json_value))
+                        }
+                        None => Ok(vec![]),
+                    }
                 }
                 _ => Err(TantivyValueError::UnsupportedArrayOid(oid.value())),
             },
@@ -139,58 +149,37 @@ impl TantivyValue {
     pub unsafe fn try_from_datum(datum: Datum, oid: PgOid) -> Result<Self, TantivyValueError> {
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => TantivyValue::try_from(
-                    bool::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::INT2OID => TantivyValue::try_from(
-                    i16::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::INT4OID => TantivyValue::try_from(
-                    i32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::INT8OID => TantivyValue::try_from(
-                    i64::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::OIDOID => TantivyValue::try_from(
-                    u32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::FLOAT4OID => TantivyValue::try_from(
-                    f32::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::FLOAT8OID => TantivyValue::try_from(
-                    f64::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::NUMERICOID => TantivyValue::try_from(
-                    pgrx::AnyNumeric::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => TantivyValue::try_from(
-                    String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::DATEOID => TantivyValue::try_from(
-                    pgrx::datum::Date::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::TIMESTAMPOID => TantivyValue::try_from(
-                    pgrx::datum::Timestamp::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
-                ),
+                PgBuiltInOids::BOOLOID => TantivyValue::try_from(bool::from_datum(datum, false)),
+                PgBuiltInOids::INT2OID => TantivyValue::try_from(i16::from_datum(datum, false)),
+                PgBuiltInOids::INT4OID => TantivyValue::try_from(i32::from_datum(datum, false)),
+                PgBuiltInOids::INT8OID => TantivyValue::try_from(i64::from_datum(datum, false)),
+                PgBuiltInOids::OIDOID => TantivyValue::try_from(u32::from_datum(datum, false)),
+                PgBuiltInOids::FLOAT4OID => TantivyValue::try_from(f32::from_datum(datum, false)),
+                PgBuiltInOids::FLOAT8OID => TantivyValue::try_from(f64::from_datum(datum, false)),
+                PgBuiltInOids::NUMERICOID => {
+                    TantivyValue::try_from(pgrx::AnyNumeric::from_datum(datum, false))
+                }
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
+                    TantivyValue::try_from(String::from_datum(datum, false))
+                }
+                PgBuiltInOids::DATEOID => {
+                    TantivyValue::try_from(pgrx::datum::Date::from_datum(datum, false))
+                }
+                PgBuiltInOids::TIMESTAMPOID => {
+                    TantivyValue::try_from(pgrx::datum::Timestamp::from_datum(datum, false))
+                }
                 PgBuiltInOids::TIMESTAMPTZOID => TantivyValue::try_from(
-                    pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
+                    pgrx::datum::TimestampWithTimeZone::from_datum(datum, false),
                 ),
-                PgBuiltInOids::TIMEOID => TantivyValue::try_from(
-                    pgrx::datum::Time::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::TIMETZOID => TantivyValue::try_from(
-                    pgrx::datum::TimeWithTimeZone::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
-                ),
-                PgBuiltInOids::UUIDOID => TantivyValue::try_from(
-                    pgrx::datum::Uuid::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
-                ),
+                PgBuiltInOids::TIMEOID => {
+                    TantivyValue::try_from(pgrx::datum::Time::from_datum(datum, false))
+                }
+                PgBuiltInOids::TIMETZOID => {
+                    TantivyValue::try_from(pgrx::datum::TimeWithTimeZone::from_datum(datum, false))
+                }
+                PgBuiltInOids::UUIDOID => {
+                    TantivyValue::try_from(pgrx::datum::Uuid::from_datum(datum, false))
+                }
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
             _ => Err(TantivyValueError::InvalidOid),
@@ -315,11 +304,14 @@ impl<'de> Deserialize<'de> for TantivyValue {
     }
 }
 
-impl TryFrom<Vec<u8>> for TantivyValue {
+impl TryFrom<Option<Vec<u8>>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: Vec<u8>) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(val)))
+    fn try_from(val: Option<Vec<u8>>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(val))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -337,11 +329,14 @@ impl TryFrom<TantivyValue> for Vec<u8> {
     }
 }
 
-impl TryFrom<String> for TantivyValue {
+impl TryFrom<Option<String>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: String) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(val)))
+    fn try_from(val: Option<String>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::Str(val))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -359,11 +354,14 @@ impl TryFrom<TantivyValue> for String {
     }
 }
 
-impl TryFrom<i8> for TantivyValue {
+impl TryFrom<Option<i8>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: i8) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+    fn try_from(val: Option<i8>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -381,11 +379,14 @@ impl TryFrom<TantivyValue> for i8 {
     }
 }
 
-impl TryFrom<i16> for TantivyValue {
+impl TryFrom<Option<i16>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: i16) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+    fn try_from(val: Option<i16>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -403,11 +404,14 @@ impl TryFrom<TantivyValue> for i16 {
     }
 }
 
-impl TryFrom<i32> for TantivyValue {
+impl TryFrom<Option<i32>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: i32) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+    fn try_from(val: Option<i32>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -425,11 +429,14 @@ impl TryFrom<TantivyValue> for i32 {
     }
 }
 
-impl TryFrom<i64> for TantivyValue {
+impl TryFrom<Option<i64>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: i64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val)))
+    fn try_from(val: Option<i64>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -447,16 +454,21 @@ impl TryFrom<TantivyValue> for i64 {
     }
 }
 
-impl TryFrom<f32> for TantivyValue {
+impl TryFrom<Option<f32>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: f32) -> Result<Self, Self::Error> {
-        // Casting f32 to f64 causes some precision errors when Tantivy writes the document.
-        //     To avoid this, we string format the f32 and then read it as f64.
-        let f32_string = format!("{}", val);
-        let val_as_f64 = f64::from_str(&f32_string)?;
+    fn try_from(val: Option<f32>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => {
+                // Casting f32 to f64 causes some precision errors when Tantivy writes the document.
+                //     To avoid this, we string format the f32 and then read it as f64.
+                let f32_string = format!("{}", val);
+                let val_as_f64 = f64::from_str(&f32_string)?;
 
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val_as_f64)))
+                Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val_as_f64)))
+            }
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -479,11 +491,14 @@ impl TryFrom<TantivyValue> for f32 {
     }
 }
 
-impl TryFrom<f64> for TantivyValue {
+impl TryFrom<Option<f64>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: f64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val)))
+    fn try_from(val: Option<f64>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -501,11 +516,14 @@ impl TryFrom<TantivyValue> for f64 {
     }
 }
 
-impl TryFrom<u32> for TantivyValue {
+impl TryFrom<Option<u32>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: u32) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::U64(val as u64)))
+    fn try_from(val: Option<u32>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::U64(val as u64))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -523,11 +541,14 @@ impl TryFrom<TantivyValue> for u32 {
     }
 }
 
-impl TryFrom<u64> for TantivyValue {
+impl TryFrom<Option<u64>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: u64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::U64(val)))
+    fn try_from(val: Option<u64>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::U64(val))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -545,13 +566,16 @@ impl TryFrom<TantivyValue> for u64 {
     }
 }
 
-impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
+impl TryFrom<Option<pgrx::AnyNumeric>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
-            val.try_into()?,
-        )))
+    fn try_from(val: Option<pgrx::AnyNumeric>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+                val.try_into()?,
+            ))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -569,11 +593,14 @@ impl TryFrom<TantivyValue> for pgrx::AnyNumeric {
     }
 }
 
-impl TryFrom<bool> for TantivyValue {
+impl TryFrom<Option<bool>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: bool) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Bool(val)))
+    fn try_from(val: Option<bool>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::Bool(val))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -591,12 +618,17 @@ impl TryFrom<TantivyValue> for bool {
     }
 }
 
-impl TryFrom<pgrx::JsonString> for TantivyValue {
+impl TryFrom<Option<pgrx::JsonString>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::JsonString) -> Result<Self, Self::Error> {
-        let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
+    fn try_from(val: Option<pgrx::JsonString>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => {
+                let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
+            }
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -614,12 +646,17 @@ impl TryFrom<TantivyValue> for pgrx::JsonString {
     }
 }
 
-impl TryFrom<pgrx::JsonB> for TantivyValue {
+impl TryFrom<Option<pgrx::JsonB>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::JsonB) -> Result<Self, Self::Error> {
-        let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
+    fn try_from(val: Option<pgrx::JsonB>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => {
+                let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
+            }
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -637,14 +674,17 @@ impl TryFrom<TantivyValue> for pgrx::JsonB {
     }
 }
 
-impl TryFrom<pgrx::Date> for TantivyValue {
+impl TryFrom<Option<pgrx::Date>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Date) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            Some((val.year(), val.month(), val.day())),
-            (0, 0, 0, 0),
-        )?))
+    fn try_from(val: Option<pgrx::Date>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(datetime_components_to_tantivy_date(
+                Some((val.year(), val.month(), val.day())),
+                (0, 0, 0, 0),
+            )?)),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -667,15 +707,20 @@ impl TryFrom<TantivyValue> for pgrx::Date {
     }
 }
 
-impl TryFrom<pgrx::Time> for TantivyValue {
+impl TryFrom<Option<pgrx::Time>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Time) -> Result<Self, Self::Error> {
-        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            None,
-            (v_h, v_m, v_s, v_ms),
-        )?))
+    fn try_from(val: Option<pgrx::Time>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => {
+                let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
+                Ok(TantivyValue(datetime_components_to_tantivy_date(
+                    None,
+                    (v_h, v_m, v_s, v_ms),
+                )?))
+            }
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -699,15 +744,20 @@ impl TryFrom<TantivyValue> for pgrx::Time {
     }
 }
 
-impl TryFrom<pgrx::Timestamp> for TantivyValue {
+impl TryFrom<Option<pgrx::Timestamp>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Timestamp) -> Result<Self, Self::Error> {
-        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            Some((val.year(), val.month(), val.day())),
-            (v_h, v_m, v_s, v_ms),
-        )?))
+    fn try_from(val: Option<pgrx::Timestamp>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => {
+                let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
+                Ok(TantivyValue(datetime_components_to_tantivy_date(
+                    Some((val.year(), val.month(), val.day())),
+                    (v_h, v_m, v_s, v_ms),
+                )?))
+            }
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -734,15 +784,20 @@ impl TryFrom<TantivyValue> for pgrx::Timestamp {
     }
 }
 
-impl TryFrom<pgrx::TimeWithTimeZone> for TantivyValue {
+impl TryFrom<Option<pgrx::TimeWithTimeZone>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::TimeWithTimeZone) -> Result<Self, Self::Error> {
-        let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            None,
-            (v_h, v_m, v_s, v_ms),
-        )?))
+    fn try_from(val: Option<pgrx::TimeWithTimeZone>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => {
+                let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
+                Ok(TantivyValue(datetime_components_to_tantivy_date(
+                    None,
+                    (v_h, v_m, v_s, v_ms),
+                )?))
+            }
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -767,15 +822,20 @@ impl TryFrom<TantivyValue> for pgrx::TimeWithTimeZone {
     }
 }
 
-impl TryFrom<pgrx::TimestampWithTimeZone> for TantivyValue {
+impl TryFrom<Option<pgrx::TimestampWithTimeZone>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::TimestampWithTimeZone) -> Result<Self, Self::Error> {
-        let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            Some((val.year(), val.month(), val.day())),
-            (v_h, v_m, v_s, v_ms),
-        )?))
+    fn try_from(val: Option<pgrx::TimestampWithTimeZone>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => {
+                let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
+                Ok(TantivyValue(datetime_components_to_tantivy_date(
+                    Some((val.year(), val.month(), val.day())),
+                    (v_h, v_m, v_s, v_ms),
+                )?))
+            }
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -803,13 +863,16 @@ impl TryFrom<TantivyValue> for pgrx::TimestampWithTimeZone {
     }
 }
 
-impl TryFrom<pgrx::Uuid> for TantivyValue {
+impl TryFrom<Option<pgrx::Uuid>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Uuid) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
-            val.to_string(),
-        )))
+    fn try_from(val: Option<pgrx::Uuid>) -> Result<Self, Self::Error> {
+        match val {
+            Some(val) => Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
+                val.to_string(),
+            ))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+        }
     }
 }
 
@@ -828,110 +891,112 @@ impl TryFrom<TantivyValue> for pgrx::Uuid {
     }
 }
 
-impl TryFrom<pgrx::AnyArray> for TantivyValue {
+impl TryFrom<Option<pgrx::AnyArray>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::AnyArray) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::AnyArray>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "array".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::pg_sys::BOX> for TantivyValue {
+impl TryFrom<Option<pgrx::pg_sys::BOX>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::pg_sys::BOX) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::pg_sys::BOX>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "box".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::pg_sys::Point> for TantivyValue {
+impl TryFrom<Option<pgrx::pg_sys::Point>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::pg_sys::Point) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::pg_sys::Point>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "point".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::pg_sys::ItemPointerData> for TantivyValue {
+impl TryFrom<Option<pgrx::pg_sys::ItemPointerData>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::pg_sys::ItemPointerData) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::pg_sys::ItemPointerData>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "tid".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Inet> for TantivyValue {
+impl TryFrom<Option<pgrx::Inet>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Inet) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::Inet>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "inet".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Range<i32>> for TantivyValue {
+impl TryFrom<Option<pgrx::Range<i32>>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<i32>) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::Range<i32>>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "int4 range".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Range<i64>> for TantivyValue {
+impl TryFrom<Option<pgrx::Range<i64>>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<i64>) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::Range<i64>>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "int8 range".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Range<pgrx::AnyNumeric>> for TantivyValue {
+impl TryFrom<Option<pgrx::Range<pgrx::AnyNumeric>>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<pgrx::AnyNumeric>) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::Range<pgrx::AnyNumeric>>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "nuemric range".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Range<pgrx::Date>> for TantivyValue {
+impl TryFrom<Option<pgrx::Range<pgrx::Date>>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<pgrx::Date>) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::Range<pgrx::Date>>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "date range".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Range<pgrx::Timestamp>> for TantivyValue {
+impl TryFrom<Option<pgrx::Range<pgrx::Timestamp>>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<pgrx::Timestamp>) -> Result<Self, Self::Error> {
+    fn try_from(_val: Option<pgrx::Range<pgrx::Timestamp>>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "timestamp range".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Range<pgrx::TimestampWithTimeZone>> for TantivyValue {
+impl TryFrom<Option<pgrx::Range<pgrx::TimestampWithTimeZone>>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<pgrx::TimestampWithTimeZone>) -> Result<Self, Self::Error> {
+    fn try_from(
+        _val: Option<pgrx::Range<pgrx::TimestampWithTimeZone>>,
+    ) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "timestamp with time zone range".to_string(),
         ))

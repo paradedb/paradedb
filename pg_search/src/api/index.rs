@@ -372,13 +372,17 @@ macro_rules! datetime_range_fn {
                     lower_bound: match lower {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(Some(n))
+                                .unwrap()
+                                .tantivy_schema_value())
                                 .as_datetime()
                                 .unwrap()
                                 .into(),
                         ),
                         RangeBound::Exclusive(n) => Bound::Excluded(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(Some(n))
+                                .unwrap()
+                                .tantivy_schema_value())
                                 .as_datetime()
                                 .unwrap()
                                 .into(),
@@ -387,13 +391,17 @@ macro_rules! datetime_range_fn {
                     upper_bound: match upper {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(Some(n))
+                                .unwrap()
+                                .tantivy_schema_value())
                                 .as_datetime()
                                 .unwrap()
                                 .into(),
                         ),
                         RangeBound::Exclusive(n) => Bound::Excluded(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(Some(n))
+                                .unwrap()
+                                .tantivy_schema_value())
                                 .as_datetime()
                                 .unwrap()
                                 .into(),
@@ -424,7 +432,7 @@ macro_rules! term_fn {
             if let Some(value) = value {
                 SearchQueryInput::Term {
                     field,
-                    value: TantivyValue::try_from(value)
+                    value: TantivyValue::try_from(Some(value))
                         .unwrap()
                         .tantivy_schema_value(),
                 }

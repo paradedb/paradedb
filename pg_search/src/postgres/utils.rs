@@ -31,6 +31,7 @@ pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
 pub unsafe fn row_to_search_document(
     tupdesc: &PgTupleDesc,
     values: *mut pg_sys::Datum,
+    isnull: *mut bool,
     schema: &SearchIndexSchema,
 ) -> Result<SearchDocument, IndexError> {
     let mut document = schema.new_document();
@@ -59,6 +60,11 @@ pub unsafe fn row_to_search_document(
         );
 
         let datum = *values.add(attno);
+        let isnull = *isnull.add(attno);
+
+        if isnull {
+            continue;
+        }
 
         if is_array || is_json {
             for value in TantivyValue::try_from_datum_array(datum, base_oid).unwrap() {

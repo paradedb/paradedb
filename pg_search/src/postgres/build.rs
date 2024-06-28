@@ -234,13 +234,13 @@ unsafe extern "C" fn build_callback(
     index: pg_sys::Relation,
     htup: pg_sys::HeapTuple,
     values: *mut pg_sys::Datum,
-    _isnull: *mut bool,
+    isnull: *mut bool,
     _tuple_is_alive: bool,
     state: *mut std::os::raw::c_void,
 ) {
     let htup = htup.as_ref().unwrap();
 
-    build_callback_internal(htup.t_self, values, state, index);
+    build_callback_internal(htup.t_self, values, isnull, state, index);
 }
 
 #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
@@ -249,17 +249,18 @@ unsafe extern "C" fn build_callback(
     index: pg_sys::Relation,
     ctid: pg_sys::ItemPointer,
     values: *mut pg_sys::Datum,
-    _isnull: *mut bool,
+    isnull: *mut bool,
     _tuple_is_alive: bool,
     state: *mut std::os::raw::c_void,
 ) {
-    build_callback_internal(*ctid, values, state, index);
+    build_callback_internal(*ctid, values, isnull, state, index);
 }
 
 #[inline(always)]
 unsafe fn build_callback_internal(
     ctid: pg_sys::ItemPointerData,
     values: *mut pg_sys::Datum,
+    isnull: *mut bool,
     state: *mut std::os::raw::c_void,
     index: pg_sys::Relation,
 ) {
@@ -282,7 +283,7 @@ unsafe fn build_callback_internal(
             let index_name = index_relation_ref.name();
             let search_index = get_search_index(index_name);
             let search_document = search_index
-                .row_to_search_document(ctid, &tupdesc, values)
+                .row_to_search_document(ctid, &tupdesc, values, isnull)
                 .unwrap_or_else(|err| {
                     panic!("error creating index entries for index '{index_name}': {err:?}",)
                 });

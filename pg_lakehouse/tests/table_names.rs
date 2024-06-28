@@ -21,14 +21,14 @@ use anyhow::Result;
 use datafusion::parquet::arrow::ArrowWriter;
 use fixtures::*;
 use rstest::*;
-use shared::fixtures::arrow::{primitive_record_batch, primitive_setup_fdw_local_file_listing};
+use shared::fixtures::arrow::{primitive_record_batch_parquet, primitive_setup_fdw_parquet_local};
 use shared::fixtures::tempfile::TempDir;
 use sqlx::PgConnection;
 use std::fs::File;
 
 #[rstest]
 async fn test_table_case_sensitivity(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
-    let stored_batch = primitive_record_batch()?;
+    let stored_batch = primitive_record_batch_parquet()?;
     let parquet_path = tempdir.path().join("test_arrow_types.parquet");
     let parquet_file = File::create(&parquet_path)?;
 
@@ -36,7 +36,7 @@ async fn test_table_case_sensitivity(mut conn: PgConnection, tempdir: TempDir) -
     writer.write(&stored_batch)?;
     writer.close()?;
 
-    primitive_setup_fdw_local_file_listing(
+    primitive_setup_fdw_parquet_local(
         parquet_path.as_path().to_str().unwrap(),
         "\"PrimitiveTable\"",
     )

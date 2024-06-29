@@ -51,11 +51,17 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         (*event_trigger_data).parsetree as *mut pg_sys::CreateForeignTableStmt;
     let create_stmt = (*create_foreign_stmt).base;
 
-    // Get the PgRelation that triggered the event
+    // Get relation name, oid, etc. that triggered the event
     let relation = create_stmt.relation;
     let schema_name = CStr::from_ptr((*relation).schemaname).to_str()?;
     let table_name = CStr::from_ptr((*relation).relname).to_str()?;
-    let oid = pg_sys::RelnameGetRelid((*relation).relname);
+    let oid = pg_sys::RangeVarGetRelidExtended(
+        relation,
+        pg_sys::AccessShareLock as i32,
+        0,
+        None,
+        std::ptr::null_mut(),
+    );
 
     // If the foreign table was not created by this extension, exit
     let foreign_table = unsafe { pg_sys::GetForeignTable(oid) };
@@ -72,7 +78,7 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
 
     pg_sys::RelationClose(relation);
 
-    // Execute dummy query to force FDW to initialize a DuckDB view
+    // Initialize DuckDB view
     connection::execute(
         format!("CREATE SCHEMA IF NOT EXISTS {schema_name}").as_str(),
         [],
@@ -97,6 +103,7 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         }
     }
 
+    // Get DuckDB schema
     let conn = unsafe { &*connection::get_global_connection().get() };
     let query = format!("DESCRIBE {schema_name}.{table_name}");
     let mut stmt = conn.prepare(&query)?;
@@ -112,6 +119,7 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         return Ok(());
     }
 
+    // Alter Postgres table to match DuckDB schema
     let alter_table_statement = construct_alter_table_statement(table_name, schema_rows);
     Spi::run(alter_table_statement.as_str())?;
 
@@ -139,7 +147,7 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> &'static str {
         "HUGEINT" => "BIGINT",
         "UHUGEINT" => "BIGINT",
         "VARCHAR" => "VARCHAR",
-        "BLOB" => "BYTEA",
+        "BLOB" => "TEXT",
         "DECIMAL" => "DECIMAL",
         "TIMESTAMP_S" => "TIMESTAMP",
         "TIMESTAMP_MS" => "TIMESTAMP",
@@ -150,7 +158,6 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> &'static str {
         "MAP" => "JSONB",
         "ARRAY" => "JSONB",
         "UUID" => "UUID",
-        "UNION" => "JSONB",
         "BIT" => "BIT",
         "TIME_TZ" => "TIMETZ",
         "TIMESTAMP_TZ" => "TIMESTAMPTZ",

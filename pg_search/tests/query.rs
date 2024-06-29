@@ -34,7 +34,7 @@ fn boolean_tree(mut conn: PgConnection) {
                 paradedb.parse('description:shoes'),
                 paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
                 paradedb.term(field => 'description', value => 'speaker'),
-			    paradedb.fuzzy_term(field => 'description', value => 'wolo')
+			    paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1)
             ]
         ),
         stable_sort => true
@@ -160,7 +160,7 @@ fn single_queries(mut conn: PgConnection) {
     // FuzzyTerm
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_term(field => 'description', value => 'wolo'),
+		paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1),
         stable_sort => true
     )"#
     .fetch_collect(&mut conn);

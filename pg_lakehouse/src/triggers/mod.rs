@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use pgrx::*;
 use std::ffi::CStr;
+use supabase_wrappers::prelude::options_to_hashmap;
 
 use crate::duckdb::connection;
 use crate::fdw::handler::FdwHandler;
@@ -29,8 +30,6 @@ fn auto_create_schema_hook(fcinfo: pg_sys::FunctionCallInfo) {
         });
     }
 }
-
-type SchemaRow = (String, String);
 
 #[inline]
 unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
@@ -72,11 +71,34 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
     }
 
     // Execute dummy query to force FDW to initialize a DuckDB view
-    let query = format!("SELECT * FROM \"{schema_name}\".\"{table_name}\" LIMIT 0");
-    Spi::run(query.as_str())?;
+    connection::execute(
+        format!("CREATE SCHEMA IF NOT EXISTS {schema_name}").as_str(),
+        [],
+    )?;
+
+    let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+    let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+
+    match FdwHandler::from(foreign_table) {
+        FdwHandler::Csv => {
+            connection::create_csv_view(table_name, schema_name, table_options)?;
+        }
+        FdwHandler::Delta => {
+            connection::create_delta_view(table_name, schema_name, table_options)?;
+        }
+        FdwHandler::Iceberg => {
+            connection::create_iceberg_view(table_name, schema_name, table_options)?;
+        }
+        FdwHandler::Parquet => {
+            connection::create_parquet_view(table_name, schema_name, table_options)?;
+        }
+        _ => {
+            todo!()
+        }
+    }
 
     let conn = unsafe { &*connection::get_global_connection().get() };
-    let query = format!("DESCRIBE \"{schema_name}\".\"{table_name}\"");
+    let query = format!("DESCRIBE {schema_name}.{table_name}");
     let mut stmt = conn.prepare(&query)?;
 
     let schema_rows = stmt
@@ -84,9 +106,74 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
         .map(|row| row.unwrap())
-        .collect::<Vec<SchemaRow>>();
+        .collect::<Vec<(String, String)>>();
 
-    info!("Schema rows: {:?}", schema_rows);
+    if schema_rows.is_empty() {
+        return Ok(());
+    }
+
+    let alter_table_statement = construct_alter_table_statement(table_name, schema_rows);
+    Spi::run(alter_table_statement.as_str())?;
 
     Ok(())
+}
+
+#[inline]
+fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> &'static str {
+    match duckdb_type.to_uppercase().as_str() {
+        "BOOLEAN" => "BOOLEAN",
+        "TINYINT" => "SMALLINT",
+        "SMALLINT" => "SMALLINT",
+        "INTEGER" => "INTEGER",
+        "BIGINT" => "BIGINT",
+        "UTINYINT" => "SMALLINT",
+        "USMALLINT" => "INTEGER",
+        "UINTEGER" => "BIGINT",
+        "UBIGINT" => "BIGINT",
+        "FLOAT" => "REAL",
+        "DOUBLE" => "DOUBLE PRECISION",
+        "TIMESTAMP" => "TIMESTAMP",
+        "DATE" => "DATE",
+        "TIME" => "TIME",
+        "INTERVAL" => "INTERVAL",
+        "HUGEINT" => "BIGINT",
+        "UHUGEINT" => "BIGINT",
+        "VARCHAR" => "VARCHAR",
+        "BLOB" => "BYTEA",
+        "DECIMAL" => "DECIMAL",
+        "TIMESTAMP_S" => "TIMESTAMP",
+        "TIMESTAMP_MS" => "TIMESTAMP",
+        "TIMESTAMP_NS" => "TIMESTAMP",
+        "ENUM" => "TEXT",
+        "LIST" => "TEXT",
+        "STRUCT" => "JSONB",
+        "MAP" => "JSONB",
+        "ARRAY" => "JSONB",
+        "UUID" => "UUID",
+        "UNION" => "JSONB",
+        "BIT" => "BIT",
+        "TIME_TZ" => "TIMETZ",
+        "TIMESTAMP_TZ" => "TIMESTAMPTZ",
+        other => {
+            warning!("Field '{}' has DuckDB type {}, which has no clear Postgres mapping. Falling back to default type TEXT, which can be changed with ALTER TABLE", column_name, other);
+            "TEXT"
+        }
+    }
+}
+
+#[inline]
+fn construct_alter_table_statement(table_name: &str, columns: Vec<(String, String)>) -> String {
+    let column_definitions: Vec<String> = columns
+        .iter()
+        .map(|(column_name, duckdb_type)| {
+            let pg_type = duckdb_type_to_pg(column_name, duckdb_type);
+            format!("ADD COLUMN {} {}", column_name, pg_type)
+        })
+        .collect();
+
+    format!(
+        "ALTER TABLE {} {}",
+        table_name,
+        column_definitions.join(", ")
+    )
 }

@@ -65,7 +65,7 @@ pub enum SearchQueryInput {
         field: String,
         value: String,
         distance: Option<u8>,
-        tranposition_cost_one: Option<bool>,
+        transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
     },
     MoreLikeThis {
@@ -270,7 +270,7 @@ impl SearchQueryInput {
                 field,
                 value,
                 distance,
-                tranposition_cost_one,
+                transposition_cost_one,
                 prefix,
             } => {
                 let field = field_lookup
@@ -279,18 +279,18 @@ impl SearchQueryInput {
 
                 let term = Term::from_field_text(field, &value);
                 let distance = distance.unwrap_or(2);
-                let tranposition_cost_one = tranposition_cost_one.unwrap_or(true);
+                let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 if prefix.unwrap_or(false) {
                     Ok(Box::new(FuzzyTermQuery::new(
                         term,
                         distance,
-                        tranposition_cost_one,
+                        transposition_cost_one,
                     )))
                 } else {
                     Ok(Box::new(FuzzyTermQuery::new_prefix(
                         term,
                         distance,
-                        tranposition_cost_one,
+                        transposition_cost_one,
                     )))
                 }
             }

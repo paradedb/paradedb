@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use pgrx::*;
 use std::ffi::CStr;
 use supabase_wrappers::prelude::options_to_hashmap;
@@ -55,20 +55,22 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
     let relation = create_stmt.relation;
     let schema_name = CStr::from_ptr((*relation).schemaname).to_str()?;
     let table_name = CStr::from_ptr((*relation).relname).to_str()?;
-    let pg_relation =
-        PgRelation::open_with_name(format!("\"{}\".\"{}\"", schema_name, table_name).as_str())
-            .map_err(|err| anyhow!(err))?;
+    let oid = pg_sys::RelnameGetRelid((*relation).relname);
 
     // If the foreign table was not created by this extension, exit
-    let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+    let foreign_table = unsafe { pg_sys::GetForeignTable(oid) };
     if FdwHandler::from(foreign_table) == FdwHandler::Other {
         return Ok(());
     }
 
+    let relation = pg_sys::relation_open(oid, pg_sys::AccessShareLock as i32);
+
     // If the table already has columns, exit
-    if pg_relation.tuple_desc().len() != 0 {
+    if (*(*relation).rd_att).natts != 0 {
         return Ok(());
     }
+
+    pg_sys::RelationClose(relation);
 
     // Execute dummy query to force FDW to initialize a DuckDB view
     connection::execute(
@@ -76,9 +78,7 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         [],
     )?;
 
-    let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
     let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
-
     match FdwHandler::from(foreign_table) {
         FdwHandler::Csv => {
             connection::create_csv_view(table_name, schema_name, table_options)?;

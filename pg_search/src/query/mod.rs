@@ -278,8 +278,8 @@ impl SearchQueryInput {
                     .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
 
                 let term = Term::from_field_text(field, &value);
-                let distance = distance.unwrap_or(1);
-                let tranposition_cost_one = tranposition_cost_one.unwrap_or(false);
+                let distance = distance.unwrap_or(2);
+                let tranposition_cost_one = tranposition_cost_one.unwrap_or(true);
                 if prefix.unwrap_or(false) {
                     Ok(Box::new(FuzzyTermQuery::new(
                         term,

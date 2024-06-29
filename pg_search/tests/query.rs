@@ -95,6 +95,17 @@ fn fuzzy_fields(mut conn: PgConnection) {
         vec![1, 2],
         "incorrect tranposition_cost_one true"
     );
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.fuzzy_term(
+            field => 'description',
+            value => 'keybaord'
+        ),
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![1, 2], "incorrect defaults");
 }
 
 #[rstest]

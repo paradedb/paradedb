@@ -35,7 +35,8 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     numeric_fields text DEFAULT '{}',
     boolean_fields text DEFAULT '{}',
     json_fields text DEFAULT '{}',
-    datetime_fields text DEFAULT '{}'
+    datetime_fields text DEFAULT '{}',
+    predicates text DEFAULT ''
 )
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
@@ -50,6 +51,7 @@ fn create_bm25(
     boolean_fields: &str,
     json_fields: &str,
     datetime_fields: &str,
+    predicates: &str,
 ) -> Result<()> {
     let original_client_min_messages =
         Spi::get_one::<String>("SHOW client_min_messages")?.unwrap_or_default();
@@ -131,8 +133,8 @@ fn create_bm25(
         .collect::<Vec<String>>()
         .join(", ");
 
-    Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",
+    let mut stmt = format!(
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={})",
         spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
@@ -143,8 +145,15 @@ fn create_bm25(
         spi::quote_literal(numeric_fields),
         spi::quote_literal(boolean_fields),
         spi::quote_literal(json_fields),
-        spi::quote_literal(datetime_fields)
-    ))?;
+        spi::quote_literal(datetime_fields));
+
+    if !predicates.is_empty() {
+        stmt.push_str(&format!("WHERE {};", predicates));
+    } else {
+        stmt.push(';');
+    }
+
+    Spi::run(&stmt)?;
 
     Spi::run(&format_bm25_function(
         &spi::quote_qualified_identifier(index_name, "search"),

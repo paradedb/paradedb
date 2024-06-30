@@ -158,6 +158,12 @@ Similarly, the `rating:>2` filter was used instead of the SQL `WHERE` clause for
 
 Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](https://docs.paradedb.com) and [quickstart](https://docs.paradedb.com/search/quickstart) for a more thorough overview of `pg_search`'s query support.
 
+### Client Libraries
+
+Our approach for client libraries is modular. Each sub-library is a standalone implementation for a single external system. If you'd like to implement a client library for your language or framework of choice, we're happy to help.
+
+- [Laravel](https://github.com/ShabuShabu/laravel-paradedb-search)
+
 ## Development
 
 ### Prerequisites

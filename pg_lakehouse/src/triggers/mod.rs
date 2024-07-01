@@ -168,6 +168,27 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> Result<String> {
         );
     }
 
+    if duckdb_type.starts_with("ENUM") {
+        bail!(
+            "Column '{}' has type ENUM, which is not supported",
+            column_name
+        );
+    }
+
+    if duckdb_type.starts_with("UNION") {
+        bail!(
+            "Column '{}' has type UNION, which is not supported",
+            column_name
+        );
+    }
+
+    if duckdb_type.starts_with("BIT") {
+        bail!(
+            "Column '{}' has type BIT, which is not supported",
+            column_name
+        );
+    }
+
     let mut postgres_type = duckdb_type
         .replace("TINYINT", "SMALLINT")
         .replace("UTINYINT", "SMALLINT")
@@ -181,14 +202,9 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> Result<String> {
         .replace("TIMESTAMP_S", "TIMESTAMP")
         .replace("TIMESTAMP_MS", "TIMESTAMP")
         .replace("TIMESTAMP_NS", "TIMESTAMP")
-        .replace("TIME WITH TIME ZONE", "TIME")
-        .replace("ARRAY", "JSONB");
+        .replace("TIME WITH TIME ZONE", "TIME");
 
     if postgres_type.starts_with("STRUCT") {
-        postgres_type = "JSONB".to_string();
-    }
-
-    if postgres_type.starts_with("MAP") {
         postgres_type = "JSONB".to_string();
     }
 

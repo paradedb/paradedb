@@ -285,3 +285,71 @@ fn single_queries(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);
 }
+
+#[rstest]
+fn more_like_this(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id SERIAL PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (flavour) VALUES 
+        ('apple'),
+        ('banana'), 
+        ('cherry'), 
+        ('banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    match r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(),
+        stable_sort => true
+    );
+    "#
+    .fetch_result::<()>(&mut conn)
+    {
+        Err(err) => assert!(err.to_string().contains(
+            "more_like_this must be called with either with_docuemnt_id or with_document_fields"
+        )),
+        _ => panic!("with_docuemnt_id or with_document_fields validation failed"),
+    }
+
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_id => 0
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    // TODO once the segment ord is set, assert_eq!(rows.len(), 2);
+    assert!(rows.len() > 0);
+}

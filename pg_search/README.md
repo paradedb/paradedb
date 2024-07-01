@@ -243,6 +243,7 @@ Finally, to enable the ICU tokenizer in development, pass `--features icu` to th
 First, start pgrx:
 
 ```bash
+# Note: If not using pg16, specify with (i.e. -- pg15, -- pg14, etc.)
 cargo pgrx run
 ```
 
@@ -274,6 +275,7 @@ CREATE EXTENSION pg_search;
 ### Testing
 
 We use `cargo test` as our runner for `pg_lakehouse` tests.
+Note: If not using pg16, run `cargo pgrx test PG_VERSION` (i.e. pg15, pg14, etc.)
 
 ## License
 

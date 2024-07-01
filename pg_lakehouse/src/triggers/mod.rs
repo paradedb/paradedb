@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use pgrx::*;
 use std::ffi::CStr;
 use supabase_wrappers::prelude::options_to_hashmap;
@@ -30,6 +30,28 @@ fn auto_create_schema_hook(fcinfo: pg_sys::FunctionCallInfo) {
         });
     }
 }
+
+// Foreign tables should not be create  with these names
+// because they conflict with built-in DuckDB tables
+// https://duckdb.org/docs/guides/meta/duckdb_environment#meta-table-functions
+const DUCKDB_RESERVED_NAMES: [&str; 16] = [
+    "duckdb_columns",
+    "duckdb_constraints",
+    "duckdb_databases",
+    "duckdb_dependencies",
+    "duckdb_extensions",
+    "duckdb_functions",
+    "duckdb_indexes",
+    "duckdb_keywords",
+    "duckdb_optimizers",
+    "duckdb_schemas",
+    "duckdb_sequences",
+    "duckdb_settings",
+    "duckdb_tables",
+    "duckdb_types",
+    "duckdb_views",
+    "duckdb_temporary_files",
+];
 
 #[inline]
 unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
@@ -69,9 +91,16 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         return Ok(());
     }
 
-    let relation = pg_sys::relation_open(oid, pg_sys::AccessShareLock as i32);
+    // Don't allow DuckDB reserved names
+    if DUCKDB_RESERVED_NAMES.contains(&table_name) {
+        bail!(
+            "Table name '{}' is not allowed because it is reserved by DuckDB",
+            table_name
+        );
+    }
 
-    // If the table already has columns, exit
+    // If the table already has columns, no need for auto schema creation
+    let relation = pg_sys::relation_open(oid, pg_sys::AccessShareLock as i32);
     if (*(*relation).rd_att).natts != 0 {
         return Ok(());
     }
@@ -137,7 +166,7 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> &'static str {
         "UTINYINT" => "SMALLINT",
         "USMALLINT" => "INTEGER",
         "UINTEGER" => "BIGINT",
-        "UBIGINT" => "BIGINT",
+        "UBIGINT" => "NUMERIC",
         "FLOAT" => "REAL",
         "DOUBLE" => "DOUBLE PRECISION",
         "TIMESTAMP" => "TIMESTAMP",
@@ -154,13 +183,13 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> &'static str {
         "TIMESTAMP_NS" => "TIMESTAMP",
         "ENUM" => "TEXT",
         "LIST" => "TEXT",
-        "STRUCT" => "JSONB",
+        "STRUCT" => "ROW",
         "MAP" => "JSONB",
         "ARRAY" => "JSONB",
         "UUID" => "UUID",
         "BIT" => "BIT",
-        "TIME_TZ" => "TIMETZ",
-        "TIMESTAMP_TZ" => "TIMESTAMPTZ",
+        "TIME WITH TIME ZONE" => "TIMETZ",
+        "TIMESTAMP WITH TIME ZONE" => "TIMESTAMPTZ",
         other => {
             warning!("Field '{}' has DuckDB type {}, which has no clear Postgres mapping. Falling back to default type TEXT, which can be changed with ALTER TABLE", column_name, other);
             "TEXT"

@@ -85,11 +85,11 @@ where
             .ok_or_else(|| anyhow!("failed to downcast byte array"))?;
 
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
-            false => unsafe {
+            false => {
                 let value = downcast_array.value(index);
                 let bytes: &[u8] = value.as_ref();
                 Ok(Some(varlena::rust_byte_slice_to_bytea(bytes)))
-            },
+            }
             true => Ok(None),
         }
     }
@@ -334,7 +334,7 @@ where
     fn get_decimal_value<N>(&self, index: usize, precision: u8, scale: i8) -> Result<Option<N>>
     where
         N: std::marker::Send + std::marker::Sync + TryFrom<AnyNumeric>,
-        <N as TryFrom<pgrx::AnyNumeric>>::Error: Sync + Send + std::error::Error + 'static, // DataTypeError: From<<N as TryFrom<pgrx::AnyNumeric>>::Error>,
+        <N as TryFrom<pgrx::AnyNumeric>>::Error: Sync + Send + std::error::Error + 'static,
     {
         let downcast_array = self
             .as_any()
@@ -515,10 +515,33 @@ where
             Send + Sync + std::error::Error,
     {
         let downcast_array = self.as_primitive::<A>();
-        match downcast_array.is_null(index) {
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => {
                 let value: A::Native = downcast_array.value(index);
                 Ok(Some(u64::try_from(value)?))
+            }
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetUuidValue
+where
+    Self: Array + AsArray,
+{
+    fn get_uuid_value(&self, index: usize) -> Result<Option<datum::Uuid>> {
+        let downcast_array = self
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow!("failed to downcast uuid array"))?;
+
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => {
+                let value = downcast_array.value(index);
+                let uuid = uuid::Uuid::parse_str(value)?;
+                Ok(Some(
+                    datum::Uuid::from_slice(uuid.as_bytes()).map_err(|err| anyhow!(err))?,
+                ))
             }
             true => Ok(None),
         }
@@ -543,10 +566,10 @@ where
         + GetTimeValue
         + GetTimestampValue
         + GetTimestampTzValue
-        + GetUIntValue,
+        + GetUIntValue
+        + GetUuidValue,
 {
     fn get_cell(&self, index: usize, oid: pg_sys::Oid, name: &str) -> Result<Option<Cell>> {
-        info!("converting {:?} to {:?}", self.data_type(), oid);
         match oid {
             pg_sys::BOOLOID => match self.get_primitive_value::<BooleanArray>(index)? {
                 Some(value) => Ok(Some(Cell::Bool(value))),
@@ -876,19 +899,19 @@ where
                     None => Ok(None),
                 },
                 DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
-                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as u64)))),
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value)))),
                     None => Ok(None),
                 },
                 DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
-                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as u64)))),
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value)))),
                     None => Ok(None),
                 },
                 DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
-                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as u64)))),
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value)))),
                     None => Ok(None),
                 },
                 DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
-                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as u64)))),
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value)))),
                     None => Ok(None),
                 },
                 DataType::Float16 => match self.get_primitive_value::<Float16Array>(index)? {
@@ -918,36 +941,36 @@ where
                 )
                 .into()),
             },
-            pg_sys::TEXTOID
-            | pg_sys::VARCHAROID
-            | pg_sys::BPCHAROID
-            | pg_sys::BYTEAOID
-            | pg_sys::NAMEOID => match self.data_type() {
-                DataType::Utf8 => match self.get_primitive_value::<StringArray>(index)? {
-                    Some(value) => Ok(Some(Cell::String(value.to_string()))),
-                    None => Ok(None),
-                },
-                DataType::LargeUtf8 => {
-                    match self.get_primitive_value::<LargeStringArray>(index)? {
+            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID | pg_sys::NAMEOID => {
+                match self.data_type() {
+                    DataType::Utf8 => match self.get_primitive_value::<StringArray>(index)? {
                         Some(value) => Ok(Some(Cell::String(value.to_string()))),
                         None => Ok(None),
+                    },
+                    DataType::LargeUtf8 => {
+                        match self.get_primitive_value::<LargeStringArray>(index)? {
+                            Some(value) => Ok(Some(Cell::String(value.to_string()))),
+                            None => Ok(None),
+                        }
                     }
+                    DataType::Binary => match self.get_binary_value::<BinaryArray>(index)? {
+                        Some(value) => Ok(Some(Cell::String(value))),
+                        None => Ok(None),
+                    },
+                    DataType::LargeBinary => {
+                        match self.get_binary_value::<LargeBinaryArray>(index)? {
+                            Some(value) => Ok(Some(Cell::String(value))),
+                            None => Ok(None),
+                        }
+                    }
+                    unsupported => Err(DataTypeError::DataTypeMismatch(
+                        name.to_string(),
+                        unsupported.clone(),
+                        PgOid::from(oid),
+                    )
+                    .into()),
                 }
-                DataType::Binary => match self.get_binary_value::<BinaryArray>(index)? {
-                    Some(value) => Ok(Some(Cell::String(value))),
-                    None => Ok(None),
-                },
-                DataType::LargeBinary => match self.get_binary_value::<LargeBinaryArray>(index)? {
-                    Some(value) => Ok(Some(Cell::String(value))),
-                    None => Ok(None),
-                },
-                unsupported => Err(DataTypeError::DataTypeMismatch(
-                    name.to_string(),
-                    unsupported.clone(),
-                    PgOid::from(oid),
-                )
-                .into()),
-            },
+            }
             pg_sys::DATEOID => match self.data_type() {
                 DataType::Date32 => match self.get_date_value::<i32, Date32Type>(index)? {
                     Some(value) => Ok(Some(Cell::Date(value))),
@@ -1113,6 +1136,10 @@ where
                 )
                 .into()),
             },
+            pg_sys::UUIDOID => match self.get_uuid_value(index)? {
+                Some(value) => Ok(Some(Cell::Uuid(value))),
+                None => Ok(None),
+            },
             pg_sys::BOOLARRAYOID => {
                 match self.get_primitive_list_value::<BooleanArray, Option<bool>>(index)? {
                     Some(value) => Ok(Some(Cell::BoolArray(value))),
@@ -1181,6 +1208,7 @@ impl GetTimeValue for ArrayRef {}
 impl GetTimestampValue for ArrayRef {}
 impl GetTimestampTzValue for ArrayRef {}
 impl GetUIntValue for ArrayRef {}
+impl GetUuidValue for ArrayRef {}
 
 #[derive(Debug)]
 pub enum DataTypeError {

@@ -161,6 +161,13 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> Result<String> {
         bail!("Column '{}' has an invalid DuckDB type", column_name);
     }
 
+    if duckdb_type.starts_with("MAP") {
+        bail!(
+            "Column '{}' has type MAP, which is not supported",
+            column_name
+        );
+    }
+
     let mut postgres_type = duckdb_type
         .replace("TINYINT", "SMALLINT")
         .replace("UTINYINT", "SMALLINT")
@@ -174,6 +181,7 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> Result<String> {
         .replace("TIMESTAMP_S", "TIMESTAMP")
         .replace("TIMESTAMP_MS", "TIMESTAMP")
         .replace("TIMESTAMP_NS", "TIMESTAMP")
+        .replace("TIME WITH TIME ZONE", "TIME")
         .replace("ARRAY", "JSONB");
 
     if postgres_type.starts_with("STRUCT") {

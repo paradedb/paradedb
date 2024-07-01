@@ -34,7 +34,7 @@ fn boolean_tree(mut conn: PgConnection) {
                 paradedb.parse('description:shoes'),
                 paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
                 paradedb.term(field => 'description', value => 'speaker'),
-                paradedb.fuzzy_term(field => 'description', value => 'wolo')
+			    paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1)
             ]
         ),
         stable_sort => true
@@ -68,7 +68,7 @@ fn fuzzy_fields(mut conn: PgConnection) {
         query => paradedb.fuzzy_term(
             field => 'description',
             value => 'keybaord',
-            tranposition_cost_one => false,
+            transposition_cost_one => false,
             distance => 1
         ),
         stable_sort => true
@@ -76,7 +76,7 @@ fn fuzzy_fields(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert!(
         columns.is_empty(),
-        "tranposition_cost_one false should be empty"
+        "transposition_cost_one false should be empty"
     );
 
     let columns: SimpleProductsTableVec = r#"
@@ -84,7 +84,7 @@ fn fuzzy_fields(mut conn: PgConnection) {
         query => paradedb.fuzzy_term(
             field => 'description',
             value => 'keybaord',
-            tranposition_cost_one => true,
+            transposition_cost_one => true,
             distance => 1
         ),
         stable_sort => true
@@ -93,8 +93,19 @@ fn fuzzy_fields(mut conn: PgConnection) {
     assert_eq!(
         columns.id,
         vec![1, 2],
-        "incorrect tranposition_cost_one true"
+        "incorrect transposition_cost_one true"
     );
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.fuzzy_term(
+            field => 'description',
+            value => 'keybaord'
+        ),
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![1, 2], "incorrect defaults");
 }
 
 #[rstest]
@@ -149,7 +160,7 @@ fn single_queries(mut conn: PgConnection) {
     // FuzzyTerm
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_term(field => 'description', value => 'wolo'),
+		paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1),
         stable_sort => true
     )"#
     .fetch_collect(&mut conn);

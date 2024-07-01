@@ -204,14 +204,14 @@ pub fn fuzzy_term(
     field: String,
     value: String,
     distance: default!(Option<i32>, "NULL"),
-    tranposition_cost_one: default!(Option<bool>, "NULL"),
+    transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::FuzzyTerm {
         field,
         value,
         distance: distance.map(|n| n as u8),
-        tranposition_cost_one,
+        transposition_cost_one,
         prefix,
     }
 }

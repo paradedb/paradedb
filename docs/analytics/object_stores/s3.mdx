@@ -22,8 +22,8 @@ VALIDATOR parquet_fdw_validator;
 CREATE SERVER parquet_server
 FOREIGN DATA WRAPPER parquet_wrapper;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE parquet_table (x INT)
+
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (files 's3://<bucket>/<path>/<file>.parquet');
 ```
@@ -31,7 +31,7 @@ OPTIONS (files 's3://<bucket>/<path>/<file>.parquet');
 The glob pattern can be used to query a directory of files.
 
 ```sql
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (files 's3://<bucket>/<path>/*.parquet');
 ```

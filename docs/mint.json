@@ -134,7 +134,7 @@
       "pages": [
         "analytics/quickstart",
         {
-          "group": "Table Formats",
+          "group": "Table/File Formats",
           "pages": [
             "analytics/import/overview",
             "analytics/import/csv",

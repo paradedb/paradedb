@@ -156,45 +156,31 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
 }
 
 #[inline]
-fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> &'static str {
-    match duckdb_type.to_uppercase().as_str() {
-        "BOOLEAN" => "BOOLEAN",
-        "TINYINT" => "SMALLINT",
-        "SMALLINT" => "SMALLINT",
-        "INTEGER" => "INTEGER",
-        "BIGINT" => "BIGINT",
-        "UTINYINT" => "SMALLINT",
-        "USMALLINT" => "INTEGER",
-        "UINTEGER" => "BIGINT",
-        "UBIGINT" => "NUMERIC",
-        "FLOAT" => "REAL",
-        "DOUBLE" => "DOUBLE PRECISION",
-        "TIMESTAMP" => "TIMESTAMP",
-        "DATE" => "DATE",
-        "TIME" => "TIME",
-        "INTERVAL" => "INTERVAL",
-        "HUGEINT" => "BIGINT",
-        "UHUGEINT" => "BIGINT",
-        "VARCHAR" => "VARCHAR",
-        "BLOB" => "TEXT",
-        "DECIMAL" => "DECIMAL",
-        "TIMESTAMP_S" => "TIMESTAMP",
-        "TIMESTAMP_MS" => "TIMESTAMP",
-        "TIMESTAMP_NS" => "TIMESTAMP",
-        "ENUM" => "TEXT",
-        "LIST" => "TEXT",
-        "STRUCT" => "ROW",
-        "MAP" => "JSONB",
-        "ARRAY" => "JSONB",
-        "UUID" => "UUID",
-        "BIT" => "BIT",
-        "TIME WITH TIME ZONE" => "TIMETZ",
-        "TIMESTAMP WITH TIME ZONE" => "TIMESTAMPTZ",
-        other => {
-            warning!("Field '{}' has DuckDB type {}, which has no clear Postgres mapping. Falling back to default type TEXT, which can be changed with ALTER TABLE", column_name, other);
-            "TEXT"
-        }
+fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> String {
+    let mut postgres_type = duckdb_type
+        .replace("TINYINT", "SMALLINT")
+        .replace("UTINYINT", "SMALLINT")
+        .replace("USMALLINT", "INTEGER")
+        .replace("UINTEGER", "BIGINT")
+        .replace("UBIGINT", "NUMERIC")
+        .replace("HUGEINT", "NUMERIC")
+        .replace("UHUGEINT", "NUMERIC")
+        .replace("BLOB", "BYTEA")
+        .replace("DOUBLE", "DOUBLE PRECISION")
+        .replace("TIMESTAMP_S", "TIMESTAMP")
+        .replace("TIMESTAMP_MS", "TIMESTAMP")
+        .replace("TIMESTAMP_NS", "TIMESTAMP")
+        .replace("ARRAY", "JSONB");
+
+    if postgres_type.starts_with("STRUCT") {
+        postgres_type = "JSONB".to_string();
     }
+
+    if postgres_type.starts_with("MAP") {
+        postgres_type = "JSONB".to_string();
+    }
+
+    postgres_type
 }
 
 #[inline]

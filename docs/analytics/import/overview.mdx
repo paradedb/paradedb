@@ -31,11 +31,11 @@ The final step to querying external data is to create a foreign table. If multip
 (e.g. S3), they can share the same server.
 
 ```sql
-CREATE FOREIGN TABLE table1 (x INT)
+CREATE FOREIGN TABLE table1 ()
 SERVER parquet_server
 OPTIONS (files 's3://bucket/folder/file1.parquet');
 
-CREATE FOREIGN TABLE table2 (x INT)
+CREATE FOREIGN TABLE table2 ()
 SERVER parquet_server
 OPTIONS (files 's3://bucket/folder/file2.parquet');
 

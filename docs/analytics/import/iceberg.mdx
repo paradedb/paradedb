@@ -14,8 +14,7 @@ VALIDATOR iceberg_fdw_validator;
 CREATE SERVER <server_name>
 FOREIGN DATA WRAPPER <wrapper_name>;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE <table_name> (x INT)
+CREATE FOREIGN TABLE <table_name> ()
 SERVER <server_name>
 OPTIONS (files '<files>');
 ```
@@ -29,8 +28,7 @@ VALIDATOR iceberg_fdw_validator;
 CREATE SERVER iceberg_server
 FOREIGN DATA WRAPPER iceberg_wrapper;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE iceberg_table (x INT)
+CREATE FOREIGN TABLE iceberg_table ()
 SERVER iceberg_server
 OPTIONS (files 's3://bucket/folder');
 
@@ -56,7 +54,7 @@ The path to the Iceberg table. For instance, `s3://bucket/folder` if the Iceberg
 The `allow_moved_paths` option ensures that some path resolution is performed, which allows scanning Iceberg tables that are moved.
 
 ```sql
-CREATE FOREIGN TABLE iceberg_table (x INT)
+CREATE FOREIGN TABLE iceberg_table ()
 SERVER iceberg_server
 OPTIONS (
     files 's3://bucket/folder',
@@ -75,7 +73,7 @@ Error: IO Error: Cannot open file "s3://⟨bucket⟩/⟨iceberg-table-folder⟩/
 Providing the path to the `<id>.metadata.json` manifest will circumvent this error.
 
 ```sql
-CREATE FOREIGN TABLE iceberg_table (x INT)
+CREATE FOREIGN TABLE iceberg_table ()
 SERVER iceberg_server
 OPTIONS (
     files 's3://⟨bucket⟩/⟨iceberg-table-folder⟩/metadata/⟨id⟩.metadata.json',

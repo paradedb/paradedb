@@ -190,3 +190,6 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
 
     Ok(())
 }
+
+#[rstest]
+async fn test_duckdb_types_parquet_local(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {}

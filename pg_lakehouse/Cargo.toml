@@ -30,8 +30,9 @@ serde_json = "1.0.120"
 shared = { path = "../shared" }
 signal-hook = "0.3.17"
 signal-hook-async-std = "0.2.2"
-supabase-wrappers = { path = "../..//wrappers/supabase-wrappers", default-features = false }
+supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false, rev = "95b621a" }
 thiserror = "1.0.59"
+uuid = "1.9.1"
 
 [dev-dependencies]
 aws-config = "1.5.1"

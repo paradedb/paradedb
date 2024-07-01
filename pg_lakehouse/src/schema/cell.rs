@@ -17,8 +17,9 @@
 
 use anyhow::{anyhow, Result};
 use duckdb::arrow::array::types::{
-    ArrowTemporalType, Date32Type, Date64Type, Decimal128Type, Time32MillisecondType,
-    Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
+    ArrowTemporalType, Date32Type, Date64Type, Decimal128Type, IntervalDayTimeType,
+    IntervalMonthDayNanoType, IntervalYearMonthType, Time32MillisecondType, Time32SecondType,
+    Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
     TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type,
     UInt64Type, UInt8Type,
 };
@@ -27,8 +28,9 @@ use duckdb::arrow::array::{
     BooleanArray, Decimal128Array, Float16Array, Float32Array, Float64Array, GenericByteArray,
     Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, StringArray,
 };
-use duckdb::arrow::datatypes::{DataType, DecimalType, GenericStringType, TimeUnit};
+use duckdb::arrow::datatypes::{DataType, DecimalType, GenericStringType, IntervalUnit, TimeUnit};
 use pgrx::*;
+use std::any::type_name;
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -100,7 +102,7 @@ where
         let downcast_array = self
             .as_any()
             .downcast_ref::<A>()
-            .ok_or_else(|| anyhow!("failed to downcast primitive array"))?;
+            .ok_or_else(|| anyhow!("failed to downcast primitive array {:?}", type_name::<A>()))?;
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => Ok(Some(downcast_array.value(index))),
             true => Ok(None),
@@ -127,6 +129,69 @@ where
                 let numeric =
                     AnyNumeric::from_str(&Decimal128Type::format_decimal(value, precision, scale))?;
                 Ok(Some(N::try_from(numeric)?))
+            }
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetIntervalDayTimeValue
+where
+    Self: Array + AsArray,
+{
+    fn get_interval_day_time_value(&self, index: usize) -> Result<Option<datum::Interval>> {
+        let downcast_array = self.as_primitive::<IntervalDayTimeType>();
+
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => {
+                const MICROSECONDS_IN_MILLISECOND: i32 = 1_000;
+                let interval = downcast_array.value(index);
+
+                Ok(Some(datum::Interval::new(
+                    0,
+                    interval.days,
+                    (interval.milliseconds * MICROSECONDS_IN_MILLISECOND) as i64,
+                )?))
+            }
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetIntervalMonthDayNanoValue
+where
+    Self: Array + AsArray,
+{
+    fn get_interval_month_day_nano_value(&self, index: usize) -> Result<Option<datum::Interval>> {
+        let downcast_array = self.as_primitive::<IntervalMonthDayNanoType>();
+
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => {
+                const NANOSECONDS_IN_MICROSECOND: i64 = 1_000;
+                let interval = downcast_array.value(index);
+
+                Ok(Some(datum::Interval::new(
+                    interval.months,
+                    interval.days,
+                    interval.nanoseconds / NANOSECONDS_IN_MICROSECOND,
+                )?))
+            }
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetIntervalYearMonthValue
+where
+    Self: Array + AsArray,
+{
+    fn get_interval_year_month_value(&self, index: usize) -> Result<Option<datum::Interval>> {
+        let downcast_array = self.as_primitive::<IntervalYearMonthType>();
+
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => {
+                let months = downcast_array.value(index);
+                Ok(Some(datum::Interval::from_months(months)))
             }
             true => Ok(None),
         }
@@ -225,18 +290,18 @@ pub trait GetUIntValue
 where
     Self: Array + AsArray,
 {
-    fn get_uint_value<A>(&self, index: usize) -> Result<Option<i64>>
+    fn get_uint_value<A>(&self, index: usize) -> Result<Option<u64>>
     where
         A: ArrowPrimitiveType,
-        i64: TryFrom<A::Native>,
-        <i64 as TryFrom<<A as duckdb::arrow::array::ArrowPrimitiveType>::Native>>::Error:
+        u64: TryFrom<A::Native>,
+        <u64 as TryFrom<<A as duckdb::arrow::array::ArrowPrimitiveType>::Native>>::Error:
             Send + Sync + std::error::Error,
     {
         let downcast_array = self.as_primitive::<A>();
         match downcast_array.is_null(index) {
             false => {
                 let value: A::Native = downcast_array.value(index);
-                Ok(Some(i64::try_from(value)?))
+                Ok(Some(u64::try_from(value)?))
             }
             true => Ok(None),
         }
@@ -250,6 +315,9 @@ where
         + GetBinaryValue
         + GetDateValue
         + GetDecimalValue
+        + GetIntervalDayTimeValue
+        + GetIntervalMonthDayNanoValue
+        + GetIntervalYearMonthValue
         + GetPrimitiveValue
         + GetTimeValue
         + GetTimestampValue
@@ -257,6 +325,7 @@ where
         + GetUIntValue,
 {
     fn get_cell(&self, index: usize, oid: pg_sys::Oid, name: &str) -> Result<Option<Cell>> {
+        info!("converting {:?} to {:?}", self.data_type(), oid);
         match oid {
             pg_sys::BOOLOID => match self.get_primitive_value::<BooleanArray>(index)? {
                 Some(value) => Ok(Some(Cell::Bool(value))),
@@ -396,19 +465,19 @@ where
                     None => Ok(None),
                 },
                 DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value))),
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
                     None => Ok(None),
                 },
                 DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value))),
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
                     None => Ok(None),
                 },
                 DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value))),
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
                     None => Ok(None),
                 },
                 DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value))),
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
                     None => Ok(None),
                 },
                 DataType::Float16 => match self.get_primitive_value::<Float16Array>(index)? {
@@ -658,6 +727,32 @@ where
                 )
                 .into()),
             },
+            pg_sys::INTERVALOID => match self.data_type() {
+                DataType::Interval(IntervalUnit::DayTime) => {
+                    match self.get_interval_day_time_value(index)? {
+                        Some(value) => Ok(Some(Cell::Interval(value))),
+                        None => Ok(None),
+                    }
+                }
+                DataType::Interval(IntervalUnit::MonthDayNano) => {
+                    match self.get_interval_month_day_nano_value(index)? {
+                        Some(value) => Ok(Some(Cell::Interval(value))),
+                        None => Ok(None),
+                    }
+                }
+                DataType::Interval(IntervalUnit::YearMonth) => {
+                    match self.get_interval_year_month_value(index)? {
+                        Some(value) => Ok(Some(Cell::Interval(value))),
+                        None => Ok(None),
+                    }
+                }
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )
+                .into()),
+            },
             pg_sys::TIMEOID => match self.data_type() {
                 DataType::Time64(TimeUnit::Nanosecond) => {
                     match self.get_time_value::<i64, Time64NanosecondType>(index)? {
@@ -783,6 +878,9 @@ impl GetBinaryValue for ArrayRef {}
 impl GetCell for ArrayRef {}
 impl GetDateValue for ArrayRef {}
 impl GetDecimalValue for ArrayRef {}
+impl GetIntervalDayTimeValue for ArrayRef {}
+impl GetIntervalMonthDayNanoValue for ArrayRef {}
+impl GetIntervalYearMonthValue for ArrayRef {}
 impl GetPrimitiveValue for ArrayRef {}
 impl GetTimeValue for ArrayRef {}
 impl GetTimestampValue for ArrayRef {}

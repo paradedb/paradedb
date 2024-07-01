@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike};
+use chrono::{
+    DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone, Timelike,
+};
 use pgrx::*;
 use std::fmt::Debug;
 use std::panic::{RefUnwindSafe, UnwindSafe};
@@ -31,6 +33,9 @@ pub struct DateTimeNoTz(pub NaiveDateTime);
 
 #[derive(Clone, Debug)]
 pub struct Time(pub NaiveTime);
+
+#[derive(Clone, Debug)]
+pub struct Interval(pub TimeDelta);
 
 #[derive(Clone, Debug)]
 pub struct DateTimeTz<Tz: TimeZone> {
@@ -131,5 +136,14 @@ impl TryFrom<Time> for datum::Time {
             time.minute() as u8,
             time.second() as f64 + time.nanosecond() as f64 / NANOSECONDS_IN_SECOND as f64,
         )
+    }
+}
+
+impl TryFrom<Interval> for datum::Interval {
+    type Error = datum::datetime_support::DateTimeConversionError;
+
+    fn try_from(interval: Interval) -> Result<Self, Self::Error> {
+        let Interval(timedelta) = interval;
+        Ok(datum::Interval::from_seconds(timedelta.num_seconds() as f64))
     }
 }

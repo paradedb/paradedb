@@ -156,7 +156,11 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
 }
 
 #[inline]
-fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> String {
+fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> Result<String> {
+    if duckdb_type == "INVALID" {
+        bail!("Column '{}' has an invalid DuckDB type", column_name);
+    }
+
     let mut postgres_type = duckdb_type
         .replace("TINYINT", "SMALLINT")
         .replace("UTINYINT", "SMALLINT")
@@ -180,7 +184,7 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> String {
         postgres_type = "JSONB".to_string();
     }
 
-    postgres_type
+    Ok(postgres_type)
 }
 
 #[inline]
@@ -188,7 +192,8 @@ fn construct_alter_table_statement(table_name: &str, columns: Vec<(String, Strin
     let column_definitions: Vec<String> = columns
         .iter()
         .map(|(column_name, duckdb_type)| {
-            let pg_type = duckdb_type_to_pg(column_name, duckdb_type);
+            let pg_type =
+                duckdb_type_to_pg(column_name, duckdb_type).expect("failed to convert DuckDB type");
             format!("ADD COLUMN {} {}", column_name, pg_type)
         })
         .collect();

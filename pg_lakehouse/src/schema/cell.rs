@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use duckdb::arrow::array::types::{
     ArrowTemporalType, Date32Type, Date64Type, Decimal128Type, IntervalDayTimeType,
     IntervalMonthDayNanoType, IntervalYearMonthType, Time32MillisecondType, Time32SecondType,
@@ -30,6 +30,7 @@ use duckdb::arrow::array::{
 };
 use duckdb::arrow::datatypes::{DataType, DecimalType, GenericStringType, IntervalUnit, TimeUnit};
 use pgrx::*;
+use serde_json::{value::Number, Map, Value};
 use std::any::type_name;
 use std::fmt::Debug;
 use std::str::FromStr;
@@ -189,6 +190,140 @@ where
                 .map(|opt| opt.map(|s| s.to_string()))
                 .collect::<Vec<Option<String>>>(),
         ))
+    }
+}
+
+pub trait GetStructValue
+where
+    Self: Array + AsArray,
+{
+    fn get_struct_value(&self, index: usize) -> Result<Option<datum::JsonB>> {
+        let downcast_array = self.as_struct();
+
+        if downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            return Ok(None);
+        }
+
+        let column_names = downcast_array.column_names();
+        let fields = downcast_array.fields();
+        let mut map = Map::new();
+
+        for column_name in column_names {
+            if let Some((column_index, field)) = fields.find(column_name) {
+                match field.data_type() {
+                    DataType::Boolean => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<BooleanArray>(index)? {
+                            map.insert(column_name.to_string(), Value::Bool(value));
+                        }
+                    }
+                    DataType::Int8 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<Int8Array>(index)? {
+                            map.insert(column_name.to_string(), Value::Number(Number::from(value)));
+                        }
+                    }
+                    DataType::Int16 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<Int16Array>(index)? {
+                            map.insert(column_name.to_string(), Value::Number(Number::from(value)));
+                        }
+                    }
+                    DataType::Int32 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<Int32Array>(index)? {
+                            map.insert(column_name.to_string(), Value::Number(Number::from(value)));
+                        }
+                    }
+                    DataType::Int64 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<Int64Array>(index)? {
+                            map.insert(column_name.to_string(), Value::Number(Number::from(value)));
+                        }
+                    }
+                    DataType::UInt8 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_uint_value::<UInt8Type>(index)? {
+                            map.insert(column_name.to_string(), Value::Number(Number::from(value)));
+                        }
+                    }
+                    DataType::UInt16 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_uint_value::<UInt16Type>(index)? {
+                            map.insert(column_name.to_string(), Value::Number(Number::from(value)));
+                        }
+                    }
+                    DataType::UInt32 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_uint_value::<UInt32Type>(index)? {
+                            map.insert(column_name.to_string(), Value::Number(Number::from(value)));
+                        }
+                    }
+                    DataType::UInt64 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_uint_value::<UInt64Type>(index)? {
+                            map.insert(column_name.to_string(), Value::Number(Number::from(value)));
+                        }
+                    }
+                    DataType::Float16 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<Float16Array>(index)? {
+                            map.insert(
+                                column_name.to_string(),
+                                Value::Number(Number::from_f64(value.to_f32() as f64).ok_or_else(
+                                    || anyhow!("failed to convert {:?} to f64", value),
+                                )?),
+                            );
+                        }
+                    }
+                    DataType::Float32 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<Float32Array>(index)? {
+                            map.insert(
+                                column_name.to_string(),
+                                Value::Number(Number::from_f64(value as f64).ok_or_else(|| {
+                                    anyhow!("failed to convert {:?} to f64", value)
+                                })?),
+                            );
+                        }
+                    }
+                    DataType::Float64 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<Float64Array>(index)? {
+                            map.insert(
+                                column_name.to_string(),
+                                Value::Number(Number::from_f64(value).ok_or_else(|| {
+                                    anyhow!("failed to convert {:?} to f64", value)
+                                })?),
+                            );
+                        }
+                    }
+                    DataType::Decimal128(p, s) => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_decimal_value::<f64>(index, *p, *s)? {
+                            map.insert(
+                                column_name.to_string(),
+                                Value::Number(Number::from_f64(value).ok_or_else(|| {
+                                    anyhow!("failed to convert {:?} to f64", value)
+                                })?),
+                            );
+                        }
+                    }
+                    DataType::Utf8 => {
+                        let column = downcast_array.column(column_index);
+                        if let Some(value) = column.get_primitive_value::<StringArray>(index)? {
+                            map.insert(column_name.to_string(), Value::String(value.to_string()));
+                        }
+                    }
+                    unsupported => bail!(
+                        "Structs with {:?} field types are not yet supported",
+                        unsupported
+                    ),
+                }
+            }
+        }
+
+        Ok(Some(datum::JsonB(Value::Object(map))))
     }
 }
 
@@ -401,9 +536,10 @@ where
         + GetIntervalDayTimeValue
         + GetIntervalMonthDayNanoValue
         + GetIntervalYearMonthValue
-        + GetStringListValue
         + GetPrimitiveValue
         + GetPrimitiveListValue
+        + GetStringListValue
+        + GetStructValue
         + GetTimeValue
         + GetTimestampValue
         + GetTimestampTzValue
@@ -854,6 +990,18 @@ where
                 )
                 .into()),
             },
+            pg_sys::JSONBOID => match self.data_type() {
+                DataType::Struct(_) => match self.get_struct_value(index)? {
+                    Some(value) => Ok(Some(Cell::Json(value))),
+                    None => Ok(None),
+                },
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )
+                .into()),
+            },
             pg_sys::TIMEOID => match self.data_type() {
                 DataType::Time64(TimeUnit::Nanosecond) => {
                     match self.get_time_value::<i64, Time64NanosecondType>(index)? {
@@ -1025,9 +1173,10 @@ impl GetDecimalValue for ArrayRef {}
 impl GetIntervalDayTimeValue for ArrayRef {}
 impl GetIntervalMonthDayNanoValue for ArrayRef {}
 impl GetIntervalYearMonthValue for ArrayRef {}
-impl GetStringListValue for ArrayRef {}
 impl GetPrimitiveValue for ArrayRef {}
 impl GetPrimitiveListValue for ArrayRef {}
+impl GetStringListValue for ArrayRef {}
+impl GetStructValue for ArrayRef {}
 impl GetTimeValue for ArrayRef {}
 impl GetTimestampValue for ArrayRef {}
 impl GetTimestampTzValue for ArrayRef {}

@@ -57,9 +57,38 @@ where
 
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => {
-                let value = String::from_utf8(downcast_array.value(index).as_ref().to_vec())?;
-                Ok(Some(value))
+                let value = downcast_array.value(index);
+                let bytes: &[u8] = value.as_ref();
+                let rust_bytes = varlena::rust_byte_slice_to_bytea(bytes);
+                let rust_str = unsafe { varlena::text_to_rust_str_unchecked(rust_bytes.into_pg()) };
+                Ok(Some(rust_str.to_string()))
             }
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetByteValue
+where
+    Self: Array + AsArray,
+{
+    fn get_byte_value<A>(&self, index: usize) -> Result<Option<PgBox<pg_sys::varlena>>>
+    where
+        A: Array + Debug + 'static,
+        for<'a> &'a A: ArrayAccessor,
+        for<'a> <&'a A as ArrayAccessor>::Item: AsRef<[u8]>,
+    {
+        let downcast_array = self
+            .as_any()
+            .downcast_ref::<A>()
+            .ok_or_else(|| anyhow!("failed to downcast byte array"))?;
+
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => unsafe {
+                let value = downcast_array.value(index);
+                let bytes: &[u8] = value.as_ref();
+                Ok(Some(varlena::rust_byte_slice_to_bytea(bytes)))
+            },
             true => Ok(None),
         }
     }
@@ -107,6 +136,59 @@ where
             false => Ok(Some(downcast_array.value(index))),
             true => Ok(None),
         }
+    }
+}
+
+pub trait GetPrimitiveListValue
+where
+    Self: Array + AsArray,
+{
+    fn get_primitive_list_value<A, T>(&self, index: usize) -> Result<Option<Vec<T>>>
+    where
+        A: Array + Debug + 'static,
+        for<'a> &'a A: IntoIterator,
+        for<'a> <&'a A as IntoIterator>::Item: IntoDatum + Clone,
+        for<'a> Vec<T>: FromIterator<<&'a A as IntoIterator>::Item>,
+    {
+        let downcast_array = self.as_list::<i32>();
+
+        if downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            return Ok(None);
+        }
+
+        let binding = downcast_array.value(index);
+        let value = binding
+            .as_any()
+            .downcast_ref::<A>()
+            .ok_or_else(|| anyhow!("failed to downcast list array"))?;
+
+        Ok(Some(value.into_iter().collect::<Vec<T>>()))
+    }
+}
+
+pub trait GetStringListValue
+where
+    Self: Array + AsArray,
+{
+    fn get_string_list_value(&self, index: usize) -> Result<Option<Vec<Option<String>>>> {
+        let downcast_array = self.as_list::<i32>();
+
+        if downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            return Ok(None);
+        }
+
+        let binding = downcast_array.value(index);
+        let value = binding
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow!("failed to downcast list array"))?;
+
+        Ok(Some(
+            value
+                .iter()
+                .map(|opt| opt.map(|s| s.to_string()))
+                .collect::<Vec<Option<String>>>(),
+        ))
     }
 }
 
@@ -313,12 +395,15 @@ where
     Self: Array
         + AsArray
         + GetBinaryValue
+        + GetByteValue
         + GetDateValue
         + GetDecimalValue
         + GetIntervalDayTimeValue
         + GetIntervalMonthDayNanoValue
         + GetIntervalYearMonthValue
+        + GetStringListValue
         + GetPrimitiveValue
+        + GetPrimitiveListValue
         + GetTimeValue
         + GetTimestampValue
         + GetTimestampTzValue
@@ -330,6 +415,22 @@ where
             pg_sys::BOOLOID => match self.get_primitive_value::<BooleanArray>(index)? {
                 Some(value) => Ok(Some(Cell::Bool(value))),
                 None => Ok(None),
+            },
+            pg_sys::BYTEAOID => match self.data_type() {
+                DataType::Binary => match self.get_byte_value::<BinaryArray>(index)? {
+                    Some(value) => Ok(Some(Cell::Bytea(value.into_pg()))),
+                    None => Ok(None),
+                },
+                DataType::LargeBinary => match self.get_byte_value::<LargeBinaryArray>(index)? {
+                    Some(value) => Ok(Some(Cell::Bytea(value.into_pg()))),
+                    None => Ok(None),
+                },
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    name.to_string(),
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )
+                .into()),
             },
             pg_sys::INT2OID => match self.data_type() {
                 DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
@@ -864,6 +965,48 @@ where
                 )
                 .into()),
             },
+            pg_sys::BOOLARRAYOID => {
+                match self.get_primitive_list_value::<BooleanArray, Option<bool>>(index)? {
+                    Some(value) => Ok(Some(Cell::BoolArray(value))),
+                    None => Ok(None),
+                }
+            }
+            pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID | pg_sys::BPCHARARRAYOID => {
+                match self.get_string_list_value(index)? {
+                    Some(value) => Ok(Some(Cell::StringArray(value))),
+                    None => Ok(None),
+                }
+            }
+            pg_sys::INT2ARRAYOID => {
+                match self.get_primitive_list_value::<Int16Array, Option<i16>>(index)? {
+                    Some(value) => Ok(Some(Cell::I16Array(value))),
+                    None => Ok(None),
+                }
+            }
+            pg_sys::INT4ARRAYOID => {
+                match self.get_primitive_list_value::<Int32Array, Option<i32>>(index)? {
+                    Some(value) => Ok(Some(Cell::I32Array(value))),
+                    None => Ok(None),
+                }
+            }
+            pg_sys::INT8ARRAYOID => {
+                match self.get_primitive_list_value::<Int64Array, Option<i64>>(index)? {
+                    Some(value) => Ok(Some(Cell::I64Array(value))),
+                    None => Ok(None),
+                }
+            }
+            pg_sys::FLOAT4ARRAYOID => {
+                match self.get_primitive_list_value::<Float32Array, Option<f32>>(index)? {
+                    Some(value) => Ok(Some(Cell::F32Array(value))),
+                    None => Ok(None),
+                }
+            }
+            pg_sys::FLOAT8ARRAYOID => {
+                match self.get_primitive_list_value::<Float64Array, Option<f64>>(index)? {
+                    Some(value) => Ok(Some(Cell::F64Array(value))),
+                    None => Ok(None),
+                }
+            }
             unsupported => Err(DataTypeError::DataTypeMismatch(
                 name.to_string(),
                 self.data_type().clone(),
@@ -875,13 +1018,16 @@ where
 }
 
 impl GetBinaryValue for ArrayRef {}
+impl GetByteValue for ArrayRef {}
 impl GetCell for ArrayRef {}
 impl GetDateValue for ArrayRef {}
 impl GetDecimalValue for ArrayRef {}
 impl GetIntervalDayTimeValue for ArrayRef {}
 impl GetIntervalMonthDayNanoValue for ArrayRef {}
 impl GetIntervalYearMonthValue for ArrayRef {}
+impl GetStringListValue for ArrayRef {}
 impl GetPrimitiveValue for ArrayRef {}
+impl GetPrimitiveListValue for ArrayRef {}
 impl GetTimeValue for ArrayRef {}
 impl GetTimestampValue for ArrayRef {}
 impl GetTimestampTzValue for ArrayRef {}

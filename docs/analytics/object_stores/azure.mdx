@@ -19,8 +19,8 @@ VALIDATOR parquet_fdw_validator;
 CREATE SERVER parquet_server
 FOREIGN DATA WRAPPER parquet_wrapper;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE parquet_table (x INT)
+
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (files 'az://<container>/<path>/<file>.parquet');
 ```
@@ -28,7 +28,7 @@ OPTIONS (files 'az://<container>/<path>/<file>.parquet');
 The glob pattern can be used to query a directory of files.
 
 ```sql
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (files 'az://<container>/<path>/*.parquet');
 ```
@@ -36,7 +36,7 @@ OPTIONS (files 'az://<container>/<path>/*.parquet');
 Fully-qualified path syntax is also supported.
 
 ```sql
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (
   files 'az://<storage_account>.blob.core.windows.net/<container>/<path>/*.parquet'

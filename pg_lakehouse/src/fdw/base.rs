@@ -80,10 +80,9 @@ pub trait BaseFdw {
             )?;
 
             let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
-            let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
             let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
 
-            match FdwHandler::from(foreign_server) {
+            match FdwHandler::from(foreign_table) {
                 FdwHandler::Csv => {
                     connection::create_csv_view(table_name, schema_name, table_options)?;
                 }

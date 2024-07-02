@@ -51,26 +51,8 @@ CREATE FOREIGN DATA WRAPPER parquet_wrapper HANDLER parquet_fdw_handler VALIDATO
 -- Provide S3 credentials
 CREATE SERVER parquet_server FOREIGN DATA WRAPPER parquet_wrapper;
 
--- Create foreign table
-CREATE FOREIGN TABLE trips (
-    VendorID              INT,
-    tpep_pickup_datetime  TIMESTAMP,
-    tpep_dropoff_datetime TIMESTAMP,
-    passenger_count       BIGINT,
-    trip_distance         DOUBLE PRECISION,
-    RatecodeID            DOUBLE PRECISION,
-    store_and_fwd_flag    TEXT,
-    PULocationID          REAL,
-    DOLocationID          REAL,
-    payment_type          DOUBLE PRECISION,
-    fare_amount           DOUBLE PRECISION,
-    extra                 DOUBLE PRECISION,
-    mta_tax               DOUBLE PRECISION,
-    tip_amount            DOUBLE PRECISION,
-    tolls_amount          DOUBLE PRECISION,
-    improvement_surcharge DOUBLE PRECISION,
-    total_amount          DOUBLE PRECISION
-)
+-- Create foreign table with auto schema creation
+CREATE FOREIGN TABLE trips ()
 SERVER parquet_server
 OPTIONS (files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet');
 

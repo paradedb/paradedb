@@ -14,8 +14,7 @@ VALIDATOR csv_fdw_validator;
 CREATE SERVER <server_name>
 FOREIGN DATA WRAPPER <wrapper_name>;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE <table_name> (x INT)
+CREATE FOREIGN TABLE <table_name> ()
 SERVER <server_name>
 OPTIONS (files '<files>');
 ```
@@ -29,8 +28,7 @@ VALIDATOR csv_fdw_validator;
 CREATE SERVER csv_server
 FOREIGN DATA WRAPPER csv_wrapper;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (files 's3://bucket/folder/file.csv');
 
@@ -77,7 +75,7 @@ See [Auto Type Candidates](https://duckdb.org/docs/data/csv/overview#auto_type_c
 
 <Accordion title="Example Usage">
 ```sql
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files 's3://bucket/folder/file.csv',
@@ -96,7 +94,7 @@ not used.
 <Accordion title="Example Usage">
 ```sql
 -- Dollar-quoted strings are used to contain single quotes
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files 's3://bucket/folder/file.csv',
@@ -141,7 +139,7 @@ Do not match the specified columns' values against the `NULL` string. In the def
 <Accordion title="Example Usage">
 ```sql
 -- Dollar-quoted strings are used to contain single quotes
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files 's3://bucket/folder/file.csv',
@@ -166,7 +164,7 @@ partitions in a struct.
 <Accordion title = "Example Usage">
 ```sql
 -- Dollar-quoted strings are used to contain single quotes
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files 's3://bucket/folder/file.csv',
@@ -181,7 +179,7 @@ hive_types will be autodetected for the following types: `DATE`, `TIMESTAMP` and
 To switch off the autodetection, this option can be set to `0`.
 <Accordion title = "Example Usage">
 ```sql
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files 's3://bucket/folder/file.csv',
@@ -208,7 +206,7 @@ The column names as a list if the file does not contain a header.
 <Accordion title="Example Usage">
 ```sql
 -- Dollar-quoted strings are used to contain single quotes
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files 's3://bucket/folder/file.csv',
@@ -238,7 +236,7 @@ Specifies the string that represents a `NULL` value or a list of strings that re
 <Accordion title="Example Usage">
 ```sql
 -- Dollar-quoted strings are used to contain single quotes
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files 's3://bucket/folder/file.csv',
@@ -279,7 +277,7 @@ The column types as a list by position.
 
 <Accordion title="Example Usage">
 ```sql
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files 's3://bucket/folder/file.csv',
@@ -300,7 +298,7 @@ To treat multiple CSV files as a single table, their paths should be passed in a
 string.
 
 ```sql
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files '/path/to/file1.csv, /path/to/file2.csv'
@@ -310,7 +308,7 @@ OPTIONS (
 To treat a directory of CSV files as a single table, the glob pattern should be used.
 
 ```sql
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files '/folder/*.csv',
@@ -320,7 +318,7 @@ OPTIONS (
 The glob pattern can also be used to read all CSV files from multiple directories.
 
 ```sql
-CREATE FOREIGN TABLE csv_table (x INT)
+CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (
     files '/folder1/*.csv, /folder2/*.csv'

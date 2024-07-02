@@ -33,6 +33,7 @@ use futures::future::{BoxFuture, FutureExt};
 use rstest::*;
 use serde::Serialize;
 use serde_arrow::schema::{SchemaLike, TracingOptions};
+use shared::fixtures::tempfile::TempDir;
 use sqlx::PgConnection;
 use testcontainers::ContainerAsync;
 use testcontainers_modules::{
@@ -209,11 +210,16 @@ pub async fn s3() -> S3 {
 }
 
 #[fixture]
-pub fn tempdir() -> shared::fixtures::tempfile::TempDir {
+pub fn tempdir() -> TempDir {
     shared::fixtures::tempfile::tempdir().unwrap()
 }
 
 #[fixture]
 pub fn tempfile() -> std::fs::File {
     shared::fixtures::tempfile::tempfile().unwrap()
+}
+
+#[fixture]
+pub fn duckdb_conn() -> duckdb::Connection {
+    duckdb::Connection::open_in_memory().unwrap()
 }

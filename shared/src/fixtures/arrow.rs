@@ -118,30 +118,11 @@ pub fn primitive_record_batch() -> Result<RecordBatch> {
         Field::new("uint16_col", DataType::UInt16, false),
         Field::new("uint32_col", DataType::UInt32, false),
         Field::new("uint64_col", DataType::UInt64, false),
-        // No Float16Array implemented yet in the arrow lib.
-        // Field::new("float16_col", DataType::Float16, false),
         Field::new("float32_col", DataType::Float32, false),
         Field::new("float64_col", DataType::Float64, false),
-        // Field::new(
-        //     "timestamp_col",
-        //     DataType::Timestamp(TimeUnit::Second, None),
-        //     true,
-        // ),
         Field::new("date32_col", DataType::Date32, false),
         Field::new("date64_col", DataType::Date64, false),
-        // Field::new("time32_col", DataType::Time32(TimeUnit::Second), false),
-        // Field::new("time64_col", DataType::Time64(TimeUnit::Nanosecond), false),
-        // Converting Duration to parquet not supported.
-        // Field::new("duration_col", DataType::Duration(TimeUnit::Millisecond), false),
-        // Arrow IntervalDayTime is not supported by ParadeDB.
-        // Field::new(
-        //     "interval_col",
-        //     DataType::Interval(IntervalUnit::DayTime),
-        //     false,
-        // ),
         Field::new("binary_col", DataType::Binary, false),
-        // Arrow FixedSizeBinary is not supported by ParadeDB.
-        // Field::new("fixed_size_binary_col", DataType::FixedSizeBinary(5), false),
         Field::new("large_binary_col", DataType::LargeBinary, false),
         Field::new("utf8_col", DataType::Utf8, false),
         Field::new("large_utf8_col", DataType::LargeUtf8, false),
@@ -167,33 +148,15 @@ pub fn primitive_record_batch() -> Result<RecordBatch> {
             Arc::new(UInt16Array::from(vec![1, 2, 0])),
             Arc::new(UInt32Array::from(vec![1, 2, 0])),
             Arc::new(UInt64Array::from(vec![1, 2, 0])),
-            // No Float16Array implemented in the arrow lib.
             Arc::new(Float32Array::from(vec![1.0, -1.0, 0.0])),
             Arc::new(Float64Array::from(vec![1.0, -1.0, 0.0])),
-            // Arc::new(TimestampSecondArray::from(vec![
-            //     Some(0),
-            //     Some(0),
-            //     Some(1627849445),
-            // ])),
             Arc::new(Date32Array::from(vec![18262, 18263, 18264])),
             Arc::new(Date64Array::from(vec![
                 1609459200000,
                 1609545600000,
                 1609632000000,
             ])),
-            // Arc::new(Time32SecondArray::from(vec![3600, 7200, 10800])),
-            // Arc::new(Time64NanosecondArray::from(vec![
-            //     3600000000000,
-            //     7200000000000,
-            //     10800000000000,
-            // ])),
-            // Converting Duration to parquet not supported.
-            // Arc::new(DurationMillisecondArray::from(vec![1000, 2000, -1000])),
-            // Arrow IntervalDayTime is not supported by ParadeDB.
-            // Arc::new(IntervalDayTimeArray::from(vec![1, 2, 3])),
             Arc::new(BinaryArray::from(array_data())),
-            // Arrow FixedSizeBinary is not supported by ParadeDB.
-            // Arc::new(FixedSizeBinaryArray::from(fixed_size_array_data)),
             Arc::new(LargeBinaryArray::from(binary_array_data())),
             Arc::new(StringArray::from(vec![
                 Some("Hello"),
@@ -241,16 +204,9 @@ pub fn primitive_create_table(server: &str, table: &str) -> String {
             uint64_col        numeric(20),
             float32_col       real,
             float64_col       double precision,
-            -- timestamp_col     bigint,
             date32_col        date,
             date64_col        date,
-            -- time32_col        int,
-            -- time64_col        time,
-            -- Arrow IntervalDayTime is not supported by ParadeDB.
-            -- interval_col   interval,
             binary_col        bytea,
-            -- Arrow FixedSizeBinary is not supported by ParadeDB.
-            -- fixed_size_binary_col bytea,
             large_binary_col  bytea,
             utf8_col          text,
             large_utf8_col    text

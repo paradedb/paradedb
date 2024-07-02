@@ -19,8 +19,7 @@ VALIDATOR delta_fdw_validator;
 CREATE SERVER <server_name>
 FOREIGN DATA WRAPPER <wrapper_name>;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE <table_name> (x INT)
+CREATE FOREIGN TABLE <table_name> ()
 SERVER <server_name>
 OPTIONS (files '<files>');
 ```
@@ -34,8 +33,7 @@ VALIDATOR delta_fdw_validator;
 CREATE SERVER delta_server
 FOREIGN DATA WRAPPER delta_wrapper;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE delta_table (x INT)
+CREATE FOREIGN TABLE delta_table ()
 SERVER delta_server
 OPTIONS (files 's3://bucket/folder');
 

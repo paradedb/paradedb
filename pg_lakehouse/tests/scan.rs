@@ -192,4 +192,30 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
 }
 
 #[rstest]
-async fn test_duckdb_types_parquet_local(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {}
+async fn test_duckdb_types_parquet_local(
+    mut conn: PgConnection,
+    tempdir: TempDir,
+    duckdb_conn: duckdb::Connection,
+) -> Result<()> {
+    let parquet_path = tempdir.path().join("test_arrow_types.parquet");
+
+    duckdb_conn
+        .execute(&DuckdbTypesTable::create_duckdb_table(), [])
+        .unwrap();
+
+    duckdb_conn
+        .execute(&DuckdbTypesTable::populate_duckdb_table(), [])
+        .unwrap();
+
+    duckdb_conn
+        .execute(
+            &DuckdbTypesTable::export_duckdb_table(parquet_path.to_str().unwrap()),
+            [],
+        )
+        .unwrap();
+
+    DuckdbTypesTable::create_foreign_table(parquet_path.to_str().unwrap()).execute(&mut conn);
+    let row: Vec<DuckdbTypesTable> = format!("SELECT * FROM duckdb_types_test").fetch(&mut conn);
+
+    Ok(())
+}

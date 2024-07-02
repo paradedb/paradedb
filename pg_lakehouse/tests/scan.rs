@@ -33,7 +33,7 @@ use shared::fixtures::arrow::{
 };
 use shared::fixtures::tempfile::TempDir;
 use sqlx::PgConnection;
-use time::{Date, OffsetDateTime, PrimitiveDateTime, Time};
+use time::{macros::*, Date, OffsetDateTime, PrimitiveDateTime, Time};
 
 const S3_TRIPS_BUCKET: &str = "test-trip-setup";
 const S3_TRIPS_KEY: &str = "test_trip_setup.parquet";
@@ -243,23 +243,23 @@ async fn test_duckdb_types_parquet_local(
             decimal_col: BigDecimal::from_str("12345678901234567890").unwrap(),
             decimal_32_col: BigDecimal::from_str("12345678901234567890").unwrap(),
             varchar_col: "Example text".to_string(),
-            char_col: 'A',
-            real_col: 12345.67,
-            timestamp_tz_col: DateTime::<Utc>::from_utc(
+            blob_col: '\x41',
+            decimal_col: 12345.67,
+            timestamp_s_col: DateTime::<Utc>::from_utc(
                 NaiveDateTime::new(
                     NaiveDate::from_ymd(2023, 6, 27),
                     NaiveTime::from_hms(12, 34, 56)
                 ),
                 Utc
             ),
-            timestamp_tz_col_with_ms: DateTime::<Utc>::from_utc(
+            timestamp_ms_col: DateTime::<Utc>::from_utc(
                 NaiveDateTime::new(
                     NaiveDate::from_ymd(2023, 6, 27),
                     NaiveTime::from_hms_milli(12, 34, 56, 789)
                 ),
                 Utc
             ),
-            timestamp_tz_col_with_us: DateTime::<Utc>::from_utc(
+            timestamp_ns_col: DateTime::<Utc>::from_utc(
                 NaiveDateTime::new(
                     NaiveDate::from_ymd(2023, 6, 27),
                     NaiveTime::from_hms_micro(12, 34, 56, 789123)
@@ -287,7 +287,7 @@ async fn test_duckdb_types_parquet_local(
             ],
             uuid_col: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
             time_tz_col: NaiveTime::from_hms(12, 34, 56),
-            timestamp_tz_col_with_offset: DateTime::<FixedOffset>::from_utc(
+            timestamp_tz_col: DateTime::<FixedOffset>::from_utc(
                 NaiveDateTime::new(
                     NaiveDate::from_ymd(2023, 6, 27),
                     NaiveTime::from_hms(12, 34, 56)

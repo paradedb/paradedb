@@ -31,7 +31,12 @@ use shared::fixtures::arrow::{
     primitive_setup_fdw_s3_listing,
 };
 use shared::fixtures::tempfile::TempDir;
+use sqlx::postgres::types::PgInterval;
+use sqlx::types::{BigDecimal, Json, Uuid};
 use sqlx::PgConnection;
+use std::collections::HashMap;
+use std::str::FromStr;
+use time::macros::{date, datetime, time};
 
 const S3_TRIPS_BUCKET: &str = "test-trip-setup";
 const S3_TRIPS_KEY: &str = "test_trip_setup.parquet";
@@ -187,6 +192,77 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
             retrieved_batch.column_by_name(field.name())
         )
     }
+
+    Ok(())
+}
+
+#[rstest]
+async fn test_duckdb_types_parquet_local(
+    mut conn: PgConnection,
+    tempdir: TempDir,
+    duckdb_conn: duckdb::Connection,
+) -> Result<()> {
+    let parquet_path = tempdir.path().join("test_arrow_types.parquet");
+
+    duckdb_conn
+        .execute(&DuckdbTypesTable::create_duckdb_table(), [])
+        .unwrap();
+
+    duckdb_conn
+        .execute(&DuckdbTypesTable::populate_duckdb_table(), [])
+        .unwrap();
+
+    duckdb_conn
+        .execute(
+            &DuckdbTypesTable::export_duckdb_table(parquet_path.to_str().unwrap()),
+            [],
+        )
+        .unwrap();
+
+    DuckdbTypesTable::create_foreign_table(parquet_path.to_str().unwrap()).execute(&mut conn);
+    let row: Vec<DuckdbTypesTable> = "SELECT * FROM duckdb_types_test".fetch(&mut conn);
+
+    assert_eq!(
+        row,
+        vec![DuckdbTypesTable {
+            bool_col: true,
+            tinyint_col: 127,
+            smallint_col: 32767,
+            integer_col: 2147483647,
+            bigint_col: 9223372036854775807,
+            utinyint_col: 255,
+            usmallint_col: 65535,
+            uinteger_col: 4294967295,
+            ubigint_col: BigDecimal::from_str("18446744073709551615").unwrap(),
+            float_col: 1.2300000190734863,
+            double_col: 2.34,
+            date_col: date!(2023 - 06 - 27),
+            time_col: time!(12:34:56),
+            timestamp_col: datetime!(2023-06-27 12:34:56),
+            interval_col: PgInterval {
+                months: 0,
+                days: 1,
+                microseconds: 0
+            },
+            hugeint_col: 1.2345678901234567e19,
+            uhugeint_col: 1.2345678901234567e19,
+            varchar_col: "Example text".to_string(),
+            blob_col: vec![65],
+            decimal_col: BigDecimal::from_str("12345.6700").unwrap(),
+            timestamp_s_col: datetime!(2023-06-27 12:34:56),
+            timestamp_ms_col: datetime!(2023-06-27 12:34:56),
+            timestamp_ns_col: datetime!(2023-06-27 12:34:56),
+            list_col: vec![1, 2, 3],
+            struct_col: Json(HashMap::from_iter(vec![
+                ("b".to_string(), "def".to_string()),
+                ("a".to_string(), "abc".to_string())
+            ])),
+            array_col: [1, 2, 3],
+            uuid_col: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            time_tz_col: time!(12:34:56),
+            timestamp_tz_col: datetime!(2023-06-27 10:34:56 +00:00:00),
+        }]
+    );
 
     Ok(())
 }

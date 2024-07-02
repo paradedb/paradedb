@@ -4,8 +4,8 @@ title: Overview
 
 ## Foreign Data Wrapper
 
-Postgres [foreign data wrappers](https://www.postgresql.org/docs/current/ddl-foreign-data.html) are used to connect to and query external table formats
-like CSV, Parquet, Delta, and Iceberg. ParadeDB uses a unique foreign data wrapper for each table format.
+Postgres [foreign data wrappers](https://www.postgresql.org/docs/current/ddl-foreign-data.html) are used to connect to and query external table/file formats
+like CSV, Parquet, Delta, and Iceberg. ParadeDB uses a unique foreign data wrapper for each format.
 
 For instance, the following command creates a foreign data wrapper for handling Parquet files.
 
@@ -31,11 +31,11 @@ The final step to querying external data is to create a foreign table. If multip
 (e.g. S3), they can share the same server.
 
 ```sql
-CREATE FOREIGN TABLE table1 (x INT)
+CREATE FOREIGN TABLE table1 ()
 SERVER parquet_server
 OPTIONS (files 's3://bucket/folder/file1.parquet');
 
-CREATE FOREIGN TABLE table2 (x INT)
+CREATE FOREIGN TABLE table2 ()
 SERVER parquet_server
 OPTIONS (files 's3://bucket/folder/file2.parquet');
 
@@ -43,3 +43,8 @@ OPTIONS (files 's3://bucket/folder/file2.parquet');
 SELECT COUNT(*) from table1;
 SELECT COUNT(*) from table2;
 ```
+
+<Note>
+  In the above code block, the schemas of `table1` and `table2` are
+  automatically created based on the schemas of the underlying Parquet files.
+</Note>

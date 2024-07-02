@@ -14,8 +14,7 @@ VALIDATOR parquet_fdw_validator;
 CREATE SERVER <server_name>
 FOREIGN DATA WRAPPER <wrapper_name>;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE <table_name> (x INT)
+CREATE FOREIGN TABLE <table_name> ()
 SERVER <server_name>
 OPTIONS (files '<files>');
 ```
@@ -29,8 +28,7 @@ VALIDATOR parquet_fdw_validator;
 CREATE SERVER parquet_server
 FOREIGN DATA WRAPPER parquet_wrapper;
 
--- Replace the dummy schema with the actual schema
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (files 's3://bucket/folder/file.parquet');
 
@@ -59,7 +57,7 @@ These are the same [options](https://duckdb.org/docs/data/parquet/overview#param
 by DuckDB's `read_parquet` function.
 
 ```sql
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (
     files 's3://bucket/folder/file.parquet',
@@ -93,7 +91,7 @@ partitions in a struct.
 <Accordion title = "Example Usage">
 ```sql
 -- Dollar-quoted strings are used to contain single quotes
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (
     files 's3://bucket/folder/file.parquet',
@@ -108,7 +106,7 @@ hive_types will be autodetected for the following types: `DATE`, `TIMESTAMP` and
 To switch off the autodetection, this option can be set to `0`.
 <Accordion title = "Example Usage">
 ```sql
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (
     files 's3://bucket/folder/file.parquet',
@@ -129,7 +127,7 @@ To treat multiple Parquet files as a single table, their paths should be passed 
 string.
 
 ```sql
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (
     files '/path/to/file1.parquet, /path/to/file2.parquet'
@@ -139,7 +137,7 @@ OPTIONS (
 To treat a directory of Parquet files as a single table, the glob pattern should be used.
 
 ```sql
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (
     files '/folder/*.parquet',
@@ -149,7 +147,7 @@ OPTIONS (
 The glob pattern can also be used to read all Parquet files from multiple directories.
 
 ```sql
-CREATE FOREIGN TABLE parquet_table (x INT)
+CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server
 OPTIONS (
     files '/folder1/*.parquet, /folder2/*.parquet'

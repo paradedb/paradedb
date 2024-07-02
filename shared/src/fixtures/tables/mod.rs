@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod duckdb_types;
 mod icu_amharic_posts;
 mod icu_arabic_posts;
 mod icu_greek_posts;
@@ -23,6 +24,7 @@ mod research_project_arrays;
 mod simple_products;
 mod user_session_logs;
 
+pub use duckdb_types::*;
 pub use icu_amharic_posts::*;
 pub use icu_arabic_posts::*;
 pub use icu_greek_posts::*;

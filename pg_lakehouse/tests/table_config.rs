@@ -89,11 +89,6 @@ async fn test_reserved_table_name(mut conn: PgConnection, tempdir: TempDir) -> R
 
 #[rstest]
 async fn test_invalid_file(mut conn: PgConnection) -> Result<()> {
-    println!(
-        "{}",
-        primitive_setup_fdw_local_file_listing("invalid_file.parquet", "primitive")
-    );
-
     match primitive_setup_fdw_local_file_listing("invalid_file.parquet", "primitive")
         .execute_result(&mut conn)
     {

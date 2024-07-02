@@ -49,7 +49,7 @@ fn auto_create_schema_hook(fcinfo: pg_sys::FunctionCallInfo) {
     }
 }
 
-// Foreign tables should not be create  with these names
+// Foreign tables should not be created with these names
 // because they conflict with built-in DuckDB tables
 // https://duckdb.org/docs/guides/meta/duckdb_environment#meta-table-functions
 const DUCKDB_RESERVED_NAMES: [&str; 16] = [

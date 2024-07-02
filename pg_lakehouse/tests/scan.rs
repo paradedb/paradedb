@@ -20,6 +20,7 @@ mod fixtures;
 use std::fs::File;
 
 use anyhow::Result;
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 use datafusion::parquet::arrow::ArrowWriter;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
@@ -32,6 +33,7 @@ use shared::fixtures::arrow::{
 };
 use shared::fixtures::tempfile::TempDir;
 use sqlx::PgConnection;
+use time::{Date, OffsetDateTime, PrimitiveDateTime, Time};
 
 const S3_TRIPS_BUCKET: &str = "test-trip-setup";
 const S3_TRIPS_KEY: &str = "test_trip_setup.parquet";
@@ -216,6 +218,84 @@ async fn test_duckdb_types_parquet_local(
 
     DuckdbTypesTable::create_foreign_table(parquet_path.to_str().unwrap()).execute(&mut conn);
     let row: Vec<DuckdbTypesTable> = format!("SELECT * FROM duckdb_types_test").fetch(&mut conn);
+
+    assert_eq!(
+        row,
+        vec![DuckdbTypesTable {
+            bool_col: true,
+            tinyint_col: 127,
+            smallint_col: 32767,
+            int_col: 2147483647,
+            bigint_col: 9223372036854775807,
+            unsigned_tinyint_col: 255,
+            unsigned_smallint_col: 65535,
+            unsigned_int_col: 4294967295,
+            unsigned_bigint_col: 18446744073709551615,
+            float_col: 1.23,
+            double_col: 2.34,
+            date_col: NaiveDate::from_ymd(2023, 6, 27),
+            time_col: NaiveTime::from_hms(12, 34, 56),
+            timestamp_col: NaiveDateTime::new(
+                NaiveDate::from_ymd(2023, 6, 27),
+                NaiveTime::from_hms(12, 34, 56)
+            ),
+            interval_col: TimeDelta::days(1),
+            decimal_col: BigDecimal::from_str("12345678901234567890").unwrap(),
+            decimal_32_col: BigDecimal::from_str("12345678901234567890").unwrap(),
+            varchar_col: "Example text".to_string(),
+            char_col: 'A',
+            real_col: 12345.67,
+            timestamp_tz_col: DateTime::<Utc>::from_utc(
+                NaiveDateTime::new(
+                    NaiveDate::from_ymd(2023, 6, 27),
+                    NaiveTime::from_hms(12, 34, 56)
+                ),
+                Utc
+            ),
+            timestamp_tz_col_with_ms: DateTime::<Utc>::from_utc(
+                NaiveDateTime::new(
+                    NaiveDate::from_ymd(2023, 6, 27),
+                    NaiveTime::from_hms_milli(12, 34, 56, 789)
+                ),
+                Utc
+            ),
+            timestamp_tz_col_with_us: DateTime::<Utc>::from_utc(
+                NaiveDateTime::new(
+                    NaiveDate::from_ymd(2023, 6, 27),
+                    NaiveTime::from_hms_micro(12, 34, 56, 789123)
+                ),
+                Utc
+            ),
+            array_col: vec![1, 2, 3],
+            row_col: DuckdbRow {
+                field1: "abc".to_string(),
+                field2: "def".to_string()
+            },
+            array_of_rows_col: vec![
+                DuckdbRow {
+                    field1: "abc".to_string(),
+                    field2: "def".to_string()
+                },
+                DuckdbRow {
+                    field1: "abc".to_string(),
+                    field2: "def".to_string()
+                },
+                DuckdbRow {
+                    field1: "abc".to_string(),
+                    field2: "def".to_string()
+                },
+            ],
+            uuid_col: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            time_tz_col: NaiveTime::from_hms(12, 34, 56),
+            timestamp_tz_col_with_offset: DateTime::<FixedOffset>::from_utc(
+                NaiveDateTime::new(
+                    NaiveDate::from_ymd(2023, 6, 27),
+                    NaiveTime::from_hms(12, 34, 56)
+                ),
+                FixedOffset::east(2 * 3600)
+            ),
+        }]
+    );
 
     Ok(())
 }

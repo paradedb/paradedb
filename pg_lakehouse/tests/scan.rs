@@ -20,7 +20,6 @@ mod fixtures;
 use std::fs::File;
 
 use anyhow::Result;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 use datafusion::parquet::arrow::ArrowWriter;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
@@ -32,8 +31,12 @@ use shared::fixtures::arrow::{
     primitive_setup_fdw_s3_listing,
 };
 use shared::fixtures::tempfile::TempDir;
+use sqlx::postgres::types::PgInterval;
+use sqlx::types::{BigDecimal, Json, Uuid};
 use sqlx::PgConnection;
-use time::{macros::*, Date, OffsetDateTime, PrimitiveDateTime, Time};
+use std::collections::HashMap;
+use std::str::FromStr;
+use time::macros::{date, datetime, time};
 
 const S3_TRIPS_BUCKET: &str = "test-trip-setup";
 const S3_TRIPS_KEY: &str = "test_trip_setup.parquet";
@@ -225,75 +228,39 @@ async fn test_duckdb_types_parquet_local(
             bool_col: true,
             tinyint_col: 127,
             smallint_col: 32767,
-            int_col: 2147483647,
+            integer_col: 2147483647,
             bigint_col: 9223372036854775807,
-            unsigned_tinyint_col: 255,
-            unsigned_smallint_col: 65535,
-            unsigned_int_col: 4294967295,
-            unsigned_bigint_col: 18446744073709551615,
-            float_col: 1.23,
+            utinyint_col: 255,
+            usmallint_col: 65535,
+            uinteger_col: 4294967295,
+            ubigint_col: BigDecimal::from_str("18446744073709551615").unwrap(),
+            float_col: 1.2300000190734863,
             double_col: 2.34,
-            date_col: NaiveDate::from_ymd(2023, 6, 27),
-            time_col: NaiveTime::from_hms(12, 34, 56),
-            timestamp_col: NaiveDateTime::new(
-                NaiveDate::from_ymd(2023, 6, 27),
-                NaiveTime::from_hms(12, 34, 56)
-            ),
-            interval_col: TimeDelta::days(1),
-            decimal_col: BigDecimal::from_str("12345678901234567890").unwrap(),
-            decimal_32_col: BigDecimal::from_str("12345678901234567890").unwrap(),
-            varchar_col: "Example text".to_string(),
-            blob_col: '\x41',
-            decimal_col: 12345.67,
-            timestamp_s_col: DateTime::<Utc>::from_utc(
-                NaiveDateTime::new(
-                    NaiveDate::from_ymd(2023, 6, 27),
-                    NaiveTime::from_hms(12, 34, 56)
-                ),
-                Utc
-            ),
-            timestamp_ms_col: DateTime::<Utc>::from_utc(
-                NaiveDateTime::new(
-                    NaiveDate::from_ymd(2023, 6, 27),
-                    NaiveTime::from_hms_milli(12, 34, 56, 789)
-                ),
-                Utc
-            ),
-            timestamp_ns_col: DateTime::<Utc>::from_utc(
-                NaiveDateTime::new(
-                    NaiveDate::from_ymd(2023, 6, 27),
-                    NaiveTime::from_hms_micro(12, 34, 56, 789123)
-                ),
-                Utc
-            ),
-            array_col: vec![1, 2, 3],
-            row_col: DuckdbRow {
-                field1: "abc".to_string(),
-                field2: "def".to_string()
+            date_col: date!(2023 - 06 - 27),
+            time_col: time!(12:34:56),
+            timestamp_col: datetime!(2023-06-27 12:34:56),
+            interval_col: PgInterval {
+                months: 0,
+                days: 1,
+                microseconds: 0
             },
-            array_of_rows_col: vec![
-                DuckdbRow {
-                    field1: "abc".to_string(),
-                    field2: "def".to_string()
-                },
-                DuckdbRow {
-                    field1: "abc".to_string(),
-                    field2: "def".to_string()
-                },
-                DuckdbRow {
-                    field1: "abc".to_string(),
-                    field2: "def".to_string()
-                },
-            ],
+            hugeint_col: 1.2345678901234567e19,
+            uhugeint_col: 1.2345678901234567e19,
+            varchar_col: "Example text".to_string(),
+            blob_col: vec![65],
+            decimal_col: BigDecimal::from_str("12345.6700").unwrap(),
+            timestamp_s_col: datetime!(2023-06-27 12:34:56),
+            timestamp_ms_col: datetime!(2023-06-27 12:34:56),
+            timestamp_ns_col: datetime!(2023-06-27 12:34:56),
+            list_col: vec![1, 2, 3],
+            struct_col: Json(HashMap::from_iter(vec![
+                ("b".to_string(), "def".to_string()),
+                ("a".to_string(), "abc".to_string())
+            ])),
+            array_col: [1, 2, 3],
             uuid_col: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
-            time_tz_col: NaiveTime::from_hms(12, 34, 56),
-            timestamp_tz_col: DateTime::<FixedOffset>::from_utc(
-                NaiveDateTime::new(
-                    NaiveDate::from_ymd(2023, 6, 27),
-                    NaiveTime::from_hms(12, 34, 56)
-                ),
-                FixedOffset::east(2 * 3600)
-            ),
+            time_tz_col: time!(12:34:56),
+            timestamp_tz_col: datetime!(2023-06-27 10:34:56 +00:00:00),
         }]
     );
 

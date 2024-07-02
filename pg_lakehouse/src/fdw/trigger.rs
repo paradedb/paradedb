@@ -18,8 +18,9 @@
 use anyhow::{bail, Result};
 use pgrx::*;
 use std::ffi::CStr;
-use supabase_wrappers::prelude::options_to_hashmap;
+use supabase_wrappers::prelude::{options_to_hashmap, user_mapping_options};
 
+use super::base::register_duckdb_view;
 use crate::duckdb::connection;
 use crate::fdw::handler::FdwHandler;
 
@@ -104,6 +105,7 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
 
     // If the foreign table was not created by this extension, exit
     let foreign_table = unsafe { pg_sys::GetForeignTable(oid) };
+
     if FdwHandler::from(foreign_table) == FdwHandler::Other {
         return Ok(());
     }
@@ -116,38 +118,33 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         );
     }
 
+    // Drop stale view
+    connection::execute(
+        format!("DROP VIEW IF EXISTS {schema_name}.{table_name}").as_str(),
+        [],
+    )?;
+
+    // Register DuckDB view
+    let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+    let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
+    let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+    let handler = FdwHandler::from(foreign_table);
+    register_duckdb_view(
+        table_name,
+        schema_name,
+        table_options,
+        user_mapping_options,
+        handler,
+    )?;
+
     // If the table already has columns, no need for auto schema creation
     let relation = pg_sys::relation_open(oid, pg_sys::AccessShareLock as i32);
     if (*(*relation).rd_att).natts != 0 {
+        pg_sys::RelationClose(relation);
         return Ok(());
     }
 
     pg_sys::RelationClose(relation);
-
-    // Initialize DuckDB view
-    connection::execute(
-        format!("CREATE SCHEMA IF NOT EXISTS {schema_name}").as_str(),
-        [],
-    )?;
-
-    let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
-    match FdwHandler::from(foreign_table) {
-        FdwHandler::Csv => {
-            connection::create_csv_view(table_name, schema_name, table_options)?;
-        }
-        FdwHandler::Delta => {
-            connection::create_delta_view(table_name, schema_name, table_options)?;
-        }
-        FdwHandler::Iceberg => {
-            connection::create_iceberg_view(table_name, schema_name, table_options)?;
-        }
-        FdwHandler::Parquet => {
-            connection::create_parquet_view(table_name, schema_name, table_options)?;
-        }
-        _ => {
-            todo!()
-        }
-    }
 
     // Get DuckDB schema
     let conn = unsafe { &*connection::get_global_connection().get() };

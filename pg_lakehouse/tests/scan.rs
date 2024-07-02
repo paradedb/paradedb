@@ -53,6 +53,14 @@ async fn test_trip_count(#[future(awt)] s3: S3, mut conn: PgConnection) -> Resul
     s3.create_bucket(S3_TRIPS_BUCKET).await?;
     s3.put_rows(S3_TRIPS_BUCKET, S3_TRIPS_KEY, &rows).await?;
 
+    println!(
+        "{}",
+        NycTripsTable::setup_s3_listing_fdw(
+            &s3.url.clone(),
+            &format!("s3://{S3_TRIPS_BUCKET}/{S3_TRIPS_KEY}"),
+        )
+    );
+
     NycTripsTable::setup_s3_listing_fdw(
         &s3.url.clone(),
         &format!("s3://{S3_TRIPS_BUCKET}/{S3_TRIPS_KEY}"),
@@ -179,6 +187,11 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
     writer.write(batch.clone()).await?;
     writer.flush_and_commit(&mut table).await?;
 
+    println!(
+        "{}",
+        primitive_setup_fdw_local_file_delta(&temp_path.to_string_lossy(), "delta_primitive")
+    );
+
     primitive_setup_fdw_local_file_delta(&temp_path.to_string_lossy(), "delta_primitive")
         .execute(&mut conn);
 
@@ -220,7 +233,7 @@ async fn test_duckdb_types_parquet_local(
         .unwrap();
 
     DuckdbTypesTable::create_foreign_table(parquet_path.to_str().unwrap()).execute(&mut conn);
-    let row: Vec<DuckdbTypesTable> = format!("SELECT * FROM duckdb_types_test").fetch(&mut conn);
+    let row: Vec<DuckdbTypesTable> = "SELECT * FROM duckdb_types_test".fetch(&mut conn);
 
     assert_eq!(
         row,

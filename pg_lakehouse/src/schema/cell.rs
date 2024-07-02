@@ -584,6 +584,12 @@ where
                     Some(value) => Ok(Some(Cell::Bytea(value.into_pg()))),
                     None => Ok(None),
                 },
+                DataType::Utf8 => match self.get_primitive_value::<StringArray>(index)? {
+                    Some(value) => Ok(Some(Cell::Bytea(
+                        varlena::rust_str_to_text_p(value).into_pg(),
+                    ))),
+                    None => Ok(None),
+                },
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     name.to_string(),
                     unsupported.clone(),

@@ -59,3 +59,52 @@ async fn test_table_case_sensitivity(mut conn: PgConnection, tempdir: TempDir) -
 
     Ok(())
 }
+
+#[rstest]
+async fn test_reserved_table_name(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
+    let stored_batch = primitive_record_batch()?;
+    let parquet_path = tempdir.path().join("test_arrow_types.parquet");
+    let parquet_file = File::create(&parquet_path)?;
+
+    let mut writer = ArrowWriter::try_new(parquet_file, stored_batch.schema(), None).unwrap();
+    writer.write(&stored_batch)?;
+    writer.close()?;
+
+    match primitive_setup_fdw_local_file_listing(
+        parquet_path.as_path().to_str().unwrap(),
+        "duckdb_types",
+    )
+    .execute_result(&mut conn)
+    {
+        Ok(_) => {
+            panic!("should have failed to create table with reserved name")
+        }
+        Err(e) => {
+            assert_eq!(e.to_string(), "error returned from database: Table name 'duckdb_types' is not allowed because it is reserved by DuckDB")
+        }
+    }
+
+    Ok(())
+}
+
+#[rstest]
+async fn test_invalid_file(mut conn: PgConnection) -> Result<()> {
+    println!(
+        "{}",
+        primitive_setup_fdw_local_file_listing("invalid_file.parquet", "primitive")
+    );
+
+    match primitive_setup_fdw_local_file_listing("invalid_file.parquet", "primitive")
+        .execute_result(&mut conn)
+    {
+        Ok(_) => panic!("should have failed to create table with invalid file"),
+        Err(e) => {
+            assert_eq!(
+                e.to_string(),
+                "error returned from database: IO Error: No files found that match the pattern \"invalid_file.parquet\""
+            )
+        }
+    }
+
+    Ok(())
+}

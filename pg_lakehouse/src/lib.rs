@@ -20,7 +20,6 @@ mod duckdb;
 mod fdw;
 mod hooks;
 mod schema;
-mod triggers;
 
 use hooks::LakehouseHook;
 use pgrx::*;

@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use sqlx::FromRow;
 use sqlx::postgres::types::PgInterval;
 use sqlx::types::{BigDecimal, Json, Uuid};
+use sqlx::FromRow;
 use std::collections::HashMap;
-use time::{Date, Time, OffsetDateTime, PrimitiveDateTime};
+use time::{Date, OffsetDateTime, PrimitiveDateTime, Time};
 
 #[derive(Debug, PartialEq, FromRow)]
 pub struct DuckdbTypesTable {
@@ -68,11 +68,13 @@ impl DuckdbTypesTable {
     }
 
     pub fn create_foreign_table(path: &str) -> String {
-        format!(r#"
+        format!(
+            r#"
             CREATE FOREIGN DATA WRAPPER parquet_wrapper HANDLER parquet_fdw_handler VALIDATOR parquet_fdw_validator;
             CREATE SERVER parquet_server FOREIGN DATA WRAPPER parquet_wrapper;
             CREATE FOREIGN TABLE duckdb_types_test () SERVER parquet_server OPTIONS (files '{path}');
-        "#)
+        "#
+        )
     }
 }
 

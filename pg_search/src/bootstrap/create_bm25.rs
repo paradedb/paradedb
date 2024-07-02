@@ -116,7 +116,7 @@ fn create_bm25(
             Ok(obj) => {
                 if let Value::Object(map) = obj {
                     for key in map.keys() {
-                        column_names.insert(key.clone());
+                        column_names.insert(spi::quote_identifier(key.clone()));
                     }
                 }
             }

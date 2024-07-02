@@ -514,3 +514,26 @@ fn null_key_field_insert(mut conn: PgConnection) {
         ),
     };
 }
+
+#[rstest]
+fn column_name_camelcase(mut conn: PgConnection) {
+    "CREATE TABLE paradedb.index_config(\"IdName\" INTEGER, \"ColumnName\" TEXT)"
+        .execute(&mut conn);
+    "INSERT INTO paradedb.index_config VALUES (1, 'Plastic Keyboard'), (2, 'Bluetooth Headphones')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'IdName',
+        text_fields => '{ColumnName: {}}'
+    )"
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String)> =
+        "SELECT * FROM index_config.search('ColumnName:keyboard')".fetch(&mut conn);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (1.into(), "Plastic Keyboard".into()));
+}

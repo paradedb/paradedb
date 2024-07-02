@@ -535,5 +535,5 @@ fn column_name_camelcase(mut conn: PgConnection) {
         "SELECT * FROM index_config.search('ColumnName:keyboard')".fetch(&mut conn);
 
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0], (1.into(), "Plastic Keyboard".into()));
+    assert_eq!(rows[0], (1, "Plastic Keyboard".into()));
 }

@@ -4,10 +4,7 @@ title: Azure
 
 ## Overview
 
-To query file(s) stored in Azure, the first step is to create a [foreign data wrapper](/analytics/import/overview#foreign-data-wrapper) and
-[server](/analytics/import/overview#foreign-server) that corresponds to the format of the Azure file(s) (e.g. CSV, Parquet, Delta, or Iceberg).
-
-The next step is to create a foreign table with the Azure file path passed to the `files` option. The file path must start with an Azure
+This code block demonstrates how to create a foreign table over a Parquet file stored in Azure. The file path must start with an Azure
 scheme such as `az`, `azure`, or `abfss`.
 
 ```sql
@@ -18,7 +15,6 @@ VALIDATOR parquet_fdw_validator;
 
 CREATE SERVER parquet_server
 FOREIGN DATA WRAPPER parquet_wrapper;
-
 
 CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server

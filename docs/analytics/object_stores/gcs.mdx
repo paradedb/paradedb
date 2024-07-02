@@ -4,10 +4,8 @@ title: Google Cloud Storage
 
 ## Overview
 
-To query file(s) stored in Google Cloud Storage (GCS), the first step is to create a [foreign data wrapper](/analytics/import/overview#foreign-data-wrapper) and
-[server](/analytics/import/overview#foreign-server) that corresponds to the format of the GCS file(s) (e.g. CSV, Parquet, Delta, or Iceberg).
-
-The next step is to create a foreign table with the GCS file path passed to the `files` option. The file path must start with the `gs` scheme.
+This code block demonstrates how to create a foreign table over a Parquet file stored in Google Cloud Storage (GCS).
+The file path must start with `gs://`.
 
 ```sql
 -- Parquet format is assumed
@@ -17,7 +15,6 @@ VALIDATOR parquet_fdw_validator;
 
 CREATE SERVER parquet_server
 FOREIGN DATA WRAPPER parquet_wrapper;
-
 
 CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server

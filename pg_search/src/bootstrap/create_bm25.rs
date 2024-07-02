@@ -133,8 +133,14 @@ fn create_bm25(
         .collect::<Vec<String>>()
         .join(", ");
 
-    let mut stmt = format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={})",
+    let predicate = if !predicates.is_empty() {
+        format!("WHERE {}", predicates)
+    } else {
+        "".to_string()
+    };
+
+    Spi::run(&format!(
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}) {};",
         spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
@@ -145,15 +151,8 @@ fn create_bm25(
         spi::quote_literal(numeric_fields),
         spi::quote_literal(boolean_fields),
         spi::quote_literal(json_fields),
-        spi::quote_literal(datetime_fields));
-
-    if !predicates.is_empty() {
-        stmt.push_str(&format!("WHERE {};", predicates));
-    } else {
-        stmt.push(';');
-    }
-
-    Spi::run(&stmt)?;
+        spi::quote_literal(datetime_fields),
+        predicate))?;
 
     Spi::run(&format_bm25_function(
         &spi::quote_qualified_identifier(index_name, "search"),

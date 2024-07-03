@@ -703,3 +703,99 @@ async fn json_nested_arrays(mut conn: PgConnection) {
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 }
+
+#[rstest]
+fn bm25_partial_index_search(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+
+    // Ensure report error when predicate is invalid
+    // unknown column
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'partial_idx',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_index',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'city = ''Electronics'''
+    );"
+    .execute_result(&mut conn);
+    assert_eq!(ret.is_err(), true);
+
+    // mismatch type
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'partial_idx',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_index',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'category = ''123''::INTEGER'
+    );"
+    .execute_result(&mut conn);
+    assert_eq!(ret.is_err(), true);
+
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'partial_idx',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_index',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'category = ''Electronics'''
+    );"
+    .execute_result(&mut conn);
+    assert_eq!(ret.is_ok(), true);
+
+    // Ensure returned rows match the predicate
+    let columns: SimpleProductsTableVec = "SELECT description, rating, category FROM partial_idx.search( 'rating:>3', limit_rows => 20) ORDER BY rating".fetch_collect(&mut conn);
+    assert_eq!(columns.category.len(), 4);
+    assert_eq!(
+        columns.category,
+        "Electronics,Electronics,Electronics,Electronics"
+            .split(',')
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(columns.rating, vec![4, 4, 4, 5]);
+
+    // Ensure no mismatch rows returned
+    let rows: Vec<(i32,)> = "SELECT id, category FROM partial_idx.search( '(description:jeans OR category:Footwear) AND rating:>2', limit_rows => 20) ORDER BY rating".fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+
+    // Insert multiple tuples only 1 matches predicate and query
+    "INSERT INTO paradedb.partial_idx (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES 
+    ('Product 1', 'Electronics', 6, true, '{\"colors\": [\"red\", \"green\"]}', now(), current_date),
+    ('Product 2', 'Electronics', 3, false, '{\"colors\": [\"blue\", \"yellow\"]}', now(), current_date),
+    ('Product 3', 'Footwear', 7, true, '{\"colors\": [\"green\", \"blue\"]}', now(), current_date)".execute(&mut conn);
+
+    let rows: Vec<(String, i32, String)> = "SELECT description, rating, category FROM partial_idx.search( 'rating:>3', limit_rows => 20) ORDER BY rating DESC".fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
+
+    let (desc, rating, category) = rows[0].clone();
+    assert_eq!(desc, "Product 1");
+    assert_eq!(rating, 6);
+    assert_eq!(category, "Electronics");
+
+    // Update one tuple to make it no longer match the predicate
+    "UPDATE paradedb.partial_idx SET category = 'Footwear' WHERE description = 'Product 1'"
+        .execute(&mut conn);
+
+    let rows: Vec<(String, i32, String)> = "SELECT description, rating, category FROM partial_idx.search( 'rating:>3', limit_rows => 20) ORDER BY rating DESC".fetch(&mut conn);
+    assert_eq!(rows.len(), 4);
+    let (desc, ..) = rows[0].clone();
+    assert_ne!(desc, "Product 1");
+
+    // Update one tuple to make it match the predicate
+    "UPDATE paradedb.partial_idx SET category = 'Electronics' WHERE description = 'Product 3'"
+        .execute(&mut conn);
+
+    let rows: Vec<(String, i32, String)> = "SELECT description, rating, category FROM partial_idx.search( 'rating:>3', limit_rows => 20) ORDER BY rating DESC".fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
+
+    let (desc, rating, category) = rows[0].clone();
+    assert_eq!(desc, "Product 3");
+    assert_eq!(rating, 7);
+    assert_eq!(category, "Electronics");
+}

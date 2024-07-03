@@ -722,7 +722,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
         predicates => 'city = ''Electronics'''
     );"
     .execute_result(&mut conn);
-    assert_eq!(ret.is_err(), true);
+    assert!(ret.is_err());
 
     // mismatch type
     let ret = "CALL paradedb.create_bm25(
@@ -735,7 +735,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
         predicates => 'category = ''123''::INTEGER'
     );"
     .execute_result(&mut conn);
-    assert_eq!(ret.is_err(), true);
+    assert!(ret.is_err());
 
     let ret = "CALL paradedb.create_bm25(
         index_name => 'partial_idx',
@@ -747,7 +747,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
-    assert_eq!(ret.is_ok(), true);
+    assert!(ret.is_ok());
 
     // Ensure returned rows match the predicate
     let columns: SimpleProductsTableVec = "SELECT description, rating, category FROM partial_idx.search( 'rating:>3', limit_rows => 20) ORDER BY rating".fetch_collect(&mut conn);
@@ -761,7 +761,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(columns.rating, vec![4, 4, 4, 5]);
 
     // Ensure no mismatch rows returned
-    let rows: Vec<(i32,)> = "SELECT id, category FROM partial_idx.search( '(description:jeans OR category:Footwear) AND rating:>2', limit_rows => 20) ORDER BY rating".fetch(&mut conn);
+    let rows: Vec<(String,)> = "SELECT description FROM partial_idx.search( '(description:jeans OR category:Footwear) AND rating:>2', limit_rows => 20) ORDER BY rating".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 
     // Insert multiple tuples only 1 matches predicate and query
@@ -798,4 +798,33 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(desc, "Product 3");
     assert_eq!(rating, 7);
     assert_eq!(category, "Electronics");
+}
+
+#[rstest]
+fn bm25_partial_index_explain(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_explain', schema_name => 'paradedb');".execute(&mut conn);
+
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'partial_explain',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_explain',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'category = ''Electronics'''
+    );"
+    .execute_result(&mut conn);
+    assert!(ret.is_ok());
+
+    let plan: Vec<(String,)> =
+        "SELECT * FROM partial_explain.explain('rating:>3', stable_sort => true)".fetch(&mut conn);
+    assert!(plan[0].0.contains("Index Scan"));
+
+    // Ensure the query plan still includes an Index Scan when the query contains the column referenced by the predicates.
+    let plan: Vec<(String,)> =
+        "SELECT * FROM partial_explain.explain('rating:>3 AND category:Footwear', stable_sort => true)"
+            .fetch(&mut conn);
+    assert!(plan[0].0.contains("Index Scan"));
 }

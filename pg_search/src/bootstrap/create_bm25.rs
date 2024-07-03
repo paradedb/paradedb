@@ -154,6 +154,12 @@ fn create_bm25(
         spi::quote_literal(datetime_fields),
         predicate))?;
 
+    let predicate = if !predicates.is_empty() {
+        format!("{} AND ", predicates)
+    } else {
+        "".to_string()
+    };
+
     Spi::run(&format_bm25_function(
         &spi::quote_qualified_identifier(index_name, "search"),
         &format!(
@@ -162,9 +168,10 @@ fn create_bm25(
             spi::quote_identifier(table_name)
         ),
         &format!(
-            "RETURN QUERY SELECT * FROM {}.{} WHERE {} @@@ __paradedb_search_config__",
+            "RETURN QUERY SELECT * FROM {}.{} WHERE {} {} @@@ __paradedb_search_config__",
             spi::quote_identifier(schema_name),
             spi::quote_identifier(table_name),
+            predicate,
             spi::quote_identifier(key_field)
         ),
         &index_json,
@@ -174,9 +181,10 @@ fn create_bm25(
         &spi::quote_qualified_identifier(index_name, "explain"),
         "TABLE(\"QUERY PLAN\" text)",
         &format!(
-            "RETURN QUERY EXPLAIN SELECT * FROM {}.{} WHERE {} @@@ __paradedb_search_config__",
+            "RETURN QUERY EXPLAIN SELECT * FROM {}.{} WHERE {} {} @@@ __paradedb_search_config__",
             spi::quote_identifier(schema_name),
             spi::quote_identifier(table_name),
+            predicate,
             spi::quote_identifier(key_field)
         ),
         &index_json,

@@ -761,7 +761,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(columns.rating, vec![4, 4, 4, 5]);
 
     // Ensure no mismatch rows returned
-    let rows: Vec<(String,)> = "SELECT description FROM partial_idx.search( '(description:jeans OR category:Footwear) AND rating:>2', limit_rows => 20) ORDER BY rating".fetch(&mut conn);
+    let rows: Vec<String> = "SELECT description FROM partial_idx.search( '(description:jeans OR category:Footwear) AND rating:>2', limit_rows => 20) ORDER BY rating".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 
     // Insert multiple tuples only 1 matches predicate and query

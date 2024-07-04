@@ -751,19 +751,19 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     // Ensure returned rows match the predicate
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM partial_idx.search( 'rating:>3', limit_rows => 20) ORDER BY rating"
+        "SELECT * FROM partial_idx.search( 'rating:>1', limit_rows => 20) ORDER BY rating"
             .fetch_collect(&mut conn);
-    assert_eq!(columns.category.len(), 4);
+    assert_eq!(columns.category.len(), 5);
     assert_eq!(
         columns.category,
-        "Electronics,Electronics,Electronics,Electronics"
+        "Electronics,Electronics,Electronics,Electronics,Electronics"
             .split(',')
             .collect::<Vec<_>>()
     );
-    assert_eq!(columns.rating, vec![4, 4, 4, 5]);
+    assert_eq!(columns.rating, vec![3, 4, 4, 4, 5]);
 
     // Ensure no mismatch rows returned
-    let rows: Vec<(String, String)> = "SELECT description, category FROM partial_idx.search( '(description:jeans OR category:Footwear) AND rating:>2', limit_rows => 20) ORDER BY rating".fetch(&mut conn);
+    let rows: Vec<(String, String)> = "SELECT description, category FROM partial_idx.search( '(description:jeans OR category:Footwear) AND rating:>1', limit_rows => 20) ORDER BY rating".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 
     // Insert multiple tuples only 1 matches predicate and query
@@ -801,6 +801,10 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(desc, "Product 3");
     assert_eq!(rating, 2);
     assert_eq!(category, "Electronics");
+
+    // Insert one row without specifying the column referenced by the predicate.
+    let rows: Vec<(String, i32, String)> = "SELECT description, rating, category FROM partial_idx.search( 'rating:>1', limit_rows => 20) ORDER BY rating".fetch(&mut conn);
+    assert_eq!(rows.len(), 6);
 }
 
 #[rstest]

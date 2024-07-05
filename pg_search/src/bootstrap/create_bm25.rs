@@ -133,7 +133,7 @@ fn create_bm25(
         .collect::<Vec<String>>()
         .join(", ");
 
-    let predicate = if !predicates.is_empty() {
+    let predicate_where = if !predicates.is_empty() {
         format!("WHERE {}", predicates)
     } else {
         "".to_string()
@@ -152,7 +152,7 @@ fn create_bm25(
         spi::quote_literal(boolean_fields),
         spi::quote_literal(json_fields),
         spi::quote_literal(datetime_fields),
-        predicate))?;
+        predicate_where))?;
 
     let predicate = if !predicates.is_empty() {
         format!("{} AND ", predicates)
@@ -212,6 +212,12 @@ fn create_bm25(
         _ => bail!("could not select key field type and type oid"),
     };
 
+    let predicate_where_escape = if !predicate_where.is_empty() {
+        predicate_where.replace('\'', "''")
+    } else {
+        "".to_string()
+    };
+
     Spi::run(&format_hybrid_function(
         &spi::quote_qualified_identifier(index_name, "rank_hybrid"),
         &format!("TABLE({} {}, rank_hybrid real)", spi::quote_identifier(key_field), key_type),
@@ -228,6 +234,7 @@ fn create_bm25(
                                 (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ())
                         END AS score
                     FROM {}.{}
+                    {}
                     ORDER BY __similarity_query__
                     LIMIT $2
                 ),
@@ -246,6 +253,7 @@ fn create_bm25(
             ",
             spi::quote_identifier(schema_name),
             spi::quote_identifier(table_name),
+            predicate_where_escape,
             key_type,
             key_oid.as_u32()
         ),

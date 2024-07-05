@@ -835,3 +835,56 @@ fn bm25_partial_index_explain(mut conn: PgConnection) {
             .fetch(&mut conn);
     assert!(plan[0].0.contains("Index Scan"));
 }
+
+#[rstest]
+fn bm25_partial_index_hybrid(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_explain', schema_name => 'paradedb');".execute(&mut conn);
+
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'partial_idx',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_explain',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'category = ''Electronics'''
+    );"
+    .execute_result(&mut conn);
+    assert!(ret.is_ok());
+
+    r#"ALTER TABLE paradedb.test_partial_explain ADD COLUMN embedding vector(3);
+
+    UPDATE paradedb.test_partial_explain m
+    SET embedding = ('[' ||
+    ((m.id + 1) % 10 + 1)::integer || ',' ||
+    ((m.id + 2) % 10 + 1)::integer || ',' ||
+    ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+
+    CREATE INDEX on paradedb.test_partial_explain
+    USING hnsw (embedding vector_l2_ops)"#
+        .execute(&mut conn);
+
+    // Ensure all of them match the predicate
+    let columns: SimpleProductsTableVec = r#"
+    SELECT t.*, s.rank_hybrid
+    FROM paradedb.test_partial_explain t
+    RIGHT JOIN (
+        SELECT * FROM partial_idx.rank_hybrid(
+            bm25_query => paradedb.parse('rating:>1'),
+            similarity_query => '''[1,2,3]'' <-> embedding',
+            bm25_weight => 0.9,
+            similarity_weight => 0.1
+        )
+    ) s ON t.id = s.id"#
+        .fetch_collect(&mut conn);
+
+    assert_eq!(columns.category.len(), 5);
+    assert_eq!(
+        columns.category,
+        "Electronics,Electronics,Electronics,Electronics,Electronics"
+            .split(',')
+            .collect::<Vec<_>>()
+    );
+}

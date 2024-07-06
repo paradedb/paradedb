@@ -386,12 +386,11 @@ fn more_like_this_raw(mut conn: PgConnection) {
         query => paradedb.more_like_this(
             with_min_doc_frequency => 0,
             with_min_term_frequency => 0,
-            with_document_id => 0
+            with_document_id => 2
         ),
         stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
-    // TODO once the segment ord is set, assert_eq!(rows.len(), 2);
-    assert!(rows.len() > 0);
+    assert_eq!(rows.len(), 2);
 }

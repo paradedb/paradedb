@@ -254,7 +254,7 @@ pub fn more_like_this(
 
     if !(with_document_id.is_none() ^ (document_fields.len() == 0)) {
         panic!(
-            "more_like_this must be called with either with_docuemnt_id or with_document_fields"
+            "more_like_this must be called with either with_document_id or with_document_fields"
         );
     }
 

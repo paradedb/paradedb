@@ -252,7 +252,7 @@ pub fn more_like_this(
         serde_json::from_str(&with_document_fields.unwrap())
             .expect("could not parse with_document_fields");
 
-    if !(with_document_id.is_none() ^ (document_fields.len() == 0)) {
+    if !(with_document_id.is_none() ^ document_fields.is_empty()) {
         panic!(
             "more_like_this must be called with either with_document_id or with_document_fields"
         );

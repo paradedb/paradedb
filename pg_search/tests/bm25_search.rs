@@ -854,7 +854,9 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     .execute_result(&mut conn);
     assert!(ret.is_ok());
 
-    r#"ALTER TABLE paradedb.test_partial_explain ADD COLUMN embedding vector(3);
+    r#"
+    CREATE EXTENSION vector;
+    ALTER TABLE paradedb.test_partial_explain ADD COLUMN embedding vector(3);
 
     UPDATE paradedb.test_partial_explain m
     SET embedding = ('[' ||

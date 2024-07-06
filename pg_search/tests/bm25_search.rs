@@ -840,12 +840,12 @@ fn bm25_partial_index_explain(mut conn: PgConnection) {
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_explain', schema_name => 'paradedb');".execute(&mut conn);
+    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_hybrid', schema_name => 'paradedb');".execute(&mut conn);
 
     let ret = "CALL paradedb.create_bm25(
         index_name => 'partial_idx',
         schema_name => 'paradedb',
-        table_name => 'test_partial_explain',
+        table_name => 'test_partial_hybrid',
         key_field => 'id',
         text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
         numeric_fields => '{rating: {}}',
@@ -856,22 +856,22 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
 
     r#"
     CREATE EXTENSION vector;
-    ALTER TABLE paradedb.test_partial_explain ADD COLUMN embedding vector(3);
+    ALTER TABLE paradedb.test_partial_hybrid ADD COLUMN embedding vector(3);
 
-    UPDATE paradedb.test_partial_explain m
+    UPDATE paradedb.test_partial_hybrid m
     SET embedding = ('[' ||
     ((m.id + 1) % 10 + 1)::integer || ',' ||
     ((m.id + 2) % 10 + 1)::integer || ',' ||
     ((m.id + 3) % 10 + 1)::integer || ']')::vector;
 
-    CREATE INDEX on paradedb.test_partial_explain
+    CREATE INDEX on paradedb.test_partial_hybrid
     USING hnsw (embedding vector_l2_ops)"#
         .execute(&mut conn);
 
     // Ensure all of them match the predicate
     let columns: SimpleProductsTableVec = r#"
     SELECT t.*, s.rank_hybrid
-    FROM paradedb.test_partial_explain t
+    FROM paradedb.test_partial_hybrid t
     RIGHT JOIN (
         SELECT * FROM partial_idx.rank_hybrid(
             bm25_query => paradedb.parse('rating:>1'),
@@ -886,6 +886,39 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     assert_eq!(
         columns.category,
         "Electronics,Electronics,Electronics,Electronics,Electronics"
+            .split(',')
+            .collect::<Vec<_>>()
+    );
+
+    "INSERT INTO paradedb.test_partial_hybrid (description, category, rating, in_stock) VALUES
+    ('Product 1', 'Electronics', 2, true),
+    ('Product 2', 'Electronics', 1, false),
+    ('Product 3', 'Footwear', 2, true);
+
+    UPDATE paradedb.test_partial_hybrid m
+    SET embedding = ('[' ||
+    ((m.id + 1) % 10 + 1)::integer || ',' ||
+    ((m.id + 2) % 10 + 1)::integer || ',' ||
+    ((m.id + 3) % 10 + 1)::integer || ']')::vector;"
+        .execute(&mut conn);
+
+    let rows: Vec<(String,)> = r#"
+    SELECT t.category
+    FROM paradedb.test_partial_hybrid t
+    RIGHT JOIN (
+        SELECT * FROM partial_idx.rank_hybrid(
+            bm25_query => paradedb.parse('rating:>1'),
+            similarity_query => '''[1,2,3]'' <-> embedding',
+            bm25_weight => 0.9,
+            similarity_weight => 0.1
+        )
+    ) s ON t.id = s.id"#
+        .fetch(&mut conn);
+
+    assert_eq!(rows.len(), 7);
+    assert_eq!(
+        rows.into_iter().map(|(s,)| s).collect::<Vec<_>>(),
+        "Electronics,Electronics,Electronics,Electronics,Electronics,Electronics,Electronics"
             .split(',')
             .collect::<Vec<_>>()
     );

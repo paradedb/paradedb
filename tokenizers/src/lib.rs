@@ -26,8 +26,8 @@ use cjk::ChineseTokenizer;
 use code::CodeTokenizer;
 use lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
 use tantivy::tokenizer::{
-    AsciiFoldingFilter, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter, TextAnalyzer,
-    TokenizerManager,
+    AsciiFoldingFilter, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter,
+    SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager,
 };
 use tracing::info;
 
@@ -89,6 +89,13 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
                 TextAnalyzer::builder(LinderaKoreanTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::Stem { language } => Some(
+                TextAnalyzer::builder(SimpleTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .filter(Stemmer::new(*language))
                     .build(),
             ),
             #[cfg(feature = "icu")]

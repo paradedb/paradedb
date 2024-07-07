@@ -131,7 +131,7 @@ impl From<SearchTokenizer> for TextAnalyzer {
                 .filter(Stemmer::new(Language::English))
                 .build(),
             SearchTokenizer::Stem { language } => TextAnalyzer::builder(SimpleTokenizer::default())
-                .filter(RemoveLongFilter::limit(40))
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)
                 .filter(Stemmer::new(language))
                 .build(),

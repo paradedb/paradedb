@@ -67,7 +67,7 @@ pub enum SearchTokenizer {
     ICUTokenizer,
 }
 
-fn language_to_str(lang: &Language) -> &str {
+pub fn language_to_str(lang: &Language) -> &str {
     match lang {
         Language::Arabic => "Arabic",
         Language::Danish => "Danish",

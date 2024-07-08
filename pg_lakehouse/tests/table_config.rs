@@ -62,7 +62,7 @@ async fn test_table_case_sensitivity(mut conn: PgConnection, tempdir: TempDir) -
 
 #[rstest]
 async fn test_reserved_table_name(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
-    let stored_batch = primitive_record_batch()?;
+    let stored_batch = primitive_record_batch_parquet()?;
     let parquet_path = tempdir.path().join("test_arrow_types.parquet");
     let parquet_file = File::create(&parquet_path)?;
 
@@ -70,7 +70,7 @@ async fn test_reserved_table_name(mut conn: PgConnection, tempdir: TempDir) -> R
     writer.write(&stored_batch)?;
     writer.close()?;
 
-    match primitive_setup_fdw_local_file_listing(
+    match primitive_setup_fdw_parquet_local(
         parquet_path.as_path().to_str().unwrap(),
         "duckdb_types",
     )
@@ -89,7 +89,7 @@ async fn test_reserved_table_name(mut conn: PgConnection, tempdir: TempDir) -> R
 
 #[rstest]
 async fn test_invalid_file(mut conn: PgConnection) -> Result<()> {
-    match primitive_setup_fdw_local_file_listing("invalid_file.parquet", "primitive")
+    match primitive_setup_fdw_parquet_local("invalid_file.parquet", "primitive")
         .execute_result(&mut conn)
     {
         Ok(_) => panic!("should have failed to create table with invalid file"),
@@ -106,7 +106,7 @@ async fn test_invalid_file(mut conn: PgConnection) -> Result<()> {
 
 #[rstest]
 async fn test_recreated_view(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
-    let stored_batch = primitive_record_batch()?;
+    let stored_batch = primitive_record_batch_parquet()?;
     let parquet_path = tempdir.path().join("test_arrow_types.parquet");
     let parquet_file = File::create(&parquet_path)?;
 
@@ -114,7 +114,7 @@ async fn test_recreated_view(mut conn: PgConnection, tempdir: TempDir) -> Result
     writer.write(&stored_batch)?;
     writer.close()?;
 
-    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "primitive")
+    primitive_setup_fdw_parquet_local(parquet_path.as_path().to_str().unwrap(), "primitive")
         .execute(&mut conn);
 
     "DROP FOREIGN TABLE primitive".execute(&mut conn);

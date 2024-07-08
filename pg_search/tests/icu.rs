@@ -152,7 +152,6 @@ fn test_icu_czech_tokenizer(mut conn: PgConnection) {
     assert_eq!(columns.id, vec![3]);
 }
 
-
 #[rstest]
 fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
     IcuCzechPostsTable::setup().execute(&mut conn);

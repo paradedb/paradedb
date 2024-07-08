@@ -77,7 +77,6 @@ impl Writer {
     }
 
     fn commit(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
-        let start = std::time::Instant::now();
         if directory.exists()? {
             let writer = self
                 .get_writer(directory.clone())
@@ -90,7 +89,6 @@ impl Writer {
             self.drop_index(directory.clone())?;
         }
         self.tantivy_writers.remove(&directory);
-        pgrx::log!("{}ms to commit", start.elapsed().as_millis());
         Ok(())
     }
 

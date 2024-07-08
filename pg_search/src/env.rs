@@ -78,13 +78,11 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
                     panic!("could not lock client in commit callback: {err}");
                 }
                 Ok(mut client) => {
-                    let start = std::time::Instant::now();
                     if let Err(err) = client.request(WriterRequest::Commit {
-                        directory: commit_directory,
+                        directory: commit_directory.clone(),
                     }) {
                         error = Some(Box::new(err));
                     }
-                    pgrx::info!("{}ms here", start.elapsed().as_millis());
                 }
             }
         }

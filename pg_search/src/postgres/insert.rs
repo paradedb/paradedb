@@ -56,6 +56,7 @@ unsafe fn aminsert_internal(
     isnull: *mut bool,
     ctid: pg_sys::ItemPointer,
 ) -> bool {
+    let start = std::time::Instant::now();
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let tupdesc = index_relation_ref.tuple_desc();
     let index_name = index_relation_ref.name();
@@ -74,5 +75,6 @@ unsafe fn aminsert_internal(
         .insert(&writer_client, search_document)
         .unwrap_or_else(|err| panic!("error inserting document during insert callback: {err:?}"));
 
+    info!("{}ms to insert", start.elapsed().as_millis());
     true
 }

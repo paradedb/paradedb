@@ -1,0 +1,23 @@
+---
+title: Configuration
+---
+
+The `duckdb_execute` function can be used to change the underlying [configuration options](https://duckdb.org/docs/configuration/overview#global-configuration-options)
+used by DuckDB.
+
+```sql
+-- Dollar quoted strings are used to escape single quotes
+SELECT duckdb_execute($$SET memory_limit='10GiB'$$);
+```
+
+`duckdb_settings` returns a table of all available settings.
+
+```sql
+SELECT * FROM duckdb_settings();
+```
+
+<Note>
+  Because a new DuckDB connection is created per Postgres connection, every new
+  Postgres connection uses the default DuckDB configuration. Changes to the
+  DuckDB configuration only apply to the current Postgres connection.
+</Note>

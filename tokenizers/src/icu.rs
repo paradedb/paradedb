@@ -41,7 +41,7 @@ impl<'a> std::fmt::Debug for ICUBreakingWord<'a> {
 
 impl<'a> From<&'a str> for ICUBreakingWord<'a> {
     fn from(text: &'a str) -> Self {
-        let loc = rust_icu_uloc::ULoc::try_from(text).expect("can localise");
+        let loc =  rust_icu_uloc::get_default();
         let ustr = &UChar::try_from(text).expect("is an encodable character");
 
         ICUBreakingWord {

@@ -266,3 +266,24 @@ async fn test_duckdb_types_parquet_local(
 
     Ok(())
 }
+
+#[rstest]
+async fn test_create_heap_from_parquet(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
+    let stored_batch = primitive_record_batch()?;
+    let parquet_path = tempdir.path().join("test_arrow_types.parquet");
+    let parquet_file = File::create(&parquet_path)?;
+
+    let mut writer = ArrowWriter::try_new(parquet_file, stored_batch.schema(), None).unwrap();
+    writer.write(&stored_batch)?;
+    writer.close()?;
+
+    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "primitive")
+        .execute(&mut conn);
+
+    "CREATE TABLE primitive_copy AS SELECT * FROM primitive".execute(&mut conn);
+
+    let count: (i64,) = "SELECT COUNT(*) FROM primitive_copy".fetch_one(&mut conn);
+    assert_eq!(count.0, 3);
+
+    Ok(())
+}

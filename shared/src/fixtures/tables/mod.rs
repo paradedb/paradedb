@@ -17,8 +17,8 @@
 
 mod duckdb_types;
 mod icu_amharic_posts;
-mod icu_czech_posts;
 mod icu_arabic_posts;
+mod icu_czech_posts;
 mod icu_greek_posts;
 mod nyc_trips;
 mod research_project_arrays;

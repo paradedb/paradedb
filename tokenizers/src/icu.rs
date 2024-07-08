@@ -329,6 +329,156 @@ mod tests {
     }
 
     #[rstest]
+    fn test_czech() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("tvář je zkažená prachem, potem a krví; kdo se statečně snaží; kdo se mýlí, kdo znovu a znovu přichází zkrátka");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 4,
+                position: 0,
+                text: "tvář".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 5,
+                offset_to: 7,
+                position: 1,
+                text: "je".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 8,
+                offset_to: 15,
+                position: 2,
+                text: "zkažená".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 16,
+                offset_to: 23,
+                position: 3,
+                text: "prachem".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 25,
+                offset_to: 30,
+                position: 4,
+                text: "potem".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 31,
+                offset_to: 32,
+                position: 5,
+                text: "a".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 33,
+                offset_to: 37,
+                position: 6,
+                text: "krví".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 39,
+                offset_to: 42,
+                position: 7,
+                text: "kdo".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 43,
+                offset_to: 45,
+                position: 8,
+                text: "se".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 46,
+                offset_to: 54,
+                position: 9,
+                text: "statečně".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 55,
+                offset_to: 60,
+                position: 10,
+                text: "snaží".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 62,
+                offset_to: 65,
+                position: 11,
+                text: "kdo".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 66,
+                offset_to: 68,
+                position: 12,
+                text: "se".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 69,
+                offset_to: 73,
+                position: 13,
+                text: "mýlí".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 75,
+                offset_to: 78,
+                position: 14,
+                text: "kdo".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 79,
+                offset_to: 84,
+                position: 15,
+                text: "znovu".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 85,
+                offset_to: 86,
+                position: 16,
+                text: "a".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 87,
+                offset_to: 92,
+                position: 17,
+                text: "znovu".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 93,
+                offset_to: 101,
+                position: 18,
+                text: "přichází".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 102,
+                offset_to: 109,
+                position: 19,
+                text: "zkrátka".to_string(),
+                position_length: 1,
+            },
+        ];
+
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
     fn test_armenian() {
         let tokenizer = &mut ICUTokenizerTokenStream::new("Վիքիպեդիայի 13 միլիոն հոդվածները (4,600` հայերեն վիքիպեդիայում) գրվել են կամավորների կողմից ու համարյա բոլոր հոդվածները կարող է խմբագրել ցանկաց մարդ ով կարող է բացել Վիքիպեդիայի կայքը։");
         let result: Vec<Token> = tokenizer.collect();

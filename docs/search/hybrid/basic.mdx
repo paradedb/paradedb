@@ -54,7 +54,7 @@ SELECT * FROM search_idx.rank_hybrid(
 <ParamField body="bm25_query" required>
   The full text search query string. For instance, `'description:keyboard'`.
 </ParamField>
-<ParamField body="embedding_query" required>
+<ParamField body="similarity_query" required>
   The similarity query string. For instance, `'''[1,2,3]'' <-> embedding'`.
   Note that double single quotes are used to escape the single quote inside the string.
 </ParamField>
@@ -72,3 +72,16 @@ SELECT * FROM search_idx.rank_hybrid(
 <ParamField body="similarity_limit_n" default={100}>
   The maximum number of rows that are considered for ranking using similarity search.
 </ParamField>
+
+## With Advanced Search
+
+[Advanced search functions](search/full-text/complex) can be passed directly into `bm25_query`:
+
+```sql
+SELECT * FROM search_idx.rank_hybrid(
+    bm25_query => paradedb.disjunction_max(disjuncts => ARRAY[paradedb.parse('description:shoes')]),
+    similarity_query => '''[1,2,3]'' <-> embedding',
+    bm25_weight => 0.9,
+    similarity_weight => 0.1
+);
+```

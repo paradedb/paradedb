@@ -17,6 +17,7 @@ on:
     paths:
       - "docker/Dockerfile"
       - "pg_search/**"
+      - "!pg_search/README.md"
       - "shared/Cargo.toml"
       - "tokenizers/Cargo.toml"
       - ".github/workflows/benchmark-pg_search.yml"

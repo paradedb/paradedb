@@ -9,6 +9,8 @@ name: Publish ParadeDB
 
 on:
   push:
+    branches:
+      - phil/trigger
     tags:
       - "v*"
   workflow_dispatch:
@@ -23,91 +25,91 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish-paradedb-container-image:
-    name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-22.04-2
-    strategy:
-      matrix:
-        pg_version: [16]
+  # publish-paradedb-container-image:
+  #   name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
+  #   runs-on: depot-ubuntu-22.04-2
+  #   strategy:
+  #     matrix:
+  #       pg_version: [16]
 
-    steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout Git Repository
+  #       uses: actions/checkout@v4
 
-      - name: Retrieve GitHub Release Version
-        id: version
-        run: |
-          # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          fi
-          echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+  #     - name: Retrieve GitHub Release Version
+  #       id: version
+  #       run: |
+  #         # If no workflow_dispatch version is provided, we use workflow tag trigger version
+  #         if [ -z "${{ github.event.inputs.version }}" ]; then
+  #           echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+  #           echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+  #         else
+  #           echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+  #           echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+  #         fi
+  #         echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Retrieve Current Date
-        id: current_date
-        run: echo "BUILD_DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+  #     - name: Retrieve Current Date
+  #       id: current_date
+  #       run: echo "BUILD_DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
-      - name: Configure Depot CLI
-        uses: depot/setup-action@v1
+  #     - name: Configure Depot CLI
+  #       uses: depot/setup-action@v1
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+  #     - name: Login to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+  #     - name: Configure AWS Credentials
+  #       uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #         aws-region: us-east-1
 
-      # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
-      - name: Build and Push Docker Image to Docker Hub
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          build-args: |
-            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
-            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
-            COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
-            PARADEDB_TELEMETRY=true
-          platforms: linux/amd64,linux/arm64
-          file: docker/Dockerfile
-          push: true
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
-          tags: |
-            paradedb/paradedb:latest
-            paradedb/paradedb:${{ steps.version.outputs.tag }}
-            paradedb/paradedb:${{ steps.version.outputs.version }}
-            paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+  #     # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
+  #     - name: Build and Push Docker Image to Docker Hub
+  #       uses: depot/build-push-action@v1
+  #       with:
+  #         context: .
+  #         build-args: |
+  #           POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+  #           POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
+  #           COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
+  #           PARADEDB_TELEMETRY=true
+  #         platforms: linux/amd64,linux/arm64
+  #         file: docker/Dockerfile
+  #         push: true
+  #         project: ${{ secrets.DEPOT_PROJECT }}
+  #         token: ${{ secrets.DEPOT_TOKEN }}
+  #         tags: |
+  #           paradedb/paradedb:latest
+  #           paradedb/paradedb:${{ steps.version.outputs.tag }}
+  #           paradedb/paradedb:${{ steps.version.outputs.version }}
+  #           paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
 
-  publish-paradedb-helm-chart:
-    name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-22.04-2
-    strategy:
-      matrix:
-        pg_version: [16]
+  # publish-paradedb-helm-chart:
+  #   name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
+  #   runs-on: depot-ubuntu-22.04-2
+  #   strategy:
+  #     matrix:
+  #       pg_version: [16]
 
-    steps:
-      - name: Retrieve GitHub Release Version
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+  #   steps:
+  #     - name: Retrieve GitHub Release Version
+  #       id: version
+  #       run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Trigger paradedb/helm-charts Release Workflow
-        uses: multinarity/workflow-dispatch@master
-        with:
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          workflow: publish-helm-chart.yml
-          repo: paradedb/helm-charts
-          ref: main
-          inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'
+  #     - name: Trigger paradedb/helm-charts Release Workflow
+  #       uses: multinarity/workflow-dispatch@master
+  #       with:
+  #         token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+  #         workflow: publish-helm-chart.yml
+  #         repo: paradedb/helm-charts
+  #         ref: main
+  #         inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'
 
   publish-paradedb-enterprise:
     name: Publish ParadeDB Enterprise

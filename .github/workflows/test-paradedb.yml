@@ -15,12 +15,11 @@ on:
       - ".github/workflows/test-paradedb.yml"
       - "docker/**"
       - "pg_lakehouse/**"
+      - "!pg_lakehouse/README.md"
       - "pg_search/**"
+      - "!pg_search/README.md"
       - "shared/**"
       - "tokenizers/**"
-    paths-ignore:
-      - "pg_lakehouse/README.md"
-      - "pg_search/README.md"
   workflow_dispatch:
 
 concurrency:

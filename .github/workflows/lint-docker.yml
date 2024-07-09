@@ -9,8 +9,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - "docker/*"
       - ".github/workflows/lint-docker.yml"
+      - "docker/**"
   workflow_dispatch:
 
 concurrency:

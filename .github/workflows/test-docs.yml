@@ -12,8 +12,8 @@ on:
       - main
       - dev
     paths:
-      - "docs/**"
       - ".github/workflows/test-docs.yml"
+      - "docs/**"
   workflow_dispatch:
 
 concurrency:

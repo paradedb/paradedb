@@ -12,11 +12,12 @@ on:
       - dev
       - main
     paths:
+      - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "tokenizers/**"
       - "shared/**"
-      - "!pg_search/README.md"
-      - ".github/workflows/test-pg_search.yml"
+    paths-ignore:
+      - "pg_search/README.md"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it

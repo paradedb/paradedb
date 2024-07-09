@@ -7,6 +7,9 @@ name: Publish pg_lakehouse
 
 on:
   push:
+    # TODO: Remove once done testing
+    branches:
+      - phil/24.04
     tags:
       - "v*"
   workflow_dispatch:

@@ -88,7 +88,7 @@ impl Writer {
             // Rare, but possible if a previous delete failed. Drop it to free the space.
             self.drop_index(directory.clone())?;
         }
-        self.tantivy_writers.remove(&directory);
+        // self.tantivy_writers.remove(&directory);
         Ok(())
     }
 

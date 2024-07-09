@@ -5,11 +5,6 @@ labels: ""
 assignees: ""
 title: ""
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
-
   - type: textarea
     attributes:
       label: What happens?
@@ -21,7 +16,7 @@ body:
     attributes:
       label: To Reproduce
       description: |
-        Please provide steps to reproduce the behaviour, preferably a [minimal reproducible example](https://en.wikipedia.org/wiki/Minimal_reproducible_example). Please adhere to the following guidelines:
+        Please provide steps to reproduce the behaviour, preferably a [minimal reproducible example](https://en.wikipedia.org/wiki/Minimal_reproducible_example).
     validations:
       required: true
 
@@ -32,7 +27,7 @@ body:
     attributes:
       label: "OS:"
       placeholder: e.g., iOS
-      description: Please include operating system version and architecture (e.g., aarch64, x86, x64, etc)
+      description: Please include your operating system version and architecture (e.g., aarch64, x86, x64, etc)
     validations:
       required: true
   - type: input
@@ -92,12 +87,12 @@ body:
   - type: checkboxes
     attributes:
       label: Did you include the code required to reproduce the issue?
-    options:
-      label: Yes, I have
+      options:
+        - label: Yes, I have
 
   - type: checkboxes
     attributes:
       label: Did you include all relevant configurations (e.g., CPU architecture, PostgreSQL version, Linux distribution) to reproduce the issue?
-    options:
-      label: Yes, I have
+      options:
+        - label: Yes, I have
 ---

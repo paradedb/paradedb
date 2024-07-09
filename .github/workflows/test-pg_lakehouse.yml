@@ -38,13 +38,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 14
             arch: amd64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 15
             arch: amd64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 16
             arch: amd64
     env:

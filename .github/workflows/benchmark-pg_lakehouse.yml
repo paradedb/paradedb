@@ -15,10 +15,12 @@ on:
       - dev
       - main
     paths:
+      - ".github/workflows/benchmark-pg_lakehouse.yml"
       - "docker/Dockerfile"
       - "pg_lakehouse/**"
       - "shared/Cargo.toml"
-      - ".github/workflows/benchmark-pg_lakehouse.yml"
+    paths-ignore:
+      - "pg_lakehouse/README.md"
   workflow_dispatch:
 
 concurrency:

@@ -11,6 +11,7 @@ on:
     paths:
       - "**/*.yml"
       - "**/*.yaml"
+      - ".github/workflows/lint-yaml.yml"
   workflow_dispatch:
 
 concurrency:

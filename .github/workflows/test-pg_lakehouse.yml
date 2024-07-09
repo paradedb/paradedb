@@ -12,10 +12,11 @@ on:
       - dev
       - main
     paths:
-      - "pg_lakehouse/**"
-      - "!pg_lakehouse/README.md"
-      - "shared/**"
       - ".github/workflows/test-pg_lakehouse.yml"
+      - "pg_lakehouse/**"
+      - "shared/**"
+    paths-ignore:
+      - "pg_lakehouse/README.md"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it

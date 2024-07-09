@@ -15,11 +15,13 @@ on:
       - dev
       - main
     paths:
+      - ".github/workflows/benchmark-pg_search.yml"
       - "docker/Dockerfile"
       - "pg_search/**"
       - "shared/Cargo.toml"
       - "tokenizers/Cargo.toml"
-      - ".github/workflows/benchmark-pg_search.yml"
+    paths-ignore:
+      - "pg_search/README.md"
   workflow_dispatch:
 
 concurrency:

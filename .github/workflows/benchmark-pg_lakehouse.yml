@@ -18,9 +18,8 @@ on:
       - ".github/workflows/benchmark-pg_lakehouse.yml"
       - "docker/Dockerfile"
       - "pg_lakehouse/**"
+      - "!pg_lakehouse/README.md"
       - "shared/Cargo.toml"
-    paths-ignore:
-      - "pg_lakehouse/README.md"
   workflow_dispatch:
 
 concurrency:

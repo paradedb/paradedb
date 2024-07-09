@@ -1,4 +1,3 @@
----
 name: Bug report
 about: Create a report to help us improve
 labels: ""
@@ -95,4 +94,3 @@ body:
       label: Did you include all relevant configurations (e.g., CPU architecture, PostgreSQL version, Linux distribution) to reproduce the issue?
       options:
         - label: Yes, I have
----

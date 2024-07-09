@@ -18,6 +18,9 @@ on:
       - "pg_search/**"
       - "shared/**"
       - "tokenizers/**"
+    paths-ignore:
+      - "pg_lakehouse/README.md"
+      - "pg_search/README.md"
   workflow_dispatch:
 
 concurrency:

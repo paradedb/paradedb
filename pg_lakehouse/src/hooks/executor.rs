@@ -63,8 +63,9 @@ pub async fn executor_run(
     if rtable.is_null()
         || query_desc.operation != pg_sys::CmdType_CMD_SELECT
         || !is_duckdb_query
-        // Tech Debt: Find a less hacky way to let COPY go through
+        // Tech Debt: Find a less hacky way to let COPY/CREATE go through
         || query.to_lowercase().starts_with("copy")
+        || query.to_lowercase().starts_with("create")
     {
         prev_hook(query_desc, direction, count, execute_once);
         return Ok(());

@@ -69,7 +69,7 @@
       "url": "changelog"
     }
   ],
-  "versions": ["Version 0.8.2"],
+  "versions": ["Version 0.8.3"],
   "navigation": [
     {
       "group": "Documentation",
@@ -151,12 +151,14 @@
             "analytics/object_stores/gcs",
             "analytics/object_stores/s3"
           ]
-        }
+        },
+        "analytics/configuration"
       ]
     },
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.8.3",
         "changelog/0.8.2",
         "changelog/0.8.1",
         "changelog/0.8.0",

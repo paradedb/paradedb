@@ -12,10 +12,10 @@ on:
       - dev
       - main
     paths:
+      - ".github/workflows/test-pg_lakehouse.yml"
       - "pg_lakehouse/**"
       - "!pg_lakehouse/README.md"
       - "shared/**"
-      - ".github/workflows/test-pg_lakehouse.yml"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
@@ -38,13 +38,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 14
             arch: amd64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 15
             arch: amd64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 16
             arch: amd64
     env:

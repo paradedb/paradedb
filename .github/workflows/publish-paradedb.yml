@@ -25,7 +25,7 @@ concurrency:
 jobs:
   publish-paradedb-container-image:
     name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-22.04-2
+    runs-on: depot-ubuntu-latest-2
     strategy:
       matrix:
         pg_version: [16]
@@ -90,7 +90,7 @@ jobs:
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-22.04-2
+    runs-on: depot-ubuntu-latest-2
     strategy:
       matrix:
         pg_version: [16]
@@ -108,3 +108,31 @@ jobs:
           repo: paradedb/helm-charts
           ref: main
           inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'
+
+  publish-paradedb-enterprise:
+    name: Publish ParadeDB Enterprise
+    runs-on: depot-ubuntu-latest-2
+    steps:
+      - name: Retrieve GitHub Release Version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Promotion PR on paradedb/paradedb-enterprise
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+        run: |
+          # Check if a PR from dev to main already exists
+          existing_pr=$(gh pr list --repo paradedb/paradedb-enterprise --base main --head dev --json number --jq '.[0].number')
+
+          if [ -z "$existing_pr" ]; then
+            # If no PR exists, create a new one
+            gh pr create \
+              --repo paradedb/paradedb-enterprise \
+              --base main \
+              --head dev \
+              --title "feat: Prod Promotion for ParadeDB Enterprise v${{ steps.version.outputs.version }}" \
+              --body "This PR was automatically created by the v${{ steps.version.outputs.version }} GitHub Release in the `paradedb/paradedb` repository. Rebase and merge this PR to promote the ParadeDB Enterprise v${{ steps.version.outputs.version }} release to production." \
+              --draft
+          else
+            echo "A pull request from dev to main already exists: https://github.com/paradedb/paradedb-enterprise/pull/$existing_pr. It might have been created manually or left open from a previous release."
+          fi

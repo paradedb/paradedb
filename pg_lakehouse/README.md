@@ -3,33 +3,16 @@
 <br>
 </h1>
 
+[![Test pg_lakehouse](https://github.com/paradedb/paradedb/actions/workflows/test-pg_lakehouse.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_lakehouse.yml)
+[![Benchmark pg_lakehouse](https://github.com/paradedb/paradedb/actions/workflows/benchmark-pg_lakehouse.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/benchmark-pg_lakehouse.yml)
+
 ## Overview
 
 `pg_lakehouse` puts DuckDB inside Postgres.
 
 With `pg_lakehouse` installed, Postgres can query foreign object stores like S3 and table formats like Iceberg or Delta Lake. Queries are pushed down to DuckDB, a high performance analytical query engine. The following object stores and table formats are supported:
 
-### Object Stores
-
-- [x] Amazon S3
-- [x] S3-compatible stores (MinIO, R2)
-- [x] Azure Blob Storage
-- [x] Azure Data Lake Storage Gen2
-- [x] Google Cloud Storage
-- [x] HTTP server
-- [x] Local file system
-
-### Table Formats
-
-- [x] Parquet
-- [x] CSV
-- [x] Apache Iceberg
-- [x] Delta Lake
-- [ ] JSON (Coming Soon)
-
-`pg_lakehouse` uses DuckDB v1.0.0 and is supported on Postgres 14, 15, and 16. Support for Postgres 12 and 13 is coming soon.
-
-## Motivation
+### Motivation
 
 Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Querying this data by moving it into a cloud data warehouse or operating a new query engine is expensive and time-consuming. The goal of `pg_lakehouse` is to enable this data to be queried directly from Postgres. This eliminates the need for new infrastructure, loss of data freshness, data movement, and non-Postgres dialects of other query engines.
 
@@ -40,7 +23,90 @@ Today, a vast amount of non-operational data — events, metrics, historical sna
 
 `pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast (thanks to DuckDB).
 
-## Getting Started
+### Roadmap
+
+- [ ] Read support for `pg_lakehouse`
+- [ ] Write support for `pg_lakehouse`
+- [ ] `EXPLAIN` support
+- [ ] Automatic schema detection
+- [ ] Integration with the catalog providers
+
+#### Object Stores
+
+- [x] Amazon S3
+- [x] S3-compatible stores (MinIO, R2)
+- [x] Azure Blob Storage
+- [x] Azure Data Lake Storage Gen2
+- [x] Google Cloud Storage
+- [x] HTTP server
+- [x] Local file system
+
+#### Table Formats
+
+- [x] Parquet
+- [x] CSV
+- [x] Apache Iceberg
+- [x] Delta Lake
+- [ ] JSON (Coming Soon)
+
+`pg_lakehouse` uses DuckDB v1.0.0 and is supported on Postgres 14, 15, and 16. Support for Postgres 12 and 13 is coming soon.
+
+## Installation
+
+### From ParadeDB
+
+The easiest way to use the extension is to run the ParadeDB Dockerfile:
+
+```bash
+docker run \
+  --name paradedb \
+  -e POSTGRESQL_USERNAME=<user> \
+  -e POSTGRESQL_PASSWORD=<password> \
+  -e POSTGRESQL_DATABASE=<dbname> \
+  -e POSTGRESQL_POSTGRES_PASSWORD=<superuser_password> \
+  -v paradedb_data:/bitnami/postgresql \
+  -p 5432:5432 \
+  -d \
+  paradedb/paradedb:latest
+```
+
+This will spin up a Postgres instance with `pg_lakehouse` preinstalled.
+
+### From Self-Hosted PostgreSQL
+
+If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow the steps below.
+
+It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_lakehouse` must be in the list of `shared_preload_libraries`:
+
+```c
+shared_preload_libraries = 'pg_lakehouse'
+```
+
+This ensures the best query performance from the extension .
+
+#### Debian/Ubuntu
+
+We provide prebuilt binaries for Debian-based Linux for Postgres 16, 15 and 14. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry by setting `export PARADEDB_TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
+
+#### macOS
+
+We don't suggest running production workloads on macOS. As a result, we don't provide prebuilt binaries for macOS. If you are running Postgres on macOS and want to install `pg_lakehouse`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
+
+You can then create the extension in your database by running:
+
+```sql
+CREATE EXTENSION pg_lakehouse;
+```
+
+Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_lakehouse` until the Postgres service explicitly supports it.
+
+#### Windows
+
+Windows is not supported. This restriction is [inherited from pgrx not supporting Windows](https://github.com/pgcentralfoundation/pgrx?tab=readme-ov-file#caveats--known-issues).
+
+## Usage
 
 The following example uses `pg_lakehouse` to query an example dataset of 3 million NYC taxi trips from January 2024, hosted in a public `us-east-1` S3 bucket provided by ParadeDB.
 

@@ -15,10 +15,11 @@ on:
       - dev
       - main
     paths:
+      - ".github/workflows/benchmark-pg_lakehouse.yml"
       - "docker/Dockerfile"
       - "pg_lakehouse/**"
+      - "!pg_lakehouse/README.md"
       - "shared/Cargo.toml"
-      - ".github/workflows/benchmark-pg_lakehouse.yml"
   workflow_dispatch:
 
 concurrency:
@@ -28,7 +29,7 @@ concurrency:
 jobs:
   benchmark-pg_lakehouse:
     name: Benchmark pg_lakehouse on ${{ matrix.name }}
-    runs-on: depot-ubuntu-22.04-8
+    runs-on: depot-ubuntu-latest-8
     if: github.event.pull_request.draft == false
     strategy:
       matrix:

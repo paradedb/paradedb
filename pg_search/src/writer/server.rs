@@ -146,9 +146,6 @@ pub enum ServerError {
     UnixSocketBindAttempt(String),
 
     #[error(transparent)]
-    Anyhow(#[from] anyhow::Error),
-
-    #[error(transparent)]
     WriterError(#[from] IndexError),
 
     #[error(transparent)]

@@ -29,7 +29,15 @@ use tokenizers::manager::language_to_str;
 fn language_stem_search_test(mut conn: PgConnection) {
     // Define languages and corresponding test data
     let languages = vec![
-        // TODO: need Language::Arabic test case
+        (
+            Language::Arabic,
+            "('محمد','رحلة إلى السوق مع أبي', 'مرحباً بك في المقالة الأولى. أتمنى أن تجد المحتوى مفيدًا ومثيرًا للاهتمام'),
+            ('فاطمة', 'رحلة إلى الشرق', 'في هذا المقال، سنستكشف رحلة مثيرة إلى الشرق ونتعرف على ثقافات مختلفة وتاريخها الغني'),
+            ('أحمد', 'نصائح للنجاح', 'هنا نقدم لك بعض النصائح القيمة لتحقيق النجاح في حياتك المهنية والشخصية. استفد منها وحقق أهدافك')",
+            "محمد",
+            "شرق",
+            "هنا",
+        ),
         (
             Language::Danish,
             "('Mette Hansen', 'Ny Bogudgivelse', 'Spændende ny bog udgivet af anerkendt forfatter.'),

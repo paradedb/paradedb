@@ -22,13 +22,13 @@ use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use tantivy::{schema::Field, IndexWriter};
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct Writer {
     /// Map of index directory path to Tantivy writer instance.
-    tantivy_writers: HashMap<WriterDirectory, Arc<Mutex<IndexWriter>>>,
+    tantivy_writers: HashMap<WriterDirectory, Arc<RwLock<IndexWriter>>>,
 }
 
 impl Writer {
@@ -40,9 +40,9 @@ impl Writer {
 
     /// Check the writer server cache for an existing IndexWriter. If it does not exist,
     /// then retrieve the SearchIndex and use it to create a new IndexWriter, caching it.
-    fn get_writer(&mut self, directory: WriterDirectory) -> Result<Arc<Mutex<IndexWriter>>> {
+    fn get_writer(&mut self, directory: WriterDirectory) -> Result<Arc<RwLock<IndexWriter>>> {
         let writer = match self.tantivy_writers.entry(directory.clone()) {
-            Vacant(entry) => entry.insert(Arc::new(Mutex::new(
+            Vacant(entry) => entry.insert(Arc::new(RwLock::new(
                 SearchIndex::writer(&directory).map_err(|err| {
                     IndexError::GetWriterFailed(directory.clone(), err.to_string())
                 })?,
@@ -56,7 +56,7 @@ impl Writer {
     fn insert(&mut self, directory: WriterDirectory, document: SearchDocument) -> Result<()> {
         let writer_lock = self.get_writer(directory)?;
         // Add the Tantivy document to the index.
-        writer_lock.lock().unwrap().add_document(document.into())?;
+        writer_lock.write().unwrap().add_document(document.into())?;
 
         Ok(())
     }
@@ -68,7 +68,7 @@ impl Writer {
         ctid_values: &[u64],
     ) -> Result<()> {
         let writer_lock = self.get_writer(directory)?;
-        let writer = writer_lock.lock().unwrap();
+        let writer = writer_lock.read().unwrap();
 
         for ctid in ctid_values {
             let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
@@ -80,7 +80,7 @@ impl Writer {
     fn commit(&mut self, directory: WriterDirectory) -> Result<()> {
         if directory.exists()? {
             let writer_lock = self.get_writer(directory)?;
-            let mut writer = writer_lock.lock().unwrap();
+            let mut writer = writer_lock.write().unwrap();
             writer.prepare_commit()?;
             writer.commit()?;
         } else {
@@ -101,13 +101,17 @@ impl Writer {
 
     fn vacuum(&mut self, directory: WriterDirectory) -> Result<()> {
         let writer_lock = self.get_writer(directory)?;
-        writer_lock.lock().unwrap().garbage_collect_files().wait()?;
+        writer_lock
+            .write()
+            .unwrap()
+            .garbage_collect_files()
+            .wait()?;
         Ok(())
     }
 
     fn drop_index(&mut self, directory: WriterDirectory) -> Result<()> {
         if let Ok(writer) = self.get_writer(directory.clone()) {
-            let writer = writer.lock().unwrap();
+            let writer = writer.read().unwrap();
             writer.delete_all_documents()?;
             self.commit(directory.clone())?;
 

@@ -68,7 +68,6 @@ impl Writer {
         ctid_values: &[u64],
     ) -> Result<(), IndexError> {
         let writer = self.get_writer(directory)?;
-
         for ctid in ctid_values {
             let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
             writer.delete_term(ctid_term);

@@ -53,6 +53,11 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
 
+    // Drop the index if it already exists (e.g. if we're rebuilding it with VACUUM FULL)
+    let writer_client = WriterGlobal::client();
+    SearchIndex::drop_index(&writer_client, &index_name)
+        .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));
+
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
     } else {

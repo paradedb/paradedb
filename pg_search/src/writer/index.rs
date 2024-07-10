@@ -116,21 +116,11 @@ impl Writer {
     }
 
     fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
-        if let Ok(writer) = self.get_writer(directory.clone()) {
-            let writer = writer.read().unwrap();
-            writer.delete_all_documents()?;
-            self.commit(directory.clone())?;
-
-            // Remove the writer from the cache so that it is dropped.
-            // We want to do this first so that the lockfile is released before deleting.
-            // We'll manually call drop to make sure the lockfile is cleaned up.
-            if let Some(writer) = self.tantivy_writers.remove(&directory) {
-                std::mem::drop(writer);
-            };
-        }
+        if let Some(writer) = self.tantivy_writers.remove(&directory) {
+            std::mem::drop(writer);
+        };
 
         directory.remove()?;
-
         Ok(())
     }
 }

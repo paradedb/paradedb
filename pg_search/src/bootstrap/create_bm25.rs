@@ -274,7 +274,7 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
         spi::quote_identifier(schema_name),
         spi::quote_identifier(index_name),
         spi::quote_identifier(index_name),
-        spi::quote_literal(index_name)
+        spi::quote_literal(format!("{}_bm25_index", index_name))
     ))?;
 
     Ok(())

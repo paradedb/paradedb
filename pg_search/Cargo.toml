@@ -56,8 +56,10 @@ ordered-float = "4.2.0"
 [dev-dependencies]
 approx = "0.5.1"
 async-std = { version = "1.12.0", features = ["attributes"] }
+cmd_lib = "1.9.4"
 pgrx-tests = "0.11.3"
 pgvector = { version = "0.3.2", features = ["sqlx"] }
+portpicker = "0.1.1"
 pretty_assertions = "1.4.0"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }

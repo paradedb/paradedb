@@ -5493,6 +5493,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "chrono",
+ "cmd_lib",
  "csv",
  "derive_more",
  "fs2",
@@ -5508,6 +5509,7 @@ dependencies = [
  "pgrx",
  "pgrx-tests",
  "pgvector",
+ "portpicker",
  "pretty_assertions",
  "reqwest 0.11.27",
  "rstest 0.18.2",
@@ -5832,6 +5834,15 @@ dependencies = [
  "rustix 0.38.34",
  "tracing",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "portpicker"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be97d76faf1bfab666e1375477b23fde79eccf0276e9b63b92a39d676a889ba9"
+dependencies = [
+ "rand",
 ]
 
 [[package]]

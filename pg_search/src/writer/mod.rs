@@ -23,6 +23,7 @@ mod transfer;
 
 use crate::postgres::types::TantivyValueError;
 use crate::schema::SearchDocument;
+use anyhow::Result;
 pub use client::{Client, ClientError};
 pub use directory::*;
 pub use index::Writer;

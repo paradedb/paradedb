@@ -90,9 +90,12 @@ impl Writer {
     }
 
     fn abort(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
-        // If the transaction was aborted, we should drop the writer.
+        // If the transaction was aborted, we should roll back the writer to the last commit.
         // Otherwise, partialy written data could stick around for the next transaction.
-        self.tantivy_writers.remove(&directory);
+        if let Some(writer) = self.tantivy_writers.get_mut(&directory) {
+            writer.rollback()?;
+        }
+
         Ok(())
     }
 

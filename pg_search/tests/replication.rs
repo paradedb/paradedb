@@ -1,9 +1,7 @@
-#![allow(unused)]
 use anyhow::Result;
 use cmd_lib::run_cmd;
 use rstest::*;
 use shared::fixtures::db::Query;
-use sqlx::postgres::PgConnectOptions;
 use sqlx::{Connection, PgConnection};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -43,7 +41,7 @@ fn get_free_port() -> u16 {
 
 // Struct to manage an ephemeral PostgreSQL instance
 struct EphemeralPostgres {
-    pub tempdir: TempDir,
+    pub _tempdir: TempDir,
     pub tempdir_path: String,
     pub host: String,
     pub port: u16,
@@ -94,7 +92,7 @@ impl EphemeralPostgres {
             .expect("Failed to start Postgres");
 
         EphemeralPostgres {
-            tempdir,
+            _tempdir: tempdir,
             tempdir_path,
             host: "localhost".to_string(),
             port,

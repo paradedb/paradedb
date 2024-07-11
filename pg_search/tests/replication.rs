@@ -52,7 +52,7 @@ struct EphemeralPostgres {
 impl Drop for EphemeralPostgres {
     fn drop(&mut self) {
         let path = &self.tempdir_path;
-        run_cmd!(pg_ctl -D $path stop &> /dev/null).unwrap();
+        run_cmd!(pg_ctl -D $path stop).unwrap();
     }
 }
 
@@ -66,8 +66,7 @@ impl EphemeralPostgres {
         let logfile = format!("/tmp/ephemeral_postgres_logs/{}.log", timestamp);
 
         // Initialize PostgreSQL data directory
-        run_cmd!(initdb -D $tempdir_path &> /dev/null)
-            .expect("Failed to initialize Postgres data directory");
+        run_cmd!(initdb -D $tempdir_path).expect("Failed to initialize Postgres data directory");
 
         // Write to postgresql.conf
         let config_content = format!(
@@ -88,8 +87,7 @@ impl EphemeralPostgres {
             .expect("Failed to create log directory");
 
         // Start PostgreSQL
-        run_cmd!(pg_ctl -D $tempdir_path -l $logfile start &> /dev/null)
-            .expect("Failed to start Postgres");
+        run_cmd!(pg_ctl -D $tempdir_path -l $logfile start).expect("Failed to start Postgres");
 
         EphemeralPostgres {
             _tempdir: tempdir,

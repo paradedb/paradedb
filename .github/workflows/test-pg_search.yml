@@ -225,3 +225,8 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
         working-directory: pg_search/
         run: cargo clean && cargo pgrx package --features icu
+
+      # Print postgres logs
+      - name: Postgres logs
+        if: always() # run even on failure
+        run: docker logs "${{ job.services.postgres.id }}"

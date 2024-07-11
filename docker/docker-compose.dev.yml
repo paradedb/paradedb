@@ -25,8 +25,3 @@ services:
       POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
     ports:
       - "5432:5432"
-    volumes:
-      - paradedb-dev_data:/bitnami/postgresql
-
-volumes:
-  paradedb-dev_data:

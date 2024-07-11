@@ -4,8 +4,7 @@ ARG PG_VERSION_MAJOR=16
 # First Stage: Builder
 ###############################################
 
-# We build the extensions on the official PostgreSQL image, since the Bitnami
-# image locks root and has few pre-installed packages
+# We build the extensions on the official PostgreSQL image
 # Note: Debian Bookworm = Debian 12
 FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
 
@@ -146,7 +145,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 ###############################################
 
 # Note: Debian Bookworm = Debian 12
-FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-12 as paradedb
+FROM ghcr.io/cloudnative-pg/postgresql:${PG_VERSION_MAJOR}-bookworm as paradedb
 
 ARG PG_VERSION_MAJOR=16
 
@@ -154,37 +153,20 @@ ARG PG_VERSION_MAJOR=16
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 
 # Copy third-party extensions from their builder stages
-COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
-COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
-COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /opt/bitnami/postgresql/lib/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pgvector /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Copy the ParadeDB extensions from their builder stages
-COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
-COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
-COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
-# Switch to root for configuring runtime dependencies
-USER root
+# Create the DuckDB directory
 RUN mkdir .duckdb/ && chown 777 .duckdb/
-USER 1001
-
-# Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
-COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
-
-# Configure shared_preload_libraries
-# Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
-ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_lakehouse,pg_search"
-
-# We set a default password to enable users to get started quickly, as it is a required
-# environment variable for the Bitnami image.
-#
-# Note: This *will* (and should) get overriden by passing the POSTGRESQL_PASSWORD environment
-# varialbe via `docker-compose` or `docker run -e POSTGRESQL_PASSWORD`. All production usage
-# should use a unique, secure password and not rely on the default settings.
-ENV POSTGRESQL_PASSWORD=postgres

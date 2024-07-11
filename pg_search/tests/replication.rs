@@ -83,7 +83,7 @@ impl EphemeralPostgres {
             port
         );
         let config_path = format!("{}/postgresql.conf", tempdir_path);
-        std::fs::write(&config_path, config_content).expect("Failed to write to postgresql.conf");
+        std::fs::write(config_path, config_content).expect("Failed to write to postgresql.conf");
 
         // Create log directory
         std::fs::create_dir_all(Path::new(&logfile).parent().unwrap())

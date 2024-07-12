@@ -24,7 +24,7 @@ body:
   - type: markdown
     attributes:
       value: "### Environment (please complete the following information):"
-  
+
   - type: input
     attributes:
       label: "OS:"
@@ -32,7 +32,7 @@ body:
       description: Please include your operating system version and architecture (e.g., aarch64, x86, x64, etc)
     validations:
       required: true
-  
+
   - type: input
     attributes:
       label: "ParadeDB Version:"

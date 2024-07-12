@@ -17,7 +17,7 @@ body:
       label: To Reproduce
       description: |
         Please provide steps to reproduce the behaviour, preferably a [minimal reproducible example](https://en.wikipedia.org/wiki/Minimal_reproducible_example).
-      placeholder: Steps to reproduce the behavior
+      placeholder: Steps to reproduce the behaviour
     validations:
       required: true
 
@@ -28,8 +28,8 @@ body:
   - type: input
     attributes:
       label: "OS:"
-      placeholder: e.g., iOS
-      description: Please include your operating system version and architecture (e.g., aarch64, x86, x64, etc)
+      placeholder: e.g., macOS
+      description: Please include your operating system version and architecture (e.g., aarch64, x86, x64, etc.)
     validations:
       required: true
 

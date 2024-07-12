@@ -12,7 +12,6 @@ body:
     attributes:
       label: What happens?
       description: A short, clear and concise description of the bug.
-      placeholder: Describe the bug
     validations:
       required: true
 
@@ -21,7 +20,6 @@ body:
       label: To Reproduce
       description: |
         Please provide steps to reproduce the behaviour, preferably a [minimal reproducible example](https://en.wikipedia.org/wiki/Minimal_reproducible_example).
-      placeholder: Steps to reproduce the behaviour
     validations:
       required: true
 
@@ -79,11 +77,11 @@ body:
     attributes:
       label: Did you include all relevant data sets for reproducing the issue?
       options:
-        - No - Other reason (please specify in the issue body)
-        - No - I cannot share the data sets because they are confidential
-        - No - I cannot easily share my data sets due to their large size
-        - Not applicable - the reproduction does not require a data set
-        - Yes
+        - "No - Other reason (please specify in the issue body)"
+        - "No - I cannot share the data sets because they are confidential"
+        - "No - I cannot easily share my data sets due to their large size"
+        - "Not applicable - the reproduction does not require a data set"
+        - "Yes"
       default: 0
     validations:
       required: true

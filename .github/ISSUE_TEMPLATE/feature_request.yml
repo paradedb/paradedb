@@ -1,7 +1,7 @@
 name: Feature request
-about: Suggest an idea for this project
-labels:
-  - needs triage
+description: Suggest an idea for this project
+labels: ""
+assignees: ""
 body:
   - type: markdown
     attributes:

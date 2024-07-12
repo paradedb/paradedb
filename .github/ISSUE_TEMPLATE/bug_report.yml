@@ -1,7 +1,5 @@
 name: Bug report
 description: Create a report to help us improve
-labels: ""
-assignees: ""
 body:
   - type: markdown
     attributes:

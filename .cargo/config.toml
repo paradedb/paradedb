@@ -1,9 +1,3 @@
-# Global settings - optimize for the native CPU for all targets. This
-# is required by the 'datafusion` crate for maximum performance, and
-# applies in addition to the target-specific settings below.
-[build]
-rustflags = ["-Ctarget-cpu=native"]
-
 # on macOS, PostgreSQL symbols won't be available until runtime
 [target.'cfg(target_os="macos")']
 rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]

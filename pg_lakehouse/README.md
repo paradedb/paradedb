@@ -16,7 +16,7 @@ With `pg_lakehouse` installed, Postgres can query foreign object stores like S3 
 
 Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Querying this data by moving it into a cloud data warehouse or operating a new query engine is expensive and time-consuming. The goal of `pg_lakehouse` is to enable this data to be queried directly from Postgres. This eliminates the need for new infrastructure, loss of data freshness, data movement, and non-Postgres dialects of other query engines.
 
-`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs like `aws_s3` have existed in the Postgres extension ecosystem, these FDWs suffer from two limitations:
+`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DuckDB. While other FDWs like `aws_s3` have existed in the Postgres extension ecosystem, these FDWs suffer from two limitations:
 
 1. Lack of support for most object stores and table formats
 2. Too slow over large datasets to be a viable analytical engine
@@ -134,7 +134,7 @@ To query your own data, please refer to the [documentation](https://docs.paraded
 
 ## Shared Preload Libraries
 
-Because this extension uses Postgres hooks to intercept and push queries down to DataFusion, it is **very important** that it is added to `shared_preload_libraries` inside `postgresql.conf`.
+Because this extension uses Postgres hooks to intercept and push queries down to DuckDB, it is **very important** that it is added to `shared_preload_libraries` inside `postgresql.conf`.
 
 ```bash
 # Inside postgresql.conf

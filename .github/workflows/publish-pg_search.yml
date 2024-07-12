@@ -302,14 +302,9 @@ jobs:
           fi
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      # We remove the native CPU optimization for the build, as we don't know what CPU architecture the user will be running our
-      # prebuilt binaries on. This reduces performance, but is necessary for compatibility. For the most optimized build, users should
-      # build the extension directly on their target machine, or use our Docker image.
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        run: |
-          sed -i '/# Global settings - optimize for the native CPU for all targets./,/\[build\]/d; /rustflags = \["-Ctarget-cpu=native"\]/d' ../.cargo/config.toml
-          cargo pgrx package --features icu
+        run: cargo pgrx package --features icu
 
       - name: Create .deb Package
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}

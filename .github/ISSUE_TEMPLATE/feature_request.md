@@ -1,9 +1,13 @@
 name: Feature request
-about: Suggest an idea for this project
-labels: ""
-assignees: ""
-title: ""
+description: Suggest an idea for this project
+labels:
+  - needs triage
 body:
+  - type: markdown
+    attributes:
+      value: >
+        Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
+
   - type: textarea
     attributes:
       label: What feature are you requesting?

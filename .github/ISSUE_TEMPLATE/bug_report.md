@@ -1,9 +1,13 @@
 name: Bug report
-about: Create a report to help us improve
-labels: ""
-assignees: ""
-title: ""
+description: Create a report to help us improve
+labels:
+  - needs triage
 body:
+  - type: markdown
+    attributes:
+      value: >
+        Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
+
   - type: textarea
     attributes:
       label: What happens?
@@ -24,7 +28,6 @@ body:
   - type: markdown
     attributes:
       value: "### Environment (please complete the following information):"
-
   - type: input
     attributes:
       label: "OS:"
@@ -32,7 +35,6 @@ body:
       description: Please include your operating system version and architecture (e.g., aarch64, x86, x64, etc.)
     validations:
       required: true
-
   - type: input
     attributes:
       label: "ParadeDB Version:"
@@ -43,14 +45,12 @@ body:
   - type: markdown
     attributes:
       value: "### Identity Disclosure:"
-
   - type: input
     attributes:
       label: "Full Name:"
       placeholder: e.g., John Doe
     validations:
       required: true
-
   - type: input
     attributes:
       label: "Affiliation:"

@@ -5496,6 +5496,7 @@ dependencies = [
  "cmd_lib",
  "csv",
  "derive_more",
+ "dotenvy",
  "fs2",
  "heapless 0.8.0",
  "indexmap 2.2.6",

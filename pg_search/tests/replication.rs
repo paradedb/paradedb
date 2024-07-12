@@ -1,9 +1,10 @@
 use anyhow::Result;
-use cmd_lib::run_cmd;
+use cmd_lib::{run_cmd, run_fun};
+use dotenvy::dotenv;
 use rstest::*;
 use shared::fixtures::db::Query;
 use sqlx::{Connection, PgConnection};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
 use tempfile::TempDir;
@@ -46,19 +47,40 @@ struct EphemeralPostgres {
     pub host: String,
     pub port: u16,
     pub dbname: String,
+    pub pg_ctl_path: PathBuf,
 }
 
 // Implement Drop trait to ensure the PostgreSQL instance is properly stopped
 impl Drop for EphemeralPostgres {
     fn drop(&mut self) {
         let path = &self.tempdir_path;
-        run_cmd!(pg_ctl -D $path stop).unwrap();
+        let pg_ctl_path = &self.pg_ctl_path;
+        run_cmd!($pg_ctl_path -D $path stop &> /dev/null).unwrap();
     }
 }
 
 // Implementation of EphemeralPostgres
 impl EphemeralPostgres {
     fn new() -> Self {
+        // Make sure .env files are loaded before reading env vars.
+        dotenv().ok();
+
+        let pg_config_path = std::env::var("PG_CONFIG").expect(
+            "PG_CONFIG variable must be set to enable creating ephemeral Postgres instances",
+        );
+
+        if !PathBuf::from(&pg_config_path).exists() {
+            panic!("PG_CONFIG variable must a valid path to enable creating ephemeral Postgres instances, received {pg_config_path}");
+        }
+
+        let pg_bin_path = match run_fun!($pg_config_path --bindir) {
+            Ok(path) => PathBuf::from(path.trim().to_string()),
+            Err(err) => panic!("could run pg_config --bindir to get Postgres bin folder: {err}"),
+        };
+
+        let init_db_path = pg_bin_path.join("initdb");
+        let pg_ctl_path = pg_bin_path.join("pg_ctl");
+
         let port = get_free_port();
         let tempdir = TempDir::new().expect("Failed to create temp dir");
         let tempdir_path = tempdir.path().to_str().unwrap().to_string();
@@ -66,7 +88,8 @@ impl EphemeralPostgres {
         let logfile = format!("/tmp/ephemeral_postgres_logs/{}.log", timestamp);
 
         // Initialize PostgreSQL data directory
-        run_cmd!(initdb -D $tempdir_path).expect("Failed to initialize Postgres data directory");
+        run_cmd!($init_db_path -D $tempdir_path &> /dev/null)
+            .expect("Failed to initialize Postgres data directory");
 
         // Write to postgresql.conf
         let config_content = format!(
@@ -87,7 +110,8 @@ impl EphemeralPostgres {
             .expect("Failed to create log directory");
 
         // Start PostgreSQL
-        run_cmd!(pg_ctl -D $tempdir_path -l $logfile start).expect("Failed to start Postgres");
+        run_cmd!($pg_ctl_path -D $tempdir_path -l $logfile start &> /dev/null)
+            .expect("Failed to start Postgres");
 
         EphemeralPostgres {
             _tempdir: tempdir,
@@ -95,6 +119,7 @@ impl EphemeralPostgres {
             host: "localhost".to_string(),
             port,
             dbname: "postgres".to_string(),
+            pg_ctl_path,
         }
     }
 

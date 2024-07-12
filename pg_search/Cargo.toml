@@ -57,6 +57,7 @@ ordered-float = "4.2.0"
 approx = "0.5.1"
 async-std = { version = "1.12.0", features = ["attributes"] }
 cmd_lib = "1.9.4"
+dotenvy = "0.15.7"
 pgrx-tests = "0.11.3"
 pgvector = { version = "0.3.2", features = ["sqlx"] }
 portpicker = "0.1.1"

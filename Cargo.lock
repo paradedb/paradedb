@@ -6480,9 +6480,9 @@ dependencies = [
 
 [[package]]
 name = "rust_icu_common"
-version = "4.2.3"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93596ce71c341f032cf218b6127d83bcd64edc61d70e9e0cb571b05f62800225"
+checksum = "7f9097b140d6d63baa3983301929b19d798a27809d282de7aafce581467f32c9"
 dependencies = [
  "anyhow",
  "rust_icu_sys",
@@ -6491,9 +6491,9 @@ dependencies = [
 
 [[package]]
 name = "rust_icu_sys"
-version = "4.2.3"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "083d737833aba400a448327f1ad58aadea8227c5362f5b9faafeeef45d29b108"
+checksum = "c3c428083b343e95b5454cf6e077d9f40b8ec88dd7d94e337f44465d14542401"
 dependencies = [
  "anyhow",
  "bindgen 0.59.2",
@@ -6504,9 +6504,9 @@ dependencies = [
 
 [[package]]
 name = "rust_icu_ubrk"
-version = "4.2.3"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae5c9ec4bfe6adb60ed3346823325e9fbe910b9c74678fbbd93c459907f06826"
+checksum = "d4a02ebf298095c98bce4ac85c0bed6224f4292aa769028ae2f498ce9cdb2e1f"
 dependencies = [
  "log",
  "paste",
@@ -6518,9 +6518,9 @@ dependencies = [
 
 [[package]]
 name = "rust_icu_uenum"
-version = "4.2.3"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aecec792504adce2780e955205cf0eb4c554f3217b8e30ad42e582ad5ab1babe"
+checksum = "7ae1c2b1b4c389b9945e1d818fefa38d16cad0fb523e57b10286087cb42ffd1a"
 dependencies = [
  "paste",
  "rust_icu_common",
@@ -6529,9 +6529,9 @@ dependencies = [
 
 [[package]]
 name = "rust_icu_uloc"
-version = "4.2.3"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00451d877e296677dcbb3ba15a275a8dde95ff8a2910b9363242614ad547f0d2"
+checksum = "b6a528c8261eaba4b4477b9cd6b00eaf7f2d3e61702a9814bef0b0a1c8263615"
 dependencies = [
  "anyhow",
  "log",
@@ -6544,9 +6544,9 @@ dependencies = [
 
 [[package]]
 name = "rust_icu_ustring"
-version = "4.2.3"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "455e0293b970f067bb57e04276d81dcb5aacde1b2240d5e939ad1b220b57b9d0"
+checksum = "0d2d46f3a1c9503c651e596b062865f057fa8e7447d8e1f3243e509d8238842a"
 dependencies = [
  "log",
  "paste",
@@ -8065,7 +8065,11 @@ dependencies = [
  "lindera-tokenizer",
  "once_cell",
  "rstest 0.18.2",
+ "rust_icu_common",
+ "rust_icu_sys",
  "rust_icu_ubrk",
+ "rust_icu_uloc",
+ "rust_icu_ustring",
  "serde",
  "serde_json",
  "tantivy",

@@ -212,7 +212,7 @@ Note: While it is possible to develop using pgrx's own Postgres installation(s),
 
 #### ICU Tokenizer
 
-`pg_search` comes with multiple tokenizers for different languages. The ICU tokenizer, which enables tokenization for Arabic, Amharic, and Greek, is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:
+`pg_search` comes with multiple tokenizers for different languages. The ICU tokenizer, which enables tokenization for Arabic, Amharic, Czech and Greek, is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:
 
 Ensure that the `libicu` library is installed. It should come preinstalled on most distros, but you can install it with your system package manager if it isn't:
 

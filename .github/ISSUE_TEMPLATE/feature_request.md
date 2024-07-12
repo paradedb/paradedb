@@ -1,16 +1,52 @@
----
 name: Feature request
 about: Suggest an idea for this project
-title: ""
 labels: ""
 assignees: ""
----
+title: ""
+body:
+  - type: textarea
+    attributes:
+      label: What feature are you requesting?
+      description: A short, clear and concise description of the desired feature.
+      placeholder: Describe the feature
+    validations:
+      required: true
 
-**What**
-Please describe the feature.
+  - type: textarea
+    attributes:
+      label: Why are you requesting this feature?
+      description: A short, clear and concise description of why this feature is important.
+      placeholder: Describe the reason
+    validations:
+      required: true
 
-**Why**
-Please describe why this feature is important.
+  - type: textarea
+    attributes:
+      label: What is your proposed implementation for this feature?
+      description: A short, clear and concise description of how you'd implement this feature.
+      placeholder: Describe the implementation
+    validations:
+      required: false
 
-**How**
-Please describe how you'd implement this feature.
+  - type: markdown
+    attributes:
+      value: "### Identity Disclosure:"
+
+  - type: input
+    attributes:
+      label: "Full Name:"
+      placeholder: e.g., John Doe
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: "Affiliation:"
+      placeholder: e.g., Acme Corporation
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        If the above is not given and is not obvious from your GitHub profile page, we might close your issue without further review. Please refer to the [reasoning behind this rule](https://berthub.eu/articles/posts/anonymous-help/) if you have questions.

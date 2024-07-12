@@ -7,7 +7,6 @@
 **/*.tsv.gz
 **/*.txt
 **/*.zip
-/.github/ISSUE_TEMPLATE/*.md
 /docker/.docker_cache_dev/
 /docs/search/quickstart.mdx
 /docs/search/full-text/autocomplete.mdx

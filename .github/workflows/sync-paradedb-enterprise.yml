@@ -85,24 +85,41 @@ jobs:
             else
               echo "A pull request from dev to main already exists: https://github.com/paradedb/paradedb-enterprise/pull/$existing_pr. It might have been created manually or left open from a previous release."
             fi
-          # If this is a featureX->dev promotion, there will likely be conflicts. Therefore, we don't rebase and push
-          # the branch directly, but instead create a new branch and push that, and open the PR from this branch to `dev`.
+          # If this is a featureX->dev promotion, there may or may not be conflicts. Therefore, we first try to rebase. If there are
+          # no conflicts, we push the branch without needing to create a PR. If there are conflicts, we create a new branch and PR it
+          # for someone to resolve the conflicts.
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
-            # 1) Create feature branch
-            FEATURE_BRANCH=sync-paradedb/paradedb-${{ steps.env.outputs.environment }}-$(date +%Y%m%d%H%M%S)
-            git checkout -b $FEATURE_BRANCH upstream/${{ steps.env.outputs.environment }}
-            
-            # 2) Push the feature branch
-            git push origin $FEATURE_BRANCH
-            
-            # 3) Create PR
-            gh pr create \
-              --repo paradedb/paradedb-enterprise \
-              --base dev \
-              --head $FEATURE_BRANCH \
-              --title "feat: Sync paradedb/paradedb to paradedb/paradedb-enterprise" \
-              --body "This PR was automatically created by the sync-paradedb-enterprise workflow. Rebase and merge this PR to sync the latest changes from the paradedb/paradedb repository to the paradedb/paradedb-enterprise repository." \                
-              --draft
+
+
+
+            # 1) Attempt to rebase the branch
+            git checkout -b temp-rebase-branch upstream/${{ steps.env.outputs.environment }}
+            git rebase dev
+
+            # Check for conflicts during the rebase
+            if [[ $? -eq 0 ]]; then
+              # If no conflicts, push the rebase
+              git push origin temp-rebase-branch:${{ steps.env.outputs.environment }}
+            else
+              # If there are conflicts, abort the rebase and create a new feature branch
+              git rebase --abort
+
+              # Create feature branch
+              FEATURE_BRANCH=sync-paradedb/paradedb-${{ steps.env.outputs.environment }}-$(date +%Y%m%d%H%M%S)
+              git checkout -b $FEATURE_BRANCH upstream/${{ steps.env.outputs.environment }}
+              
+              # Push the feature branch
+              git push origin $FEATURE_BRANCH
+
+              # Create PR
+              gh pr create \
+                --repo paradedb/paradedb-enterprise \
+                --base dev \
+                --head $FEATURE_BRANCH \
+                --title "feat: Sync paradedb/paradedb to paradedb/paradedb-enterprise" \
+                --body "This PR was automatically created by the sync-paradedb-enterprise workflow. Rebase and merge this PR to sync the latest changes from the paradedb/paradedb repository to the paradedb/paradedb-enterprise repository." \                
+                --draft
+            fi
           else
             echo "Invalid environment: ${{ steps.env.outputs.environment }}, exiting..."
             exit 1

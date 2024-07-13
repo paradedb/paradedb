@@ -1,0 +1,83 @@
+# workflows/sync-paradedb-enterprise.yml
+#
+# Sync ParadeDB Enterprise
+# Sync the ParadeDB Enterprise repository with the ParadeDB repository on the dev and main branches, to
+# enable the promotion of the ParadeDB Enterprise release to production.
+
+name: Sync ParadeDB Enterprise
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  # This workflow shouldn't have a workflow_dispatch trigger, since we want to match the branches exactly
+
+concurrency:
+  group: sync-paradedb-enterprise-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-paradedb-enterprise:
+    name: Sync `paradedb/paradedb` and `paradedb/paradedb-enterprise`
+    runs-on: depot-ubuntu-latest-2
+
+    steps:
+      - name: Checkout `paradedb/paradedb-enterprise` Git Repository
+        uses: actions/checkout@v4
+        with:
+          repository: paradedb/paradedb-enterprise
+          ref: ${{ github.ref_name }}
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+
+      - name: Fetch and Merge `paradedb/paradedb` Into `paradedb/paradedb-enterprise`
+        working-directory: paradedb-enterprise
+        run: |
+          git remote add upstream https://github.com/paradedb/paradedb.git
+          git fetch upstream ${{ github.ref_name }}
+          git checkout -b ${{ github.ref_name }} upstream/${{ github.ref_name }}
+
+
+
+
+
+
+    # Need to merge and force the push despite the error, then trigger a PR from branch feature-x into dev or main and open the PR
+
+
+
+
+    # Then need to fetch the upstream so we can actually create the PR
+
+
+
+# this workflow should sync the paradedb-enterprise repo on dev and on main branches by opening up the PRs that need handling
+
+
+
+
+
+
+    - name: Retrieve GitHub Release Version
+      id: version
+      run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Create Promotion PR on paradedb/paradedb-enterprise
+      env:
+        GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      run: |
+        # Check if a PR from dev to main already exists
+        existing_pr=$(gh pr list --repo paradedb/paradedb-enterprise --base main --head dev --json number --jq '.[0].number')
+
+        if [ -z "$existing_pr" ]; then
+          # If no PR exists, create a new one
+          gh pr create \
+            --repo paradedb/paradedb-enterprise \
+            --base main \
+            --head dev \
+            --title "feat: Prod Promotion for ParadeDB Enterprise v${{ steps.version.outputs.version }}" \
+            --body "This PR was automatically created by the v${{ steps.version.outputs.version }} GitHub Release in the `paradedb/paradedb` repository. Rebase and merge this PR to promote the ParadeDB Enterprise v${{ steps.version.outputs.version }} release to production." \
+            --draft
+        else
+          echo "A pull request from dev to main already exists: https://github.com/paradedb/paradedb-enterprise/pull/$existing_pr. It might have been created manually or left open from a previous release."
+        fi

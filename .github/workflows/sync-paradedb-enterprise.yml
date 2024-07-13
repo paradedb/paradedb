@@ -23,61 +23,87 @@ jobs:
     runs-on: depot-ubuntu-latest-2
 
     steps:
+      - name: Set Environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "Using prod configuration..."
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "Using staging configuration..."
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "Using dev configuration..."
+          fi
+
+      - name: Retrieve Latest paradedb/paradedb Tag (prod only)
+        if: steps.env.outputs.environment == 'prod'
+        id: version
+        run: |
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/paradedb/paradedb/tags" | jq -r '.[].name' | sort -V | tail -n 1)
+          echo "Latest paradedb/paradedb tag: $LATEST_TAG"
+          echo "version=$LATEST_TAG" >> $GITHUB_OUTPUT
+
       - name: Checkout `paradedb/paradedb-enterprise` Git Repository
         uses: actions/checkout@v4
         with:
           repository: paradedb/paradedb-enterprise
-          ref: ${{ github.ref_name }}
+          ref: ${{ steps.env.outputs.environment }}
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
-      - name: Fetch and Merge `paradedb/paradedb` Into `paradedb/paradedb-enterprise`
+      - name: Fetch, Merge, and PR `paradedb/paradedb` Into `paradedb/paradedb-enterprise`
         working-directory: paradedb-enterprise
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
           git remote add upstream https://github.com/paradedb/paradedb.git
-          git fetch upstream ${{ github.ref_name }}
-          git checkout -b ${{ github.ref_name }} upstream/${{ github.ref_name }}
+          git fetch upstream ${{ steps.env.outputs.environment }}
 
+          # If this is a dev->main promotion, there should be no conflicts since they should've been resolved
+          # before. Therefore, we can do a rebase, push directly to `dev`, and open the PR from `dev` to `main`.          
+          if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
+            # 1) Rebase
+            git rebase upstream/${{ steps.env.outputs.environment }}
 
+            # 2) Push to `dev`
+            git push origin ${{ steps.env.outputs.environment }}
 
+            # 3) Create PR
+            # Check if a PR from dev to main already exists
+            existing_pr=$(gh pr list --repo paradedb/paradedb-enterprise --base main --head dev --json number --jq '.[0].number')
 
-
-
-    # Need to merge and force the push despite the error, then trigger a PR from branch feature-x into dev or main and open the PR
-
-
-
-
-    # Then need to fetch the upstream so we can actually create the PR
-
-
-
-# this workflow should sync the paradedb-enterprise repo on dev and on main branches by opening up the PRs that need handling
-
-
-
-
-
-
-    - name: Retrieve GitHub Release Version
-      id: version
-      run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-    - name: Create Promotion PR on paradedb/paradedb-enterprise
-      env:
-        GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-      run: |
-        # Check if a PR from dev to main already exists
-        existing_pr=$(gh pr list --repo paradedb/paradedb-enterprise --base main --head dev --json number --jq '.[0].number')
-
-        if [ -z "$existing_pr" ]; then
-          # If no PR exists, create a new one
-          gh pr create \
-            --repo paradedb/paradedb-enterprise \
-            --base main \
-            --head dev \
-            --title "feat: Prod Promotion for ParadeDB Enterprise v${{ steps.version.outputs.version }}" \
-            --body "This PR was automatically created by the v${{ steps.version.outputs.version }} GitHub Release in the `paradedb/paradedb` repository. Rebase and merge this PR to promote the ParadeDB Enterprise v${{ steps.version.outputs.version }} release to production." \
-            --draft
-        else
-          echo "A pull request from dev to main already exists: https://github.com/paradedb/paradedb-enterprise/pull/$existing_pr. It might have been created manually or left open from a previous release."
-        fi
+            if [ -z "$existing_pr" ]; then
+              # If no PR exists, create a new one
+              gh pr create \
+                --repo paradedb/paradedb-enterprise \
+                --base main \
+                --head dev \
+                --title "feat: Prod Promotion for ParadeDB Enterprise v${{ steps.version.outputs.version }}" \
+                --body "This PR was automatically created by the v${{ steps.version.outputs.version }} GitHub Release in the `paradedb/paradedb` repository. Rebase and merge this PR to promote the ParadeDB Enterprise v${{ steps.version.outputs.version }} release to production." \
+                --draft
+            else
+              echo "A pull request from dev to main already exists: https://github.com/paradedb/paradedb-enterprise/pull/$existing_pr. It might have been created manually or left open from a previous release."
+            fi
+          # If this is a featureX->dev promotion, there will likely be conflicts. Therefore, we don't rebase and push
+          # the branch directly, but instead create a new branch and push that, and open the PR from this branch to `dev`.
+          elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+            # 1) Create feature branch
+            FEATURE_BRANCH=sync-paradedb/paradedb-${{ steps.env.outputs.environment }}-$(date +%Y%m%d%H%M%S)
+            git checkout -b $FEATURE_BRANCH upstream/${{ steps.env.outputs.environment }}
+            
+            # 2) Push the feature branch
+            git push origin $FEATURE_BRANCH
+            
+            # 3) Create PR
+            gh pr create \
+              --repo paradedb/paradedb-enterprise \
+              --base dev \
+              --head $FEATURE_BRANCH \
+              --title "feat: Sync paradedb/paradedb to paradedb/paradedb-enterprise" \
+              --body "This PR was automatically created by the sync-paradedb-enterprise workflow. Rebase and merge this PR to sync the latest changes from the paradedb/paradedb repository to the paradedb/paradedb-enterprise repository." \                
+              --draft
+          else
+            echo "Invalid environment: ${{ steps.env.outputs.environment }}, exiting..."
+            exit 1
+          fi

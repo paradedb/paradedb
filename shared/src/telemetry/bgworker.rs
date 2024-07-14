@@ -34,15 +34,13 @@ use std::time::Duration;
 /// way otherwise for a background worker to tell which extension it is working for.
 pub enum ParadeExtension {
     PgSearch = 1,
-    PgAnalytics = 2,
-    PgLakehouse = 3,
+    PgLakehouse = 2,
 }
 
 impl ParadeExtension {
     fn name(&self) -> String {
         match self {
             Self::PgSearch => "pg_search",
-            Self::PgAnalytics => "pg_analytics",
             Self::PgLakehouse => "pg_lakehouse",
         }
         .into()
@@ -51,8 +49,7 @@ impl ParadeExtension {
     fn from_i32(n: i32) -> Option<Self> {
         match n {
             1 => Some(Self::PgSearch),
-            2 => Some(Self::PgAnalytics),
-            3 => Some(Self::PgLakehouse),
+            2 => Some(Self::PgLakehouse),
             _ => None,
         }
     }

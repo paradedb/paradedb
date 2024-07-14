@@ -83,8 +83,7 @@
           "group": "Deploying Extensions",
           "pages": [
             "deploy/pg_search",
-            "deploy/pg_lakehouse",
-            "deploy/pg_analytics"
+            "deploy/pg_lakehouse"
           ]
         },
         "upgrading",

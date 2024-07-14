@@ -710,33 +710,6 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
-    // Ensure report error when predicate is invalid
-    // unknown column
-    let ret = "CALL paradedb.create_bm25(
-        index_name => 'partial_idx',
-        schema_name => 'paradedb',
-        table_name => 'test_partial_index',
-        key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
-        predicates => 'city = ''Electronics'''
-    );"
-    .execute_result(&mut conn);
-    assert!(ret.is_err());
-
-    // mismatch type
-    let ret = "CALL paradedb.create_bm25(
-        index_name => 'partial_idx',
-        schema_name => 'paradedb',
-        table_name => 'test_partial_index',
-        key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
-        predicates => 'category = ''123''::INTEGER'
-    );"
-    .execute_result(&mut conn);
-    assert!(ret.is_err());
-
     let ret = "CALL paradedb.create_bm25(
         index_name => 'partial_idx',
         schema_name => 'paradedb',
@@ -922,4 +895,115 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
             .split(',')
             .collect::<Vec<_>>()
     );
+}
+
+#[rstest]
+fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+
+    // Ensure report error when predicate is invalid
+    // unknown column
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'partial_idx',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_index',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'city = ''Electronics'''
+    );"
+    .execute_result(&mut conn);
+    assert!(ret.is_err());
+
+    // mismatch type
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'partial_idx',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_index',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'category = ''123''::INTEGER'
+    );"
+    .execute_result(&mut conn);
+    assert!(ret.is_err());
+
+    // mismatch schema
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'public',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_index',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'category = ''Electronics''' 
+    );"
+    .execute_result(&mut conn);
+    assert!(ret.is_err());
+
+    let ret = "CALL paradedb.create_bm25(
+        index_name => 'partial_idx',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_index',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'category = ''Electronics'''
+    );"
+    .execute_result(&mut conn);
+    assert!(ret.is_ok());
+}
+
+#[rstest]
+fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'partial_idx',
+        schema_name => 'paradedb',
+        table_name => 'test_partial_index',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
+        numeric_fields => '{rating: {}}',
+        predicates => 'category = ''Electronics'''
+    );"
+    .execute(&mut conn);
+    let rows: Vec<(String,)> =
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    let rows: Vec<(String,)> =
+        "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    // Drop a column that is not referenced in the partial index.
+    "ALTER TABLE paradedb.test_partial_index DROP COLUMN metadata;".execute(&mut conn);
+    let rows: Vec<(String,)> =
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    let rows: Vec<(String,)> =
+        "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    // When the predicate column is dropped, partial index will be dropped, but the schema will remain.
+    // This behavior is the same as normal postgres index.
+    "ALTER TABLE paradedb.test_partial_index DROP COLUMN category;".execute(&mut conn);
+    let rows: Vec<(String,)> =
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+    let rows: Vec<(String,)> =
+        "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    // CALL drop_bm25 could clean it.
+    "CALL paradedb.drop_bm25 ('partial_idx');".execute(&mut conn);
+    let rows: Vec<(String,)> =
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+    let rows: Vec<(String,)> =
+        "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
 }

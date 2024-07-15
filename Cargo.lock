@@ -3038,7 +3038,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "duckdb"
 version = "1.0.0"
-source = "git+https://github.com/paradedb/duckdb-rs.git?rev=15c09f4#15c09f46989943f618a536890d24980dcd9f670b"
+source = "git+https://github.com/paradedb/duckdb-rs.git?rev=e532dd6#e532dd68291736dd102da2bb6041fd3fb273573f"
 dependencies = [
  "arrow 52.1.0",
  "calamine",
@@ -4446,7 +4446,7 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 [[package]]
 name = "libduckdb-sys"
 version = "1.0.0"
-source = "git+https://github.com/paradedb/duckdb-rs.git?rev=15c09f4#15c09f46989943f618a536890d24980dcd9f670b"
+source = "git+https://github.com/paradedb/duckdb-rs.git?rev=e532dd6#e532dd68291736dd102da2bb6041fd3fb273573f"
 dependencies = [
  "autocfg",
  "cc",

@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::{query::QueryParser, Executor, Index, IndexSettings, Searcher};
-use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
+use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order,TantivyError};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::{error, info};
@@ -80,7 +80,7 @@ impl SearchIndex {
                 field: schema.key_field().name.as_ref().into(),
                 order: Order::Asc,
             }),
-            // docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
+            // docstore_compress_dedicated_threadSpi::get: false, // Must run on single thread, or pgrx will panic
             ..Default::default()
         };
 
@@ -113,8 +113,28 @@ impl SearchIndex {
         let new_self_ref = Self::from_cache(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
+        // let reader = new_self_ref.underlying_index.reader().expect("msg");
+        // let space_usage: Vec<Result<tantivy::space_usage::SegmentSpaceUsage, std::io::Error>> =  reader.searcher().segment_readers().iter().map(| segment_reader | segment_reader.space_usage()).collect();
+        
         Ok(new_self_ref)
     }
+
+    pub fn index_size(&self) -> usize {
+        let reader = self.underlying_index.reader().expect("msg");
+        let space_usage: Vec<Result<tantivy::space_usage::SegmentSpaceUsage, std::io::Error>> =  reader.searcher()
+            .segment_readers()
+            .iter()
+            .map(| segment_reader | segment_reader.space_usage())
+            .collect();
+
+        let total_space_usage: u64 = space_usage
+            .into_iter() // Convert to an iterator
+            .filter_map(|result| result.ok()) // Use `ok()` to convert `Result` to `Option`
+            .map(|usage| usage.total().get_bytes()) // Access the inner u64 value of ByteCount
+            .sum();
+        
+        total_space_usage.try_into().unwrap()
+   }
 
     #[allow(static_mut_refs)]
     fn executor() -> &'static Executor {

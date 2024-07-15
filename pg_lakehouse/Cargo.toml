@@ -23,7 +23,7 @@ arrow-buffer = "52.0.0"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
 duckdb = { git = "https://github.com/paradedb/duckdb-rs.git", features = ["bundled", "extensions-full"], rev = "15c09f4" }
-pgrx = "0.11.3"
+pgrx = "0.11.4"
 serde = "1.0.201"
 serde_json = "1.0.120"
 shared = { path = "../shared" }
@@ -39,7 +39,7 @@ aws-sdk-s3 = "1.34.0"
 datafusion = "37.1.0"
 deltalake = { version = "0.17.3", features = ["datafusion"] }
 futures = "0.3.30"
-pgrx-tests = "0.11.3"
+pgrx-tests = "0.11.4"
 rstest = "0.19.0"
 serde_arrow = { version = "0.11.3", features = ["arrow-51"] }
 shared = { path = "../shared", features = ["fixtures"] }

@@ -16,6 +16,7 @@ on:
       - main
     paths:
       - ".github/workflows/benchmark-pg_search.yml"
+      - "cargo-paradedb/**"
       - "docker/Dockerfile"
       - "pg_search/**"
       - "!pg_search/README.md"

@@ -16,6 +16,7 @@ on:
       - main
     paths:
       - ".github/workflows/benchmark-pg_lakehouse.yml"
+      - "cargo-paradedb/**"
       - "docker/Dockerfile"
       - "pg_lakehouse/**"
       - "!pg_lakehouse/README.md"

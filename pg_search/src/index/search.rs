@@ -80,7 +80,6 @@ impl SearchIndex {
                 field: schema.key_field().name.as_ref().into(),
                 order: Order::Asc,
             }),
-            // docstore_compress_dedicated_threadSpi::get: false, // Must run on single thread, or pgrx will panic
             ..Default::default()
         };
 
@@ -112,9 +111,6 @@ impl SearchIndex {
         // We need to return the Self that is borrowed from the cache.
         let new_self_ref = Self::from_cache(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
-        // let reader = new_self_ref.underlying_index.reader().expect("msg");
-        // let space_usage: Vec<Result<tantivy::space_usage::SegmentSpaceUsage, std::io::Error>> =  reader.searcher().segment_readers().iter().map(| segment_reader | segment_reader.space_usage()).collect();
         
         Ok(new_self_ref)
     }
@@ -129,8 +125,8 @@ impl SearchIndex {
 
         let total_space_usage: u64 = space_usage
             .into_iter() // Convert to an iterator
-            .filter_map(|result| result.ok()) // Use `ok()` to convert `Result` to `Option`
-            .map(|usage| usage.total().get_bytes()) // Access the inner u64 value of ByteCount
+            .filter_map(|result| result.ok())
+            .map(|usage| usage.total().get_bytes())
             .sum();
         
         total_space_usage.try_into().unwrap()

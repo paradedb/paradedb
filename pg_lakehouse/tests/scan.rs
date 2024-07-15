@@ -244,7 +244,7 @@ async fn test_duckdb_types_parquet_local(
             hugeint_col: 1.2345678901234567e19,
             uhugeint_col: 1.2345678901234567e19,
             varchar_col: "Example text".to_string(),
-            blob_col: vec![65],
+            blob_col: "\x41".to_string(),
             decimal_col: BigDecimal::from_str("12345.6700").unwrap(),
             timestamp_s_col: datetime!(2023-06-27 12:34:56),
             timestamp_ms_col: datetime!(2023-06-27 12:34:56),

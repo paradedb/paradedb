@@ -11,6 +11,7 @@ on:
     paths:
       - "**/*.yml"
       - "**/*.yaml"
+      - ".github/workflows/lint-yaml.yml"
   workflow_dispatch:
 
 concurrency:
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   lint-yaml:
     name: Lint YAML Files
-    runs-on: depot-ubuntu-22.04-2
+    runs-on: depot-ubuntu-latest-2
     if: github.event.pull_request.draft == false
 
     steps:

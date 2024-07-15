@@ -105,6 +105,7 @@ ParadeDB collects anonymous telemetry to help us understand how many people are 
 
 ```sql
 ALTER SYSTEM SET paradedb.pg_search_telemetry TO 'off';
+ALTER SYSTEM SET paradedb.pg_lakehouse_telemetry TO 'off';
 ```
 
 ### Helm Chart

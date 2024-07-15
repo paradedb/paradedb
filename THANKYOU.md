@@ -36,27 +36,9 @@ the first PGRX extension and primary example, for the architecture of our own ex
 inspired by Apache Lucene, written entirely in Rust. ParadeDB uses Tantivy to power
 part of our search functionalities.
 
-## Apache Arrow
+## DuckDB
 
-[Apache Arrow](https://arrow.apache.org/) is a cross-language development platform for in-memory analytics. It is
-the industry's standard in-memory columnar format. ParadeDB uses Apache Arrow to do optimized in-memory columnar
-processing.
-
-## Apache Parquet
-
-[Apache Parquet](https://parquet.apache.org/) is an open source, column-oriented data file format designed for efficient data storage and retrieval. It provides efficient data compression and encoding schemes with enhanced performance to handle complex data in bulk. ParadeDB uses Apache Parquet to store data in columnar format.
-
-## Apache DataFusion
-
-[Apache DataFusion](https://arrow.apache.org/datafusion/) is a very fast, extensible query engine for building high-quality data-centric systems in Rust, using the Apache Arrow in-memory format. ParadeDB uses Apache DataFusion to do vectorized query processing for columnar data.
-
-## Apache OpenDAL
-
-[Apache OpenDAL](https://opendal.apache.org/) offers a unified data access layer, empowering users to seamlessly and efficiently retrieve data from diverse storage services. ParadeDB uses Apache OpenDAL to do fast analytics from Postgres over data stored in various storage services, like S3, GCS, and more.
-
-## Delta Rust
-
-[Delta Lake Rust](https://github.com/delta-io/delta-rs) is a Rust implementation of the Delta Lake transactional storage layer. ParadeDB uses Delta Rust implement ACID transactions over Parquet files.
+[DuckDB](https://github.com/duckdb/duckdb) is a high-performance analytical database system. It is designed to be fast, reliable, portable, and easy to use. ParadeDB uses DuckDB do vectorized query processing for columnar data.
 
 ## Docker
 

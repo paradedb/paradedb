@@ -30,102 +30,127 @@ jobs:
       matrix:
         include:
           # Ubuntu 22.04
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: ubuntu:22.04
             pg_version: 14
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: ubuntu:22.04
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: ubuntu:22.04
             pg_version: 15
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: ubuntu:22.04
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: ubuntu:22.04
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: ubuntu:22.04
+            pg_version: 16
+            arch: arm64
+          # Ubuntu 24.04
+          - runner: depot-ubuntu-latest-8
+            image: ubuntu:24.04
+            pg_version: 14
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: ubuntu:24.04
+            pg_version: 14
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: ubuntu:24.04
+            pg_version: 15
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: ubuntu:24.04
+            pg_version: 15
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: ubuntu:24.04
+            pg_version: 16
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: ubuntu:24.04
             pg_version: 16
             arch: arm64
           # Debian 11
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: debian:11-slim
             pg_version: 14
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: debian:11-slim
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: debian:11-slim
             pg_version: 15
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: debian:11-slim
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: debian:11-slim
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: debian:11-slim
             pg_version: 16
             arch: arm64
           # Debian 12
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: debian:12-slim
             pg_version: 14
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: debian:12-slim
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: debian:12-slim
             pg_version: 15
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: debian:12-slim
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: debian:12-slim
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: debian:12-slim
             pg_version: 16
             arch: arm64
           # Red Hat Enterprise Linux 9
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: redhat/ubi9:latest
             pg_version: 14
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: redhat/ubi9:latest
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: redhat/ubi9:latest
             pg_version: 15
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: redhat/ubi9:latest
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             image: redhat/ubi9:latest
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-latest-arm-4
             image: redhat/ubi9:latest
             pg_version: 16
             arch: arm64
@@ -136,7 +161,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Debian Dependencies
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
       - name: Install RHEL Dependencies
@@ -233,7 +258,7 @@ jobs:
           fi
 
       - name: Install & Configure Supported PostgreSQL Version on Debian
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -277,17 +302,12 @@ jobs:
           fi
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      # We remove the native CPU optimization for the build, as we don't know what CPU architecture the user will be running our
-      # prebuilt binaries on. This reduces performance, but is necessary for compatibility. For the most optimized build, users should
-      # build the extension directly on their target machine, or use our Docker image.
       - name: Package pg_lakehouse Extension with pgrx
         working-directory: pg_lakehouse/
-        run: |
-          sed -i '/# Global settings - optimize for the native CPU for all targets./,/\[build\]/d; /rustflags = \["-Ctarget-cpu=native"\]/d' ../.cargo/config.toml
-          cargo pgrx package
+        run: cargo pgrx package
 
       - name: Create .deb Package
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         run: |
           # Create installable package
           mkdir archive
@@ -349,8 +369,7 @@ jobs:
 
           %description
           pg_lakehouse is a Postgres extension that enables fast analytics over
-          data lakes from Postgres. It is built on top of DataFusion, the Rust-based
-          analytics query engine, using pgrx.
+          data lakes from Postgres. It is built on top of DuckDB, using pgrx.
 
           %install
           %{__rm} -rf %{buildroot}
@@ -381,7 +400,7 @@ jobs:
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
       - name: Upload pg_lakehouse .deb to GitHub Release
-        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' }}
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         uses: shogo82148/actions-upload-release-asset@v1
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

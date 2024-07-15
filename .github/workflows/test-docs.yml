@@ -12,8 +12,8 @@ on:
       - main
       - dev
     paths:
-      - "docs/**"
       - ".github/workflows/test-docs.yml"
+      - "docs/**"
   workflow_dispatch:
 
 concurrency:
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   test-docs:
     name: Test Docs for Broken Links
-    runs-on: depot-ubuntu-22.04-2
+    runs-on: depot-ubuntu-latest-2
     if: github.event.pull_request.draft == false
 
     steps:

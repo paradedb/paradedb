@@ -26,7 +26,7 @@ use tantivy::{schema::Field, IndexWriter};
 /// The entity that interfaces with Tantivy indexes.
 pub struct Writer {
     /// Map of index directory path to Tantivy writer instance.
-    tantivy_writers: HashMap<WriterDirectory, tantivy::IndexWriter>,
+    tantivy_writers: HashMap<WriterDirectory, IndexWriter>,
 }
 
 impl Writer {
@@ -55,7 +55,6 @@ impl Writer {
         document: SearchDocument,
     ) -> Result<(), IndexError> {
         let writer = self.get_writer(directory)?;
-
         // Add the Tantivy document to the index.
         writer.add_document(document.into())?;
 
@@ -78,9 +77,7 @@ impl Writer {
 
     fn commit(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         if directory.exists()? {
-            let writer = self
-                .get_writer(directory.clone())
-                .expect("cannot lookup writer");
+            let writer = self.get_writer(directory.clone())?;
             writer.prepare_commit()?;
             writer.commit()?;
         } else {
@@ -88,14 +85,16 @@ impl Writer {
             // Rare, but possible if a previous delete failed. Drop it to free the space.
             self.drop_index(directory.clone())?;
         }
-        self.tantivy_writers.remove(&directory);
         Ok(())
     }
 
     fn abort(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
-        // If the transaction was aborted, we should drop the writer.
+        // If the transaction was aborted, we should roll back the writer to the last commit.
         // Otherwise, partialy written data could stick around for the next transaction.
-        self.tantivy_writers.remove(&directory);
+        if let Some(writer) = self.tantivy_writers.get_mut(&directory) {
+            writer.rollback()?;
+        }
+
         Ok(())
     }
 
@@ -106,20 +105,11 @@ impl Writer {
     }
 
     fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
-        if let Ok(writer) = self.get_writer(directory.clone()) {
-            writer.delete_all_documents()?;
-            self.commit(directory.clone())?;
-
-            // Remove the writer from the cache so that it is dropped.
-            // We want to do this first so that the lockfile is released before deleting.
-            // We'll manually call drop to make sure the lockfile is cleaned up.
-            if let Some(writer) = self.tantivy_writers.remove(&directory) {
-                std::mem::drop(writer);
-            };
-        }
+        if let Some(writer) = self.tantivy_writers.remove(&directory) {
+            std::mem::drop(writer);
+        };
 
         directory.remove()?;
-
         Ok(())
     }
 }

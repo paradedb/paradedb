@@ -12,11 +12,11 @@ on:
       - dev
       - main
     paths:
+      - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
+      - "!pg_search/README.md"
       - "tokenizers/**"
       - "shared/**"
-      - "!pg_search/README.md"
-      - ".github/workflows/test-pg_search.yml"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
@@ -39,19 +39,19 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 12
             arch: amd64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 13
             arch: amd64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 14
             arch: amd64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 15
             arch: amd64
-          - runner: depot-ubuntu-22.04-8
+          - runner: depot-ubuntu-latest-8
             pg_version: 16
             arch: amd64
     env:

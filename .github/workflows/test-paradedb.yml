@@ -12,12 +12,14 @@ on:
       - main
       - dev
     paths:
+      - ".github/workflows/test-paradedb.yml"
       - "docker/**"
       - "pg_lakehouse/**"
+      - "!pg_lakehouse/README.md"
       - "pg_search/**"
+      - "!pg_search/README.md"
       - "shared/**"
       - "tokenizers/**"
-      - ".github/workflows/test-paradedb.yml"
   workflow_dispatch:
 
 concurrency:
@@ -27,7 +29,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-22.04-8
+    runs-on: depot-ubuntu-latest-8
     if: github.event.pull_request.draft == false
     strategy:
       matrix:

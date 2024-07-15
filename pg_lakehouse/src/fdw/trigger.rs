@@ -211,7 +211,7 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> Result<String> {
         .replace("UBIGINT", "NUMERIC")
         .replace("HUGEINT", "NUMERIC")
         .replace("UHUGEINT", "NUMERIC")
-        .replace("BLOB", "BYTEA")
+        .replace("BLOB", "TEXT")
         .replace("DOUBLE", "DOUBLE PRECISION")
         .replace("TIMESTAMP_S", "TIMESTAMP")
         .replace("TIMESTAMP_MS", "TIMESTAMP")

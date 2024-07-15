@@ -41,7 +41,7 @@ pub struct DuckdbTypesTable {
     pub hugeint_col: f64,
     pub uhugeint_col: f64,
     pub varchar_col: String,
-    pub blob_col: Vec<u8>,
+    pub blob_col: String,
     pub decimal_col: BigDecimal,
     pub timestamp_s_col: PrimitiveDateTime,
     pub timestamp_ms_col: PrimitiveDateTime,

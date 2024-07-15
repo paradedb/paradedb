@@ -92,7 +92,6 @@ impl SearchIndex {
         let schema = SearchIndexSchema::new(fields)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
-
         let mut underlying_index = Index::builder()
             .schema(schema.schema.clone())
             .create_in_dir(tantivy_dir_path)

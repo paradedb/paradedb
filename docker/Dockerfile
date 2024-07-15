@@ -172,7 +172,7 @@ COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-p
 # Switch to root for installing and configuring runtime dependencies
 USER root
 RUN install_packages curl uuid-runtime libpq5
-RUN chown 777 .duckdb/
+RUN mkdir .duckdb/ && chown 777 .duckdb/
 USER 1001
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.

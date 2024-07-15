@@ -11,7 +11,7 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.79.0
-ARG PGRX_VERSION=0.11.4
+ARG PGRX_VERSION=0.11.3
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \

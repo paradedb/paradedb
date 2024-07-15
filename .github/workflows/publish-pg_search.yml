@@ -288,7 +288,7 @@ jobs:
           echo "/usr/pgsql-${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version 0.11.4
+        run: cargo install --locked cargo-pgrx --version 0.11.3
 
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Initialize pgrx for Current PostgreSQL Version

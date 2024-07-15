@@ -142,10 +142,6 @@ jobs:
         working-directory: pg_search/
         run: cargo clean
 
-
-      - name: Setup upterm session
-        uses: lhotari/action-upterm@v1
-
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_search Cargo Test Suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -219,6 +215,9 @@ jobs:
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
           fi
+          # Necessary for the ephemeral Postgres test to have proper permissions
+          sudo chown -R $(whoami) /var/run/postgresql/
+
           echo ""
           echo "Running Rust tests..."
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres

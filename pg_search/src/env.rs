@@ -23,7 +23,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
+use crate::writer::{SearchFs, WriterClient, WriterDirectory, WriterRequest};
 
 const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_search_index";
 
@@ -125,4 +125,21 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
 pub fn needs_commit() -> bool {
     Transaction::needs_commit(TRANSACTION_CALLBACK_CACHE_ID)
         .expect("error performing commit check in transaction cache")
+}
+
+pub fn clear_commit_abort_caches() -> Result<(), TransactionError> {
+    Transaction::clear_commit_abort_caches(TRANSACTION_CALLBACK_CACHE_ID)
+}
+
+pub fn drop_index_on_commit(directory: WriterDirectory) -> Result<(), TransactionError> {
+    let directory = directory.clone();
+    let index_name = directory.index_name.clone();
+
+    Transaction::call_once_on_commit(&index_name, move || {
+        directory
+            .remove()
+            .expect(&format!("failed to remove directory for {index_name}",))
+    })?;
+
+    Ok(())
 }

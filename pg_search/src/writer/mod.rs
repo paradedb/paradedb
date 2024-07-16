@@ -102,6 +102,9 @@ pub enum IndexError {
     #[error(transparent)]
     TantivyValueError(#[from] TantivyValueError),
 
+    #[error(transparent)]
+    TransactionError(#[from] shared::postgres::transaction::TransactionError),
+
     #[error("couldn't remove index files on drop_index: {0}")]
     DeleteDirectory(#[from] SearchDirectoryError),
 

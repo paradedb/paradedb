@@ -13,7 +13,23 @@ type DuckdbSettingsRow = (
 
 #[pg_extern]
 pub fn duckdb_execute(query: &str) {
+    if !is_icu_loaded() {
+        connection::execute("INSTALL icu", []).unwrap_or_else(|err| panic!("error installing ICU extension: {err:?}"));
+        connection::execute("LOAD icu", []).unwrap_or_else(|err| panic!("error loading ICU extension: {err:?}"));
+    }
     connection::execute(query, []).unwrap_or_else(|err| panic!("error executing query: {err:?}"));
+}
+
+fn is_icu_loaded() -> bool {
+    let conn = unsafe { &*connection::get_global_connection().get() };
+    let result = conn.query_row("SELECT name FROM pragma_database_list() WHERE name = 'icu'", [], |row| {
+        row.get::<_, Option<String>>(0)
+    });
+
+    match result {
+        Ok(Some(_)) => true,
+        _ => false,
+    }
 }
 
 #[allow(clippy::type_complexity)]

@@ -37,7 +37,11 @@ fn search_tantivy(
         let writer_client = WriterGlobal::client();
         let search_index = get_search_index(&search_config.index_name);
         let scan_state = search_index
-            .search_state(&writer_client, &search_config, needs_commit())
+            .search_state(
+                &writer_client,
+                &search_config,
+                needs_commit(&search_config.index_name),
+            )
             .unwrap();
         let top_docs = scan_state.search(search_index.executor);
         let mut hs = FxHashSet::default();

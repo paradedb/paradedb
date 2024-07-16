@@ -36,8 +36,11 @@ use shared::telemetry::setup_telemetry_background_worker;
 use std::process;
 use std::time::Duration;
 
+use crate::postgres::hooks::SearchHook;
+
 // A static variable is required to host grand unified configuration settings.
 pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
+static mut EXTENSION_HOOK: SearchHook = SearchHook;
 
 pgrx::pg_module_magic!();
 
@@ -53,6 +56,10 @@ pub unsafe extern "C" fn _PG_init() {
 
     // Set up the writer bgworker shared state.
     pg_shmem_init!(WRITER_GLOBAL);
+
+    // Register hooks
+    #[allow(static_mut_refs)]
+    register_hook(&mut EXTENSION_HOOK);
 
     // We call this in a helper function to the bgworker initialization
     // can be used in test suites.

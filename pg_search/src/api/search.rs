@@ -19,7 +19,6 @@ use crate::env::needs_commit;
 use crate::index::state::{SearchAlias, SearchStateManager};
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
-use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
 
@@ -80,7 +79,11 @@ pub fn minmax_bm25(
 
     let writer_client = WriterGlobal::client();
     let mut scan_state = search_index
-        .search_state(&writer_client, &search_config, needs_commit())
+        .search_state(
+            &writer_client,
+            &search_config,
+            needs_commit(&search_config.index_name),
+        )
         .unwrap();
 
     // Collect into a Vec to allow multiple iterations
@@ -123,7 +126,6 @@ pub fn minmax_bm25(
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {
     let writer_client = WriterGlobal::client();
-    let writer_directory = WriterDirectory::from_index_name(index_name);
 
     // Drop the Tantivy data directory.
     SearchIndex::drop_index(&writer_client, index_name)

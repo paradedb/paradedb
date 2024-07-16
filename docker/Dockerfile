@@ -169,9 +169,8 @@ COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VER
 COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 
-# Switch to root for installing and configuring runtime dependencies
+# Switch to root for configuring runtime dependencies
 USER root
-RUN install_packages curl uuid-runtime libpq5
 RUN mkdir .duckdb/ && chown 777 .duckdb/
 USER 1001
 

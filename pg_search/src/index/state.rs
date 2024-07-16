@@ -22,7 +22,7 @@ use crate::schema::{SearchConfig, SearchFieldName, SearchFieldType, SearchIndexS
 use derive_more::{AsRef, Display, From};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use shared::postgres::transaction::{Transaction, TransactionError};
+use shared::postgres::transaction::TransactionError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::collector::TopDocs;
@@ -38,33 +38,12 @@ static SEARCH_STATE_MANAGER: Lazy<Arc<Mutex<SearchStateManager>>> = Lazy::new(||
     }))
 });
 
-const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_current_search";
-
 pub struct SearchStateManager {
     state_map: HashMap<SearchAlias, SearchState>,
     result_map: HashMap<SearchAlias, HashMap<TantivyValue, (Score, DocAddress)>>,
 }
 
 impl SearchStateManager {
-    fn register_callback() -> Result<(), TransactionError> {
-        // Commit and abort are mutually exclusive. One of the two is guaranteed
-        // to be called on any transaction. We'll use that opportunity to clean
-        // up the cache.
-        Transaction::call_once_on_commit(TRANSACTION_CALLBACK_CACHE_ID, move || {
-            let mut current_search = SEARCH_STATE_MANAGER
-                .lock()
-                .expect("could not lock current search lookup in commit callback");
-            current_search.state_map.drain();
-        })?;
-        Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID, move || {
-            let mut current_search = SEARCH_STATE_MANAGER
-                .lock()
-                .expect("could not lock current search lookup in abort callback");
-            current_search.state_map.drain();
-        })?;
-        Ok(())
-    }
-
     fn get_state_default(&self) -> Result<&SearchState, SearchStateError> {
         self.state_map
             .get(&SearchAlias::default())
@@ -75,6 +54,13 @@ impl SearchStateManager {
         self.state_map
             .get(&alias)
             .ok_or(SearchStateError::AliasLookup(alias))
+    }
+
+    pub fn drain() {
+        let mut current_search = SEARCH_STATE_MANAGER
+            .lock()
+            .expect("could not lock current search lookup in commit callback");
+        current_search.state_map.drain();
     }
 
     pub fn get_score(
@@ -153,8 +139,6 @@ impl SearchStateManager {
     }
 
     pub fn set_state(state: SearchState) -> Result<(), SearchStateError> {
-        Self::register_callback().map_err(SearchStateError::from)?;
-
         let mut manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;

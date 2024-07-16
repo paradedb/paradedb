@@ -61,15 +61,16 @@ impl Transaction {
         Ok(())
     }
 
-    pub fn call_once_on_precommit<F>(id: &'static str, callback: F) -> Result<(), TransactionError>
+    pub fn call_once_on_precommit<F>(id: String, callback: F) -> Result<(), TransactionError>
     where
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
         // Clone the cache here for use inside the closure.
         let mut cache = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.lock()?;
 
-        if !cache.contains(id) {
+        if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
+            let cloned_id = id.clone();
             register_xact_callback(PgXactCallbackEvent::PreCommit, move || {
                 // The precommit cache should be cleared on its own, as it is not
                 // mutually exclusive with any other event.
@@ -77,55 +78,57 @@ impl Transaction {
                     .clone()
                     .lock()
                     .expect("could not acquire lock in register transaction precommit callback")
-                    .remove(id);
+                    .remove(&cloned_id);
 
                 // Actually call the callback.
                 callback();
             });
 
-            cache.insert(id.into());
+            cache.insert(id);
         }
 
         Ok(())
     }
 
-    pub fn call_once_on_commit<F>(id: &'static str, callback: F) -> Result<(), TransactionError>
+    pub fn call_once_on_commit<F>(id: String, callback: F) -> Result<(), TransactionError>
     where
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
         let mut cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock()?;
-        if !cache.contains(id) {
+        if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
+            let cloned_id = id.clone();
             register_xact_callback(PgXactCallbackEvent::Commit, move || {
                 // Clear the caches so callbacks can be registered on next transaction.
-                Self::clear_commit_abort_caches(id)
+                Self::clear_commit_abort_caches(&cloned_id)
                     .expect("could not acquire lock in register transaction commit callback");
                 // Actually call the callback.
                 callback();
             });
 
-            cache.insert(id.into());
+            cache.insert(id);
         }
 
         Ok(())
     }
 
-    pub fn call_once_on_abort<F>(id: &'static str, callback: F) -> Result<(), TransactionError>
+    pub fn call_once_on_abort<F>(id: String, callback: F) -> Result<(), TransactionError>
     where
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
         let mut cache = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.lock()?;
-        if !cache.contains(id) {
+        if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
+            let cloned_id = id.clone();
             register_xact_callback(PgXactCallbackEvent::Abort, move || {
                 // Clear the caches so callbacks can be registered on next transaction.
-                Self::clear_commit_abort_caches(id)
+                Self::clear_commit_abort_caches(&cloned_id)
                     .expect("could not acquire lock in register transaction abort callback");
                 // Actually call the callback.
                 callback();
             });
 
-            cache.insert(id.into());
+            cache.insert(id);
         }
 
         Ok(())

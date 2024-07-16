@@ -71,7 +71,7 @@ pub extern "C" fn amrescan(
     let search_index = get_search_index(index_name);
     let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(&writer_client, &search_config, needs_commit())
+        .search_state(&writer_client, &search_config, needs_commit(index_name))
         .unwrap();
 
     let top_docs = state.search(search_index.executor);

@@ -15,12 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::{Handler, IndexError, SearchFs, ServerError, WriterDirectory, WriterRequest};
-use crate::{
-    env::{clear_commit_abort_caches, drop_index_on_commit},
-    index::SearchIndex,
-    schema::SearchDocument,
-};
+use super::{Handler, IndexError, ServerError, WriterDirectory, WriterRequest};
+use crate::{env::drop_index_on_commit, index::SearchIndex, schema::SearchDocument};
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
@@ -113,7 +109,6 @@ impl Writer {
             std::mem::drop(writer);
         };
 
-        clear_commit_abort_caches()?;
         drop_index_on_commit(directory)?;
 
         Ok(())

@@ -20,6 +20,11 @@ concurrency:
   group: publish-pg_lakehouse-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# Used by actions/attest-build-provenance to sign the builds
+permissions:
+  id-token: write
+  attestations: write
+
 jobs:
   publish-pg_lakehouse:
     name: Publish pg_lakehouse for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
@@ -394,6 +399,13 @@ jobs:
 
           echo "Building RPM package..."
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_lakehouse.spec
+
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            ./pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+            ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.rpm_os }}.${{ steps.version.outputs.rpm_arch }}.rpm
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url

@@ -35,7 +35,8 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     numeric_fields text DEFAULT '{}',
     boolean_fields text DEFAULT '{}',
     json_fields text DEFAULT '{}',
-    datetime_fields text DEFAULT '{}'
+    datetime_fields text DEFAULT '{}',
+    predicates text DEFAULT ''
 )
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
@@ -50,6 +51,7 @@ fn create_bm25(
     boolean_fields: &str,
     json_fields: &str,
     datetime_fields: &str,
+    predicates: &str,
 ) -> Result<()> {
     let original_client_min_messages =
         Spi::get_one::<String>("SHOW client_min_messages")?.unwrap_or_default();
@@ -131,8 +133,14 @@ fn create_bm25(
         .collect::<Vec<String>>()
         .join(", ");
 
+    let predicate_where = if !predicates.is_empty() {
+        format!("WHERE {}", predicates)
+    } else {
+        "".to_string()
+    };
+
     Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={});",
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}) {};",
         spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
@@ -143,8 +151,14 @@ fn create_bm25(
         spi::quote_literal(numeric_fields),
         spi::quote_literal(boolean_fields),
         spi::quote_literal(json_fields),
-        spi::quote_literal(datetime_fields)
-    ))?;
+        spi::quote_literal(datetime_fields),
+        predicate_where))?;
+
+    let predicate = if !predicates.is_empty() {
+        format!("{} AND ", predicates)
+    } else {
+        "".to_string()
+    };
 
     Spi::run(&format_bm25_function(
         &spi::quote_qualified_identifier(index_name, "search"),
@@ -154,9 +168,10 @@ fn create_bm25(
             spi::quote_identifier(table_name)
         ),
         &format!(
-            "RETURN QUERY SELECT * FROM {}.{} WHERE {} @@@ __paradedb_search_config__",
+            "RETURN QUERY SELECT * FROM {}.{} WHERE {} {} @@@ __paradedb_search_config__",
             spi::quote_identifier(schema_name),
             spi::quote_identifier(table_name),
+            predicate,
             spi::quote_identifier(key_field)
         ),
         &index_json,
@@ -166,9 +181,10 @@ fn create_bm25(
         &spi::quote_qualified_identifier(index_name, "explain"),
         "TABLE(\"QUERY PLAN\" text)",
         &format!(
-            "RETURN QUERY EXPLAIN SELECT * FROM {}.{} WHERE {} @@@ __paradedb_search_config__",
+            "RETURN QUERY EXPLAIN SELECT * FROM {}.{} WHERE {} {} @@@ __paradedb_search_config__",
             spi::quote_identifier(schema_name),
             spi::quote_identifier(table_name),
+            predicate,
             spi::quote_identifier(key_field)
         ),
         &index_json,
@@ -196,6 +212,12 @@ fn create_bm25(
         _ => bail!("could not select key field type and type oid"),
     };
 
+    let predicate_where_escape = if !predicate_where.is_empty() {
+        predicate_where.replace('\'', "''")
+    } else {
+        "".to_string()
+    };
+
     Spi::run(&format_hybrid_function(
         &spi::quote_qualified_identifier(index_name, "rank_hybrid"),
         &format!("TABLE({} {}, rank_hybrid real)", spi::quote_identifier(key_field), key_type),
@@ -212,6 +234,7 @@ fn create_bm25(
                                 (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ())
                         END AS score
                     FROM {}.{}
+                    {}
                     ORDER BY __similarity_query__
                     LIMIT $2
                 ),
@@ -230,6 +253,7 @@ fn create_bm25(
             ",
             spi::quote_identifier(schema_name),
             spi::quote_identifier(table_name),
+            predicate_where_escape,
             key_type,
             key_oid.as_u32()
         ),

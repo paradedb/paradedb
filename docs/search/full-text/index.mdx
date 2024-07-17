@@ -297,6 +297,13 @@ SELECT * FROM search_idx.schema();
   Tokenizes text using the ICU tokenizer, which uses Unicode Text Segmentation and is suitable for tokenizing most
   languages.
 </ParamField>
+<ParamField body="stem">
+  Applies stemming to tokens, filtering out those larger than 255 bytes. Like `en_stem` and supports multiple languages.
+  You can specify the language for the stemming algorithm using the following parameter:
+
+`language`: Specifies the language for the stemming algorithm. Choose from `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`, `Portuguese`, `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, `Turkish`.
+
+</ParamField>
 
 ## Normalizers
 

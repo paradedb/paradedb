@@ -81,4 +81,4 @@ jobs:
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_lakehouse on ${{ matrix.name }} h workflow failed -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_lakehouse on ${{ matrix.name }} workflow failed in `paradedb/paradedb` -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

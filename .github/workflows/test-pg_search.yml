@@ -215,9 +215,13 @@ jobs:
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
           fi
+          # Necessary for the ephemeral Postgres test to have proper permissions
+          sudo chown -R $(whoami) /var/run/postgresql/
+
           echo ""
           echo "Running Rust tests..."
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx test "pg${{ matrix.pg_version }}" --features icu
 
       # On promotion PRs, we test packaging the extension with production features enabled

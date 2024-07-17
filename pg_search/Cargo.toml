@@ -32,7 +32,7 @@ json5 = "0.4.1"
 libc = "0.2.152"
 memoffset = "0.9.0"
 once_cell = "1.18.0"
-tokenizers = { version = "0.1.0", path = "../tokenizers" }
+tokenizers = { version = "0.8.4", path = "../tokenizers" }
 pgrx = "0.11.3"
 reqwest = "0.11.22"
 rustc-hash = "1.1.0"
@@ -56,8 +56,11 @@ ordered-float = "4.2.0"
 [dev-dependencies]
 approx = "0.5.1"
 async-std = { version = "1.12.0", features = ["attributes"] }
+cmd_lib = "1.9.4"
+dotenvy = "0.15.7"
 pgrx-tests = "0.11.3"
 pgvector = { version = "0.3.2", features = ["sqlx"] }
+portpicker = "0.1.1"
 pretty_assertions = "1.4.0"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }

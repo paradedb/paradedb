@@ -42,6 +42,8 @@ pub enum SearchTokenizer {
     Raw,
     #[serde(rename = "en_stem")]
     EnStem,
+    #[serde(rename = "stem")]
+    Stem { language: Language },
     #[serde(rename = "whitespace")]
     WhiteSpace,
     #[serde(rename = "chinese_compatible")]
@@ -65,12 +67,36 @@ pub enum SearchTokenizer {
     ICUTokenizer,
 }
 
+pub fn language_to_str(lang: &Language) -> &str {
+    match lang {
+        Language::Arabic => "Arabic",
+        Language::Danish => "Danish",
+        Language::Dutch => "Dutch",
+        Language::English => "English",
+        Language::Finnish => "Finnish",
+        Language::French => "French",
+        Language::German => "German",
+        Language::Greek => "Greek",
+        Language::Hungarian => "Hungarian",
+        Language::Italian => "Italian",
+        Language::Norwegian => "Norwegian",
+        Language::Portuguese => "Portuguese",
+        Language::Romanian => "Romanian",
+        Language::Russian => "Russian",
+        Language::Spanish => "Spanish",
+        Language::Swedish => "Swedish",
+        Language::Tamil => "Tamil",
+        Language::Turkish => "Turkish",
+    }
+}
+
 impl SearchTokenizer {
     pub fn name(&self) -> String {
         match self {
             SearchTokenizer::Default => "default".into(),
             SearchTokenizer::Raw => "raw".into(),
             SearchTokenizer::EnStem => "en_stem".into(),
+            SearchTokenizer::Stem { language } => format!("stem_{}", language_to_str(language)),
             SearchTokenizer::WhiteSpace => "whitespace".into(),
             SearchTokenizer::ChineseCompatible => "chinese_compatible".into(),
             SearchTokenizer::SourceCode => "source_code".into(),
@@ -103,6 +129,11 @@ impl From<SearchTokenizer> for TextAnalyzer {
                 .filter(RemoveLongFilter::limit(40))
                 .filter(LowerCaser)
                 .filter(Stemmer::new(Language::English))
+                .build(),
+            SearchTokenizer::Stem { language } => TextAnalyzer::builder(SimpleTokenizer::default())
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .filter(LowerCaser)
+                .filter(Stemmer::new(language))
                 .build(),
             SearchTokenizer::Raw => TextAnalyzer::builder(RawTokenizer::default())
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))

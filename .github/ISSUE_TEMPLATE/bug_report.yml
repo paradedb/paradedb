@@ -5,16 +5,17 @@ labels:
 body:
   - type: markdown
     attributes:
+      value: "### Bug Report"
+  - type: markdown
+    attributes:
       value: >
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
-
   - type: textarea
     attributes:
       label: What happens?
       description: A short, clear and concise description of the bug.
     validations:
       required: true
-
   - type: textarea
     attributes:
       label: To Reproduce
@@ -25,7 +26,7 @@ body:
 
   - type: markdown
     attributes:
-      value: "### Environment (please complete the following information):"
+      value: "### Environment"
   - type: input
     attributes:
       label: "OS:"
@@ -39,10 +40,20 @@ body:
       placeholder: e.g., v0.8.0
     validations:
       required: true
+  - type: dropdown
+    attributes:
+      label: Are you using ParadeDB Docker, Helm, or the extension(s) standalone?
+      options:
+        - ParadeDB Docker Image
+        - ParadeDB Helm Chart
+        - ParadeDB pg_search Extension
+        - ParadeDB pg_lakehouse Extension
+    validations:
+      required: true
 
   - type: markdown
     attributes:
-      value: "### Identity Disclosure:"
+      value: "### Identity Disclosure"
   - type: input
     attributes:
       label: "Full Name:"
@@ -55,43 +66,31 @@ body:
       placeholder: e.g., Acme Corporation
     validations:
       required: true
-
   - type: markdown
     attributes:
       value: |
         If the above is not given and is not obvious from your GitHub profile page, we might close your issue without further review. Please refer to the [reasoning behind this rule](https://berthub.eu/articles/posts/anonymous-help/) if you have questions.
 
-  - type: dropdown
+  - type: markdown
     attributes:
-      label: What is the latest build you tested with? If possible, we recommend testing by compiling the latest `dev` branch.
-      description: |
-        Visit the [README page](https://github.com/paradedb/paradedb) for instructions.
-      options:
-        - I have not tested with any build
-        - I have tested with a stable release
-        - I have tested with a source build
-    validations:
-      required: true
-
+      value: "### Confirmation"
   - type: dropdown
     attributes:
       label: Did you include all relevant data sets for reproducing the issue?
       options:
-        - "No - Other reason (please specify in the issue body)"
+        - "Yes"
         - "No - I cannot share the data sets because they are confidential"
         - "No - I cannot easily share my data sets due to their large size"
-        - "Not applicable - the reproduction does not require a data set"
-        - "Yes"
+        - "No - Other reason (please specify in the issue body)"
+        - "N/A - The reproduction does not require a data set"
       default: 0
     validations:
       required: true
-
   - type: checkboxes
     attributes:
       label: Did you include the code required to reproduce the issue?
       options:
         - label: Yes, I have
-
   - type: checkboxes
     attributes:
       label: Did you include all relevant configurations (e.g., CPU architecture, PostgreSQL version, Linux distribution) to reproduce the issue?

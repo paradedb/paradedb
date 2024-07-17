@@ -3038,7 +3038,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "duckdb"
 version = "1.0.0"
-source = "git+https://github.com/paradedb/duckdb-rs.git?rev=15c09f4#15c09f46989943f618a536890d24980dcd9f670b"
+source = "git+https://github.com/paradedb/duckdb-rs.git?rev=e532dd6#e532dd68291736dd102da2bb6041fd3fb273573f"
 dependencies = [
  "arrow 52.1.0",
  "calamine",
@@ -4446,7 +4446,7 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 [[package]]
 name = "libduckdb-sys"
 version = "1.0.0"
-source = "git+https://github.com/paradedb/duckdb-rs.git?rev=15c09f4#15c09f46989943f618a536890d24980dcd9f670b"
+source = "git+https://github.com/paradedb/duckdb-rs.git?rev=e532dd6#e532dd68291736dd102da2bb6041fd3fb273573f"
 dependencies = [
  "autocfg",
  "cc",
@@ -5493,8 +5493,10 @@ dependencies = [
  "async-trait",
  "bincode",
  "chrono",
+ "cmd_lib",
  "csv",
  "derive_more",
+ "dotenvy",
  "fs2",
  "heapless 0.8.0",
  "indexmap 2.2.6",
@@ -5508,6 +5510,7 @@ dependencies = [
  "pgrx",
  "pgrx-tests",
  "pgvector",
+ "portpicker",
  "pretty_assertions",
  "reqwest 0.11.27",
  "rstest 0.18.2",
@@ -5832,6 +5835,15 @@ dependencies = [
  "rustix 0.38.34",
  "tracing",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "portpicker"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be97d76faf1bfab666e1375477b23fde79eccf0276e9b63b92a39d676a889ba9"
+dependencies = [
+ "rand",
 ]
 
 [[package]]
@@ -8057,7 +8069,7 @@ checksum = "c7c4ceeeca15c8384bbc3e011dbd8fccb7f068a440b752b7d9b32ceb0ca0e2e8"
 
 [[package]]
 name = "tokenizers"
-version = "0.1.0"
+version = "0.8.4"
 dependencies = [
  "lindera-core",
  "lindera-dictionary",

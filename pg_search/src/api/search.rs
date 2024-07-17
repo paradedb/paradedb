@@ -25,14 +25,6 @@ use pgrx::{prelude::TableIterator, *};
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
-// #[pg_extern(name = "rank_bm25")]
-// pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
-//     let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
-
-//     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
-//         .expect("could not lookup doc address for search query")
-// }
-
 #[pg_extern]
 pub fn highlight(
     key: AnyElement,
@@ -42,7 +34,10 @@ pub fn highlight(
     max_num_chars: default!(Option<i32>, "NULL"),
     alias: default!(Option<String>, "NULL"),
 ) -> String {
-    let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
+    let key = unsafe {
+        TantivyValue::try_from_anyelement(key)
+            .expect("failed to convert key_field to Tantivy value")
+    };
 
     let mut snippet = SearchStateManager::get_snippet(
         key,
@@ -84,43 +79,27 @@ pub fn rank_bm25(
             &search_config,
             needs_commit(&search_config.index_name),
         )
-        .unwrap();
+        .expect("could not get scan state");
 
-    // Collect into a Vec to allow multiple iterations
-    let top_docs: Vec<_> = scan_state.search_dedup(search_index.executor).collect();
+    let top_docs = scan_state
+        .search_dedup(search_index.executor)
+        .map(|(score, doc_address)| {
+            let key = unsafe {
+                datum::AnyElement::from_polymorphic_datum(
+                    scan_state
+                        .key_value(doc_address)
+                        .try_into_datum(PgOid::from_untagged(key_oid))
+                        .expect("failed to convert key_field to datum"),
+                    false,
+                    key_oid,
+                )
+                .expect("null found in key_field")
+            };
+            (key, score)
+        })
+        .collect::<Vec<_>>();
 
-    // Calculate min and max scores
-    // let (min_score, max_score) = top_docs
-    //     .iter()
-    //     .map(|(score, _)| score)
-    //     .fold((f32::MAX, f32::MIN), |(min, max), bm25| {
-    //         (min.min(*bm25), max.max(*bm25))
-    //     });
-    // let score_range = max_score - min_score;
-
-    // Now that we have min and max, iterate over the collected results
-    let mut field_rows = Vec::new();
-    for (score, doc_address) in top_docs {
-        let key = unsafe {
-            datum::AnyElement::from_polymorphic_datum(
-                scan_state
-                    .key_value(doc_address)
-                    .try_into_datum(PgOid::from_untagged(key_oid))
-                    .unwrap(),
-                false,
-                key_oid,
-            )
-            .unwrap()
-        };
-        // let normalized_score = if score_range == 0.0 {
-        //     1.0 // Avoid division by zero
-        // } else {
-        //     (score - min_score) / score_range
-        // };
-
-        field_rows.push((key, score));
-    }
-    TableIterator::new(field_rows)
+    TableIterator::new(top_docs)
 }
 
 #[pg_extern]

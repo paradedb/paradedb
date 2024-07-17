@@ -252,7 +252,13 @@ fn create_bm25(
                 bm25 AS (
                     SELECT 
                         id as key_field,
-                        rank_bm25 as score 
+                        CASE
+                            WHEN (MAX(rank_bm25) OVER () - MIN(rank_bm25) OVER ()) = 0 THEN
+                                0
+                            ELSE
+                                ((rank_bm25) - MIN(rank_bm25) OVER ()) / 
+                                (MAX(rank_bm25) OVER () - MIN(rank_bm25) OVER ())
+                        END AS score
                     FROM paradedb.rank_bm25($1, NULL::{}, {})
                 )
                 SELECT

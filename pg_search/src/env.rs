@@ -23,7 +23,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::writer::{SearchFs, WriterClient, WriterDirectory, WriterRequest};
+use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
 
 /// We use this global variable to cache any values that can be re-used
 /// after initialization.
@@ -123,14 +123,4 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
 pub fn needs_commit(index_name: &str) -> bool {
     Transaction::needs_commit(index_name)
         .expect("error performing commit check in transaction cache")
-}
-
-pub fn drop_index_on_commit(directory: WriterDirectory) -> Result<(), TransactionError> {
-    Transaction::call_once_on_commit(directory.clone().index_name, move || {
-        directory
-            .remove()
-            .unwrap_or_else(|_| panic!("failed to remove directory for {}", directory.index_name))
-    })?;
-
-    Ok(())
 }

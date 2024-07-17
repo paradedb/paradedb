@@ -219,10 +219,10 @@ fn create_bm25(
     };
     
     Spi::run(&format_bm25_function(
-        &spi::quote_qualified_identifier(index_name, "rank_bm25"),
-        &format!("TABLE({} {}, rank_bm25 REAL)", spi::quote_identifier(key_field), key_type),
+        &spi::quote_qualified_identifier(index_name, "score_bm25"),
+        &format!("TABLE({} {}, score_bm25 REAL)", spi::quote_identifier(key_field), key_type),
         &format!(
-            "RETURN QUERY SELECT * FROM paradedb.rank_bm25_config(__paradedb_search_config__, NULL::{}, {})",
+            "RETURN QUERY SELECT * FROM paradedb.score_bm25(__paradedb_search_config__, NULL::{}, {})",
             key_type,
             key_oid.as_u32()
         ),
@@ -230,16 +230,67 @@ fn create_bm25(
     ))?;
 
     Spi::run(&format_bm25_function(
-        &spi::quote_qualified_identifier(index_name, "highlight"),
-        &format!("TABLE({} {}, highlight TEXT, rank_bm25 REAL)", spi::quote_identifier(key_field), key_type),
+        &spi::quote_qualified_identifier(index_name, "snippet"),
         &format!(
-            "RETURN QUERY SELECT * FROM paradedb.highlight_config(__paradedb_search_config__, NULL::{}, {})",
+            "TABLE({} {}, snippet TEXT, score_bm25 REAL)",
+            spi::quote_identifier(key_field),
+            key_type
+        ),
+        &format!(
+            "RETURN QUERY SELECT * FROM paradedb.snippet(__paradedb_search_config__, NULL::{}, {})",
             key_type,
             key_oid.as_u32()
         ),
         &index_json,
     ))?;
 
+    Spi::run(&format_hybrid_function(
+        &spi::quote_qualified_identifier(index_name, "score_hybrid"),
+        &format!("TABLE({} {}, score_hybrid real)", spi::quote_identifier(key_field), key_type),
+        &format!(
+            "
+                WITH similarity AS (
+                    SELECT
+                        __key_field__ as key_field,
+                        CASE
+                            WHEN (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ()) = 0 THEN
+                                0
+                            ELSE
+                                1 - ((__similarity_query__) - MIN(__similarity_query__) OVER ()) / 
+                                (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ())
+                        END AS score
+                    FROM {}.{}
+                    ORDER BY __similarity_query__
+                    LIMIT $2
+                ),
+                bm25 AS (
+                    SELECT 
+                        id as key_field,
+                        CASE
+                            WHEN (MAX(score_bm25) OVER () - MIN(score_bm25) OVER ()) = 0 THEN
+                                0
+                            ELSE
+                                ((score_bm25) - MIN(score_bm25) OVER ()) / 
+                                (MAX(score_bm25) OVER () - MIN(score_bm25) OVER ())
+                        END AS score
+                    FROM paradedb.score_bm25($1, NULL::{}, {})
+                )
+                SELECT
+                    COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,
+                    (COALESCE(similarity.score, 0.0) * $3 + COALESCE(bm25.score, 0.0) * $4)::real AS score_hybrid
+                FROM similarity
+                FULL OUTER JOIN bm25 ON similarity.key_field = bm25.key_field
+                ORDER BY score_hybrid DESC;
+            ",
+            spi::quote_identifier(schema_name),
+            spi::quote_identifier(table_name),
+            key_type,
+            key_oid.as_u32()
+        ),
+        &index_json
+    ))?;
+
+    // This function has been deprecated in favor of `score_hybrid` as of version 0.8.5.
     Spi::run(&format_hybrid_function(
         &spi::quote_qualified_identifier(index_name, "rank_hybrid"),
         &format!("TABLE({} {}, rank_hybrid real)", spi::quote_identifier(key_field), key_type),
@@ -263,14 +314,8 @@ fn create_bm25(
                 bm25 AS (
                     SELECT 
                         id as key_field,
-                        CASE
-                            WHEN (MAX(rank_bm25) OVER () - MIN(rank_bm25) OVER ()) = 0 THEN
-                                0
-                            ELSE
-                                ((rank_bm25) - MIN(rank_bm25) OVER ()) / 
-                                (MAX(rank_bm25) OVER () - MIN(rank_bm25) OVER ())
-                        END AS score
-                    FROM paradedb.rank_bm25_config($1, NULL::{}, {})
+                        rank_bm25 as score 
+                    FROM paradedb.minmax_bm25($1, NULL::{}, {})
                 )
                 SELECT
                     COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,

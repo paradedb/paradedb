@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::env::needs_commit;
+use crate::index::state::SearchStateManager;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
@@ -74,6 +75,8 @@ pub extern "C" fn amrescan(
         .unwrap();
 
     let top_docs = state.search(search_index.executor);
+
+    SearchStateManager::set_state(state.clone()).expect("could not store search state in manager");
 
     // Save the iterator onto the current memory context.
     scan.opaque = PgMemoryContexts::CurrentMemoryContext

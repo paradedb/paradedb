@@ -26,6 +26,16 @@ use tantivy::TantivyDocument;
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
+/// This function has been deprecated in favor of `score_bm25` as of version 0.8.5.
+#[pg_extern(name = "rank_bm25")]
+pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
+    let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
+
+    SearchStateManager::get_score(key, alias.map(SearchAlias::from))
+        .expect("could not lookup doc address for search query")
+}
+
+/// This function has been deprecated in favor of `snippet` as of version 0.8.5.
 #[pg_extern]
 pub fn highlight(
     key: AnyElement,
@@ -62,8 +72,67 @@ pub fn highlight(
     snippet.to_html()
 }
 
+/// This function is used by the deprecated `rank_hybrid` function.
+/// `rank_hybrid` has been replaced by `score_hybrid` as of version 0.8.5.
 #[pg_extern]
-pub fn rank_bm25_config(
+pub fn minmax_bm25(
+    config_json: JsonB,
+    _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
+    key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
+) -> TableIterator<'static, (name!(id, AnyElement), name!(rank_bm25, f32))> {
+    let JsonB(search_config_json) = config_json;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
+    let search_index = get_search_index(&search_config.index_name);
+
+    let writer_client = WriterGlobal::client();
+    let mut scan_state = search_index
+        .search_state(
+            &writer_client,
+            &search_config,
+            needs_commit(&search_config.index_name),
+        )
+        .unwrap();
+
+    // Collect into a Vec to allow multiple iterations
+    let top_docs: Vec<_> = scan_state.search_dedup(search_index.executor).collect();
+
+    // Calculate min and max scores
+    let (min_score, max_score) = top_docs
+        .iter()
+        .map(|(score, _)| score)
+        .fold((f32::MAX, f32::MIN), |(min, max), bm25| {
+            (min.min(*bm25), max.max(*bm25))
+        });
+    let score_range = max_score - min_score;
+
+    // Now that we have min and max, iterate over the collected results
+    let mut field_rows = Vec::new();
+    for (score, doc_address) in top_docs {
+        let key = unsafe {
+            datum::AnyElement::from_polymorphic_datum(
+                scan_state
+                    .key_value(doc_address)
+                    .try_into_datum(PgOid::from_untagged(key_oid))
+                    .unwrap(),
+                false,
+                key_oid,
+            )
+            .unwrap()
+        };
+        let normalized_score = if score_range == 0.0 {
+            1.0 // Avoid division by zero
+        } else {
+            (score - min_score) / score_range
+        };
+
+        field_rows.push((key, normalized_score));
+    }
+    TableIterator::new(field_rows)
+}
+
+#[pg_extern]
+pub fn score_bm25(
     config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
     key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
@@ -104,7 +173,7 @@ pub fn rank_bm25_config(
 }
 
 #[pg_extern]
-pub fn highlight_config(
+pub fn snippet(
     config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
     key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
@@ -160,8 +229,14 @@ pub fn highlight_config(
 
             let mut snippet = snippet_generator.snippet_from_doc(&doc);
             snippet.set_snippet_prefix_postfix(
-                &search_config.prefix.clone().unwrap_or(DEFAULT_SNIPPET_PREFIX.to_string()),
-                &search_config.postfix.clone().unwrap_or(DEFAULT_SNIPPET_POSTFIX.to_string()),
+                &search_config
+                    .prefix
+                    .clone()
+                    .unwrap_or(DEFAULT_SNIPPET_PREFIX.to_string()),
+                &search_config
+                    .postfix
+                    .clone()
+                    .unwrap_or(DEFAULT_SNIPPET_POSTFIX.to_string()),
             );
 
             (key, snippet.to_html(), score)

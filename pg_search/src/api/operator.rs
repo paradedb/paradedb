@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::env::needs_commit;
+use crate::index::state::SearchStateManager;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
@@ -49,6 +50,7 @@ fn search_tantivy(
             hs.insert(key);
         }
 
+        SearchStateManager::set_state(scan_state).expect("could not store search state in manager");
         (search_config, hs)
     };
 

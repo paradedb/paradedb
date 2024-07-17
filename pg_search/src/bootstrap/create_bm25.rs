@@ -217,6 +217,17 @@ fn create_bm25(
     } else {
         "".to_string()
     };
+    
+    Spi::run(&format_bm25_function(
+        &spi::quote_qualified_identifier(index_name, "rank_bm25"),
+        &format!("TABLE({} {}, rank_bm25 real)", spi::quote_identifier(key_field), key_type),
+        &format!(
+            "RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__, NULL::{}, {})",
+            key_type,
+            key_oid.as_u32()
+        ),
+        &index_json,
+    ))?;
 
     Spi::run(&format_hybrid_function(
         &spi::quote_qualified_identifier(index_name, "rank_hybrid"),
@@ -242,7 +253,7 @@ fn create_bm25(
                     SELECT 
                         id as key_field,
                         rank_bm25 as score 
-                    FROM paradedb.minmax_bm25($1, NULL::{}, {})
+                    FROM paradedb.rank_bm25($1, NULL::{}, {})
                 )
                 SELECT
                     COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,

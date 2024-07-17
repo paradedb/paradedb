@@ -25,13 +25,13 @@ use pgrx::{prelude::TableIterator, *};
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
-#[pg_extern(name = "rank_bm25")]
-pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
-    let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
+// #[pg_extern(name = "rank_bm25")]
+// pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
+//     let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
 
-    SearchStateManager::get_score(key, alias.map(SearchAlias::from))
-        .expect("could not lookup doc address for search query")
-}
+//     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
+//         .expect("could not lookup doc address for search query")
+// }
 
 #[pg_extern]
 pub fn highlight(
@@ -67,7 +67,7 @@ pub fn highlight(
 }
 
 #[pg_extern]
-pub fn minmax_bm25(
+pub fn rank_bm25(
     config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
     key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
@@ -90,13 +90,13 @@ pub fn minmax_bm25(
     let top_docs: Vec<_> = scan_state.search_dedup(search_index.executor).collect();
 
     // Calculate min and max scores
-    let (min_score, max_score) = top_docs
-        .iter()
-        .map(|(score, _)| score)
-        .fold((f32::MAX, f32::MIN), |(min, max), bm25| {
-            (min.min(*bm25), max.max(*bm25))
-        });
-    let score_range = max_score - min_score;
+    // let (min_score, max_score) = top_docs
+    //     .iter()
+    //     .map(|(score, _)| score)
+    //     .fold((f32::MAX, f32::MIN), |(min, max), bm25| {
+    //         (min.min(*bm25), max.max(*bm25))
+    //     });
+    // let score_range = max_score - min_score;
 
     // Now that we have min and max, iterate over the collected results
     let mut field_rows = Vec::new();
@@ -112,13 +112,13 @@ pub fn minmax_bm25(
             )
             .unwrap()
         };
-        let normalized_score = if score_range == 0.0 {
-            1.0 // Avoid division by zero
-        } else {
-            (score - min_score) / score_range
-        };
+        // let normalized_score = if score_range == 0.0 {
+        //     1.0 // Avoid division by zero
+        // } else {
+        //     (score - min_score) / score_range
+        // };
 
-        field_rows.push((key, normalized_score));
+        field_rows.push((key, score));
     }
     TableIterator::new(field_rows)
 }

@@ -342,7 +342,25 @@ fn highlight(mut conn: PgConnection) {
         SELECT paradedb.highlight(id, 'description', prefix => '<h1>', postfix => '</h1>')
         FROM bm25_search.search('description:shoes', stable_sort => true)"
         .fetch_one(&mut conn);
-    assert_eq!(row.0, "Generic <h1>shoes</h1>")
+    assert_eq!(row.0, "Generic <h1>shoes</h1>");
+
+    let row: (i32, String, f32) = "
+        SELECT *
+        FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true)"
+        .fetch_one(&mut conn);
+
+    assert_eq!(row.0, 5);
+    assert_eq!(row.1, "Generic <b>shoes</b>");
+    assert_relative_eq!(row.2, 2.8772602, epsilon = 1e-6);
+
+    let row: (i32, String, f32) = "
+        SELECT *
+        FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true, prefix => '<h1>', postfix => '</h1>')"
+        .fetch_one(&mut conn);
+
+    assert_eq!(row.0, 5);
+    assert_eq!(row.1, "Generic <h1>shoes</h1>");
+    assert_relative_eq!(row.2, 2.8772602, epsilon = 1e-6);
 }
 
 #[rstest]
@@ -371,12 +389,29 @@ fn hybrid_with_complex_key_field_name(mut conn: PgConnection) {
     USING hnsw (embedding vector_l2_ops)"#
         .execute(&mut conn);
 
-    // Test with query object.
+    // Test deprecated rank_hybrid function with query object
     let columns: SimpleProductsTableVec = r#"
     SELECT m.*, s.rank_hybrid
     FROM paradedb.bm25_search m
     LEFT JOIN (
         SELECT * FROM bm25_search.rank_hybrid(
+            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
+            similarity_query => '''[1,2,3]'' <-> embedding',
+            bm25_weight => 0.9,
+            similarity_weight => 0.1
+        )
+    ) s ON m.custom_key_field = s.custom_key_field
+    LIMIT 5"#
+        .fetch_collect(&mut conn);
+
+    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
+
+    // Test new score_hybrid function with query object
+    let columns: SimpleProductsTableVec = r#"
+    SELECT m.*, s.score_hybrid
+    FROM paradedb.bm25_search m
+    LEFT JOIN (
+        SELECT * FROM bm25_search.score_hybrid(
             bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
             similarity_query => '''[1,2,3]'' <-> embedding',
             bm25_weight => 0.9,

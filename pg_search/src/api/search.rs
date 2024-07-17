@@ -26,16 +26,16 @@ use tantivy::TantivyDocument;
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
-/// This function has been deprecated in favor of `score_bm25` as of version 0.8.5.
 #[pg_extern(name = "rank_bm25")]
 pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
+    warning!("This function has been deprecated in favor of `score_bm25` since version 0.8.5");
+
     let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
 
     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
         .expect("could not lookup doc address for search query")
 }
 
-/// This function has been deprecated in favor of `snippet` as of version 0.8.5.
 #[pg_extern]
 pub fn highlight(
     key: AnyElement,
@@ -45,6 +45,8 @@ pub fn highlight(
     max_num_chars: default!(Option<i32>, "NULL"),
     alias: default!(Option<String>, "NULL"),
 ) -> String {
+    warning!("This function has been deprecated in favor of `snippet` since version 0.8.5");
+
     let key = unsafe {
         TantivyValue::try_from_anyelement(key)
             .expect("failed to convert key_field to Tantivy value")
@@ -72,14 +74,14 @@ pub fn highlight(
     snippet.to_html()
 }
 
-/// This function is used by the deprecated `rank_hybrid` function.
-/// `rank_hybrid` has been replaced by `score_hybrid` as of version 0.8.5.
 #[pg_extern]
 pub fn minmax_bm25(
     config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
     key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
 ) -> TableIterator<'static, (name!(id, AnyElement), name!(rank_bm25, f32))> {
+    warning!("`rank_hybrid` has been deprecated in favor of `score_hybrid` since version 0.8.5");
+
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
@@ -136,7 +138,7 @@ pub fn score_bm25(
     config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
     key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
-) -> TableIterator<'static, (name!(id, AnyElement), name!(rank_bm25, f32))> {
+) -> TableIterator<'static, (name!(id, AnyElement), name!(score_bm25, f32))> {
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
@@ -181,8 +183,8 @@ pub fn snippet(
     'static,
     (
         name!(id, AnyElement),
-        name!(highlight, String),
-        name!(rank_bm25, f32),
+        name!(snippet, String),
+        name!(score_bm25, f32),
     ),
 > {
     let JsonB(search_config_json) = config_json;

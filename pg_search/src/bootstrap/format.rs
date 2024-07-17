@@ -31,7 +31,11 @@ pub fn format_bm25_function(
             offset_rows integer DEFAULT NULL,
             limit_rows integer DEFAULT NULL,
             alias text DEFAULT NULL,
-            stable_sort boolean DEFAULT NULL
+            stable_sort boolean DEFAULT NULL,
+            highlight_field text DEFAULT NULL,
+            postfix text DEFAULT NULL,
+            prefix text DEFAULT NULL,
+            max_num_chars integer DEFAULT NULL
         ) RETURNS {return_type} AS $func$
         BEGIN
             RETURN QUERY SELECT * FROM {function_name}(
@@ -39,7 +43,11 @@ pub fn format_bm25_function(
                 offset_rows => offset_rows,
                 limit_rows => limit_rows,
                 alias => alias,
-                stable_sort => stable_sort
+                stable_sort => stable_sort,
+                highlight_field => highlight_field,
+                postfix => postfix,
+                prefix => prefix,
+                max_num_chars => max_num_chars
             );
         END
         $func$ LANGUAGE plpgsql;
@@ -49,7 +57,11 @@ pub fn format_bm25_function(
             offset_rows integer DEFAULT NULL,
             limit_rows integer DEFAULT NULL,
             alias text DEFAULT NULL,
-            stable_sort boolean DEFAULT NULL
+            stable_sort boolean DEFAULT NULL,
+            highlight_field text DEFAULT NULL,
+            postfix text DEFAULT NULL,
+            prefix text DEFAULT NULL,
+            max_num_chars integer DEFAULT NULL
         ) RETURNS {return_type} AS $func$
         DECLARE
             __paradedb_search_config__ JSONB;
@@ -59,7 +71,11 @@ pub fn format_bm25_function(
                 'offset_rows', offset_rows,
                 'limit_rows', limit_rows,
                 'alias', alias,
-                'stable_sort', stable_sort
+                'stable_sort', stable_sort,
+                'highlight_field', highlight_field,
+                'postfix', postfix,
+                'prefix', prefix,
+                'max_num_chars', max_num_chars
             );
             {function_body};
         END

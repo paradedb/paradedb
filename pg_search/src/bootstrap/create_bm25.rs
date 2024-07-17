@@ -220,9 +220,20 @@ fn create_bm25(
     
     Spi::run(&format_bm25_function(
         &spi::quote_qualified_identifier(index_name, "rank_bm25"),
-        &format!("TABLE({} {}, rank_bm25 real)", spi::quote_identifier(key_field), key_type),
+        &format!("TABLE({} {}, rank_bm25 REAL)", spi::quote_identifier(key_field), key_type),
         &format!(
-            "RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__, NULL::{}, {})",
+            "RETURN QUERY SELECT * FROM paradedb.rank_bm25_config(__paradedb_search_config__, NULL::{}, {})",
+            key_type,
+            key_oid.as_u32()
+        ),
+        &index_json,
+    ))?;
+
+    Spi::run(&format_bm25_function(
+        &spi::quote_qualified_identifier(index_name, "highlight"),
+        &format!("TABLE({} {}, highlight TEXT, rank_bm25 REAL)", spi::quote_identifier(key_field), key_type),
+        &format!(
+            "RETURN QUERY SELECT * FROM paradedb.highlight_config(__paradedb_search_config__, NULL::{}, {})",
             key_type,
             key_oid.as_u32()
         ),
@@ -259,7 +270,7 @@ fn create_bm25(
                                 ((rank_bm25) - MIN(rank_bm25) OVER ()) / 
                                 (MAX(rank_bm25) OVER () - MIN(rank_bm25) OVER ())
                         END AS score
-                    FROM paradedb.rank_bm25($1, NULL::{}, {})
+                    FROM paradedb.rank_bm25_config($1, NULL::{}, {})
                 )
                 SELECT
                     COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,

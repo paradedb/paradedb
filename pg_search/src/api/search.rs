@@ -21,6 +21,7 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
+use tantivy::TantivyDocument;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
@@ -62,7 +63,7 @@ pub fn highlight(
 }
 
 #[pg_extern]
-pub fn rank_bm25(
+pub fn rank_bm25_config(
     config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
     key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
@@ -96,6 +97,74 @@ pub fn rank_bm25(
                 .expect("null found in key_field")
             };
             (key, score)
+        })
+        .collect::<Vec<_>>();
+
+    TableIterator::new(top_docs)
+}
+
+#[pg_extern]
+pub fn highlight_config(
+    config_json: JsonB,
+    _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
+    key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
+) -> TableIterator<
+    'static,
+    (
+        name!(id, AnyElement),
+        name!(highlight, String),
+        name!(rank_bm25, f32),
+    ),
+> {
+    let JsonB(search_config_json) = config_json;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
+    let search_index = get_search_index(&search_config.index_name);
+
+    let writer_client = WriterGlobal::client();
+    let mut scan_state = search_index
+        .search_state(
+            &writer_client,
+            &search_config,
+            needs_commit(&search_config.index_name),
+        )
+        .expect("could not get scan state");
+
+    let highlight_field = search_config
+        .highlight_field
+        .expect("highlight_field is required");
+    let mut snippet_generator = scan_state.snippet_generator(&highlight_field);
+    if let Some(max_num_chars) = search_config.max_num_chars {
+        snippet_generator.set_max_num_chars(max_num_chars)
+    }
+
+    let top_docs = scan_state
+        .search_dedup(search_index.executor)
+        .map(|(score, doc_address)| {
+            let key = unsafe {
+                datum::AnyElement::from_polymorphic_datum(
+                    scan_state
+                        .key_value(doc_address)
+                        .try_into_datum(PgOid::from_untagged(key_oid))
+                        .expect("failed to convert key_field to datum"),
+                    false,
+                    key_oid,
+                )
+                .expect("null found in key_field")
+            };
+
+            let doc: TantivyDocument = scan_state
+                .searcher
+                .doc(doc_address)
+                .expect("could not find document in searcher");
+
+            let mut snippet = snippet_generator.snippet_from_doc(&doc);
+            snippet.set_snippet_prefix_postfix(
+                &search_config.prefix.clone().unwrap_or(DEFAULT_SNIPPET_PREFIX.to_string()),
+                &search_config.postfix.clone().unwrap_or(DEFAULT_SNIPPET_POSTFIX.to_string()),
+            );
+
+            (key, snippet.to_html(), score)
         })
         .collect::<Vec<_>>();
 

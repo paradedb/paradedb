@@ -22,6 +22,11 @@ concurrency:
   group: publish-paradedb-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# Used by actions/attest-build-provenance to sign the builds
+permissions:
+  id-token: write
+  attestations: write
+
 jobs:
   publish-paradedb-container-image:
     name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
@@ -69,6 +74,7 @@ jobs:
 
       # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
       - name: Build and Push Docker Image to Docker Hub
+        id: build-push
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -87,6 +93,13 @@ jobs:
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}
             paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: index.docker.io/paradedb/paradedb
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}

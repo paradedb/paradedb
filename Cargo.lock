@@ -5529,6 +5529,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "utoipa",
+ "uuid",
  "walkdir",
  "zstd-sys",
 ]

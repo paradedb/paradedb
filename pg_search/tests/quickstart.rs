@@ -96,6 +96,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
+    // This deprecated query used to be in the quickstart and has been preserved to check backwards compatibility
     let rows: Vec<(String, String, f32)> = r#"
     SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
     FROM ngrams_idx.search('description:blue', stable_sort => true)
@@ -154,7 +155,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[2].3, Vector::from(vec![1.0, 2.0, 3.0]));
 
     let rows: Vec<(i32, f32)> = r#"
-    SELECT * FROM search_idx.rank_hybrid(
+    SELECT * FROM search_idx.score_hybrid(
         bm25_query => 'description:keyboard OR category:electronics',
         similarity_query => '''[1,2,3]'' <-> embedding',
         bm25_weight => 0.9,
@@ -174,10 +175,10 @@ fn quickstart(mut conn: PgConnection) {
     assert_relative_eq!(rows[4].1, 0.1, epsilon = 1e-6);
 
     let rows: Vec<(String, String, Vector, f32)> = r#"
-    SELECT m.description, m.category, m.embedding, s.rank_hybrid
+    SELECT m.description, m.category, m.embedding, s.score_hybrid
     FROM mock_items m
     LEFT JOIN (
-        SELECT * FROM search_idx.rank_hybrid(
+        SELECT * FROM search_idx.score_hybrid(
             bm25_query => 'description:keyboard OR category:electronics',
             similarity_query => '''[1,2,3]'' <-> embedding',
             bm25_weight => 0.9,

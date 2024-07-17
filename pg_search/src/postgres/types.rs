@@ -835,7 +835,8 @@ impl TryFrom<TantivyValue> for pgrx::Uuid {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Str(val) = value.0 {
-            Ok(pgrx::Uuid::from_slice(val.as_bytes())
+            let uuid = uuid::Uuid::parse_str(&val)?;
+            Ok(pgrx::Uuid::from_slice(uuid.as_bytes())
                 .map_err(TantivyValueError::UuidConversionError)?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -959,6 +960,9 @@ impl TryFrom<pgrx::Range<pgrx::TimestampWithTimeZone>> for TantivyValue {
 pub enum TantivyValueError {
     #[error(transparent)]
     PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
+
+    #[error(transparent)]
+    UuidError(#[from] uuid::Error),
 
     #[error("Could not generate datetime datum")]
     DateTimeConversionError(#[from] DateTimeConversionError),

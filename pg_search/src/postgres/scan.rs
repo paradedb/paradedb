@@ -17,6 +17,7 @@
 
 use crate::env::needs_commit;
 use crate::index::state::SearchStateManager;
+use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
@@ -74,7 +75,7 @@ pub extern "C" fn amrescan(
         .search_state(&writer_client, &search_config, needs_commit(index_name))
         .unwrap();
 
-    let top_docs = state.search(search_index.executor);
+    let top_docs = state.search(SearchIndex::executor());
 
     SearchStateManager::set_state(state.clone()).expect("could not store search state in manager");
 

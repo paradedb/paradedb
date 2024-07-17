@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
 use shared::postgres::transaction::{Transaction, TransactionError};
 use std::{
@@ -66,7 +67,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
     let writer_client = writer.clone();
     let commit_directory = directory.clone();
     Transaction::call_once_on_precommit(directory.clone().index_name, move || {
-        let mut error: Option<Box<dyn std::error::Error>> = None;
+        let mut error: Option<anyhow::Error> = None;
         {
             // This lock must happen in an enclosing block so it is dropped and
             // release before a possible panic.
@@ -79,21 +80,23 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
                     if let Err(err) = client.request(WriterRequest::Commit {
                         directory: commit_directory.clone(),
                     }) {
-                        error = Some(Box::new(err));
+                        error = Some(anyhow!(
+                            "error with request to writer in commit callback: {err}"
+                        ));
                     }
                 }
             }
         }
 
         if let Some(err) = error {
-            panic!("error sending commit request in callback: {err}")
+            panic!("{err}")
         }
     })?;
 
     let writer_client = writer.clone();
     let abort_directory = directory.clone();
     Transaction::call_once_on_abort(directory.clone().index_name, move || {
-        let mut error: Option<Box<dyn std::error::Error>> = None;
+        let mut error: Option<anyhow::Error> = None;
         {
             // This lock must happen in an enclosing block so it is dropped and
             // release before a possible panic.
@@ -106,14 +109,16 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
                     if let Err(err) = client.request(WriterRequest::Abort {
                         directory: abort_directory,
                     }) {
-                        error = Some(Box::new(err));
+                        error = Some(anyhow!(
+                            "error with request to writer in abort callback: {err}"
+                        ));
                     }
                 }
             }
         }
 
         if let Some(err) = error {
-            panic!("error sending abort request in callback: {err}")
+            panic!("{err}")
         }
     })?;
 

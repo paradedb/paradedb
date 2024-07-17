@@ -88,7 +88,7 @@ impl TryFrom<&PgOid> for SearchFieldType {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug, utoipa::ToSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, utoipa::ToSchema, PartialEq, Eq)]
 pub enum SearchFieldConfig {
     Text {
         #[serde(default = "default_as_true")]

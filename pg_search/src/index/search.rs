@@ -74,48 +74,22 @@ pub struct SearchIndex {
     #[serde(skip_serializing)]
     pub reader: IndexReader,
     #[serde(skip_serializing)]
-    pub executor: &'static Executor,
-    #[serde(skip_serializing)]
-    underlying_index: Index,
+    pub underlying_index: Index,
 }
 
 impl SearchIndex {
-    pub fn new(
+    pub fn create_index<W: WriterClient<WriterRequest>>(
+        writer: &Arc<Mutex<W>>,
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
     ) -> Result<&'static mut Self, SearchIndexError> {
-        // If the writer directory exists, remove it. We need a fresh directory to
-        // create an index. This can happen after a VACUUM FULL, where the index needs
-        // to be rebuilt and this method is called again.
-        directory.remove().map_err(SearchIndexError::from)?;
-
-        let schema = SearchIndexSchema::new(fields)?;
-
-        let tantivy_dir_path = directory.tantivy_dir_path(true)?;
-        let mut underlying_index = Index::builder()
-            .schema(schema.schema.clone())
-            .create_in_dir(tantivy_dir_path)
-            .expect("failed to create index");
-
-        Self::setup_tokenizers(&mut underlying_index, &schema);
-
-        let new_self = Self {
-            reader: Self::reader(&underlying_index)?,
-            underlying_index,
+        writer.lock()?.request(WriterRequest::CreateIndex {
             directory: directory.clone(),
-            schema,
-            executor: Self::executor(),
-        };
+            fields,
+        })?;
 
-        // Serialize SearchIndex to disk so it can be initialized by other connections.
-        new_self.directory.save_index(&new_self)?;
-
-        // Save a reference to this SearchIndex so it can be re-used by this connection.
-        unsafe {
-            new_self.into_cache();
-        }
-
-        // We need to return the Self that is borrowed from the cache.
+        // As the new index instance was created in a background process, we need
+        // to load it from disk to use it.
         let new_self_ref = Self::from_cache(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -123,11 +97,11 @@ impl SearchIndex {
     }
 
     #[allow(static_mut_refs)]
-    fn executor() -> &'static Executor {
+    pub fn executor() -> &'static Executor {
         unsafe { &SEARCH_EXECUTOR }
     }
 
-    fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
+    pub fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
         let tokenizers = schema
             .fields
             .iter()
@@ -147,7 +121,7 @@ impl SearchIndex {
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 
-    fn reader(index: &Index) -> Result<IndexReader, TantivyError> {
+    pub fn reader(index: &Index) -> Result<IndexReader, TantivyError> {
         index
             .reader_builder()
             .reload_policy(tantivy::ReloadPolicy::Manual)
@@ -360,7 +334,6 @@ impl<'de> Deserialize<'de> for SearchIndex {
             underlying_index,
             directory,
             schema,
-            executor: Self::executor(),
         })
     }
 }
@@ -446,7 +419,7 @@ mod tests {
         let state = index.search_state(&client, &search_config, true).unwrap();
 
         let (_, doc_address, _, _) = *state
-            .search(index.executor)
+            .search(SearchIndex::executor())
             .first()
             .expect("query returned no results");
         let found: tantivy::TantivyDocument = state

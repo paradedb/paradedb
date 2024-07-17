@@ -53,11 +53,6 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
 
-    // Drop the index if it already exists (e.g. if we're rebuilding it with VACUUM FULL)
-    let writer_client = WriterGlobal::client();
-    SearchIndex::drop_index(&writer_client, &index_name)
-        .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));
-
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
     } else {
@@ -201,8 +196,10 @@ pub extern "C" fn ambuild(
         panic!("no fields specified")
     }
 
+    let writer_client = WriterGlobal::client();
     let directory = WriterDirectory::from_index_name(&index_name);
-    SearchIndex::new(directory, fields).expect("could not build search index");
+    SearchIndex::create_index(&writer_client, directory, fields)
+        .expect("error creating new index instance");
 
     let state = do_heap_scan(index_info, &heap_relation, &index_relation);
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };

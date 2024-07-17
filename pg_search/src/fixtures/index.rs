@@ -18,6 +18,7 @@
 use crate::{
     index::SearchIndex,
     schema::{SearchFieldConfig, SearchFieldName, SearchFieldType},
+    writer::Writer,
 };
 
 use super::MockWriterDirectory;
@@ -32,7 +33,13 @@ impl MockSearchIndex {
         // We must store the TempDir instance on the struct, because it gets deleted when the
         // instance is dropped.
         let directory = MockWriterDirectory::new("mock_parade_search_index");
-        let index = SearchIndex::new(directory.writer_dir.clone(), fields).unwrap();
+        let mut writer = Writer::new();
+        writer
+            .create_index(directory.writer_dir.clone(), fields)
+            .expect("error creating index instance");
+
+        let index = SearchIndex::from_cache(&directory.writer_dir)
+            .expect("error reading new index from cache");
         Self { directory, index }
     }
 }

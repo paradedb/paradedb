@@ -97,7 +97,7 @@ pub fn minmax_bm25(
         .unwrap();
 
     // Collect into a Vec to allow multiple iterations
-    let top_docs: Vec<_> = scan_state.search_dedup(search_index.executor).collect();
+    let top_docs: Vec<_> = scan_state.search_dedup(SearchIndex::executor()).collect();
 
     // Calculate min and max scores
     let (min_score, max_score) = top_docs

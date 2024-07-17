@@ -15,13 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::{Handler, IndexError, SearchFs, ServerError, WriterDirectory, WriterRequest};
-use crate::{index::SearchIndex, schema::SearchDocument};
+use super::{Handler, IndexError, SearchFs, WriterDirectory, WriterRequest};
+use crate::{
+    index::SearchIndex,
+    schema::{
+        SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
+    },
+};
+use anyhow::Result;
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
-use tantivy::{schema::Field, IndexWriter};
+use tantivy::{schema::Field, Index, IndexWriter};
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct Writer {
@@ -104,6 +110,37 @@ impl Writer {
         Ok(())
     }
 
+    pub fn create_index(
+        &mut self,
+        directory: WriterDirectory,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+    ) -> Result<()> {
+        // If the writer directory exists, remove it. We need a fresh directory to
+        // create an index. This can happen after a VACUUM FULL, where the index needs
+        // to be rebuilt and this method is called again.
+        directory.remove()?;
+        let schema = SearchIndexSchema::new(fields)?;
+
+        let tantivy_dir_path = directory.tantivy_dir_path(true)?;
+        let mut underlying_index = Index::builder()
+            .schema(schema.schema.clone())
+            .create_in_dir(tantivy_dir_path)
+            .expect("failed to create index");
+
+        SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
+
+        let new_self = SearchIndex {
+            reader: SearchIndex::reader(&underlying_index)?,
+            underlying_index,
+            directory: directory.clone(),
+            schema,
+        };
+
+        // Serialize SearchIndex to disk so it can be initialized by other connections.
+        new_self.directory.save_index(&new_self)?;
+        Ok(())
+    }
+
     fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         if let Some(writer) = self.tantivy_writers.remove(&directory) {
             std::mem::drop(writer);
@@ -115,29 +152,27 @@ impl Writer {
 }
 
 impl Handler<WriterRequest> for Writer {
-    fn handle(&mut self, request: WriterRequest) -> Result<(), ServerError> {
+    fn handle(&mut self, request: WriterRequest) -> Result<()> {
         match request {
             WriterRequest::Insert {
                 directory,
                 document,
-            } => self.insert(directory, document).map_err(ServerError::from),
+            } => Ok(self.insert(directory, document)?),
             WriterRequest::Delete {
                 directory,
                 field,
                 ctids,
-            } => self
-                .delete(directory, &field, &ctids)
-                .map_err(ServerError::from),
-            WriterRequest::DropIndex { directory } => {
-                self.drop_index(directory).map_err(ServerError::from)
+            } => Ok(self.delete(directory, &field, &ctids)?),
+            WriterRequest::CreateIndex { directory, fields } => {
+                // Drop the index if it already exists (e.g. if we're rebuilding it with VACUUM FULL)
+                self.drop_index(directory.clone())?;
+                self.create_index(directory, fields)?;
+                Ok(())
             }
-            WriterRequest::Commit { directory } => {
-                self.commit(directory).map_err(ServerError::from)
-            }
-            WriterRequest::Abort { directory } => self.abort(directory).map_err(ServerError::from),
-            WriterRequest::Vacuum { directory } => {
-                self.vacuum(directory).map_err(ServerError::from)
-            }
+            WriterRequest::DropIndex { directory } => Ok(self.drop_index(directory)?),
+            WriterRequest::Commit { directory } => Ok(self.commit(directory)?),
+            WriterRequest::Abort { directory } => Ok(self.abort(directory)?),
+            WriterRequest::Vacuum { directory } => Ok(self.vacuum(directory)?),
         }
     }
 }

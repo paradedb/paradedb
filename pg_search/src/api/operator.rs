@@ -17,6 +17,7 @@
 
 use crate::env::needs_commit;
 use crate::index::state::SearchStateManager;
+use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
@@ -43,7 +44,7 @@ fn search_tantivy(
                 needs_commit(&search_config.index_name),
             )
             .unwrap();
-        let top_docs = scan_state.search(search_index.executor);
+        let top_docs = scan_state.search(SearchIndex::executor());
         let mut hs = FxHashSet::default();
 
         for (_score, _doc_address, key, _ctid) in top_docs {

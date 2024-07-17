@@ -9,8 +9,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/attest # TODO: Remove once done testing
   workflow_dispatch:
     inputs:
       version:

@@ -571,3 +571,24 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
         "SELECT * FROM index_config2.search('description:item')".fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 }
+
+#[rstest]
+fn index_name_too_long(mut conn: PgConnection) {
+    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
+    "INSERT INTO paradedb.index_config VALUES (1, 'Item 1'), (2, 'Item 2')".execute(&mut conn);
+
+    match "CALL paradedb.create_bm25(
+        index_name => 'index_config_index_name_is_too_long_and_should_be_truncated',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}'
+    )"
+    .execute_result(&mut conn) {
+        Ok(_) => panic!("should fail with index name too long"),
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: identifier index_config_index_name_is_too_long_and_should_be_truncated exceeds maximum allowed length of 52 characters"
+        ),
+    };
+}

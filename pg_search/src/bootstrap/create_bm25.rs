@@ -25,6 +25,10 @@ use super::format::format_bm25_function;
 use super::format::format_empty_function;
 use super::format::format_hybrid_function;
 
+// The maximum length of an index name in Postgres is 63 characters,
+// but we need to account for the trailing _bm25_index suffix
+const MAX_INDEX_NAME_LENGTH: usize = 52;
+
 #[pg_extern(sql = "
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     index_name text DEFAULT '',
@@ -60,6 +64,14 @@ fn create_bm25(
     if index_name.is_empty() {
         bail!("no index_name parameter given for bm25 index");
     }
+
+    if index_name.len() > MAX_INDEX_NAME_LENGTH {
+        bail!(
+            "identifier {} exceeds maximum allowed length of {} characters",
+            spi::quote_identifier(index_name),
+            MAX_INDEX_NAME_LENGTH
+        );
+    };
 
     if Spi::get_one::<bool>(&format!(
         "SELECT EXISTS (SELECT i.schema_name FROM information_schema.schemata i WHERE i.schema_name = {})",
@@ -360,7 +372,7 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
             SELECT INTO original_client_min_messages current_setting('client_min_messages');
             SET client_min_messages TO WARNING;
 
-            EXECUTE 'DROP INDEX IF EXISTS {}.{}_bm25_index'; 
+            EXECUTE 'DROP INDEX IF EXISTS {}.{}'; 
             EXECUTE 'DROP SCHEMA IF EXISTS {} CASCADE';
             PERFORM paradedb.drop_bm25_internal({});
 
@@ -369,7 +381,7 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
         $$;
         "#,
         spi::quote_identifier(schema_name),
-        spi::quote_identifier(index_name),
+        spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(index_name),
         spi::quote_literal(format!("{}_bm25_index", index_name))
     ))?;

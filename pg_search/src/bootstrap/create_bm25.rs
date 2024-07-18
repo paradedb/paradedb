@@ -65,15 +65,12 @@ fn create_bm25(
         bail!("no index_name parameter given for bm25 index");
     }
 
-    let index_name = if index_name.len() > MAX_INDEX_NAME_LENGTH {
-        warning!(
-            "identifier {} will be truncated to {}",
+    if index_name.len() > MAX_INDEX_NAME_LENGTH {
+        bail!(
+            "identifier {} exceeds maximum allowed length of {} characters",
             spi::quote_identifier(index_name),
-            spi::quote_identifier(&index_name[..MAX_INDEX_NAME_LENGTH])
+            MAX_INDEX_NAME_LENGTH
         );
-        &index_name[..MAX_INDEX_NAME_LENGTH]
-    } else {
-        index_name
     };
 
     if Spi::get_one::<bool>(&format!(

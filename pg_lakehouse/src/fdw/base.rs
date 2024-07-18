@@ -46,8 +46,7 @@ pub trait BaseFdw {
 
     async fn begin_scan_impl(
         &mut self,
-        // TODO: Push down quals
-        _quals: &[Qual],
+        quals: &[Qual],
         columns: &[Column],
         sorts: &[Sort],
         limit: &Option<Limit>,
@@ -93,6 +92,15 @@ pub trait BaseFdw {
         };
 
         let mut sql = format!("SELECT {targets} FROM {schema_name}.{table_name}");
+
+        if !quals.is_empty() {
+            let where_clauses = quals
+                .iter()
+                .map(|q| q.deparse())
+                .collect::<Vec<String>>()
+                .join(" and ");
+            sql.push_str(&format!(" WHERE {}", where_clauses));
+        }
 
         if !sorts.is_empty() {
             let order_by = sorts

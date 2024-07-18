@@ -228,11 +228,169 @@ CALL paradedb.drop_bm25('mock_items');
   The name of the index you wish to delete.
 </ParamField>
 
-## Recreating a BM25 Index
+## Partial BM25 Index
 
-A BM25 index only needs to be recreated if the underlying table schema changes — for instance, if a new
-column is added or the name of a column changes. To recreate the index, simply delete the index and create
-a new one using the commands provided above.
+The following code block demonstrates how to pass predicates to `create_bm25`
+to construct a [partial index](https://www.postgresql.org/docs/current/indexes-partial.html). Partial indexes
+are useful for reducing index size on disk and improving update speeds over non-indexed rows.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => '{
+    description: {tokenizer: {type: "en_stem"}}, category: {}
+  }',
+  predicates => 'category = ''Electronics'' AND rating > 2'
+);
+```
+
+## Tokenizers
+
+Tokenizers are responsible for breaking down text fields into smaller, searchable components called tokens.
+Once a field is tokenized, all search queries against that field are automatically tokenized the same way.
+
+The following code block demonstrates the syntax for specifying a tokenizer for each text field.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => '{
+    description: {tokenizer: {type: "stem", language: "English"}},
+    category: {tokenizer: {type: "ngram", min_gram: 4, max_gram: 5, prefix_only: false}},
+  }'
+);
+```
+
+The following tokenizer `type` options are accepted:
+
+<ParamField body="default">
+  Chops the text on according to whitespace and punctuation, removes tokens that
+  are too long, and converts to lowercase. Filters out tokens larger than 255
+  bytes.
+</ParamField>
+<ParamField body="raw">
+  Does not process nor tokenize text. Filters out tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="en_stem">
+  Like `default`, but also applies stemming on the resulting tokens. Filters out
+  tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="whitespace">
+  Tokenizes the text by splitting on whitespaces.
+</ParamField>
+<ParamField body="ngram">
+  Tokenizes text by splitting words into overlapping substrings based on the specified parameters.
+  <Expandable title="Config Options">
+    <ParamField body="min_gram">
+     Defines the minimum length for the n-grams. For instance, if set to 2, the smallest token created would be of length 2 characters.
+    </ParamField>
+    <ParamField body="max_gram">
+    Determines the maximum length of the n-grams. If set to 5, the largest token produced would be of length 5 characters.
+    </ParamField>
+    <ParamField body="prefix_only">
+    When set to true, the tokenizer generates n-grams that start from the beginning of the word only, ensuring a prefix progression. If false, n-grams are created from all possible character combinations within the `min_gram` and `max_gram` range.
+    </ParamField>
+  </Expandable>
+</ParamField>
+<ParamField body="chinese_compatible">
+  Tokenizes text considering Chinese character nuances. Splits based on whitespace and punctuation. Filters out tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="chinese_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the CC-CEDICT dictionary to segment and tokenize text.
+</ParamField>
+<ParamField body="korean_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the KoDic dictionary to segment and tokenize text.
+</ParamField>
+<ParamField body="japanese_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the IPADIC dictionary to segment and tokenize text.
+</ParamField>
+<ParamField body="icu">
+  Tokenizes text using the ICU tokenizer, which uses Unicode Text Segmentation and is suitable for tokenizing most
+  languages.
+</ParamField>
+<ParamField body="stem">
+  Applies multi-language stemming to tokens, filtering out those larger than 255 bytes. The language can be specified with the
+  `language` parameter.
+
+{" "}
+
+<Expandable title="Config Options">
+  <ParamField body="language">
+    Options are `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`, `French`,
+    `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`, `Portuguese`,
+    `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, and `Turkish`.
+  </ParamField>
+</Expandable>
+
+</ParamField>
+
+## Fast Fields
+
+Fast fields are stored in a column-oriented fashion. Fast fields are necessary to
+perform [aggregations/faceting](/search/full-text/aggregations). They can also improve the query times of [filters](/search/full-text/bm25#efficient-filtering)
+and BM25 scoring.
+
+The following code block demonstrates how to specify a fast field.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => '{description: {}}',
+  numeric_fields => '{rating: {fast: true}}'
+);
+```
+
+## Normalizers
+
+Normalizers specify how text and JSON fast fields should be processed. This option is ignored over any
+other type of field.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => '{description: {fast: true, normalizer: "lowercase"}}'
+);
+```
+
+<ParamField body="raw">
+  Does not process nor tokenize text. Filters out tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="lowercase">
+  Applies a lowercase transformation on the text. Filters token larger than 255
+  bytes.
+</ParamField>
+
+## Records
+
+Records specify how much information is recorded with an indexed field. The following code
+block demonstrates how to configure records.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => '{description: {record: "position"}}'
+);
+```
+
+<ParamField body="basic">Records only the document IDs.</ParamField>
+<ParamField body="freq">
+  Records the document IDs as well as term frequency. This is useful for BM25
+  scoring.
+</ParamField>
+<ParamField body="position">
+  Records the document ID, term frequency and positions of occurrences. Required
+  to run a phrase query.
+</ParamField>
 
 ## Getting Info on a BM25 Index
 
@@ -252,75 +410,4 @@ SELECT * FROM search_idx.schema();
 
 <ParamField body="index_name" required>
   The name of the index.
-</ParamField>
-
-## Tokenizers
-
-<ParamField body="default">
-  Chops the text on according to whitespace and punctuation, removes tokens that
-  are too long, and converts to lowercase. Filters out tokens larger than 255
-  bytes.
-</ParamField>
-<ParamField body="raw">
-  Does not process nor tokenize text. Filters out tokens larger than 255 bytes.
-</ParamField>
-<ParamField body="en_stem">
-  Like `default`, but also applies stemming on the resulting tokens. Filters out
-  tokens larger than 255 bytes.
-</ParamField>
-<ParamField body="whitespace">
-  Tokenizes the text by splitting on whitespaces.
-</ParamField>
-<ParamField body="ngram">
-  Tokenizes text by splitting words into overlapping substrings based on the specified parameters:
-
-`min_gram`: Defines the minimum length for the n-grams. For instance, if set to 2, the smallest token created would be of length 2 characters.
-
-`max_gram`: Determines the maximum length of the n-grams. If set to 5, the largest token produced would be of length 5 characters.
-
-`prefix_only`: When set to true, the tokenizer generates n-grams that start from the beginning of the word only, ensuring a prefix progression. If false, n-grams are created from all possible character combinations within the min_gram and max_gram range.
-
-</ParamField>
-<ParamField body="chinese_compatible">
-  Tokenizes text considering Chinese character nuances. Splits based on whitespace and punctuation. Filters out tokens larger than 255 bytes.
-</ParamField>
-<ParamField body="chinese_lindera">
-  Tokenizes text using the Lindera tokenizer, which uses the CC-CEDICT dictionary to segment and tokenize text.
-</ParamField>
-<ParamField body="korean_lindera">
-  Tokenizes text using the Lindera tokenizer, which uses the KoDic dictionary to segment and tokenize text.
-</ParamField>
-<ParamField body="japanese_lindera">
-  Tokenizes text using the Lindera tokenizer, which uses the IPADIC dictionary to segment and tokenize text.
-</ParamField>
-<ParamField body="icu">
-  Tokenizes text using the ICU tokenizer, which uses Unicode Text Segmentation and is suitable for tokenizing most
-  languages.
-</ParamField>
-<ParamField body="stem">
-  Applies stemming to tokens, filtering out those larger than 255 bytes. Like `en_stem` and supports multiple languages.
-  You can specify the language for the stemming algorithm using the following parameter:
-
-`language`: Specifies the language for the stemming algorithm. Choose from `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`, `Portuguese`, `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, `Turkish`.
-
-</ParamField>
-
-## Normalizers
-
-<ParamField body="raw">
-  Does not process nor tokenize text. Filters out tokens larger than 255 bytes.
-</ParamField>
-<ParamField body="lowercase">
-  Applies a lowercase transformation on the text. Filters token larger than 255
-  bytes.
-</ParamField>
-
-## Records
-
-<ParamField body="basic">Records only the document IDs.</ParamField>
-<ParamField body="freq">
-  Records the document IDs as well as term frequency.
-</ParamField>
-<ParamField body="position">
-  Records the document ID, term frequency and positions of occurrences.
 </ParamField>

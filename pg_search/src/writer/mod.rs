@@ -49,6 +49,7 @@ pub enum WriterRequest {
     CreateIndex {
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        key_field_index: usize,
     },
     DropIndex {
         directory: WriterDirectory,
@@ -135,8 +136,8 @@ mod tests {
             document,
         };
 
-        let ser = bincode::serialize(&insert_request).unwrap();
-        let de: WriterRequest = bincode::deserialize(&ser).unwrap();
+        let ser = serde_json::to_string(&insert_request).unwrap();
+        let de: WriterRequest = serde_json::from_str(&ser).unwrap();
 
         // Ensure deserialized request is equal.
         assert_eq!(de, insert_request);
@@ -148,8 +149,8 @@ mod tests {
             ctids: vec![99, 98, 97],
         };
 
-        let ser = bincode::serialize(&delete_request).unwrap();
-        let de: WriterRequest = bincode::deserialize(&ser).unwrap();
+        let ser = serde_json::to_string(&delete_request).unwrap();
+        let de: WriterRequest = serde_json::from_str(&ser).unwrap();
 
         // Ensure deserialized request is equal.
         assert_eq!(de, delete_request);

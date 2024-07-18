@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::get_search_index;
+use crate::postgres::utils::row_to_search_document;
 use crate::{env::register_commit_callback, globals::WriterGlobal};
 use pgrx::*;
 
@@ -60,11 +61,11 @@ unsafe fn aminsert_internal(
     let tupdesc = index_relation_ref.tuple_desc();
     let index_name = index_relation_ref.name();
     let search_index = get_search_index(index_name);
-    let search_document = search_index
-        .row_to_search_document(*ctid, &tupdesc, values, isnull)
-        .unwrap_or_else(|err| {
-            panic!("error creating index entries for index '{index_name}': {err}",)
-        });
+    let search_document =
+        row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
+            .unwrap_or_else(|err| {
+                panic!("error creating index entries for index '{index_name}': {err}",)
+            });
 
     let writer_client = WriterGlobal::client();
     register_commit_callback(&writer_client, search_index.directory.clone())

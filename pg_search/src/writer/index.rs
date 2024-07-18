@@ -114,12 +114,13 @@ impl Writer {
         &mut self,
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        key_field_index: usize,
     ) -> Result<()> {
         // If the writer directory exists, remove it. We need a fresh directory to
         // create an index. This can happen after a VACUUM FULL, where the index needs
         // to be rebuilt and this method is called again.
         directory.remove()?;
-        let schema = SearchIndexSchema::new(fields)?;
+        let schema = SearchIndexSchema::new(fields, key_field_index)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
         let mut underlying_index = Index::builder()
@@ -163,10 +164,14 @@ impl Handler<WriterRequest> for Writer {
                 field,
                 ctids,
             } => Ok(self.delete(directory, &field, &ctids)?),
-            WriterRequest::CreateIndex { directory, fields } => {
+            WriterRequest::CreateIndex {
+                directory,
+                fields,
+                key_field_index,
+            } => {
                 // Drop the index if it already exists (e.g. if we're rebuilding it with VACUUM FULL)
                 self.drop_index(directory.clone())?;
-                self.create_index(directory, fields)?;
+                self.create_index(directory, fields, key_field_index)?;
                 Ok(())
             }
             WriterRequest::DropIndex { directory } => Ok(self.drop_index(directory)?),

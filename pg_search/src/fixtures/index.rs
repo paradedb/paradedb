@@ -29,13 +29,16 @@ pub struct MockSearchIndex {
 }
 
 impl MockSearchIndex {
-    pub fn new(fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>) -> Self {
+    pub fn new(
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        key_field_index: usize,
+    ) -> Self {
         // We must store the TempDir instance on the struct, because it gets deleted when the
         // instance is dropped.
         let directory = MockWriterDirectory::new("mock_parade_search_index");
         let mut writer = Writer::new();
         writer
-            .create_index(directory.writer_dir.clone(), fields)
+            .create_index(directory.writer_dir.clone(), fields, key_field_index)
             .expect("error creating index instance");
 
         let index = SearchIndex::from_cache(&directory.writer_dir)

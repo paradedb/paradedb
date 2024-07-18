@@ -101,7 +101,7 @@ pub enum SearchFieldConfig {
         fieldnorms: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
-        #[schema(value_type = IndexRecordOptionSchema)]
+        // #[schema(value_type = IndexRecordOptionSchema)]
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -148,7 +148,6 @@ pub enum SearchFieldConfig {
         #[serde(default = "default_as_true")]
         stored: bool,
     },
-    Key(Box<SearchFieldConfig>),
     Ctid,
 }
 
@@ -346,18 +345,14 @@ pub struct SearchIndexSchema {
 impl SearchIndexSchema {
     pub fn new(
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        key_index: usize,
     ) -> Result<Self, SearchIndexSchemaError> {
         let mut builder = Schema::builder();
         let mut search_fields = vec![];
 
-        let mut key_index = 0;
         let mut ctid_index = 0;
-        for (index, (name, mut config, field_type)) in fields.into_iter().enumerate() {
+        for (index, (name, config, field_type)) in fields.into_iter().enumerate() {
             match &config {
-                SearchFieldConfig::Key(key_config) => {
-                    config = *key_config.clone();
-                    key_index = index;
-                }
                 SearchFieldConfig::Ctid => ctid_index = index,
                 _ => {}
             }

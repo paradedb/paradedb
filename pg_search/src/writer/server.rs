@@ -24,7 +24,6 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::{cell::RefCell, io::Cursor};
 use thiserror::Error;
-use tracing::{error, info};
 
 /// A generic server for receiving requests and transfers from a client.
 pub struct Server<'a, T, H>
@@ -76,9 +75,13 @@ where
     fn listen_transfer<P: AsRef<Path>>(&self, pipe_path: P) -> Result<(), ServerError> {
         // Our consumer will receive messages suitable for our handler.
         for incoming in transfer::read_stream::<T, P>(pipe_path)? {
+            let decoded = incoming
+                .map_err(|err| anyhow::anyhow!("error decoding transfer to writer server: {err}"))
+                .map_err(ServerError::from)?;
+
             self.handler
                 .borrow_mut()
-                .handle(incoming?)
+                .handle(decoded)
                 .map_err(|err| ServerError::from(err))?;
         }
         Ok(())
@@ -93,26 +96,27 @@ where
     }
 
     fn listen_request(&mut self) -> Result<(), ServerError> {
-        info!("listening to incoming requests at {:?}", self.addr);
+        pgrx::log!("listening to incoming requests at {:?}", self.addr);
         for mut incoming in self.http.incoming_requests() {
             let reader = incoming.as_reader();
-            let request: Result<ServerRequest<T>, ServerError> = bincode::deserialize_from(reader)
-                .map_err(|err| ServerError::Unexpected(err.into()));
+            let request: Result<ServerRequest<T>, ServerError> =
+                serde_json::from_reader(reader).map_err(|err| ServerError::Unexpected(err.into()));
 
             match request {
                 Ok(req) => match req {
                     ServerRequest::Shutdown => {
                         if let Err(err) = incoming.respond(Self::response_ok()) {
-                            error!("server error responding to shutdown: {err}");
+                            pgrx::warning!("server error responding to shutdown: {err}");
                         }
                         return Ok(());
                     }
                     ServerRequest::Transfer(pipe_path) => {
+                        pgrx::log!("START TRANSFER");
                         // We must respond with OK before initiating the transfer.
                         if let Err(err) = incoming.respond(Self::response_ok()) {
-                            error!("server error responding to transfer: {err}");
+                            pgrx::warning!("server error responding to transfer: {err}");
                         } else if let Err(err) = self.listen_transfer(pipe_path) {
-                            error!("error listening to transfer: {err}")
+                            pgrx::warning!("error listening to transfer: {err}")
                         }
                     }
                     ServerRequest::Request(req) => {
@@ -120,16 +124,18 @@ where
                             if let Err(err) =
                                 incoming.respond(Self::response_err(ServerError::from(err)))
                             {
-                                error!("server error responding to handler error: {err}");
+                                pgrx::warning!("server error responding to handler error: {err}");
                             }
                         } else if let Err(err) = incoming.respond(Self::response_ok()) {
-                            error!("server error responding to handler success: {err}")
+                            pgrx::warning!("server error responding to handler success: {err}")
                         }
                     }
                 },
                 Err(err) => {
                     if let Err(err) = incoming.respond(Self::response_err(err)) {
-                        error!("server error responding to client on deserialize error: {err}");
+                        pgrx::warning!(
+                            "server error responding to client on deserialize error: {err}"
+                        );
                     }
                 }
             };
@@ -161,9 +167,6 @@ pub enum ServerError {
 
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
-
-    #[error(transparent)]
-    Bincode(#[from] bincode::Error),
 
     #[error("unexpected error: {0}")]
     Unexpected(#[from] Box<dyn std::error::Error>),

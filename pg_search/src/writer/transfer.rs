@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::anyhow;
 use interprocess::os::unix::fifo_file;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::de::IoRead;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::marker::PhantomData;
@@ -34,8 +36,8 @@ pub enum WriterTransferMessage<T: Serialize> {
     Data(T),
     Done,
 }
-pub struct WriterTransferMessageIterator<R, T> {
-    stream: BufReader<R>,
+pub struct WriterTransferMessageIterator<R: std::io::Read, T> {
+    stream: serde_json::Deserializer<IoRead<R>>,
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -45,7 +47,7 @@ where
 {
     pub fn new(reader: R) -> Self {
         WriterTransferMessageIterator {
-            stream: BufReader::new(reader),
+            stream: serde_json::Deserializer::from_reader(reader),
             phantom: std::marker::PhantomData,
         }
     }
@@ -56,11 +58,11 @@ where
     R: Read,
     T: DeserializeOwned + Serialize,
 {
-    type Item = bincode::Result<T>;
+    type Item = anyhow::Result<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match bincode::deserialize_from(&mut self.stream) {
-            Err(err) => Some(Err(err)),
+        match WriterTransferMessage::deserialize(&mut self.stream) {
+            Err(err) => Some(Err(anyhow!("error deserializing transfer message: {err}"))),
             Ok(WriterTransferMessage::Done) => None,
             Ok(WriterTransferMessage::Data(data)) => Some(Ok(data)),
         }
@@ -89,17 +91,17 @@ impl<T: Serialize> WriterTransferProducer<T> {
 
     pub fn write_message(&mut self, data: &T) -> std::io::Result<()> {
         let message = WriterTransferMessage::Data(data);
-        let serialized = bincode::serialize(&message)
+        let serialized = serde_json::to_string(&message)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-        self.write_all(&serialized)?;
+        self.write_all(&serialized.into_bytes())?;
         self.flush()
     }
 
     pub fn write_done_message(&mut self) -> std::io::Result<()> {
         let message: WriterTransferMessage<T> = WriterTransferMessage::Done;
-        let serialized = bincode::serialize(&message)
+        let serialized = serde_json::to_string(&message)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-        self.write_all(&serialized)?;
+        self.write_all(&serialized.into_bytes())?;
         self.flush()
     }
 

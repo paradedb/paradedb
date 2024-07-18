@@ -32,6 +32,10 @@ pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 // Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
 // The "type" field will not be present on the deserialized value.
+//
+// Note that because we use #[serde(tag = "type")], this will not work with
+// serialization formats like bincode that are not self-describing, as they
+// cannot work with serde's "deserialize_any".
 #[derive(Default, Copy, Clone, Deserialize, Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "type")]
 pub enum SearchTokenizer {

@@ -20,6 +20,7 @@ use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::get_search_index;
+use crate::postgres::utils::row_to_search_document;
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
@@ -177,8 +178,8 @@ pub extern "C" fn ambuild(
         .chain(json_fields)
         .chain(datetime_fields)
         .chain(std::iter::once((
-            key_field,
-            SearchFieldConfig::Key(key_config.into()),
+            key_field.clone(),
+            key_config,
             *key_field_type,
         )))
         // "ctid" is a reserved column name in Postgres, so we don't need to worry about
@@ -190,6 +191,11 @@ pub extern "C" fn ambuild(
         )))
         .collect();
 
+    let key_field_index = fields
+        .iter()
+        .position(|(name, _, _)| name == &key_field)
+        .expect("key field not found in columns"); // key field is already validated by now.
+
     // If there's only two fields in the vector, then those are just the Key and Ctid fields,
     // which we added above, and the user has not specified any fields to index.
     if fields.len() == 2 {
@@ -198,7 +204,7 @@ pub extern "C" fn ambuild(
 
     let writer_client = WriterGlobal::client();
     let directory = WriterDirectory::from_index_name(&index_name);
-    SearchIndex::create_index(&writer_client, directory, fields)
+    SearchIndex::create_index(&writer_client, directory, fields, key_field_index)
         .expect("error creating new index instance");
 
     let state = do_heap_scan(index_info, &heap_relation, &index_relation);
@@ -284,11 +290,11 @@ unsafe fn build_callback_internal(
             let tupdesc = index_relation_ref.tuple_desc();
             let index_name = index_relation_ref.name();
             let search_index = get_search_index(index_name);
-            let search_document = search_index
-                .row_to_search_document(ctid, &tupdesc, values, isnull)
-                .unwrap_or_else(|err| {
-                    panic!("error creating index entries for index '{index_name}': {err}",)
-                });
+            let search_document =
+                row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)
+                    .unwrap_or_else(|err| {
+                        panic!("error creating index entries for index '{index_name}': {err}",)
+                    });
 
             let writer_client = WriterGlobal::client();
 

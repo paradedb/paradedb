@@ -43,9 +43,9 @@ impl TestClient {
 impl WriterClient<WriterRequest> for TestClient {
     fn request(&mut self, request: WriterRequest) -> Result<(), ClientError> {
         // Serialize the data to emulate the real transfer process.
-        let serialized_request = bincode::serialize(&request).unwrap();
+        let serialized_request = serde_json::to_string(&request).unwrap();
         let deserialized_request: WriterRequest =
-            bincode::deserialize(&serialized_request).unwrap();
+            serde_json::from_str(&serialized_request).unwrap();
         self.writer
             .handle(deserialized_request)
             .map_err(|err| ClientError::ServerError(err.to_string()))
@@ -57,9 +57,9 @@ impl WriterClient<WriterRequest> for TestClient {
         request: WriterRequest,
     ) -> Result<(), ClientError> {
         // Serialize the data to emulate the real transfer process.
-        let serialized_request = bincode::serialize(&request).unwrap();
+        let serialized_request = serde_json::to_string(&request).unwrap();
         let deserialized_request: WriterRequest =
-            bincode::deserialize(&serialized_request).unwrap();
+            serde_json::from_str(&serialized_request).unwrap();
         self.request(deserialized_request)
     }
 }

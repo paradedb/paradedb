@@ -2,49 +2,74 @@
 title: BM25 Scoring
 ---
 
+<Note>
+The `rank_bm25` function has been deprecated as of 0.8.5 and has been replaced with `score_bm25`, which follows new query syntax and has a different return type.
+</Note>
+
 ## Overview
 
 BM25 scores measure how relevant a score is for a given query. Higher scores indicate higher relevance.
 
 ## Basic Usage
 
-Call `paradedb.rank_bm25` in a SELECT statement, passing in the `key_field` column.
-
-If you are using two calls to `search` in the same transaction, you must pass a string `alias` argument to `search` and `rank_bm25` to identify which set of bm25 scores to use.
+The `score_bm25` function takes a query and returns a table with two columns: the `key_field` of each result and its BM25 score. `score_bm25` accepts the same
+parameters as [`search`](/search/full-text/bm25).
 
 ```sql
-SELECT *, paradedb.rank_bm25(<key_field>) FROM <index_name>.search('<query>');
+SELECT * FROM <index_name>.score_bm25('<query>');
 ```
 
 <Accordion title="Example Usage">
 
 ```sql
-SELECT *, paradedb.rank_bm25(id)
-FROM search_idx.search(
-	query => paradedb.boolean(
-		should => ARRAY[
-			paradedb.fuzzy_term(field => 'description', value => 'keyboard'),
-			paradedb.fuzzy_term(field => 'category', value => 'electronics')
-		]
-	)
+SELECT * FROM search_idx.score_bm25(
+	'description:keyboard',
+	limit_rows => 10
 );
-
--- Multiple calls to search, alias is required.
-SELECT id, paradedb.rank_bm25(id)
-FROM search_idx.search('description:shoes')
-UNION
-SELECT id, paradedb.rank_bm25(id, alias => 'speaker')
-FROM search_idx.search('description:speaker', alias => 'speaker')
-ORDER BY id;
 ```
 
 </Accordion>
 
-<ParamField body="key_field" required>
-  The column that represents the `key_field` of the index.
+<ParamField body="index_name" required>
+  The name of the index.
 </ParamField>
-<ParamField body="alias">
-  A string identifier passed both to `search` and `rank_bm25`. This is required
-  only if you're using two `search` calls in one transaction, as `rank_bm25`
-  cannot otherwise know which set of scores to use.
+<ParamField body="query" required>
+  The query string.
 </ParamField>
+<ParamField body="limit_rows">The maximum number of rows to return.</ParamField>
+<ParamField body="offset_rows">
+  The number of rows to skip before starting to return rows.
+</ParamField>
+<ParamField body="stable_sort" default={false}>
+  A boolean specifying whether ParadeDB should stabilize the order of
+  equally-scored results, at the cost of performance.
+</ParamField>
+
+
+## Joining BM25 Scores
+
+Because `score_bm25` generates a new `score_bm25` column, the function does not return all the columns of the original table.
+To map the columns of the original table to the output of `score_bm25`, perform a JOIN on the `key_field` column.
+
+```sql
+-- Here, the key_field is "id"
+WITH scores AS (
+    SELECT * FROM search_idx.score_bm25(
+      'description:keyboard',
+      highlight_field => 'description'
+    )
+)
+SELECT scores.id, description, score_bm25
+FROM scores
+LEFT JOIN mock_items ON scores.id = mock_items.id;
+```
+
+<Accordion title="Expected Output">
+```csv
+ id |       description        | score_bm25
+----+--------------------------+------------
+  2 | Plastic Keyboard         |  3.2668595
+  1 | Ergonomic metal keyboard |  2.8213787
+(2 rows)
+```
+</Accordion>

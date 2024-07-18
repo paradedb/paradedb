@@ -1125,3 +1125,24 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
         "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 }
+
+#[rstest]
+fn high_limit_rows(mut conn: PgConnection) {
+    "CREATE TABLE large_series (id SERIAL PRIMARY KEY, description TEXT);".execute(&mut conn);
+    "INSERT INTO large_series (description) SELECT 'Product ' || i FROM generate_series(1, 200000) i;"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        table_name => 'large_series', 
+        schema_name => 'public', 
+        index_name => 'large_series', 
+        key_field => 'id',
+        text_fields => '{description: {}}'
+    );"
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM large_series.search('description:Product', limit_rows => 200000)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 200000);
+}

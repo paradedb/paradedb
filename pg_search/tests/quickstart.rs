@@ -96,6 +96,35 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
+    let rows: Vec<(i32, String, f32)> = r#"
+        SELECT * FROM ngrams_idx.snippet(
+        'description:blue', 
+        highlight_field => 'description'
+    )
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 32);
+    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
+    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
+
+    let rows: Vec<(String, String, f32)> = r#"
+    WITH snippet AS (
+        SELECT * FROM ngrams_idx.snippet(
+        'description:blue', 
+        highlight_field => 'description'
+        )
+    )
+    SELECT description, snippet, score_bm25
+    FROM snippet
+    LEFT JOIN mock_items ON snippet.id = mock_items.id
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
+    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
+    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
+
     // This deprecated query used to be in the quickstart and has been preserved to check backwards compatibility
     let rows: Vec<(String, String, f32)> = r#"
     SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)

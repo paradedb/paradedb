@@ -132,18 +132,45 @@ FROM ngrams_idx.search('description:blue');
 ```
 </Accordion>
 
-Finally, let's examine the BM25 scores and generate highlighted snippets for our results.
+Finally, let's use the `snippet` function to examine the BM25 scores and generate
+highlighted snippets for our results.
 
 ```sql
-SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
-FROM ngrams_idx.search('description:blue');
+SELECT * FROM ngrams_idx.snippet(
+  'description:blue',
+  highlight_field => 'description'
+);
 ```
 
 <Accordion title="Expected Response">
 ``` csv
-        description        |             highlight            | rank_bm25
----------------------------+----------------------------------+-----------
- Bluetooth-enabled speaker | <b>Blue</b>tooth-enabled speaker | 2.9903657
+ id |             snippet              | score_bm25
+----+----------------------------------+------------
+ 32 | <b>Blue</b>tooth-enabled speaker |  2.9903657
+(1 row)
+```
+</Accordion>
+
+Let's join this result with our `mock_items` table to see the BM25 scores and highlighted snippets
+next to the original data:
+
+```sql
+WITH snippet AS (
+    SELECT * FROM ngrams_idx.snippet(
+      'description:blue',
+      highlight_field => 'description'
+    )
+)
+SELECT description, snippet, score_bm25
+FROM snippet
+LEFT JOIN mock_items ON snippet.id = mock_items.id;
+```
+
+<Accordion title="Expected Response">
+``` csv
+        description        |             snippet              | score_bm25
+---------------------------+----------------------------------+------------
+ Bluetooth-enabled speaker | <b>Blue</b>tooth-enabled speaker |  2.9903657
 (1 row)
 ```
 </Accordion>

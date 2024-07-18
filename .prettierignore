@@ -15,5 +15,3 @@
 /docs/search/full-text/highlighting.mdx
 /docs/upgrading.mdx
 /pg_search/benchmarks/out/
-/pg_search/benchmarks/*_ts.json
-/pg_search/benchmarks/wiki-articles.json

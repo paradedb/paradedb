@@ -71,23 +71,10 @@ async fn basic_search_ids(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn with_bm25_scoring(mut conn: PgConnection) {
+fn with_rank_bm25(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    // Deprecated rank_bm25 function
     let rows: Vec<(i32, f32)> = "SELECT id, paradedb.rank_bm25(id) FROM bm25_search.search('category:electronics OR description:keyboard', stable_sort => true)"
-        .fetch(&mut conn);
-
-    let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
-    let expected = [2, 1, 12, 22, 32];
-    assert_eq!(ids, expected);
-
-    let ranks: Vec<_> = rows.iter().map(|r| r.1).collect();
-    let expected = [5.3764954, 4.931014, 2.1096356, 2.1096356, 2.1096356];
-    assert_eq!(ranks, expected);
-
-    // New score_bm25 function
-    let rows: Vec<(i32, f32)> = "SELECT * FROM bm25_search.score_bm25('category:electronics OR description:keyboard', stable_sort => true)"
         .fetch(&mut conn);
 
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();

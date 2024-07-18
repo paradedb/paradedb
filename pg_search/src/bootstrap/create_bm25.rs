@@ -217,7 +217,7 @@ fn create_bm25(
     } else {
         "".to_string()
     };
-    
+
     Spi::run(&format_bm25_function(
         &spi::quote_qualified_identifier(index_name, "score_bm25"),
         &format!("TABLE({} {}, score_bm25 REAL)", spi::quote_identifier(key_field), key_type),

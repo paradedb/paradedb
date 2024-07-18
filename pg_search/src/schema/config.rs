@@ -30,6 +30,8 @@ pub struct SearchConfig {
     pub limit_rows: Option<usize>,
     pub max_num_chars: Option<usize>,
     pub highlight_field: Option<String>,
+    pub prefix: Option<String>,
+    pub postfix: Option<String>,
     pub alias: Option<SearchAlias>,
     pub stable_sort: Option<bool>,
 }

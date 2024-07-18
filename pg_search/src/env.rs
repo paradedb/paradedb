@@ -25,8 +25,6 @@ use std::{
 
 use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
 
-const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_search_index";
-
 /// We use this global variable to cache any values that can be re-used
 /// after initialization.
 static SEARCH_ENV: Lazy<SearchEnv> = Lazy::new(|| SearchEnv {
@@ -67,7 +65,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
 ) -> Result<(), TransactionError> {
     let writer_client = writer.clone();
     let commit_directory = directory.clone();
-    Transaction::call_once_on_precommit(TRANSACTION_CALLBACK_CACHE_ID, move || {
+    Transaction::call_once_on_precommit(directory.clone().index_name, move || {
         let mut error: Option<Box<dyn std::error::Error>> = None;
         {
             // This lock must happen in an enclosing block so it is dropped and
@@ -94,7 +92,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
 
     let writer_client = writer.clone();
     let abort_directory = directory.clone();
-    Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID, move || {
+    Transaction::call_once_on_abort(directory.clone().index_name, move || {
         let mut error: Option<Box<dyn std::error::Error>> = None;
         {
             // This lock must happen in an enclosing block so it is dropped and
@@ -122,7 +120,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
     Ok(())
 }
 
-pub fn needs_commit() -> bool {
-    Transaction::needs_commit(TRANSACTION_CALLBACK_CACHE_ID)
+pub fn needs_commit(index_name: &str) -> bool {
+    Transaction::needs_commit(index_name)
         .expect("error performing commit check in transaction cache")
 }

@@ -537,3 +537,37 @@ fn column_name_camelcase(mut conn: PgConnection) {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0], (1, "Plastic Keyboard".into()));
 }
+
+#[rstest]
+fn multi_index_insert_in_transaction(mut conn: PgConnection) {
+    "CREATE TABLE paradedb.index_config1(id INTEGER, description TEXT)".execute(&mut conn);
+    "CREATE TABLE paradedb.index_config2(id INTEGER, description TEXT)".execute(&mut conn);
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config1',
+        table_name => 'index_config1',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}'
+    )"
+    .execute(&mut conn);
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config2',
+        table_name => 'index_config2',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}'
+    )"
+    .execute(&mut conn);
+    "BEGIN".execute(&mut conn);
+    "INSERT INTO paradedb.index_config1 VALUES (1, 'Item 1'), (2, 'Item 2')".execute(&mut conn);
+    "INSERT INTO paradedb.index_config2 VALUES (1, 'Item 1'), (2, 'Item 2')".execute(&mut conn);
+    "COMMIT".execute(&mut conn);
+
+    let rows: Vec<(i32, String)> =
+        "SELECT * FROM index_config1.search('description:item')".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(i32, String)> =
+        "SELECT * FROM index_config2.search('description:item')".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+}

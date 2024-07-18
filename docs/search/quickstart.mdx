@@ -132,18 +132,45 @@ FROM ngrams_idx.search('description:blue');
 ```
 </Accordion>
 
-Finally, let's examine the BM25 scores and generate highlighted snippets for our results.
+Finally, let's use the `snippet` function to examine the BM25 scores and generate
+highlighted snippets for our results.
 
 ```sql
-SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
-FROM ngrams_idx.search('description:blue');
+SELECT * FROM ngrams_idx.snippet(
+  'description:blue',
+  highlight_field => 'description'
+);
 ```
 
 <Accordion title="Expected Response">
 ``` csv
-        description        |             highlight            | rank_bm25
----------------------------+----------------------------------+-----------
- Bluetooth-enabled speaker | <b>Blue</b>tooth-enabled speaker | 2.9903657
+ id |             snippet              | score_bm25
+----+----------------------------------+------------
+ 32 | <b>Blue</b>tooth-enabled speaker |  2.9903657
+(1 row)
+```
+</Accordion>
+
+Let's join this result with our `mock_items` table to see the BM25 scores and highlighted snippets
+next to the original data:
+
+```sql
+WITH snippet AS (
+    SELECT * FROM ngrams_idx.snippet(
+      'description:blue',
+      highlight_field => 'description'
+    )
+)
+SELECT description, snippet, score_bm25
+FROM snippet
+LEFT JOIN mock_items ON snippet.id = mock_items.id;
+```
+
+<Accordion title="Expected Response">
+``` csv
+        description        |             snippet              | score_bm25
+---------------------------+----------------------------------+------------
+ Bluetooth-enabled speaker | <b>Blue</b>tooth-enabled speaker |  2.9903657
 (1 row)
 ```
 </Accordion>
@@ -215,11 +242,11 @@ Finally, let's implement hybrid search, which combines BM25-based full text scor
 similarity scores. Hybrid search is especially useful in scenarios where you want to match by both
 exact keywords and semantic meaning.
 
-The `rank_hybrid` function accepts a BM25 query and a similarity query. It applies minmax normalization to the BM25 and
+The `score_hybrid` function accepts a BM25 query and a similarity query. It applies minmax normalization to the BM25 and
 similarity scores and combines them using a weighted average.
 
 ```sql
-SELECT * FROM search_idx.rank_hybrid(
+SELECT * FROM search_idx.score_hybrid(
     bm25_query => 'description:keyboard OR category:electronics',
     similarity_query => '''[1,2,3]'' <-> embedding',
     bm25_weight => 0.9,
@@ -229,8 +256,8 @@ SELECT * FROM search_idx.rank_hybrid(
 
 <Accordion title="Expected Response">
 ``` csv
- id | rank_hybrid
-----+-------------
+ id | score_hybrid
+----+--------------
   2 |  0.95714283
   1 |   0.8487012
  29 |         0.1
@@ -243,10 +270,10 @@ SELECT * FROM search_idx.rank_hybrid(
 Let's join this result with our `mock_items` table to see the full results of our hybrid search:
 
 ```sql
-SELECT m.description, m.category, m.embedding, s.rank_hybrid
+SELECT m.description, m.category, m.embedding, s.score_hybrid
 FROM mock_items m
 LEFT JOIN (
-    SELECT * FROM search_idx.rank_hybrid(
+    SELECT * FROM search_idx.score_hybrid(
         bm25_query => 'description:keyboard OR category:electronics',
         similarity_query => '''[1,2,3]'' <-> embedding',
         bm25_weight => 0.9,
@@ -259,8 +286,8 @@ LIMIT 5;
 
 <Accordion title="Expected Response">
 ``` csv
-       description        |  category   | embedding | rank_hybrid
---------------------------+-------------+-----------+-------------
+       description        |  category   | embedding | score_hybrid
+--------------------------+-------------+-----------+--------------
  Plastic Keyboard         | Electronics | [4,5,6]   |  0.95714283
  Ergonomic metal keyboard | Electronics | [3,4,5]   |   0.8487012
  Designer wall paintings  | Home Decor  | [1,2,3]   |         0.1

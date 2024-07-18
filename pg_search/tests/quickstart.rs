@@ -96,6 +96,36 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
+    let rows: Vec<(i32, String, f32)> = r#"
+        SELECT * FROM ngrams_idx.snippet(
+        'description:blue', 
+        highlight_field => 'description'
+    )
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 32);
+    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
+    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
+
+    let rows: Vec<(String, String, f32)> = r#"
+    WITH snippet AS (
+        SELECT * FROM ngrams_idx.snippet(
+        'description:blue', 
+        highlight_field => 'description'
+        )
+    )
+    SELECT description, snippet, score_bm25
+    FROM snippet
+    LEFT JOIN mock_items ON snippet.id = mock_items.id
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
+    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
+    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
+
+    // This deprecated query used to be in the quickstart and has been preserved to check backwards compatibility
     let rows: Vec<(String, String, f32)> = r#"
     SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
     FROM ngrams_idx.search('description:blue', stable_sort => true)
@@ -154,7 +184,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[2].3, Vector::from(vec![1.0, 2.0, 3.0]));
 
     let rows: Vec<(i32, f32)> = r#"
-    SELECT * FROM search_idx.rank_hybrid(
+    SELECT * FROM search_idx.score_hybrid(
         bm25_query => 'description:keyboard OR category:electronics',
         similarity_query => '''[1,2,3]'' <-> embedding',
         bm25_weight => 0.9,
@@ -174,10 +204,10 @@ fn quickstart(mut conn: PgConnection) {
     assert_relative_eq!(rows[4].1, 0.1, epsilon = 1e-6);
 
     let rows: Vec<(String, String, Vector, f32)> = r#"
-    SELECT m.description, m.category, m.embedding, s.rank_hybrid
+    SELECT m.description, m.category, m.embedding, s.score_hybrid
     FROM mock_items m
     LEFT JOIN (
-        SELECT * FROM search_idx.rank_hybrid(
+        SELECT * FROM search_idx.score_hybrid(
             bm25_query => 'description:keyboard OR category:electronics',
             similarity_query => '''[1,2,3]'' <-> embedding',
             bm25_weight => 0.9,
@@ -243,4 +273,131 @@ fn identical_queries(mut conn: PgConnection) {
 
     assert_eq!(rows1.id, rows2.id);
     assert_eq!(rows2.id, rows3.id);
+}
+
+#[rstest]
+fn score_bm25(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'mock_items'
+    );
+    CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        schema_name => 'public',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
+        numeric_fields => '{rating: {}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, f32)> = "
+    SELECT * FROM search_idx.score_bm25(
+        'description:keyboard',
+        limit_rows => 10
+    )"
+    .fetch(&mut conn);
+
+    let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
+    let expected = [2, 1];
+    assert_eq!(ids, expected);
+
+    let ranks: Vec<_> = rows.iter().map(|r| r.1).collect();
+    let expected = [3.2668595, 2.8213787];
+    assert_eq!(ranks, expected);
+
+    let rows: Vec<(i32, String, f32)> = "
+    WITH scores AS (
+        SELECT * FROM search_idx.score_bm25(
+        'description:keyboard',
+        highlight_field => 'description'
+        )
+    )
+    SELECT scores.id, description, score_bm25
+    FROM scores
+    LEFT JOIN mock_items ON scores.id = mock_items.id;
+    "
+    .fetch(&mut conn);
+
+    let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
+    let expected = [2, 1];
+    assert_eq!(ids, expected);
+
+    let descriptions: Vec<_> = rows.iter().map(|r| r.1.clone()).collect();
+    let expected = ["Plastic Keyboard", "Ergonomic metal keyboard"];
+    assert_eq!(descriptions, expected);
+
+    let ranks: Vec<_> = rows.iter().map(|r| r.2).collect();
+    let expected = [3.2668595, 2.8213787];
+    assert_eq!(ranks, expected);
+}
+
+#[rstest]
+fn snippet(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'mock_items'
+    );
+    CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        schema_name => 'public',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
+        numeric_fields => '{rating: {}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String, f32)> = "
+    SELECT * FROM search_idx.snippet(
+        'description:keyboard',
+        highlight_field => 'description',
+        max_num_chars => 100
+    )"
+    .fetch(&mut conn);
+
+    let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
+    let expected = [2, 1];
+    assert_eq!(ids, expected);
+
+    let snippets: Vec<_> = rows.iter().map(|r| r.1.clone()).collect();
+    let expected = ["Plastic <b>Keyboard</b>", "Ergonomic metal <b>keyboard</b>"];
+    assert_eq!(snippets, expected);
+
+    let ranks: Vec<_> = rows.iter().map(|r| r.2).collect();
+    let expected = [3.2668595, 2.8213787];
+    assert_eq!(ranks, expected);
+
+    let rows: Vec<(i32, String, String, f32)> = "
+    WITH snippets AS (
+        SELECT * FROM search_idx.snippet(
+        'description:keyboard',
+        highlight_field => 'description'
+        )
+    )
+    SELECT snippets.id, description, snippet, score_bm25
+    FROM snippets
+    LEFT JOIN mock_items ON snippets.id = mock_items.id;
+    "
+    .fetch(&mut conn);
+
+    let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
+    let expected = [2, 1];
+    assert_eq!(ids, expected);
+
+    let descriptions: Vec<_> = rows.iter().map(|r| r.1.clone()).collect();
+    let expected = ["Plastic Keyboard", "Ergonomic metal keyboard"];
+    assert_eq!(descriptions, expected);
+
+    let snippets: Vec<_> = rows.iter().map(|r| r.2.clone()).collect();
+    let expected = ["Plastic <b>Keyboard</b>", "Ergonomic metal <b>keyboard</b>"];
+    assert_eq!(snippets, expected);
+
+    let ranks: Vec<_> = rows.iter().map(|r| r.3).collect();
+    let expected = [3.2668595, 2.8213787];
+    assert_eq!(ranks, expected);
 }

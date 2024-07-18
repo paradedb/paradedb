@@ -19,15 +19,17 @@ use crate::env::needs_commit;
 use crate::index::state::{SearchAlias, SearchStateManager};
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
-use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
+use tantivy::TantivyDocument;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
 #[pg_extern(name = "rank_bm25")]
 pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
+    warning!("This function has been deprecated in favor of `score_bm25` since version 0.8.5");
+
     let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
 
     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
@@ -43,7 +45,12 @@ pub fn highlight(
     max_num_chars: default!(Option<i32>, "NULL"),
     alias: default!(Option<String>, "NULL"),
 ) -> String {
-    let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
+    warning!("This function has been deprecated in favor of `snippet` since version 0.8.5");
+
+    let key = unsafe {
+        TantivyValue::try_from_anyelement(key)
+            .expect("failed to convert key_field to Tantivy value")
+    };
 
     let mut snippet = SearchStateManager::get_snippet(
         key,
@@ -73,6 +80,8 @@ pub fn minmax_bm25(
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
     key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
 ) -> TableIterator<'static, (name!(id, AnyElement), name!(rank_bm25, f32))> {
+    warning!("`rank_hybrid` has been deprecated in favor of `score_hybrid` since version 0.8.5");
+
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
@@ -80,7 +89,11 @@ pub fn minmax_bm25(
 
     let writer_client = WriterGlobal::client();
     let mut scan_state = search_index
-        .search_state(&writer_client, &search_config, needs_commit())
+        .search_state(
+            &writer_client,
+            &search_config,
+            needs_commit(&search_config.index_name),
+        )
         .unwrap();
 
     // Collect into a Vec to allow multiple iterations
@@ -121,18 +134,124 @@ pub fn minmax_bm25(
 }
 
 #[pg_extern]
+pub fn score_bm25(
+    config_json: JsonB,
+    _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
+    key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
+) -> TableIterator<'static, (name!(id, AnyElement), name!(score_bm25, f32))> {
+    let JsonB(search_config_json) = config_json;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
+    let search_index = get_search_index(&search_config.index_name);
+
+    let writer_client = WriterGlobal::client();
+    let mut scan_state = search_index
+        .search_state(
+            &writer_client,
+            &search_config,
+            needs_commit(&search_config.index_name),
+        )
+        .expect("could not get scan state");
+
+    let top_docs = scan_state
+        .search_dedup(search_index.executor)
+        .map(|(score, doc_address)| {
+            let key = unsafe {
+                datum::AnyElement::from_polymorphic_datum(
+                    scan_state
+                        .key_value(doc_address)
+                        .try_into_datum(PgOid::from_untagged(key_oid))
+                        .expect("failed to convert key_field to datum"),
+                    false,
+                    key_oid,
+                )
+                .expect("null found in key_field")
+            };
+            (key, score)
+        })
+        .collect::<Vec<_>>();
+
+    TableIterator::new(top_docs)
+}
+
+#[pg_extern]
+pub fn snippet(
+    config_json: JsonB,
+    _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
+    key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
+) -> TableIterator<
+    'static,
+    (
+        name!(id, AnyElement),
+        name!(snippet, String),
+        name!(score_bm25, f32),
+    ),
+> {
+    let JsonB(search_config_json) = config_json;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
+    let search_index = get_search_index(&search_config.index_name);
+
+    let writer_client = WriterGlobal::client();
+    let mut scan_state = search_index
+        .search_state(
+            &writer_client,
+            &search_config,
+            needs_commit(&search_config.index_name),
+        )
+        .expect("could not get scan state");
+
+    let highlight_field = search_config
+        .highlight_field
+        .expect("highlight_field is required");
+    let mut snippet_generator = scan_state.snippet_generator(&highlight_field);
+    if let Some(max_num_chars) = search_config.max_num_chars {
+        snippet_generator.set_max_num_chars(max_num_chars)
+    }
+
+    let top_docs = scan_state
+        .search_dedup(search_index.executor)
+        .map(|(score, doc_address)| {
+            let key = unsafe {
+                datum::AnyElement::from_polymorphic_datum(
+                    scan_state
+                        .key_value(doc_address)
+                        .try_into_datum(PgOid::from_untagged(key_oid))
+                        .expect("failed to convert key_field to datum"),
+                    false,
+                    key_oid,
+                )
+                .expect("null found in key_field")
+            };
+
+            let doc: TantivyDocument = scan_state
+                .searcher
+                .doc(doc_address)
+                .expect("could not find document in searcher");
+
+            let mut snippet = snippet_generator.snippet_from_doc(&doc);
+            snippet.set_snippet_prefix_postfix(
+                &search_config
+                    .prefix
+                    .clone()
+                    .unwrap_or(DEFAULT_SNIPPET_PREFIX.to_string()),
+                &search_config
+                    .postfix
+                    .clone()
+                    .unwrap_or(DEFAULT_SNIPPET_POSTFIX.to_string()),
+            );
+
+            (key, snippet.to_html(), score)
+        })
+        .collect::<Vec<_>>();
+
+    TableIterator::new(top_docs)
+}
+
+#[pg_extern]
 fn drop_bm25_internal(index_name: &str) {
     let writer_client = WriterGlobal::client();
-    let writer_directory = WriterDirectory::from_index_name(index_name);
-    if needs_commit() {
-        writer_client
-            .lock()
-            .expect("could not lock writer on drop_bm25")
-            .request(crate::writer::WriterRequest::Commit {
-                directory: writer_directory,
-            })
-            .expect("error committing existing transaction during drop_bm25");
-    }
+
     // Drop the Tantivy data directory.
     SearchIndex::drop_index(&writer_client, index_name)
         .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));

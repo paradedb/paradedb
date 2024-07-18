@@ -15,7 +15,7 @@ exact keywords and semantic meaning.
 
 ## Basic Usage
 
-To calculate a row's hybrid score, ParadeDB introduces a `rank_hybrid` function. Under the hood,
+To calculate a row's hybrid score, ParadeDB introduces a `score_hybrid` function. Under the hood,
 this function does the following:
 
 1. Calculates the BM25 and similarity scores for the respective queries
@@ -23,7 +23,7 @@ this function does the following:
 3. Calculates the weighted mean of the normalized scores
 
 ```sql
-SELECT * FROM <index_name>.rank_hybrid(
+SELECT * FROM <index_name>.score_hybrid(
   bm25_query => '<bm25_query>',
   similarity_query => '<similarity_query>',
   bm25_weight => <bm25_weight>,
@@ -36,7 +36,7 @@ SELECT * FROM <index_name>.rank_hybrid(
 <Accordion title="Example Usage">
 
 ```sql
-SELECT * FROM search_idx.rank_hybrid(
+SELECT * FROM search_idx.score_hybrid(
     bm25_query => 'description:keyboard OR category:electronics',
     similarity_query => '''[1,2,3]'' <-> embedding',
     bm25_weight => 0.9,
@@ -78,7 +78,7 @@ SELECT * FROM search_idx.rank_hybrid(
 [Advanced search functions](search/full-text/complex) can be passed directly into `bm25_query`:
 
 ```sql
-SELECT * FROM search_idx.rank_hybrid(
+SELECT * FROM search_idx.score_hybrid(
     bm25_query => paradedb.disjunction_max(disjuncts => ARRAY[paradedb.parse('description:shoes')]),
     similarity_query => '''[1,2,3]'' <-> embedding',
     bm25_weight => 0.9,

@@ -50,13 +50,13 @@ impl SearchStateManager {
         // Commit and abort are mutually exclusive. One of the two is guaranteed
         // to be called on any transaction. We'll use that opportunity to clean
         // up the cache.
-        Transaction::call_once_on_commit(TRANSACTION_CALLBACK_CACHE_ID, move || {
+        Transaction::call_once_on_commit(TRANSACTION_CALLBACK_CACHE_ID.to_string(), move || {
             let mut current_search = SEARCH_STATE_MANAGER
                 .lock()
                 .expect("could not lock current search lookup in commit callback");
             current_search.state_map.drain();
         })?;
-        Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID, move || {
+        Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID.to_string(), move || {
             let mut current_search = SEARCH_STATE_MANAGER
                 .lock()
                 .expect("could not lock current search lookup in abort callback");

@@ -225,8 +225,9 @@ impl WriterDirectory {
 impl SearchFs for WriterDirectory {
     fn load_index<T: DeserializeOwned>(&self) -> Result<T, SearchDirectoryError> {
         let SearchIndexConfigFilePath(config_path) = self.search_index_config_file_path(true)?;
-        let serialized_data = fs::read_to_string(config_path)
-            .map_err(|err| SearchDirectoryError::IndexFileRead(self.clone(), err))?;
+
+        let serialized_data = fs::read_to_string(config_path.clone())
+            .map_err(|err| SearchDirectoryError::IndexFileRead(self.clone(), config_path, err))?;
 
         let new_self = serde_json::from_str(&serialized_data)
             .map_err(|err| SearchDirectoryError::IndexDeserialize(self.clone(), err))?;
@@ -301,8 +302,8 @@ pub enum SearchDirectoryError {
     #[error("could not deserialize index at '{0:?}, {1}")]
     IndexDeserialize(WriterDirectory, #[source] serde_json::Error),
 
-    #[error("could not read from file to load index {0:?} at {1}")]
-    IndexFileRead(WriterDirectory, #[source] std::io::Error),
+    #[error("could not read from file to load index {0:?} from {1} at {2}")]
+    IndexFileRead(WriterDirectory, PathBuf, #[source] std::io::Error),
 
     #[error("could not serialize index '{0:?}': {1}")]
     IndexSerialize(WriterDirectory, #[source] serde_json::Error),

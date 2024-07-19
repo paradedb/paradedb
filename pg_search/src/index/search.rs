@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
@@ -146,6 +147,11 @@ impl SearchIndex {
         Self::from_cache(directory)
     }
 
+    unsafe fn drop_from_cache(directory: &WriterDirectory) -> Result<()> {
+        SEARCH_INDEX_MEMORY.remove(directory);
+        Ok(())
+    }
+
     pub fn query_parser(&self) -> QueryParser {
         QueryParser::for_index(
             &self.underlying_index,
@@ -258,9 +264,15 @@ impl SearchIndex {
         index_name: &str,
     ) -> Result<(), SearchIndexError> {
         let directory = WriterDirectory::from_index_name(index_name);
-        let request = WriterRequest::DropIndex { directory };
+        let request = WriterRequest::DropIndex {
+            directory: directory.clone(),
+        };
 
+        // Request the background writer process to physically drop the index.
         writer.lock()?.request(request)?;
+
+        // Drop the index from this connection's cache.
+        unsafe { Self::drop_from_cache(&directory).map_err(SearchIndexError::from)? }
 
         Ok(())
     }
@@ -341,6 +353,9 @@ pub enum SearchIndexError {
 
     #[error("mutex lock on writer client failed: {0}")]
     WriterClientRace(String),
+
+    #[error(transparent)]
+    AnyhowError(#[from] anyhow::Error),
 }
 
 impl<T> From<PoisonError<T>> for SearchIndexError {
@@ -351,15 +366,12 @@ impl<T> From<PoisonError<T>> for SearchIndexError {
 
 #[cfg(test)]
 mod tests {
+    use super::SearchIndex;
     use crate::{
-        fixtures::{chinese_index, mock_dir, MockSearchIndex, MockWriterDirectory, TestClient},
-        schema::SearchConfig,
+        fixtures::{mock_dir, MockWriterDirectory},
         writer::SearchFs,
     };
     use rstest::*;
-    use tantivy::schema::OwnedValue;
-
-    use super::SearchIndex;
 
     /// Expected to panic because no index has been created in the directory.
     #[rstest]
@@ -367,45 +379,4 @@ mod tests {
     fn test_index_from_disk_panics(mock_dir: MockWriterDirectory) {
         mock_dir.load_index::<SearchIndex>().unwrap();
     }
-
-    // #[rstest]
-    // fn test_chinese_compatible_tokenizer(mut chinese_index: MockSearchIndex) {
-    //     let client = TestClient::new_arc();
-
-    //     let index = &mut chinese_index.index;
-    //     let schema = &index.schema;
-
-    //     // Insert fields into document.
-    //     let mut doc = schema.new_document();
-    //     let id_field = schema.key_field();
-    //     let ctid_field = schema.ctid_field();
-    //     let author_field = schema.get_search_field(&"author".into()).unwrap();
-    //     doc.insert(id_field.id, OwnedValue::I64(0));
-    //     doc.insert(ctid_field.id, OwnedValue::U64(0));
-    //     doc.insert(author_field.id, OwnedValue::Str("张伟".into()));
-
-    //     // // Insert document into index.
-    //     // index.insert(&client, doc.clone()).unwrap();
-
-    //     // Search in index
-    //     let search_config = SearchConfig {
-    //         query: crate::query::SearchQueryInput::Parse {
-    //             query_string: "author:张".into(),
-    //         },
-    //         key_field: "id".into(),
-    //         ..Default::default()
-    //     };
-    //     let state = index.search_state(&client, &search_config, true).unwrap();
-
-    //     let (_, doc_address, _, _) = *state
-    //         .search(SearchIndex::executor())
-    //         .first()
-    //         .expect("query returned no results");
-    //     let found: tantivy::TantivyDocument = state
-    //         .searcher
-    //         .doc(doc_address)
-    //         .expect("no document at address");
-
-    //     assert_eq!(&found, &doc.doc);
-    // }
 }

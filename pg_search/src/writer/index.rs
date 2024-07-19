@@ -22,7 +22,7 @@ use crate::{
         SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
     },
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
@@ -47,11 +47,15 @@ impl Writer {
     fn get_writer(&mut self, directory: WriterDirectory) -> Result<&mut IndexWriter, IndexError> {
         match self.tantivy_writers.entry(directory.clone()) {
             Vacant(entry) => {
+                pgrx::log!("VACANT WRITER FOR DIRECTORY: directory");
                 Ok(entry.insert(SearchIndex::writer(&directory).map_err(|err| {
                     IndexError::GetWriterFailed(directory.clone(), err.to_string())
                 })?))
             }
-            Occupied(entry) => Ok(entry.into_mut()),
+            Occupied(entry) => {
+                pgrx::log!("OCCUPIED WRITER FOR DIRECTORY: directory");
+                Ok(entry.into_mut())
+            }
         }
     }
 
@@ -81,16 +85,23 @@ impl Writer {
         Ok(())
     }
 
-    fn commit(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+    fn commit(&mut self, directory: WriterDirectory) -> Result<()> {
+        pgrx::log!("DOES DIRECTORY EXIST?");
         if directory.exists()? {
+            pgrx::log!("DOES DIRECTORY EXIST? : YES");
             let writer = self.get_writer(directory.clone())?;
-            writer.prepare_commit()?;
-            writer.commit()?;
+            writer
+                .prepare_commit()
+                .context("error preparing commit to tantivy index")?;
+            writer
+                .commit()
+                .context("error committing to tantivy index")?;
         } else {
             // If the directory doesn't exist, then the index doesn't exist anymore.
             // Rare, but possible if a previous delete failed. Drop it to free the space.
             self.drop_index(directory.clone())?;
         }
+        pgrx::log!("done commit wtf");
         Ok(())
     }
 
@@ -116,10 +127,6 @@ impl Writer {
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         key_field_index: usize,
     ) -> Result<()> {
-        // If the writer directory exists, remove it. We need a fresh directory to
-        // create an index. This can happen after a VACUUM FULL, where the index needs
-        // to be rebuilt and this method is called again.
-        directory.remove()?;
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
@@ -169,7 +176,9 @@ impl Handler<WriterRequest> for Writer {
                 fields,
                 key_field_index,
             } => {
-                // Drop the index if it already exists (e.g. if we're rebuilding it with VACUUM FULL)
+                // If the writer directory exists, remove it. We need a fresh directory to
+                // create an index. This can happen after a VACUUM FULL, where the index needs
+                // to be rebuilt and this method is called again.
                 self.drop_index(directory.clone())?;
                 self.create_index(directory, fields, key_field_index)?;
                 Ok(())

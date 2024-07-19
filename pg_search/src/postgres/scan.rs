@@ -15,12 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::env::needs_commit;
+use crate::globals::WriterGlobal;
 use crate::index::state::SearchStateManager;
 use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
-use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
+use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::*;
 use tantivy::{DocAddress, Score};
 
@@ -69,7 +69,9 @@ pub extern "C" fn amrescan(
     let index_name = &search_config.index_name;
 
     // Create the index and scan state
-    let search_index = get_search_index(index_name);
+    let directory = WriterDirectory::from_index_name(&index_name);
+    let search_index = SearchIndex::from_cache(&directory)
+        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
     let state = search_index
         .search_state(&writer_client, &search_config, needs_commit(index_name))

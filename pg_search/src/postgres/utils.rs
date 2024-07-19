@@ -15,18 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
-use crate::writer::{IndexError, WriterDirectory};
+use crate::writer::IndexError;
 use pgrx::pg_sys::{BuiltinOid, ItemPointerData};
 use pgrx::*;
-
-pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
-    let directory = WriterDirectory::from_index_name(index_name);
-    SearchIndex::from_cache(&directory)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"))
-}
 
 pub unsafe fn row_to_search_document(
     ctid: ItemPointerData,

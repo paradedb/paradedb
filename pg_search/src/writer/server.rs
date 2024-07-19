@@ -17,6 +17,7 @@
 
 use super::{Handler, IndexError, ServerRequest};
 use crate::writer::transfer;
+use anyhow::anyhow;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::io;
@@ -76,12 +77,13 @@ where
         // Our consumer will receive messages suitable for our handler.
         for incoming in transfer::read_stream::<T, P>(pipe_path)? {
             let decoded = incoming
-                .map_err(|err| anyhow::anyhow!("error decoding transfer to writer server: {err}"))
+                .map_err(|err| anyhow!("error decoding transfer to writer server: {err}"))
                 .map_err(ServerError::from)?;
 
             self.handler
                 .borrow_mut()
                 .handle(decoded)
+                .map_err(|err| anyhow!("error handling transfer to writer server: {err}"))
                 .map_err(|err| ServerError::from(err))?;
         }
         Ok(())
@@ -92,7 +94,7 @@ where
     }
 
     fn response_err(err: ServerError) -> tiny_http::Response<Cursor<Vec<u8>>> {
-        tiny_http::Response::from_string(err.to_string()).with_status_code(500)
+        tiny_http::Response::from_string(format!("{err:?}")).with_status_code(500)
     }
 
     fn listen_request(&mut self) -> Result<(), ServerError> {
@@ -106,17 +108,16 @@ where
                 Ok(req) => match req {
                     ServerRequest::Shutdown => {
                         if let Err(err) = incoming.respond(Self::response_ok()) {
-                            pgrx::warning!("server error responding to shutdown: {err}");
+                            pgrx::warning!("server error responding to shutdown: {err:?}");
                         }
                         return Ok(());
                     }
                     ServerRequest::Transfer(pipe_path) => {
-                        pgrx::log!("START TRANSFER");
                         // We must respond with OK before initiating the transfer.
                         if let Err(err) = incoming.respond(Self::response_ok()) {
-                            pgrx::warning!("server error responding to transfer: {err}");
+                            pgrx::warning!("server error responding to transfer: {err:?}");
                         } else if let Err(err) = self.listen_transfer(pipe_path) {
-                            pgrx::warning!("error listening to transfer: {err}")
+                            pgrx::warning!("error listening to transfer: {err:?}")
                         }
                     }
                     ServerRequest::Request(req) => {
@@ -124,17 +125,17 @@ where
                             if let Err(err) =
                                 incoming.respond(Self::response_err(ServerError::from(err)))
                             {
-                                pgrx::warning!("server error responding to handler error: {err}");
+                                pgrx::warning!("server error responding to handler error: {err:?}");
                             }
                         } else if let Err(err) = incoming.respond(Self::response_ok()) {
-                            pgrx::warning!("server error responding to handler success: {err}")
+                            pgrx::warning!("server error responding to handler success: {err:?}")
                         }
                     }
                 },
                 Err(err) => {
                     if let Err(err) = incoming.respond(Self::response_err(err)) {
                         pgrx::warning!(
-                            "server error responding to client on deserialize error: {err}"
+                            "server error responding to client on deserialize error: {err:?}"
                         );
                     }
                 }

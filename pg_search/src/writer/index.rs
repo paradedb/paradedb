@@ -47,15 +47,11 @@ impl Writer {
     fn get_writer(&mut self, directory: WriterDirectory) -> Result<&mut IndexWriter, IndexError> {
         match self.tantivy_writers.entry(directory.clone()) {
             Vacant(entry) => {
-                pgrx::log!("VACANT WRITER FOR DIRECTORY: directory");
                 Ok(entry.insert(SearchIndex::writer(&directory).map_err(|err| {
                     IndexError::GetWriterFailed(directory.clone(), err.to_string())
                 })?))
             }
-            Occupied(entry) => {
-                pgrx::log!("OCCUPIED WRITER FOR DIRECTORY: directory");
-                Ok(entry.into_mut())
-            }
+            Occupied(entry) => Ok(entry.into_mut()),
         }
     }
 
@@ -86,9 +82,7 @@ impl Writer {
     }
 
     fn commit(&mut self, directory: WriterDirectory) -> Result<()> {
-        pgrx::log!("DOES DIRECTORY EXIST?");
         if directory.exists()? {
-            pgrx::log!("DOES DIRECTORY EXIST? : YES");
             let writer = self.get_writer(directory.clone())?;
             writer
                 .prepare_commit()
@@ -101,7 +95,6 @@ impl Writer {
             // Rare, but possible if a previous delete failed. Drop it to free the space.
             self.drop_index(directory.clone())?;
         }
-        pgrx::log!("done commit wtf");
         Ok(())
     }
 

@@ -260,7 +260,6 @@ pub fn snippet(
 fn drop_bm25_internal(index_name: &str) {
     let writer_client = WriterGlobal::client();
 
-    pgrx::log!("DROPPING INDEX: {index_name}");
     // Drop the Tantivy data directory.
     SearchIndex::drop_index(&writer_client, index_name)
         .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err:?}"));

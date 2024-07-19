@@ -71,6 +71,7 @@ pub struct SearchIndex {
     pub reader: IndexReader,
     #[serde(skip_serializing)]
     pub underlying_index: Index,
+    pub uuid: String,
 }
 
 impl SearchIndex {
@@ -78,17 +79,19 @@ impl SearchIndex {
         writer: &Arc<Mutex<W>>,
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        uuid: String,
         key_field_index: usize,
     ) -> Result<&'static mut Self, SearchIndexError> {
         writer.lock()?.request(WriterRequest::CreateIndex {
             directory: directory.clone(),
             fields,
+            uuid: uuid.clone(),
             key_field_index,
         })?;
 
         // As the new index instance was created in a background process, we need
         // to load it from disk to use it.
-        let new_self_ref = Self::from_cache(&directory)
+        let new_self_ref = Self::from_disk(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
         Ok(new_self_ref)
@@ -130,21 +133,32 @@ impl SearchIndex {
         SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
     }
 
-    pub fn from_cache<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
-        unsafe {
-            if let Some(new_self) = SEARCH_INDEX_MEMORY.get_mut(directory) {
-                return Ok(new_self);
-            }
-        }
-
+    pub fn from_disk<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
         let new_self: Self = directory.load_index()?;
+        let uuid = new_self.uuid.clone();
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {
             new_self.into_cache();
         }
 
-        Self::from_cache(directory)
+        Self::from_cache(directory, &uuid)
+    }
+
+    pub fn from_cache<'a>(
+        directory: &WriterDirectory,
+        uuid: &str,
+    ) -> Result<&'a mut Self, SearchIndexError> {
+        unsafe {
+            if let Some(new_self) = SEARCH_INDEX_MEMORY.get_mut(directory) {
+                let cached_uuid = &new_self.uuid;
+                if cached_uuid == uuid {
+                    return Ok(new_self);
+                }
+            }
+        }
+
+        Self::from_disk(directory)
     }
 
     unsafe fn drop_from_cache(directory: &WriterDirectory) -> Result<()> {
@@ -299,10 +313,18 @@ impl<'de> Deserialize<'de> for SearchIndex {
         struct SearchIndexHelper {
             schema: SearchIndexSchema,
             directory: WriterDirectory,
+            // An index created in an older version of pg_search may not have serialized a uuid
+            // to disk. Just use an empty string for backwards compatibility.
+            #[serde(default)]
+            uuid: String,
         }
 
         // Deserialize into the struct with automatic handling for most fields
-        let SearchIndexHelper { schema, directory } = SearchIndexHelper::deserialize(deserializer)?;
+        let SearchIndexHelper {
+            schema,
+            directory,
+            uuid,
+        } = SearchIndexHelper::deserialize(deserializer)?;
 
         let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path(true).unwrap();
 
@@ -321,6 +343,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             underlying_index,
             directory,
             schema,
+            uuid,
         })
     }
 }

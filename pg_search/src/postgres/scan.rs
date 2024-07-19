@@ -70,7 +70,7 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let directory = WriterDirectory::from_index_name(&index_name);
-    let search_index = SearchIndex::from_cache(&directory)
+    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
     let state = search_index

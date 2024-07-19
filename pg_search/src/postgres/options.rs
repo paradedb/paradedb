@@ -52,6 +52,7 @@ pub struct SearchIndexCreateOptions {
     json_fields_offset: i32,
     datetime_fields_offset: i32,
     key_field_offset: i32,
+    uuid_offset: i32,
 }
 
 #[pg_guard]
@@ -104,6 +105,11 @@ extern "C" fn validate_key_field(value: *const std::os::raw::c_char) {
     cstr_to_rust_str(value);
 }
 
+#[pg_guard]
+extern "C" fn validate_uuid(value: *const std::os::raw::c_char) {
+    cstr_to_rust_str(value);
+}
+
 #[inline]
 fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
     if value.is_null() {
@@ -117,7 +123,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
 }
 
 // For now, we support changing the tokenizer between default, raw, and en_stem
-const NUM_REL_OPTS: usize = 6;
+const NUM_REL_OPTS: usize = 7;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -153,6 +159,11 @@ pub unsafe extern "C" fn amoptions(
             optname: "key_field".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, key_field_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "uuid".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            offset: offset_of!(SearchIndexCreateOptions, uuid_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -287,6 +298,15 @@ impl SearchIndexCreateOptions {
         }
     }
 
+    pub fn get_uuid(&self) -> Option<String> {
+        let uuid = self.get_str(self.uuid_offset, "".to_string());
+        if uuid.is_empty() {
+            None
+        } else {
+            Some(uuid)
+        }
+    }
+
     fn get_str(&self, offset: i32, default: String) -> String {
         if offset == 0 {
             default
@@ -365,6 +385,17 @@ pub unsafe fn init() {
         "Column name as a string specify the unique identifier for a row".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_key_field),
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        {
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
+        },
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "uuid".as_pg_cstr(),
+        "Unique uuid for search index instance".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_uuid),
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE

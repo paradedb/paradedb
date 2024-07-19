@@ -101,11 +101,8 @@ impl Transaction {
                 // If the callback was explicitly cancelled, we will skip calling it.
                 // Otherwise, call it.
                 match callback_status {
-                    Some(CallbackStatus::Cancelled) => {
-                        pgrx::log!("NOT CALLING CALLBACK")
-                    }
+                    Some(CallbackStatus::Cancelled) => {}
                     _ => {
-                        pgrx::log!("CALLING CALLBACK");
                         callback();
                     }
                 }

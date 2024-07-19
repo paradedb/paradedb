@@ -88,7 +88,7 @@ pub fn minmax_bm25(
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
     let directory = WriterDirectory::from_index_name(&search_config.index_name);
-    let search_index = SearchIndex::from_cache(&directory)
+    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
@@ -147,7 +147,7 @@ pub fn score_bm25(
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
     let directory = WriterDirectory::from_index_name(&search_config.index_name);
-    let search_index = SearchIndex::from_cache(&directory)
+    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
@@ -197,7 +197,7 @@ pub fn snippet(
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
     let directory = WriterDirectory::from_index_name(&search_config.index_name);
-    let search_index = SearchIndex::from_cache(&directory)
+    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();

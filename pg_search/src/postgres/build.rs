@@ -32,13 +32,15 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 struct BuildState {
     count: usize,
     memctx: PgMemoryContexts,
+    uuid: String,
 }
 
 impl BuildState {
-    fn new() -> Self {
+    fn new(uuid: String) -> Self {
         BuildState {
             count: 0,
             memctx: PgMemoryContexts::new("pg_search_index_build"),
+            uuid,
         }
     }
 }
@@ -127,6 +129,9 @@ pub extern "C" fn ambuild(
             _ => panic!("'{name}' cannot be indexed as a datetime field"),
         });
 
+    let uuid = rdopts
+        .get_uuid()
+        .expect("must specify uuid, this is done automatically in 'create_bm25'");
     let key_field = rdopts.get_key_field().expect("must specify key field");
     let key_field_type = match name_type_map.get(&key_field) {
         Some(field_type) => field_type,
@@ -203,10 +208,16 @@ pub extern "C" fn ambuild(
 
     let writer_client = WriterGlobal::client();
     let directory = WriterDirectory::from_index_name(&index_name);
-    SearchIndex::create_index(&writer_client, directory, fields, key_field_index)
-        .expect("error creating new index instance");
+    SearchIndex::create_index(
+        &writer_client,
+        directory,
+        fields,
+        uuid.clone(),
+        key_field_index,
+    )
+    .expect("error creating new index instance");
 
-    let state = do_heap_scan(index_info, &heap_relation, &index_relation);
+    let state = do_heap_scan(index_info, &heap_relation, &index_relation, uuid);
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = state.count as f64;
     result.index_tuples = state.count as f64;
@@ -221,8 +232,9 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
+    uuid: String,
 ) -> BuildState {
-    let mut state = BuildState::new();
+    let mut state = BuildState::new(uuid);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -289,7 +301,7 @@ unsafe fn build_callback_internal(
             let tupdesc = index_relation_ref.tuple_desc();
             let index_name = index_relation_ref.name();
             let directory = WriterDirectory::from_index_name(&index_name);
-            let search_index = SearchIndex::from_cache(&directory)
+            let search_index = SearchIndex::from_cache(&directory, &state.uuid)
                 .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
             let search_document =
                 row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)

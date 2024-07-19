@@ -44,7 +44,7 @@ pub fn schema_bm25(
 )> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
     let directory = WriterDirectory::from_index_name(&bm25_index_name);
-    let search_index = SearchIndex::from_cache(&directory)
+    let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let schema = search_index.schema.schema.clone();

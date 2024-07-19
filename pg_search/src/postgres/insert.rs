@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::SearchIndex;
+use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
 use crate::writer::WriterDirectory;
 use crate::{env::register_commit_callback, globals::WriterGlobal};
@@ -34,7 +35,19 @@ pub unsafe extern "C" fn aminsert(
     _index_unchanged: bool,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    aminsert_internal(index_relation, values, isnull, heap_tid)
+    let pg_relation = unsafe { PgRelation::from_pg(index_relation) };
+    let rdopts: PgBox<SearchIndexCreateOptions> = if !pg_relation.rd_options.is_null() {
+        unsafe { PgBox::from_pg(pg_relation.rd_options as *mut SearchIndexCreateOptions) }
+    } else {
+        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
+        ops.into_pg_boxed()
+    };
+
+    let uuid = rdopts
+        .get_uuid()
+        .expect("uuid not specified in 'create_bm25' index build, please rebuild pg_search index");
+
+    aminsert_internal(index_relation, values, isnull, heap_tid, &uuid)
 }
 
 #[cfg(any(feature = "pg12", feature = "pg13"))]
@@ -48,7 +61,18 @@ pub unsafe extern "C" fn aminsert(
     _check_unique: pg_sys::IndexUniqueCheck,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    aminsert_internal(index_relation, values, isnull, heap_tid)
+    let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
+        unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
+    } else {
+        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
+        ops.into_pg_boxed()
+    };
+
+    let uuid = rdopts
+        .get_uuid()
+        .expect("uuid not specified in 'create_bm25' index build, please rebuild pg_search index");
+
+    aminsert_internal(index_relation, values, isnull, heap_tid, uuid)
 }
 
 #[inline(always)]
@@ -57,12 +81,13 @@ unsafe fn aminsert_internal(
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     ctid: pg_sys::ItemPointer,
+    uuid: &str,
 ) -> bool {
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let tupdesc = index_relation_ref.tuple_desc();
     let index_name = index_relation_ref.name();
     let directory = WriterDirectory::from_index_name(&index_name);
-    let search_index = SearchIndex::from_cache(&directory)
+    let search_index = SearchIndex::from_cache(&directory, &uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let search_document =
         row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)

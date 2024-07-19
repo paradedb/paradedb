@@ -118,6 +118,7 @@ impl Writer {
         &mut self,
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        uuid: String,
         key_field_index: usize,
     ) -> Result<()> {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
@@ -135,6 +136,7 @@ impl Writer {
             underlying_index,
             directory: directory.clone(),
             schema,
+            uuid,
         };
 
         // Serialize SearchIndex to disk so it can be initialized by other connections.
@@ -167,13 +169,14 @@ impl Handler<WriterRequest> for Writer {
             WriterRequest::CreateIndex {
                 directory,
                 fields,
+                uuid,
                 key_field_index,
             } => {
                 // If the writer directory exists, remove it. We need a fresh directory to
                 // create an index. This can happen after a VACUUM FULL, where the index needs
                 // to be rebuilt and this method is called again.
                 self.drop_index(directory.clone())?;
-                self.create_index(directory, fields, key_field_index)?;
+                self.create_index(directory, fields, uuid, key_field_index)?;
                 Ok(())
             }
             WriterRequest::DropIndex { directory } => Ok(self.drop_index(directory)?),

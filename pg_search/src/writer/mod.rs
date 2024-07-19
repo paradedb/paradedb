@@ -49,6 +49,7 @@ pub enum WriterRequest {
     CreateIndex {
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        uuid: String,
         key_field_index: usize,
     },
     DropIndex {

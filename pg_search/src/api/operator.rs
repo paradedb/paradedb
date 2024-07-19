@@ -38,7 +38,7 @@ fn search_tantivy(
 
         let writer_client = WriterGlobal::client();
         let directory = WriterDirectory::from_index_name(&search_config.index_name);
-        let search_index = SearchIndex::from_cache(&directory)
+        let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
         let scan_state = search_index
             .search_state(

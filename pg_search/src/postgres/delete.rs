@@ -35,7 +35,7 @@ pub extern "C" fn ambulkdelete(
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name();
     let directory = WriterDirectory::from_index_name(index_name);
-    let search_index = SearchIndex::from_cache(&directory)
+    let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     if stats.is_null() {

@@ -15,16 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::fdw::handler::FdwHandler;
 use pgrx::*;
 use std::ffi::CStr;
+use std::os::raw::c_int;
 use std::str::Utf8Error;
 
 pub fn get_current_query(
-    planned_stmt: *mut pg_sys::PlannedStmt,
+    query_start_index: c_int,
+    query_len: c_int,
     query_string: &CStr,
 ) -> Result<String, Utf8Error> {
-    let query_start_index = unsafe { (*planned_stmt).stmt_location };
-    let query_len = unsafe { (*planned_stmt).stmt_len };
     let full_query = query_string.to_str()?;
 
     let current_query = if query_start_index != -1 {
@@ -41,12 +42,10 @@ pub fn get_current_query(
     Ok(current_query)
 }
 
-pub fn get_query_relations(planned_stmt: *mut pg_sys::PlannedStmt) -> Vec<PgRelation> {
+pub fn get_query_relations(rtable: *mut pg_sys::List) -> Vec<PgRelation> {
     let mut relations = Vec::new();
 
     unsafe {
-        let rtable = (*planned_stmt).rtable;
-
         if rtable.is_null() {
             return relations;
         }
@@ -78,4 +77,18 @@ pub fn get_query_relations(planned_stmt: *mut pg_sys::PlannedStmt) -> Vec<PgRela
     }
 
     relations
+}
+
+pub fn is_duckdb_query(relations: &[PgRelation]) -> bool {
+    !relations.is_empty()
+        && relations.iter().all(|pg_relation| {
+            if pg_relation.is_foreign_table() {
+                let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+                let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+                let fdw_handler = FdwHandler::from(foreign_server);
+                fdw_handler != FdwHandler::Other
+            } else {
+                false
+            }
+        })
 }

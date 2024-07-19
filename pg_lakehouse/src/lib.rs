@@ -35,6 +35,8 @@ pg_module_magic!();
 
 static mut EXTENSION_HOOK: LakehouseHook = LakehouseHook;
 
+pub(crate) static mut PREV_EXPLAIN_ONE_QUERY_HOOK: pg_sys::ExplainOneQuery_hook_type = None;
+
 #[pg_guard]
 pub extern "C" fn _PG_init() {
     #[allow(static_mut_refs)]
@@ -45,6 +47,19 @@ pub extern "C" fn _PG_init() {
     GUCS.init("pg_lakehouse");
 
     setup_telemetry_background_worker(ParadeExtension::PgLakehouse);
+
+    unsafe {
+        // save original hook and set a new one
+        PREV_EXPLAIN_ONE_QUERY_HOOK = pg_sys::ExplainOneQuery_hook;
+        pg_sys::ExplainOneQuery_hook = Some(hooks::explain::explain_forign_query);
+    }
+}
+
+#[pg_guard]
+pub extern "C" fn _PG_fini() {
+    unsafe {
+        pg_sys::ExplainOneQuery_hook = PREV_EXPLAIN_ONE_QUERY_HOOK;
+    }
 }
 
 #[cfg(test)]

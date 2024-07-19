@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod executor;
+pub mod explain;
 mod query;
 
 use async_std::task::block_on;

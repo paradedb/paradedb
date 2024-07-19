@@ -21,7 +21,6 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::duckdb::connection;
-use crate::fdw::handler::FdwHandler;
 use crate::schema::cell::*;
 
 use super::query::*;
@@ -46,23 +45,15 @@ pub async fn executor_run(
 ) -> Result<()> {
     let ps = query_desc.plannedstmt;
     let rtable = unsafe { (*ps).rtable };
-    let query = get_current_query(ps, unsafe { CStr::from_ptr(query_desc.sourceText) })?;
-    let query_relations = get_query_relations(ps);
-    let is_duckdb_query = !query_relations.is_empty()
-        && query_relations.iter().all(|pg_relation| {
-            if pg_relation.is_foreign_table() {
-                let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
-                let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
-                let fdw_handler = FdwHandler::from(foreign_server);
-                fdw_handler != FdwHandler::Other
-            } else {
-                false
-            }
-        });
+    let query_start_index = unsafe { (*ps).stmt_location };
+    let query_len = unsafe { (*ps).stmt_len };
+    let query_string = unsafe { CStr::from_ptr(query_desc.sourceText) };
+    let query = get_current_query(query_start_index, query_len, query_string)?;
+    let query_relations = get_query_relations(rtable);
 
     if rtable.is_null()
         || query_desc.operation != pg_sys::CmdType_CMD_SELECT
-        || !is_duckdb_query
+        || !is_duckdb_query(&query_relations)
         // Tech Debt: Find a less hacky way to let COPY/CREATE go through
         || query.to_lowercase().starts_with("copy")
         || query.to_lowercase().starts_with("create")

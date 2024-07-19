@@ -17,7 +17,7 @@
 
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
-use pgrx::Spi;
+use pgrx::{JsonB, Spi};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -30,11 +30,12 @@ use super::format::format_hybrid_function;
 // but we need to account for the trailing _bm25_index suffix
 const MAX_INDEX_NAME_LENGTH: usize = 52;
 
-#[pg_extern(sql = "
+#[pg_extern(
+    sql = "
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
-    index_name text DEFAULT '',
-    table_name text DEFAULT '',
-    key_field text DEFAULT '',
+    index_name text,
+    table_name text,
+    key_field text,
     schema_name text DEFAULT CURRENT_SCHEMA,
     text_fields text DEFAULT '{}',
     numeric_fields text DEFAULT '{}',
@@ -44,9 +45,84 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     predicates text DEFAULT ''
 )
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-")]
+",
+    name = "create_bm25"
+)]
 #[allow(clippy::too_many_arguments)]
-fn create_bm25(
+fn create_bm25_str(
+    index_name: &str,
+    table_name: &str,
+    key_field: &str,
+    schema_name: &str,
+    text_fields: &str,
+    numeric_fields: &str,
+    boolean_fields: &str,
+    json_fields: &str,
+    datetime_fields: &str,
+    predicates: &str,
+) -> Result<()> {
+    create_bm25_impl(
+        index_name,
+        table_name,
+        key_field,
+        schema_name,
+        text_fields,
+        numeric_fields,
+        boolean_fields,
+        json_fields,
+        datetime_fields,
+        predicates,
+    )
+}
+
+#[pg_extern(
+    sql = "
+CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
+    index_name text,
+    table_name text,
+    key_field text,
+    schema_name text DEFAULT CURRENT_SCHEMA,
+    text_fields jsonb DEFAULT '{}',
+    numeric_fields jsonb DEFAULT '{}',
+    boolean_fields jsonb DEFAULT '{}',
+    json_fields jsonb DEFAULT '{}',
+    datetime_fields jsonb DEFAULT '{}',
+    predicates text DEFAULT ''
+)
+LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
+",
+    name = "create_bm25"
+)]
+#[allow(clippy::too_many_arguments)]
+fn create_bm25_jsonb(
+    index_name: &str,
+    table_name: &str,
+    key_field: &str,
+    schema_name: &str,
+    text_fields: JsonB,
+    numeric_fields: JsonB,
+    boolean_fields: JsonB,
+    json_fields: JsonB,
+    datetime_fields: JsonB,
+    predicates: &str,
+) -> Result<()> {
+    create_bm25_impl(
+        index_name,
+        table_name,
+        key_field,
+        schema_name,
+        &serde_json::to_string(&text_fields)?,
+        &serde_json::to_string(&numeric_fields)?,
+        &serde_json::to_string(&boolean_fields)?,
+        &serde_json::to_string(&json_fields)?,
+        &serde_json::to_string(&datetime_fields)?,
+        predicates,
+    )
+}
+
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn create_bm25_impl(
     index_name: &str,
     table_name: &str,
     key_field: &str,

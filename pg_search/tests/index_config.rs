@@ -39,7 +39,7 @@ fn invalid_create_bm25(mut conn: PgConnection) {
     .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with no key_field"),
-        Err(err) => assert!(err.to_string().contains("no key_field parameter")),
+        Err(err) => assert!(err.to_string().contains("not exist")),
     };
 
     match "CALL paradedb.create_bm25(
@@ -50,7 +50,7 @@ fn invalid_create_bm25(mut conn: PgConnection) {
     .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with no fields"),
-        Err(err) => assert!(err.to_string().contains("specified"), "{}", fmt_err(err)),
+        Err(err) => assert!(err.to_string().contains("not unique")),
     };
 
     match "CALL paradedb.create_bm25(

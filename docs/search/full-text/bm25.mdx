@@ -12,16 +12,15 @@ title: Basic Full Text Search
 The `search` function returns rows of a table that match a search query. By default, rows are sorted by relevance.
 
 ```sql
-SELECT *
-FROM <index_name>.search('<query>');
+SELECT * FROM <index_name>.search('<query>');
 ```
 
 <ParamField body="index_name" required>
   The name of the index.
 </ParamField>
 <ParamField body="query" required>
-  The query string. See the query options below for how to construct this
-  string.
+  The [ParadeQL](#paradeql) query string. See the documentation below for how to
+  construct this string.
 </ParamField>
 
 ## ParadeQL
@@ -44,22 +43,6 @@ Phrases containing spaces should be wrapped in double quotes.
 ```sql
 'description:"plastic keyboard"'
 ```
-
-### Slop Operator
-
-The `~` slop operator is used to match phrases separated by words in between. For instance, let's say
-there exists a row with `description` set to "ergonomic metal keyboard." Because words "ergonomic" and "keyboard"
-are separated by one word, the following query would find this row.
-
-```sql
-'"ergonomic keyboard"~1'
-```
-
-<Note>
-  The slop operator is distinct from [fuzzy
-  search](/search/full-text/complex#fuzzy-term), which is used for typo
-  tolerance.
-</Note>
 
 ### Efficient Filtering
 
@@ -92,8 +75,9 @@ Filters can be applied over numeric fields, which improves query times compared 
 
 Use `.` to search over text values nested inside JSON. For instance, the following query would search over a field with values like `{"metadata": {"color": "white"}}`.
 
-````sql
+```sql
 'metadata.color:white'
+```
 
 When dealing with JSON arrays, the array elements are “flattened” so that each element can be searched individually. This means that if a JSON array is encountered, each element in the array is treated as a separate value and indexed accordingly. For example, given the following JSON structure:
 
@@ -103,7 +87,7 @@ When dealing with JSON arrays, the array elements are “flattened” so that ea
     "colors": ["red", "green", "blue"]
   }
 }
-````
+```
 
 The JSON array in the colors field is flattened to emit separate terms for each color. This allows for individual search queries like:
 
@@ -121,6 +105,16 @@ Each of these queries would correctly match the document containing the JSON arr
   SELECT * FROM <index_name>.search('metadata.attributes:4', stable_sort => true)
   ```
 </Note>
+
+### Datetime Fields
+
+Search terms will use the UTC time zone if not specified and need to be in RFC3339 format for the `search` function.
+
+```sql
+-- To demonstrate time zones, these query strings are equivalent
+'created_at:"2023-05-01T09:12:34Z"'
+'created_at:"2023-05-01T04:12:34-05:00"'
+```
 
 ### Boosting
 
@@ -144,6 +138,22 @@ Use parentheses to group terms and control the order of operations.
 ```sql
 '(description:keyboard OR category:toy) AND description:metal'
 ```
+
+### Slop Operator
+
+The `~` slop operator is used to match phrases separated by words in between. For instance, let's say
+there exists a row with `description` set to "ergonomic metal keyboard." Because words "ergonomic" and "keyboard"
+are separated by one word, the following query would find this row.
+
+```sql
+'"ergonomic keyboard"~1'
+```
+
+<Note>
+  The slop operator is distinct from [fuzzy
+  search](/search/full-text/complex#fuzzy-term), which is used for typo
+  tolerance.
+</Note>
 
 ### Set Operator
 

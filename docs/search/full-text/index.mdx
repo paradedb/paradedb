@@ -4,268 +4,279 @@ title: Index Creation
 
 ## Overview
 
-A BM25 index must be created over a table before it can be searched.
+A BM25 index must be created over table's columns before they can be searched.
 This index is strongly consistent, which means that new data is immediately searchable across all connections.
 Once an index is created, it automatically stays in sync with the underlying table as the data changes.
 
-## Creating a BM25 Index
+## Basic Usage
 
-The following command creates a BM25 index over a table along with a new schema containing query functions.
-
-```sql
-paradedb.create_bm25(
-  index_name => '<index_name>',
-  table_name => '<table_name>',
-  key_field => '<key_field>'
-  text_fields => '<text_fields>',
-  numeric_fields => '<numeric_fields>',
-  boolean_fields => '<boolean_fields>',
-  json_fields => '<json_fields>',
-  datetime_fields => '<datetime_fields>',
-);
-```
-
-The `index_name` input will become the name of the new schema that is created. Querying that schema makes use
-of an "object.method" syntax, with methods like `search`, `rank`, and `highlight`.
-
-<Accordion title="Example Usage">
+The following code block creates an index called `search_idx` over the `description` and `rating` columns of the `mock_items`
+table, which was created in the [quickstart](/search/quickstart#full-text-search).
 
 ```sql
 CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  text_fields => '{
-    description: {tokenizer: {type: "en_stem"}}, category: {}
-  }'
+  text_fields => paradedb.field('description'),
+  numeric_fields => paradedb.field('rating')
 );
 ```
 
-After executing the example above, a new schema called `mock_items` will be created. You can search the `mock_items`
-table with the BM25 index with the associated `search` function:
-
-```sql
-SELECT * FROM search_idx.search('description:shoes');
-```
-
-</Accordion>
-
-Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-formatted string. Keys don't need to be quoted, and trailing commas and comments are allowed. JSON5 is backwards-compatible, so standard JSON works too.
-
 <ParamField body="index_name" required>
   The name of the index. The index name can be anything, as long as doesn't
-  conflict with an existing index or schema. A new schema with associated query functions will be created with this name.
+  conflict with an existing index or schema. A new schema with associated query
+  functions will be created with this name.
 </ParamField>
 <ParamField body="table_name" required>
   The name of the table being indexed.
 </ParamField>
 <ParamField body="key_field" required>
-  The name of a column in the table that represents a unique identifier for each record. Usually, this
-  is the same column that is the primary key of the table. In version 0.7.5 and earlier, only integer IDs were supported.
-  From version 0.7.6 onwards, [non-integer IDs are also supported.](https://github.com/paradedb/paradedb/pull/1174).
+  The name of a column in the table that represents a unique identifier for each
+  record. Usually, this is the same column that is the primary key of the table.
+  In version 0.7.5 and earlier, only integer IDs were supported. From version
+  0.7.6 onwards, [non-integer IDs are also
+  supported.](https://github.com/paradedb/paradedb/pull/1174).
 </ParamField>
 <ParamField body="schema_name" default="CURRENT SCHEMA">
   The name of the schema, or namespace, of the table.
 </ParamField>
-<ParamField body="text_fields">
-  A JSON5 string which specifies which text columns should be indexed and how they should be indexed.
-  Keys are the names of columns, and values are config options. Accepts columns of type `varchar`, `text`,
-  `varchar[]`, and `text[]`.
-  <Expandable title="Config Options">
-    <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
-      searchable.
-    </ParamField>
-    <ParamField body="stored" default={true}>
-      Whether the original value of the field is stored.
-    </ParamField>
-    <ParamField body="fast" default={false}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
-      Fast fields are also useful for accelerated scoring and filtering.
-    </ParamField>
-    <ParamField body="fieldnorms" default={true}>
-      Fieldnorms store information about the length of the text field. Must be `true` to calculate
-      the BM25 score.
-    </ParamField>
-    <ParamField body="tokenizer">
-      A JSON5 string which specifies the tokenizer and tokenizer configuration options.
-      See [tokenizers](#tokenizers) for a list of available tokenizers.
-    </ParamField>
-    <ParamField body="record" default="position">
-      Describes the amount of information indexed. See [records](#records) for a list of available
-      record types.
-    </ParamField>
-    <ParamField body="normalizer" default="raw">
-      The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
-      [normalizers](#normalizers) for a list of available normalizers.
-    </ParamField>
 
-  </Expandable>
-</ParamField>
-<ParamField body="numeric_fields">
-  A JSON5 string which specifies which numeric columns should be indexed and how they should be indexed.
-  Keys are the names of columns, and values are config options. Accepts columns of type `int2`, `int4`, `int8`, `oid`, `xid`, `float4`, `float8`, and `numeric`.
-  <Expandable title="Config Options">
-    <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
-      searchable.
-    </ParamField>
-    <ParamField body="stored" default={true}>
-      Whether the original value of the field is stored.
-    </ParamField>
-    <ParamField body="fast" default={true}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
-      Fast fields are also useful for accelerated scoring and filtering.
-    </ParamField>
-  </Expandable>
-</ParamField>
-<ParamField body="boolean_fields">
-  A JSON5 string which specifies which boolean columns should be indexed and how they should be indexed.
-  Keys are the names of columns, and values are config options. Accepts columns of type `boolean`.
-  <Expandable title="Config Options">
-    <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
-      searchable.
-    </ParamField>
-    <ParamField body="stored" default={true}>
-      Whether the original value of the field is stored.
-    </ParamField>
-    <ParamField body="fast" default={true}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
-      Fast fields are also useful for accelerated scoring and filtering.
-    </ParamField>
-  </Expandable>
-</ParamField>
-<ParamField body="json_fields">
-  A JSON5 string which specifies which JSON columns should be indexed and how they should be indexed.
-  Keys are the names of columns, and values are config options. Accepts columns of type `json` and `jsonb`.
-  Once indexed, search can be performed on nested text fields within JSON values.
-  <Expandable title="Config Options">
-    <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
-      searchable.
-    </ParamField>
-    <ParamField body="stored" default={true}>
-      Whether the original value of the field is stored.
-    </ParamField>
-    <ParamField body="fast" default={false}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
-      Fast fields are also useful for accelerated scoring and filtering.
-    </ParamField>
-    <ParamField body="expand_dots" default={true}>
-      If `true`, JSON keys containing a `.` will be expanded. For instance, if `expand_dots` is `true`,
-      `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`.
-    </ParamField>
-    <ParamField body="tokenizer" default="default">
-      The name of the tokenizer. See [tokenizers](#tokenizers) for a list of available tokenizers.
-    </ParamField>
-    <ParamField body="record" default="position">
-      Describes the amount of information indexed. See [records](#records) for a list of available
-      record types.
-    </ParamField>
-    <ParamField body="normalizer" default="raw">
-      The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
-      [normalizers](#normalizers) for a list of available normalizers.
-    </ParamField>
-  </Expandable>
-</ParamField>
-<ParamField body="datetime_fields">
-  A JSON5 string which specifies which datetime columns should be indexed and how they should be indexed.
-  Keys are the names of columns, and values are config options. Accepts columns of type `date`, `timestamp`,
-  `timestamptz`, `time`, and `timetz`.
-  Search terms will use the UTC time zone if not specified and need to be in RFC3339 format for the `search` function.
+This example query will create a schema called `search_idx`, which contains a `search` function.
 
 ```sql
--- To demonstrate time zones, all of these queries are equivalent
-SELECT * FROM bm25_search.search('created_at:"2023-05-01T09:12:34Z"');
-SELECT * FROM bm25_search.search('created_at:"2023-05-01T04:12:34-05:00"');
-SELECT * FROM bm25_search.search(
-  query => paradedb.term(
-    field => 'created_at',
-    value => TIMESTAMP '2023-05-01 09:12:34'
-  )
-);
-SELECT * FROM bm25_search.search(
-  query => paradedb.term(
-    field => 'created_at',
-    value => TIMESTAMP WITH TIME ZONE '2023-05-01 04:12:34 EST'
-  )
-);
+SELECT * FROM search_idx.search('description:keyboard');
 ```
 
-  <Expandable title="Config Options">
-    <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
-      searchable.
-    </ParamField>
-    <ParamField body="stored" default={true}>
-      Whether the original value of the field is stored.
-    </ParamField>
-    <ParamField body="fast" default={true}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
-      Fast fields are also useful for accelerated scoring and filtering.
-    </ParamField>
-  </Expandable>
-</ParamField>
+## Field Types
 
-## Deleting a BM25 Index
+### Text Fields
 
-The following command deletes a BM25 index, as well as its associated schema and query functions:
-
-```sql
-CALL paradedb.drop_bm25('<index_name>');
-```
-
-<Accordion title="Example Usage">
-
-```sql
-CALL paradedb.drop_bm25('mock_items');
-```
-
-</Accordion>
-
-<ParamField body="index_name" required>
-  The name of the index you wish to delete.
-</ParamField>
-
-## Partial BM25 Index
-
-The following code block demonstrates how to pass predicates to `create_bm25`
-to construct a [partial index](https://www.postgresql.org/docs/current/indexes-partial.html). Partial indexes
-are useful for reducing index size on disk and improving update speeds over non-indexed rows.
+Columns of type `VARCHAR`, `TEXT`, `UUID`, `VARCHAR[]`, and `TEXT[]` can be indexed as text fields.
 
 ```sql
 CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  text_fields => '{
-    description: {tokenizer: {type: "en_stem"}}, category: {}
-  }',
-  predicates => 'category = ''Electronics'' AND rating > 2'
+  text_fields => paradedb.field('description', indexed => true)
 );
 ```
 
-## Tokenizers
+`paradedb.field` accepts the following configuration options for text fields:
+
+<ParamField body="indexed" default={true}>
+  Whether the field is indexed. Must be `true` in order for the field to be
+  tokenized and searchable.
+</ParamField>
+<ParamField body="stored" default={true}>
+  Whether the original value of the field is stored.
+</ParamField>
+<ParamField body="fast" default={false}>
+  Fast fields can be random-accessed rapidly. Fields used for aggregation must
+  have `fast` set to `true`. Fast fields are also useful for accelerated scoring
+  and filtering.
+</ParamField>
+<ParamField body="fieldnorms" default={true}>
+  Fieldnorms store information about the length of the text field. Must be
+  `true` to calculate the BM25 score.
+</ParamField>
+<ParamField body="tokenizer">
+  A `JSONB` produced by `paradedb.tokenizer` which specifies the tokenizer and
+  tokenizer configuration options. See [tokenizers](#tokenizers) for a list of
+  available tokenizers.
+</ParamField>
+<ParamField body="record" default="position">
+  Describes the amount of information indexed. See [record](#record) for a list
+  of available record types.
+</ParamField>
+<ParamField body="normalizer" default="raw">
+  The name of the tokenizer used for fast fields. This field is ignored unless
+  `fast=true`. See [normalizers](#normalizers) for a list of available
+  normalizers.
+</ParamField>
+
+### Numeric Fields
+
+Columns of type `SMALLINT`, `INTEGER`, `BIGINT`, `OID`, `REAL`, `DOUBLE PRECISION`, and `NUMERIC` can be indexed
+as `numeric_fields`. The main reason to index a numeric field is if it is used for filtering
+or aggregations as part of the search query.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  numeric_fields => paradedb.field('rating', indexed => true)
+);
+```
+
+`paradedb.field` accepts the following configuration options numeric fields:
+
+<ParamField body="indexed" default={true}>
+  Whether the field is indexed. Must be `true` in order for the field to be
+  tokenized and searchable.
+</ParamField>
+<ParamField body="stored" default={true}>
+  Whether the original value of the field is stored.
+</ParamField>
+<ParamField body="fast" default={true}>
+  Fast fields can be random-accessed rapidly. Fields used for aggregation must
+  have `fast` set to `true`. Fast fields are also useful for accelerated scoring
+  and filtering.
+</ParamField>
+
+### Boolean Fields
+
+Columns of type `BOOLEAN` can be indexed as `boolean_fields`. Indexing a boolean field is useful if
+it is used for filtering as part of the search query.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  boolean_fields => paradedb.field('in_stock')
+);
+```
+
+`paradedb.field` accepts several configuration options for boolean fields:
+
+<ParamField body="indexed" default={true}>
+  Whether the field is indexed. Must be `true` in order for the field to be
+  tokenized and searchable.
+</ParamField>
+<ParamField body="stored" default={true}>
+  Whether the original value of the field is stored.
+</ParamField>
+<ParamField body="fast" default={true}>
+  Fast fields can be random-accessed rapidly. Fields used for aggregation must
+  have `fast` set to `true`. Fast fields are also useful for accelerated scoring
+  and filtering.
+</ParamField>
+
+### JSON Fields
+
+Columns of type `JSON` and `JSONB` can be indexed as `json_fields`. Once indexed, search can be
+performed on nested text fields within JSON values.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  json_fields => paradedb.field('metadata')
+);
+```
+
+`paradedb.field` accepts several configuration options for JSON fields:
+
+<ParamField body="indexed" default={true}>
+  Whether the field is indexed. Must be `true` in order for the field to be tokenized and
+  searchable.
+</ParamField>
+<ParamField body="stored" default={true}>
+  Whether the original value of the field is stored.
+</ParamField>
+<ParamField body="fast" default={false}>
+  Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
+  Fast fields are also useful for accelerated scoring and filtering.
+</ParamField>
+<ParamField body="expand_dots" default={true}>
+  If `true`, JSON keys containing a `.` will be expanded. For instance, if `expand_dots` is `true`,
+  `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`.
+</ParamField>
+<ParamField body="tokenizer" default="default">
+  The name of the tokenizer. See [tokenizers](#tokenizers) for a list of available tokenizers.
+</ParamField>
+<ParamField body="record" default="position">
+  Describes the amount of information indexed. See [record](#record) for a list of available
+  record types.
+</ParamField>
+<ParamField body="normalizer" default="raw">
+  The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
+  [normalizers](#normalizers) for a list of available normalizers.
+</ParamField>
+
+### Datetime Fields
+
+Columns of type `DATE`, `TIMESTAMP`, `TIMESTAMPTZ`, `TIME`, and `TIMETZ` can be indexed as `datetime_fields`.
+Indexing a datetime field is useful if it is used for filtering as part of the search query.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  datetime_fields => paradedb.field('created_at')
+);
+```
+
+`paradedb.field` accepts several configuration options for boolean fields:
+
+<ParamField body="indexed" default={true}>
+  Whether the field is indexed. Must be `true` in order for the field to be
+  tokenized and searchable.
+</ParamField>
+<ParamField body="stored" default={true}>
+  Whether the original value of the field is stored.
+</ParamField>
+<ParamField body="fast" default={true}>
+  Fast fields can be random-accessed rapidly. Fields used for aggregation must
+  have `fast` set to `true`. Fast fields are also useful for accelerated scoring
+  and filtering.
+</ParamField>
+
+## Multiple Fields
+
+The `||` operator can be used to index multiple fields.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description') || paradedb.field('category')
+);
+```
+
+## Configuration Options
+
+### Tokenizers
 
 Tokenizers are responsible for breaking down text fields into smaller, searchable components called tokens.
 Once a field is tokenized, all search queries against that field are automatically tokenized the same way.
 
-The following code block demonstrates the syntax for specifying a tokenizer for each text field.
+The following code block demonstrates the syntax for specifying a tokenizer for a text field.
 
 ```sql
 CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  text_fields => '{
-    description: {tokenizer: {type: "stem", language: "English"}},
-    category: {tokenizer: {type: "ngram", min_gram: 4, max_gram: 5, prefix_only: false}},
-  }'
+  text_fields => paradedb.field(
+    name => 'description',
+    tokenizer => paradedb.tokenizer('en_stem')
+  )
 );
 ```
 
-The following tokenizer `type` options are accepted:
+Some tokenizers like the `stem` and `ngram` tokenizer accept configuration options. They can be passed to the
+`paradedb.tokenizer` function.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field(
+    name => 'description',
+    tokenizer => paradedb.tokenizer('stem', language => 'French')
+  )
+);
+```
+
+The following tokenizer names are accepted by the `paradedb.tokenizer` function.
 
 <ParamField body="default">
   Chops the text on according to whitespace and punctuation, removes tokens that
@@ -328,10 +339,10 @@ The following tokenizer `type` options are accepted:
 
 </ParamField>
 
-## Fast Fields
+### Fast Fields
 
-Fast fields are stored in a column-oriented fashion. Fast fields are necessary to
-perform [aggregations/faceting](/search/full-text/aggregations). They can also improve the query times of [filters](/search/full-text/bm25#efficient-filtering)
+A field that is indexed as `fast` is stored in a column-oriented fashion. Fast fields are necessary for
+[aggregations/faceting](/search/full-text/aggregations). They can also improve the query times of [filters](/search/full-text/bm25#efficient-filtering)
 and BM25 scoring.
 
 The following code block demonstrates how to specify a fast field.
@@ -341,12 +352,11 @@ CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  text_fields => '{description: {}}',
-  numeric_fields => '{rating: {fast: true}}'
+  numeric_fields => paradedb.field('rating', fast => true)
 );
 ```
 
-## Normalizers
+### Normalizers
 
 Normalizers specify how text and JSON fast fields should be processed. This option is ignored over any
 other type of field.
@@ -356,7 +366,7 @@ CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  text_fields => '{description: {fast: true, normalizer: "lowercase"}}'
+  text_fields => paradedb.field('category', fast => true, normalizer => 'raw')
 );
 ```
 
@@ -368,17 +378,16 @@ CALL paradedb.create_bm25(
   bytes.
 </ParamField>
 
-## Records
+### Record
 
-Records specify how much information is recorded with an indexed field. The following code
-block demonstrates how to configure records.
+The `record` option specifies how much information is recorded with an indexed field.
 
 ```sql
 CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  text_fields => '{description: {record: "position"}}'
+  text_fields => paradedb.field('description', record => 'position')
 );
 ```
 
@@ -392,7 +401,33 @@ CALL paradedb.create_bm25(
   to run a phrase query.
 </ParamField>
 
-## Getting Info on a BM25 Index
+## Deleting a BM25 Index
+
+The following command deletes a BM25 index, as well as its associated schema and query functions:
+
+```sql
+CALL paradedb.drop_bm25(index_name => '<index_name>');
+```
+
+<Accordion title="Example Usage">
+
+```sql
+CALL paradedb.drop_bm25(
+  index_name => 'search_idx',
+  schema_name => 'public'
+);
+```
+
+</Accordion>
+
+<ParamField body="index_name" required>
+  The name of the index you wish to delete.
+</ParamField>
+<ParamField body="schema_name" default="CURRENT SCHEMA">
+  The name of the schema that the index was created in.
+</ParamField>
+
+## Inspecting a BM25 Index
 
 The `schema` function returns a table with information about the index schema.
 
@@ -411,3 +446,45 @@ SELECT * FROM search_idx.schema();
 <ParamField body="index_name" required>
   The name of the index.
 </ParamField>
+
+## Partial BM25 Index
+
+The following code block demonstrates how to pass predicates to `create_bm25`
+to construct a [partial index](https://www.postgresql.org/docs/current/indexes-partial.html). Partial
+indexes are useful for reducing index size on disk and improving update speeds over non-indexed rows.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description'),
+  predicates => 'category = ''Electronics'' AND rating > 2'
+);
+```
+
+## Legacy Syntax
+
+The `paradedb.field` and `paradedb.tokenizer` functions were introduced in `0.8.6`. These functions are
+syntactic sugar for generating `JSONB`. Users that prefer the old syntax can still pass `jsonb` or
+JSON5-formatted strings into `_fields`.
+
+```sql
+-- These two queries are equivalent
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => '{description: {tokenizer: {type: "en_stem"}}}'
+);
+
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field(
+    'description',
+    tokenizer => paradedb.tokenizer('en_stem')
+  )
+);
+```

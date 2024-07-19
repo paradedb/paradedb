@@ -253,11 +253,20 @@ SELECT * FROM search_idx.search(
 
 ### Term
 
-Matches documents containing a specified term, with scoring based on term frequency, inverse document frequency, and field normalization. The term value passed is not tokenized for searching, it is matched directly against terms in the index.
+Matches documents containing a specified term, with scoring based on term frequency, inverse document
+frequency, and field normalization. The term value is treated as a token and is not tokenized further. It is
+matched directly against terms in the index.
 
 ```sql
 SELECT * FROM search_idx.search(
 	query => paradedb.term(field => 'description', value => 'shoes')
+);
+
+SELECT * FROM search_idx.search(
+  query => paradedb.term(
+    field => 'created_at',
+    value => TIMESTAMP '2023-05-01 09:12:34'
+  )
 );
 ```
 

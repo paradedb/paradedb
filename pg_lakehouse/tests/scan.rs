@@ -306,7 +306,8 @@ async fn test_prepare_stmt_execute(#[future(awt)] s3: S3, mut conn: PgConnection
     )
     .execute(&mut conn);
 
-    "PREPARE test_query(int) AS SELECT count(*) FROM trips WHERE VendorID = $1;".execute(&mut conn);
+    r#"PREPARE test_query(int) AS SELECT count(*) FROM trips WHERE "VendorID" = $1;"#
+        .execute(&mut conn);
 
     let count: (i64,) = "EXECUTE test_query(1)".fetch_one(&mut conn);
     assert_eq!(count.0, 39);

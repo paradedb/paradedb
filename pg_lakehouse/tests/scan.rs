@@ -287,3 +287,32 @@ async fn test_create_heap_from_parquet(mut conn: PgConnection, tempdir: TempDir)
 
     Ok(())
 }
+
+#[rstest]
+async fn test_prepare_stmt_execute(#[future(awt)] s3: S3, mut conn: PgConnection) -> Result<()> {
+    NycTripsTable::setup().execute(&mut conn);
+    let rows: Vec<NycTripsTable> = "SELECT * FROM nyc_trips".fetch(&mut conn);
+    s3.client
+        .create_bucket()
+        .bucket(S3_TRIPS_BUCKET)
+        .send()
+        .await?;
+    s3.create_bucket(S3_TRIPS_BUCKET).await?;
+    s3.put_rows(S3_TRIPS_BUCKET, S3_TRIPS_KEY, &rows).await?;
+
+    NycTripsTable::setup_s3_listing_fdw(
+        &s3.url.clone(),
+        &format!("s3://{S3_TRIPS_BUCKET}/{S3_TRIPS_KEY}"),
+    )
+    .execute(&mut conn);
+
+    "PREPARE test_query(int) AS SELECT count(*) FROM trips WHERE VendorID = $1;".execute(&mut conn);
+
+    let count: (i64,) = "EXECUTE test_query(1)".fetch_one(&mut conn);
+    assert_eq!(count.0, 39);
+
+    let count: (i64,) = "EXECUTE test_query(3)".fetch_one(&mut conn);
+    assert_eq!(count.0, 0);
+
+    Ok(())
+}

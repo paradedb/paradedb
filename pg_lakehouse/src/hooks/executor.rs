@@ -66,6 +66,7 @@ pub async fn executor_run(
         // Tech Debt: Find a less hacky way to let COPY/CREATE go through
         || query.to_lowercase().starts_with("copy")
         || query.to_lowercase().starts_with("create")
+        || query.to_lowercase().starts_with("prepare")
     {
         prev_hook(query_desc, direction, count, execute_once);
         return Ok(());

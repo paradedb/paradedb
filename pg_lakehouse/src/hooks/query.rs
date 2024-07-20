@@ -79,3 +79,31 @@ pub fn get_query_relations(planned_stmt: *mut pg_sys::PlannedStmt) -> Vec<PgRela
 
     relations
 }
+
+pub fn fill_prepare_query_string(
+    query_desc: PgBox<pg_sys::QueryDesc>,
+    mut query: String,
+) -> Result<String, Utf8Error> {
+    unsafe {
+        let params = query_desc.params;
+        let param_list = (*params).params.as_mut_slice((*params).numParams as usize);
+        let num_params = (*params).numParams as usize;
+
+        // build placeholder pattern, $1, $2 .. $n
+        let replacements: Vec<String> = (1..=num_params).map(|i| format!("${}", i)).collect();
+        for i in 0..num_params {
+            let param = param_list[i];
+            let replace_str = if param.isnull {
+                "NULL"
+            } else {
+                let mut type_output: pg_sys::Oid = pg_sys::InvalidOid;
+                let mut _is_varlena: bool = false;
+                pg_sys::getTypeOutputInfo(param.ptype, &mut type_output, &mut _is_varlena);
+                CStr::from_ptr(pg_sys::OidOutputFunctionCall(type_output, param.value)).to_str()?
+            };
+            query = query.replace(&replacements[i], replace_str);
+        }
+    }
+
+    Ok(query)
+}

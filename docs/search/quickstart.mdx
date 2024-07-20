@@ -45,7 +45,7 @@ CALL paradedb.create_bm25(
         schema_name => 'public',
         table_name => 'mock_items',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category')
         numeric_fields => '{rating: {}}'
 );
 ```
@@ -116,7 +116,7 @@ CALL paradedb.create_bm25(
         schema_name => 'public',
         table_name => 'mock_items',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "ngram", min_gram: 4, max_gram: 4, prefix_only: false}}, category: {}}'
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false)) || paradedb.field('category')
 );
 
 SELECT description, rating, category

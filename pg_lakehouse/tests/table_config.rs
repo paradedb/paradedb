@@ -143,7 +143,7 @@ async fn test_preserve_casing(mut conn: PgConnection, tempdir: TempDir) -> Resul
     setup_local_file_listing_with_casing(parquet_path.as_path().to_str().unwrap(), "primitive")
         .execute(&mut conn);
 
-    let retrieved_batch: Vec<(bool,)> = "SELECT * FROM \"Boolean_Col\"".fetch(&mut conn);
+    let retrieved_batch: Vec<(bool,)> = "SELECT \"Boolean_Col\" FROM primitive".fetch(&mut conn);
     assert_eq!(retrieved_batch.len(), 3);
 
     Ok(())

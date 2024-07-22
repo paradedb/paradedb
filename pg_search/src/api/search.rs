@@ -263,7 +263,4 @@ fn drop_bm25_internal(index_name: &str) {
     // Drop the Tantivy data directory.
     SearchIndex::drop_index(&writer_client, index_name)
         .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err:?}"));
-
-    Transaction::cancel_precommit_callback(index_name.into())
-        .expect("error cancelling precommit callback during index drop");
 }

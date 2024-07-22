@@ -18,6 +18,7 @@
 mod config;
 mod document;
 
+use anyhow::{Context, Result};
 pub use config::*;
 use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
@@ -149,6 +150,225 @@ pub enum SearchFieldConfig {
         stored: bool,
     },
     Ctid,
+}
+
+impl SearchFieldConfig {
+    pub fn text_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Text configuration")?;
+
+        let indexed = match obj.get("indexed") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'indexed' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(false),
+        }?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fieldnorms = match obj.get("fieldnorms") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fieldnorms' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let tokenizer = match obj.get("tokenizer") {
+            Some(v) => SearchTokenizer::from_json_value(v),
+            None => Ok(SearchTokenizer::Default),
+        }?;
+
+        let record = match obj.get("record") {
+            Some(v) => serde_json::from_value(v.clone()),
+            None => Ok(default_as_freqs_and_positions()),
+        }?;
+
+        let normalizer = match obj.get("normalizer") {
+            Some(v) => serde_json::from_value(v.clone()),
+            None => Ok(SearchNormalizer::Raw),
+        }?;
+
+        Ok(SearchFieldConfig::Text {
+            indexed,
+            fast,
+            stored,
+            fieldnorms,
+            tokenizer,
+            record,
+            normalizer,
+        })
+    }
+
+    pub fn json_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Json configuration")?;
+
+        let indexed = match obj.get("indexed") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'indexed' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(false),
+        }?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let expand_dots = match obj.get("expand_dots") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'expand_dots' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let tokenizer = match obj.get("tokenizer") {
+            Some(v) => SearchTokenizer::from_json_value(v),
+            None => Ok(SearchTokenizer::Default),
+        }?;
+
+        let record = match obj.get("record") {
+            Some(v) => serde_json::from_value(v.clone()),
+            None => Ok(default_as_freqs_and_positions()),
+        }?;
+
+        let normalizer = match obj.get("normalizer") {
+            Some(v) => serde_json::from_value(v.clone()),
+            None => Ok(SearchNormalizer::Raw),
+        }?;
+
+        Ok(SearchFieldConfig::Json {
+            indexed,
+            fast,
+            stored,
+            expand_dots,
+            tokenizer,
+            record,
+            normalizer,
+        })
+    }
+
+    pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Numeric configuration")?;
+
+        let indexed = match obj.get("indexed") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'indexed' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(false),
+        }?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        Ok(SearchFieldConfig::Numeric {
+            indexed,
+            fast,
+            stored,
+        })
+    }
+
+    pub fn boolean_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Boolean configuration")?;
+
+        let indexed = match obj.get("indexed") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'indexed' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(false),
+        }?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        Ok(SearchFieldConfig::Boolean {
+            indexed,
+            fast,
+            stored,
+        })
+    }
+
+    pub fn date_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Date configuration")?;
+
+        let indexed = match obj.get("indexed") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'indexed' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(false),
+        }?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        Ok(SearchFieldConfig::Date {
+            indexed,
+            fast,
+            stored,
+        })
+    }
 }
 
 impl SearchFieldConfig {

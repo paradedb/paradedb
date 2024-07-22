@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::{Context, Result};
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::CStr;
 
@@ -61,7 +61,10 @@ extern "C" fn validate_text_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields("Text".into(), json_str);
+    SearchIndexCreateOptions::deserialize_config_fields(
+        json_str,
+        &SearchFieldConfig::text_from_json,
+    );
 }
 
 #[pg_guard]
@@ -70,7 +73,10 @@ extern "C" fn validate_numeric_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields("Numeric".into(), json_str);
+    SearchIndexCreateOptions::deserialize_config_fields(
+        json_str,
+        &SearchFieldConfig::numeric_from_json,
+    );
 }
 
 #[pg_guard]
@@ -79,7 +85,10 @@ extern "C" fn validate_boolean_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields("Boolean".into(), json_str);
+    SearchIndexCreateOptions::deserialize_config_fields(
+        json_str,
+        &SearchFieldConfig::boolean_from_json,
+    );
 }
 
 #[pg_guard]
@@ -88,7 +97,10 @@ extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields("Json".into(), json_str);
+    SearchIndexCreateOptions::deserialize_config_fields(
+        json_str,
+        &SearchFieldConfig::json_from_json,
+    );
 }
 
 #[pg_guard]
@@ -97,7 +109,10 @@ extern "C" fn validate_datetime_fields(value: *const std::os::raw::c_char) {
     if json_str.is_empty() {
         return;
     }
-    SearchIndexCreateOptions::deserialize_config_fields("Date".into(), json_str);
+    SearchIndexCreateOptions::deserialize_config_fields(
+        json_str,
+        &SearchFieldConfig::date_from_json,
+    );
 }
 
 #[pg_guard]
@@ -232,18 +247,20 @@ impl SearchIndexCreateOptions {
     ///
     /// This way, serde will know to deserialize the config as SearchFieldConfig::Text.
     fn deserialize_config_fields(
-        variant: String,
         serialized: String,
+        parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig)> {
         let config_map: HashMap<String, serde_json::Value> = json5::from_str(&serialized)
-            .unwrap_or_else(|err| panic!("failed to deserialize {variant} field config: {err:?}"));
+            .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
 
         config_map
             .into_iter()
             .map(|(field_name, field_config)| {
                 (
-                    field_name.into(),
-                    serde_json::from_value(json!({variant.clone(): field_config})).unwrap(),
+                    field_name.clone().into(),
+                    parser(field_config)
+                        .context("failed to deserialize {field_name} config")
+                        .unwrap(),
                 )
             })
             .collect()
@@ -254,7 +271,7 @@ impl SearchIndexCreateOptions {
         if config.is_empty() {
             return Vec::new();
         }
-        Self::deserialize_config_fields("Text".into(), config)
+        Self::deserialize_config_fields(config, &SearchFieldConfig::text_from_json)
     }
 
     pub fn get_numeric_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
@@ -262,7 +279,7 @@ impl SearchIndexCreateOptions {
         if config.is_empty() {
             return Vec::new();
         }
-        Self::deserialize_config_fields("Numeric".into(), config)
+        Self::deserialize_config_fields(config, &SearchFieldConfig::numeric_from_json)
     }
 
     pub fn get_boolean_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
@@ -270,7 +287,7 @@ impl SearchIndexCreateOptions {
         if config.is_empty() {
             return Vec::new();
         }
-        Self::deserialize_config_fields("Boolean".into(), config)
+        Self::deserialize_config_fields(config, &SearchFieldConfig::boolean_from_json)
     }
 
     pub fn get_json_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
@@ -278,7 +295,7 @@ impl SearchIndexCreateOptions {
         if config.is_empty() {
             return Vec::new();
         }
-        Self::deserialize_config_fields("Json".into(), config)
+        Self::deserialize_config_fields(config, &SearchFieldConfig::json_from_json)
     }
 
     pub fn get_datetime_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
@@ -286,7 +303,7 @@ impl SearchIndexCreateOptions {
         if config.is_empty() {
             return Vec::new();
         }
-        Self::deserialize_config_fields("Date".into(), config)
+        Self::deserialize_config_fields(config, &SearchFieldConfig::date_from_json)
     }
 
     pub fn get_key_field(&self) -> Option<SearchFieldName> {

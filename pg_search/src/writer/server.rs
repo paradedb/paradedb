@@ -79,7 +79,7 @@ where
             self.handler
                 .borrow_mut()
                 .handle(incoming?)
-                .map_err(|err| ServerError::Anyhow(err))?;
+                .map_err(ServerError::Anyhow)?;
         }
         Ok(())
     }

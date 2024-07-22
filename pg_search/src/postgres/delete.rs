@@ -51,11 +51,12 @@ pub extern "C" fn ambulkdelete(
         .expect("could not register commit callbacks for delete operation");
 
     if let Some(actual_callback) = callback {
-        match search_index.delete(&writer_client, |ctid_val| unsafe {
+        let should_delete = |ctid_val| unsafe {
             let mut ctid = ItemPointerData::default();
             pgrx::u64_to_item_pointer(ctid_val, &mut ctid);
             actual_callback(&mut ctid, callback_state)
-        }) {
+        };
+        match search_index.delete(&writer_client, should_delete) {
             Ok((deleted, not_deleted)) => {
                 stats.pages_deleted += deleted;
                 stats.num_pages += not_deleted;

@@ -572,9 +572,8 @@ impl SearchIndexSchema {
 
         let mut ctid_index = 0;
         for (index, (name, config, field_type)) in fields.into_iter().enumerate() {
-            match &config {
-                SearchFieldConfig::Ctid => ctid_index = index,
-                _ => {}
+            if config == SearchFieldConfig::Ctid {
+                ctid_index = index
             }
 
             let id: SearchFieldId = match &config {

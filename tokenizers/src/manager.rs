@@ -146,32 +146,6 @@ impl SearchTokenizer {
     }
 }
 
-// fn serialize_tokenizer<S>(tokenizer: &SearchTokenizer, serializer: S) -> Result<S::Ok, S::Error>
-// where
-//     S: Serializer,
-// {
-//     if serializer.is_human_readable() {
-//         let json_value = tokenizer.to_json();
-//         json_value.serialize(serializer)
-//     } else {
-//         let bytes = bincode::serialize(tokenizer).map_err(serde::ser::Error::custom)?;
-//         serializer.serialize_bytes(&bytes)
-//     }
-// }
-
-// fn deserialize_tokenizer<'de, D>(deserializer: D) -> Result<SearchTokenizer, D::Error>
-// where
-//     D: Deserializer<'de>,
-// {
-//     if deserializer.is_human_readable() {
-//         let json_value = serde_json::Value::deserialize(deserializer)?;
-//         SearchTokenizer::from_json(json_value).map_err(serde::de::Error::custom)
-//     } else {
-//         let bytes = <Vec<u8>>::deserialize(deserializer)?;
-//         bincode::deserialize(&bytes).map_err(serde::de::Error::custom)
-//     }
-// }
-
 pub fn language_to_str(lang: &Language) -> &str {
     match lang {
         Language::Arabic => "Arabic",

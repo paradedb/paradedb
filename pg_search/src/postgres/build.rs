@@ -300,7 +300,7 @@ unsafe fn build_callback_internal(
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
             let index_name = index_relation_ref.name();
-            let directory = WriterDirectory::from_index_name(&index_name);
+            let directory = WriterDirectory::from_index_name(index_name);
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
                 .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
             let search_document =

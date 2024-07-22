@@ -20,9 +20,9 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use serde_json::json;
 use sqlx::PgConnection;
 use tantivy::tokenizer::Language;
+
 use tokenizers::manager::language_to_str;
 
 #[rstest]
@@ -193,20 +193,9 @@ fn language_stem_search_test(mut conn: PgConnection) {
         )
     ];
 
-    let pid = "SELECT pg_backend_pid();".fetch_one::<(i32,)>(&mut conn).0;
-    println!("PID: {pid}");
-    std::thread::sleep(std::time::Duration::from_secs(10));
-
     for (language, data, author_query, title_query, message_query) in languages {
         // Prepare test data setup for each language
         let language_str = language_to_str(&language);
-        let text_field_config = json!({
-            "author": {"tokenizer": {"type": "stem", "language": language_str}, "record": "position"},
-            "title": {"tokenizer": {"type": "stem", "language": language_str}, "record": "position"},
-            "message": {"tokenizer": {"type": "stem", "language": language_str}, "record": "position"},
-        }).to_string();
-        println!("CONFIG:");
-        println!("{text_field_config}");
         let setup_query = format!(
             r#"
             DROP TABLE IF EXISTS test_table;
@@ -217,13 +206,18 @@ fn language_stem_search_test(mut conn: PgConnection) {
                 message TEXT
             );
             INSERT INTO test_table (author, title, message)
-            VALUES {data};
+            VALUES {};
             CALL paradedb.create_bm25(
                 index_name => 'stem_test',
                 table_name => 'test_table',
                 key_field => 'id',
-                text_fields => '{text_field_config}'
+                text_fields => '{{
+                    author: {{tokenizer: {{type: "stem", language:"{}"}}, record: "position"}},
+                    title: {{tokenizer: {{type: "stem", language:"{}"}}, record: "position"}},
+                    message: {{tokenizer: {{type: "stem", language:"{}"}}, record: "position"}}
+                }}'
             );"#,
+            data, language_str, language_str, language_str
         );
 
         setup_query.execute(&mut conn);

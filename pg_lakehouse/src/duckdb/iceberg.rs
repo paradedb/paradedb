@@ -21,6 +21,7 @@ use std::collections::HashMap;
 pub enum IcebergOption {
     AllowMovedPaths,
     Files,
+    PreserveCasing,
 }
 
 impl IcebergOption {
@@ -28,6 +29,7 @@ impl IcebergOption {
         match self {
             Self::AllowMovedPaths => "allow_moved_paths",
             Self::Files => "files",
+            Self::PreserveCasing => "preserve_casing",
         }
     }
 
@@ -35,11 +37,12 @@ impl IcebergOption {
         match self {
             Self::AllowMovedPaths => false,
             Self::Files => true,
+            Self::PreserveCasing => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::AllowMovedPaths, Self::Files].into_iter()
+        [Self::AllowMovedPaths, Self::Files, Self::PreserveCasing].into_iter()
     }
 }
 

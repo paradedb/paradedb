@@ -20,23 +20,26 @@ use std::collections::HashMap;
 
 pub enum DeltaOption {
     Files,
+    PreserveCasing,
 }
 
 impl DeltaOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Files => "files",
+            Self::PreserveCasing => "preserve_casing",
         }
     }
 
     pub fn is_required(&self) -> bool {
         match self {
             Self::Files => true,
+            Self::PreserveCasing => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Files].into_iter()
+        [Self::Files, Self::PreserveCasing].into_iter()
     }
 }
 

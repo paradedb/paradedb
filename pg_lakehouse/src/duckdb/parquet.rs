@@ -28,6 +28,7 @@ pub enum ParquetOption {
     HivePartitioning,
     HiveTypes,
     HiveTypesAutocast,
+    PreserveCasing,
     UnionByName,
     // TODO: EncryptionConfig
 }
@@ -42,6 +43,7 @@ impl ParquetOption {
             Self::HivePartitioning => "hive_partitioning",
             Self::HiveTypes => "hive_types",
             Self::HiveTypesAutocast => "hive_types_autocast",
+            Self::PreserveCasing => "preserve_casing",
             Self::UnionByName => "union_by_name",
         }
     }
@@ -55,6 +57,7 @@ impl ParquetOption {
             Self::HivePartitioning => false,
             Self::HiveTypes => false,
             Self::HiveTypesAutocast => false,
+            Self::PreserveCasing => false,
             Self::UnionByName => false,
         }
     }
@@ -68,6 +71,7 @@ impl ParquetOption {
             Self::HivePartitioning,
             Self::HiveTypes,
             Self::HiveTypesAutocast,
+            Self::PreserveCasing,
             Self::UnionByName,
         ]
         .into_iter()

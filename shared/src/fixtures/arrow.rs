@@ -105,6 +105,19 @@ pub fn delta_primitive_record_batch() -> Result<RecordBatch> {
     Ok(batch)
 }
 
+// Used to test case sensitivity in column names
+pub fn record_batch_with_casing() -> Result<RecordBatch> {
+    let fields = vec![Field::new("Boolean_Col", DataType::Boolean, false)];
+
+    let schema = Arc::new(Schema::new(fields));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BooleanArray::from(vec![true, true, false]))],
+    )?;
+
+    Ok(batch)
+}
+
 // Blows up deltalake, so comment out for now.
 pub fn primitive_record_batch() -> Result<RecordBatch> {
     // Define the fields for each datatype
@@ -186,6 +199,10 @@ pub fn primitive_create_server(server: &str, wrapper: &str) -> String {
 
 pub fn primitive_create_user_mapping_options(user: &str, server: &str) -> String {
     format!("CREATE USER MAPPING FOR {user} SERVER {server}",)
+}
+
+pub fn auto_create_table(server: &str, table: &str) -> String {
+    format!("CREATE FOREIGN TABLE {table} () SERVER {server}")
 }
 
 // Some fields have been commented out to get tests to pass
@@ -315,6 +332,24 @@ pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, table: &str) 
         {create_foreign_data_wrapper};
         {create_server};
         {create_table} OPTIONS (files '{local_file_path}'); 
+    "#
+    )
+}
+
+pub fn setup_local_file_listing_with_casing(local_file_path: &str, table: &str) -> String {
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "parquet_wrapper",
+        "parquet_fdw_handler",
+        "parquet_fdw_validator",
+    );
+    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
+    let create_table = auto_create_table("parquet_server", table);
+
+    format!(
+        r#"
+        {create_foreign_data_wrapper};
+        {create_server};
+        {create_table} OPTIONS (files '{local_file_path}', preserve_casing 'true'); 
     "#
     )
 }

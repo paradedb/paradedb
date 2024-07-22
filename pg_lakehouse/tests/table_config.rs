@@ -21,7 +21,10 @@ use anyhow::Result;
 use datafusion::parquet::arrow::ArrowWriter;
 use fixtures::*;
 use rstest::*;
-use shared::fixtures::arrow::{primitive_record_batch, primitive_setup_fdw_local_file_listing};
+use shared::fixtures::arrow::{
+    primitive_record_batch, primitive_setup_fdw_local_file_listing, record_batch_with_casing,
+    setup_local_file_listing_with_casing,
+};
 use shared::fixtures::tempfile::TempDir;
 use sqlx::PgConnection;
 use std::fs::File;
@@ -123,6 +126,25 @@ async fn test_recreated_view(mut conn: PgConnection, tempdir: TempDir) -> Result
         parquet_path.to_str().unwrap()
     )
     .execute(&mut conn);
+
+    Ok(())
+}
+
+#[rstest]
+async fn test_preserve_casing(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
+    let stored_batch = record_batch_with_casing()?;
+    let parquet_path = tempdir.path().join("test_casing.parquet");
+    let parquet_file = File::create(&parquet_path)?;
+
+    let mut writer = ArrowWriter::try_new(parquet_file, stored_batch.schema(), None).unwrap();
+    writer.write(&stored_batch)?;
+    writer.close()?;
+
+    setup_local_file_listing_with_casing(parquet_path.as_path().to_str().unwrap(), "primitive")
+        .execute(&mut conn);
+
+    let retrieved_batch: Vec<(bool,)> = "SELECT \"Boolean_Col\" FROM primitive".fetch(&mut conn);
+    assert_eq!(retrieved_batch.len(), 3);
 
     Ok(())
 }

@@ -132,7 +132,7 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
     register_duckdb_view(
         table_name,
         schema_name,
-        table_options,
+        table_options.clone(),
         user_mapping_options,
         handler,
     )?;
@@ -163,7 +163,11 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
     }
 
     // Alter Postgres table to match DuckDB schema
-    let alter_table_statement = construct_alter_table_statement(table_name, schema_rows);
+    let preserve_casing = table_options
+        .get("preserve_casing")
+        .map_or(false, |s| s.eq_ignore_ascii_case("true"));
+    let alter_table_statement =
+        construct_alter_table_statement(table_name, schema_rows, preserve_casing);
     Spi::run(alter_table_statement.as_str())?;
 
     Ok(())
@@ -226,12 +230,23 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> Result<String> {
 }
 
 #[inline]
-fn construct_alter_table_statement(table_name: &str, columns: Vec<(String, String)>) -> String {
+fn construct_alter_table_statement(
+    table_name: &str,
+    columns: Vec<(String, String)>,
+    preserve_casing: bool,
+) -> String {
     let column_definitions: Vec<String> = columns
         .iter()
         .map(|(column_name, duckdb_type)| {
             let pg_type =
                 duckdb_type_to_pg(column_name, duckdb_type).expect("failed to convert DuckDB type");
+
+            let column_name = if preserve_casing {
+                spi::quote_identifier(column_name)
+            } else {
+                column_name.to_string()
+            };
+
             format!("ADD COLUMN {} {}", column_name, pg_type)
         })
         .collect();

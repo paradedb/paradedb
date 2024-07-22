@@ -151,7 +151,13 @@
             "analytics/object_stores/s3"
           ]
         },
-        "analytics/configuration"
+        {
+          "group": "Configuration",
+          "pages": [
+            "analytics/configuration/schema",
+            "analytics/configuration/settings"
+          ]
+        }
       ]
     },
     {

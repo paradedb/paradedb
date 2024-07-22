@@ -1,0 +1,44 @@
+---
+title: Auto Schema Creation
+---
+
+## Overview
+
+If no columns are specified in `CREATE FOREIGN TABLE`, the appropriate Postgres schema will
+automatically be created.
+
+```sql
+CREATE FOREIGN TABLE trips ()
+SERVER parquet_server
+OPTIONS (files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet');
+```
+
+## Preserve Casing
+
+Whereas DuckDB preserves the casing of identifiers like column names by default, Postgres does not.
+In Postgres, identifiers are automatically lowercased unless wrapped in double quotation marks.
+
+```sql Postgres
+-- The following two statements are equivalent
+CREATE TABLE MyTable (MyColumn a);
+CREATE TABLE mytable (mycolumn a);
+
+-- Double quotes must be used to preserve casing
+CREATE TABLE "MyTable" ("MyColumn" a);
+```
+
+By default, auto schema creation will create column names in lowercase. This can be
+changed with the `preserve_casing` option, which tells auto schema creation to wrap column names in double
+quotes.
+
+```sql
+CREATE FOREIGN TABLE trips ()
+SERVER parquet_server
+OPTIONS (
+    files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
+    preserve_casing 'true'
+);
+
+-- Columns are now case-sensitive
+SELECT "RatecodeID" FROM trips LIMIT 1;
+```

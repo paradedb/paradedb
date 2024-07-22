@@ -101,7 +101,7 @@ pub enum SearchFieldConfig {
         fieldnorms: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
-        // #[schema(value_type = IndexRecordOptionSchema)]
+        #[schema(value_type = IndexRecordOptionSchema)]
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]

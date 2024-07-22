@@ -23,7 +23,6 @@ mod transfer;
 
 use crate::schema::{SearchDocument, SearchFieldConfig, SearchFieldType};
 use crate::{postgres::types::TantivyValueError, schema::SearchFieldName};
-use anyhow::Result;
 pub use client::{Client, ClientError};
 pub use directory::*;
 pub use index::Writer;
@@ -83,7 +82,7 @@ enum ServerRequest<T: Serialize> {
 /// The two systems are otherwise decoupled, so they can be tested
 /// and re-used independently.
 pub trait Handler<T: DeserializeOwned> {
-    fn handle(&mut self, request: T) -> Result<()>;
+    fn handle(&mut self, request: T) -> Result<(), anyhow::Error>;
 }
 
 pub trait WriterClient<T: Serialize> {
@@ -137,8 +136,8 @@ mod tests {
             document,
         };
 
-        let ser = serde_json::to_string(&insert_request).unwrap();
-        let de: WriterRequest = serde_json::from_str(&ser).unwrap();
+        let ser = bincode::serialize(&insert_request).unwrap();
+        let de: WriterRequest = bincode::deserialize(&ser).unwrap();
 
         // Ensure deserialized request is equal.
         assert_eq!(de, insert_request);
@@ -150,8 +149,8 @@ mod tests {
             ctids: vec![99, 98, 97],
         };
 
-        let ser = serde_json::to_string(&delete_request).unwrap();
-        let de: WriterRequest = serde_json::from_str(&ser).unwrap();
+        let ser = bincode::serialize(&delete_request).unwrap();
+        let de: WriterRequest = bincode::deserialize(&ser).unwrap();
 
         // Ensure deserialized request is equal.
         assert_eq!(de, delete_request);

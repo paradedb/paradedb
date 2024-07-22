@@ -80,12 +80,8 @@ impl<T: Serialize> Client<T> {
         // If there is an open pending transfer, stop it so that we can continue
         // with more requests.
         self.stop_transfer();
-        let bytes = serde_json::to_string(&request).unwrap();
-        let response = self
-            .http
-            .post(self.url())
-            .body::<Vec<u8>>(bytes.into_bytes())
-            .send()?;
+        let bytes = bincode::serialize(&request).unwrap();
+        let response = self.http.post(self.url()).body::<Vec<u8>>(bytes).send()?;
 
         match response.status() {
             reqwest::StatusCode::OK => Ok(()),
@@ -112,15 +108,7 @@ impl<T: Serialize> Client<T> {
         }
 
         // There is an existing producer in client state, use it to send the request.
-        self.producer
-            .as_mut()
-            .unwrap()
-            .write_message(&request)
-            .map_err(|err| {
-                anyhow::anyhow!(
-                    "unexpected error while transfering data to pg_search writer server... please check your postgres logs for details: {err}"
-                )
-            })?;
+        self.producer.as_mut().unwrap().write_message(&request)?;
         Ok(())
     }
 
@@ -168,44 +156,41 @@ pub enum ClientError {
 
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
-
-    #[error("unexpected error (anyhow): {0}")]
-    Anyhow(#[from] anyhow::Error),
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::fixtures::*;
-//     use crate::writer::{Client, Server, WriterClient, WriterRequest};
-//     use rstest::*;
-//     use std::thread;
+#[cfg(test)]
+mod tests {
+    use crate::fixtures::*;
+    use crate::writer::{Client, Server, WriterClient, WriterRequest};
+    use rstest::*;
+    use std::thread;
 
-//     #[rstest]
-//     #[case::insert_request(WriterRequest::Insert {
-//         directory: mock_dir().writer_dir,
-//         document: simple_doc(simple_schema(default_fields())),
-//     })]
-//     #[case::commit_request(WriterRequest::Commit { directory: mock_dir().writer_dir })]
-//     #[case::abort_request(WriterRequest::Abort {directory: mock_dir().writer_dir})]
-//     #[case::vacuum_request(WriterRequest::Vacuum { directory: mock_dir().writer_dir })]
-//     #[case::drop_index_request(WriterRequest::DropIndex { directory: mock_dir().writer_dir })]
-//     /// Test request serialization and transfer between client and server.
-//     fn test_client_request(#[case] request: WriterRequest) {
-//         // Create a handler that will test that the received request is the same as sent.
-//         let request_clone = request.clone();
-//         let handler = TestHandler::new(move |req: WriterRequest| assert_eq!(&req, &request_clone));
-//         let mut server = Server::new(handler).unwrap();
-//         let addr = server.addr();
+    #[rstest]
+    #[case::insert_request(WriterRequest::Insert {
+        directory: mock_dir().writer_dir,
+        document: simple_doc(simple_schema(default_fields())),
+    })]
+    #[case::commit_request(WriterRequest::Commit { directory: mock_dir().writer_dir })]
+    #[case::abort_request(WriterRequest::Abort {directory: mock_dir().writer_dir})]
+    #[case::vacuum_request(WriterRequest::Vacuum { directory: mock_dir().writer_dir })]
+    #[case::drop_index_request(WriterRequest::DropIndex { directory: mock_dir().writer_dir })]
+    /// Test request serialization and transfer between client and server.
+    fn test_client_request(#[case] request: WriterRequest) {
+        // Create a handler that will test that the received request is the same as sent.
+        let request_clone = request.clone();
+        let handler = TestHandler::new(move |req: WriterRequest| assert_eq!(&req, &request_clone));
+        let mut server = Server::new(handler).unwrap();
+        let addr = server.addr();
 
-//         // Start the server in a new thread, as it blocks once started.
-//         thread::spawn(move || {
-//             server.start().unwrap();
-//         });
+        // Start the server in a new thread, as it blocks once started.
+        thread::spawn(move || {
+            server.start().unwrap();
+        });
 
-//         let mut client: Client<WriterRequest> = Client::new(addr);
-//         client.request(request.clone()).unwrap();
+        let mut client: Client<WriterRequest> = Client::new(addr);
+        client.request(request.clone()).unwrap();
 
-//         // The server must be stopped, or this test will not finish.
-//         client.stop_server().unwrap();
-//     }
-// }
+        // The server must be stopped, or this test will not finish.
+        client.stop_server().unwrap();
+    }
+}

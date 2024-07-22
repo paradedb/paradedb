@@ -26,7 +26,6 @@ use rstest::*;
 use sqlx::PgConnection;
 use std::path::PathBuf;
 use tantivy::Index;
-use uuid::Uuid;
 
 #[rstest]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {

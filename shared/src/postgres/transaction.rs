@@ -15,51 +15,33 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::Result;
 use once_cell::sync::Lazy;
 use pgrx::{register_xact_callback, PgXactCallbackEvent};
 use std::{
-    collections::HashMap,
+    collections::HashSet,
     panic::{RefUnwindSafe, UnwindSafe},
     sync::{Arc, Mutex, PoisonError},
 };
 use thiserror::Error;
 use tracing::error;
 
-#[derive(PartialEq, Eq, Hash)]
-enum CallbackStatus {
-    Scheduled,
-    Cancelled,
-}
-
-// Storing a tuple of (index_id, CallbackStatus).
-// Really, we should be storing the XactCallbackReceipt we get when we register
-// the callback, as that would let us properly cancel it if necessary.
-//
-// However, XactCallbackReceipt is not thread-safe.
-//
-// As a workaround, we'll mutate this boolean and check it inside the callback,
-// only performing the requested action if the callback has not been cancelled.
-type TransactionCallbackCache = Lazy<Arc<Mutex<HashMap<String, CallbackStatus>>>>;
+type TransactionCallbackCache = Lazy<Arc<Mutex<HashSet<String>>>>;
 
 static TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE: TransactionCallbackCache =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
 static TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE: TransactionCallbackCache =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
 static TRANSACTION_CALL_ONCE_ON_ABORT_CACHE: TransactionCallbackCache =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
 pub struct Transaction {}
 
 impl Transaction {
     pub fn needs_commit(id: &str) -> Result<bool, TransactionError> {
         let cache = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.lock()?;
-        match cache.get(id) {
-            Some(CallbackStatus::Scheduled) => Ok(true),
-            _ => Ok(false),
-        }
+        Ok(cache.contains(id))
     }
 
     pub fn clear_commit_abort_caches(id: &str) -> Result<(), TransactionError> {
@@ -86,29 +68,23 @@ impl Transaction {
         // Clone the cache here for use inside the closure.
         let mut cache = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.lock()?;
 
-        if !cache.contains_key(&id) {
+        if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
             let cloned_id = id.clone();
             register_xact_callback(PgXactCallbackEvent::PreCommit, move || {
                 // The precommit cache should be cleared on its own, as it is not
                 // mutually exclusive with any other event.
-                let callback_status = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE
+                TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE
                     .clone()
                     .lock()
                     .expect("could not acquire lock in register transaction precommit callback")
                     .remove(&cloned_id);
 
-                // If the callback was explicitly cancelled, we will skip calling it.
-                // Otherwise, call it.
-                match callback_status {
-                    Some(CallbackStatus::Cancelled) => {}
-                    _ => {
-                        callback();
-                    }
-                }
+                // Actually call the callback.
+                callback();
             });
 
-            cache.insert(id, CallbackStatus::Scheduled);
+            cache.insert(id);
         }
 
         Ok(())
@@ -119,19 +95,18 @@ impl Transaction {
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
         let mut cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock()?;
-        if !cache.contains_key(&id) {
+        if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
             let cloned_id = id.clone();
             register_xact_callback(PgXactCallbackEvent::Commit, move || {
                 // Clear the caches so callbacks can be registered on next transaction.
                 Self::clear_commit_abort_caches(&cloned_id)
                     .expect("could not acquire lock in register transaction commit callback");
-
                 // Actually call the callback.
                 callback();
             });
 
-            cache.insert(id, CallbackStatus::Scheduled);
+            cache.insert(id);
         }
 
         Ok(())
@@ -142,30 +117,20 @@ impl Transaction {
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
         let mut cache = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.lock()?;
-        if !cache.contains_key(&id) {
+        if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
             let cloned_id = id.clone();
             register_xact_callback(PgXactCallbackEvent::Abort, move || {
                 // Clear the caches so callbacks can be registered on next transaction.
                 Self::clear_commit_abort_caches(&cloned_id)
                     .expect("could not acquire lock in register transaction abort callback");
-
                 // Actually call the callback.
                 callback();
             });
 
-            cache.insert(id, CallbackStatus::Scheduled);
+            cache.insert(id);
         }
 
-        Ok(())
-    }
-
-    pub fn cancel_precommit_callback(id: String) -> Result<()> {
-        TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE
-            .clone()
-            .lock()
-            .expect("could not acquire lock in register transaction precommit callback")
-            .insert(id, CallbackStatus::Cancelled);
         Ok(())
     }
 }

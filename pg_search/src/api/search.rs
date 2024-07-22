@@ -22,7 +22,6 @@ use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use crate::{globals::WriterGlobal, index::SearchIndex};
 use pgrx::{prelude::TableIterator, *};
-use shared::postgres::transaction::Transaction;
 use tantivy::TantivyDocument;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";

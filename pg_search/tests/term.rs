@@ -136,7 +136,7 @@ fn float_term(mut conn: PgConnection) {
         table_name => 'test_table',
         index_name => 'test_index',
         key_field => 'id',
-        numeric_fields => 'paradedb.field("value_float4") || paradedb.field("value_float8") || paradedb.field("value_numeric")'
+        numeric_fields => paradedb.field("value_float4") || paradedb.field("value_float8") || paradedb.field("value_numeric")
     );
     "#
     .execute(&mut conn);

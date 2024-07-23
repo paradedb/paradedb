@@ -137,7 +137,6 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-// For now, we support changing the tokenizer between default, raw, and en_stem
 const NUM_REL_OPTS: usize = 7;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(

@@ -23,7 +23,7 @@ use crate::{env::register_commit_callback, globals::WriterGlobal};
 use pgrx::*;
 
 #[allow(clippy::too_many_arguments)]
-#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+#[cfg(any(feature = "pg13" feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,
@@ -50,7 +50,7 @@ pub unsafe extern "C" fn aminsert(
     aminsert_internal(index_relation, values, isnull, heap_tid, &uuid)
 }
 
-#[cfg(any(feature = "pg12", feature = "pg13"))]
+#[cfg(any(feature = "pg12"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,
@@ -61,7 +61,7 @@ pub unsafe extern "C" fn aminsert(
     _check_unique: pg_sys::IndexUniqueCheck,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    let rdopts = index_relation.rd_options as *mut SearchIndexCreateOptions;
+    let rdopts = (*index_relation).rd_options as *mut SearchIndexCreateOptions;
 
     let uuid = rdopts
         .get_uuid()

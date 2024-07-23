@@ -64,6 +64,7 @@ pub unsafe extern "C" fn aminsert(
     let rdopts = (*index_relation).rd_options as *mut SearchIndexCreateOptions;
 
     let uuid = unsafe { rdopts.as_ref() }
+        .expect("index rd_options are unexpectedly null")
         .get_uuid()
         .expect("uuid not specified in 'create_bm25' index build, please rebuild pg_search index");
 

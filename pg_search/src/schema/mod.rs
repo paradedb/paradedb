@@ -287,7 +287,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
-            None => Ok(false),
+            None => Ok(true),
         }?;
 
         let stored = match obj.get("stored") {
@@ -320,7 +320,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
-            None => Ok(false),
+            None => Ok(true),
         }?;
 
         let stored = match obj.get("stored") {
@@ -353,7 +353,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
-            None => Ok(false),
+            None => Ok(true),
         }?;
 
         let stored = match obj.get("stored") {

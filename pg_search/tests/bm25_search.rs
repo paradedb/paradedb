@@ -143,7 +143,8 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
                 'table_name', 'bm25_test_table',
                 'schema_name', 'paradedb',
                 'key_field', 'id',
-                'query', paradedb.parse('category:electronics')::text::jsonb
+                'query', paradedb.parse('category:electronics')::text::jsonb,
+                'uuid', '6817e8d2-0076-4b62-8b50-62869cc033fe'
             )
         ) ORDER BY id"
         .fetch_collect(&mut conn);

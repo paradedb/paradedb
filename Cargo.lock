@@ -8072,6 +8072,7 @@ checksum = "c7c4ceeeca15c8384bbc3e011dbd8fccb7f068a440b752b7d9b32ceb0ca0e2e8"
 name = "tokenizers"
 version = "0.8.5"
 dependencies = [
+ "anyhow",
  "lindera-core",
  "lindera-dictionary",
  "lindera-tokenizer",

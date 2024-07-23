@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use serde::*;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter,
     SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
@@ -32,39 +34,116 @@ pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 // Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
 // The "type" field will not be present on the deserialized value.
-#[derive(Default, Copy, Clone, Deserialize, Debug, Serialize, PartialEq, Eq)]
-#[serde(tag = "type")]
+//
+// Ensure that new variants are added to the `to_json_value` and
+// `from_json_value` methods. We don't use serde_json to ser/de the
+// SearchTokenizer, because our bincode serialization format is incompatible
+// with the "tagged" format we use in our public API.
+#[derive(Serialize, Deserialize, Default, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SearchTokenizer {
-    #[serde(rename = "default")]
     #[default]
     Default,
-    #[serde(rename = "raw")]
     Raw,
-    #[serde(rename = "en_stem")]
     EnStem,
-    #[serde(rename = "stem")]
-    Stem { language: Language },
-    #[serde(rename = "whitespace")]
+    Stem {
+        language: Language,
+    },
     WhiteSpace,
-    #[serde(rename = "chinese_compatible")]
     ChineseCompatible,
-    #[serde(rename = "source_code")]
     SourceCode,
-    #[serde(rename = "ngram")]
     Ngram {
         min_gram: usize,
         max_gram: usize,
         prefix_only: bool,
     },
-    #[serde(rename = "chinese_lindera")]
     ChineseLindera,
-    #[serde(rename = "japanese_lindera")]
     JapaneseLindera,
-    #[serde(rename = "korean_lindera")]
     KoreanLindera,
     #[cfg(feature = "icu")]
-    #[serde(rename = "icu")]
     ICUTokenizer,
+}
+
+impl SearchTokenizer {
+    pub fn to_json_value(&self) -> serde_json::Value {
+        match self {
+            SearchTokenizer::Default => json!({ "type": "default" }),
+            SearchTokenizer::Raw => json!({ "type": "raw" }),
+            SearchTokenizer::EnStem => json!({ "type": "en_stem" }),
+            SearchTokenizer::Stem { language } => json!({ "type": "stem", "language": language }),
+            SearchTokenizer::WhiteSpace => json!({ "type": "whitespace" }),
+            SearchTokenizer::ChineseCompatible => json!({ "type": "chinese_compatible" }),
+            SearchTokenizer::SourceCode => json!({ "type": "source_code" }),
+            SearchTokenizer::Ngram {
+                min_gram,
+                max_gram,
+                prefix_only,
+            } => json!({
+                "type": "ngram",
+                "min_gram": min_gram,
+                "max_gram": max_gram,
+                "prefix_only": prefix_only,
+            }),
+            SearchTokenizer::ChineseLindera => json!({ "type": "chinese_lindera" }),
+            SearchTokenizer::JapaneseLindera => json!({ "type": "japanese_lindera" }),
+            SearchTokenizer::KoreanLindera => json!({ "type": "korean_lindera" }),
+            #[cfg(feature = "icu")]
+            SearchTokenizer::ICUTokenizer => json!({ "type": "icu" }),
+        }
+    }
+
+    pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
+        // We use the `type` field of a JSON object to distinguish the tokenizer variant.
+        // Deserialized in this "tagged enum" fashion is not supported by bincode, which
+        // we use elsewhere for serialization, so we manually parse the JSON object here.
+
+        let tokenizer_type = value["type"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("a 'type' must be passed in pg_search tokenizer configuration, not found in: {value:#?}"))?;
+
+        match tokenizer_type {
+            "default" => Ok(SearchTokenizer::Default),
+            "raw" => Ok(SearchTokenizer::Raw),
+            "en_stem" => Ok(SearchTokenizer::EnStem),
+            "stem" => {
+                let language: Language = serde_json::from_value(value["language"].clone())
+                    .map_err(|_| {
+                        anyhow::anyhow!("stem tokenizer requires a valid 'language' field")
+                    })?;
+                Ok(SearchTokenizer::Stem { language })
+            }
+            "whitespace" => Ok(SearchTokenizer::WhiteSpace),
+            "chinese_compatible" => Ok(SearchTokenizer::ChineseCompatible),
+            "source_code" => Ok(SearchTokenizer::SourceCode),
+            "ngram" => {
+                let min_gram: usize =
+                    serde_json::from_value(value["min_gram"].clone()).map_err(|_| {
+                        anyhow::anyhow!("ngram tokenizer requires an integer 'min_gram' field")
+                    })?;
+                let max_gram: usize =
+                    serde_json::from_value(value["max_gram"].clone()).map_err(|_| {
+                        anyhow::anyhow!("ngram tokenizer requires an integer 'max_gram' field")
+                    })?;
+                let prefix_only: bool = serde_json::from_value(value["prefix_only"].clone())
+                    .map_err(|_| {
+                        anyhow::anyhow!("ngram tokenizer requires a boolean 'prefix_only' field")
+                    })?;
+                Ok(SearchTokenizer::Ngram {
+                    min_gram,
+                    max_gram,
+                    prefix_only,
+                })
+            }
+            "chinese_lindera" => Ok(SearchTokenizer::ChineseLindera),
+            "japanese_lindera" => Ok(SearchTokenizer::JapaneseLindera),
+            "korean_lindera" => Ok(SearchTokenizer::KoreanLindera),
+            #[cfg(feature = "icu")]
+            "icu" => Ok(SearchTokenizer::ICUTokenizer),
+            _ => Err(anyhow::anyhow!(
+                "unknown tokenizer type: {}",
+                tokenizer_type
+            )),
+        }
+    }
 }
 
 pub fn language_to_str(lang: &Language) -> &str {
@@ -217,11 +296,11 @@ mod tests {
         assert_eq!(tokenizer.name(), "en_stem".to_string());
 
         let json = r#"{
-            "type": "ngram",
-            "min_gram": 20,
-            "max_gram": 60,
-            "prefix_only": true
-        }"#;
+        "type": "ngram",
+        "min_gram": 20,
+        "max_gram": 60,
+        "prefix_only": true
+    }"#;
         let tokenizer: SearchTokenizer = serde_json::from_str(json).unwrap();
         assert_eq!(
             tokenizer,

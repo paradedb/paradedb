@@ -20,6 +20,7 @@ use pgrx::prelude::*;
 use pgrx::Spi;
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use uuid::Uuid;
 
 use super::format::format_bm25_function;
 use super::format::format_empty_function;
@@ -106,11 +107,13 @@ fn create_bm25(
         );
     }
 
+    let index_uuid = Uuid::new_v4().to_string();
     let index_json = json!({
         "index_name": format!("{}_bm25_index", index_name),
         "table_name": table_name,
         "key_field": key_field,
-        "schema_name": schema_name
+        "schema_name": schema_name,
+        "uuid":  index_uuid
     });
 
     Spi::run(&format!(
@@ -152,7 +155,7 @@ fn create_bm25(
     };
 
     Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}) {};",
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}, uuid={}) {};",
         spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
@@ -164,6 +167,7 @@ fn create_bm25(
         spi::quote_literal(boolean_fields),
         spi::quote_literal(json_fields),
         spi::quote_literal(datetime_fields),
+        spi::quote_identifier(index_uuid),
         predicate_where))?;
 
     let predicate = if !predicates.is_empty() {

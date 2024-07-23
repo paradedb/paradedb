@@ -18,10 +18,11 @@
 use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
+use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;
 use crate::schema::ToString;
+use crate::writer::WriterDirectory;
 use core::panic;
 use std::ops::Bound;
 
@@ -42,7 +43,10 @@ pub fn schema_bm25(
     name!(normalizer, Option<String>),
 )> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
-    let search_index = get_search_index(&bm25_index_name);
+    let directory = WriterDirectory::from_index_name(&bm25_index_name);
+    let search_index = SearchIndex::from_disk(&directory)
+        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+
     let schema = search_index.schema.schema.clone();
     let mut field_entries: Vec<_> = schema.fields().collect();
 

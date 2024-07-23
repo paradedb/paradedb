@@ -15,26 +15,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
-use crate::writer::{IndexError, WriterDirectory};
-use pgrx::pg_sys::BuiltinOid;
+use crate::writer::IndexError;
+use pgrx::pg_sys::{BuiltinOid, ItemPointerData};
 use pgrx::*;
 
-pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
-    let directory = WriterDirectory::from_index_name(index_name);
-    SearchIndex::from_cache(&directory)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"))
-}
-
 pub unsafe fn row_to_search_document(
+    ctid: ItemPointerData,
     tupdesc: &PgTupleDesc,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     schema: &SearchIndexSchema,
 ) -> Result<SearchDocument, IndexError> {
     let mut document = schema.new_document();
+
+    // Create a vector of index entries from the postgres row.
     for (attno, attribute) in tupdesc.iter().enumerate() {
         let attname = attribute.name().to_string();
         let attribute_type_oid = attribute.type_oid();
@@ -83,5 +79,10 @@ pub unsafe fn row_to_search_document(
             );
         }
     }
+
+    // Insert the ctid value into the entries.
+    let ctid_index_value = pgrx::item_pointer_to_u64(ctid);
+    document.insert(schema.ctid_field().id, ctid_index_value.into());
+
     Ok(document)
 }

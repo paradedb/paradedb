@@ -19,7 +19,7 @@ use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::get_search_index;
+use crate::postgres::utils::row_to_search_document;
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
@@ -32,13 +32,15 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 struct BuildState {
     count: usize,
     memctx: PgMemoryContexts,
+    uuid: String,
 }
 
 impl BuildState {
-    fn new() -> Self {
+    fn new(uuid: String) -> Self {
         BuildState {
             count: 0,
             memctx: PgMemoryContexts::new("pg_search_index_build"),
+            uuid,
         }
     }
 }
@@ -52,11 +54,6 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
-
-    // Drop the index if it already exists (e.g. if we're rebuilding it with VACUUM FULL)
-    let writer_client = WriterGlobal::client();
-    SearchIndex::drop_index(&writer_client, &index_name)
-        .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));
 
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
@@ -132,6 +129,9 @@ pub extern "C" fn ambuild(
             _ => panic!("'{name}' cannot be indexed as a datetime field"),
         });
 
+    let uuid = rdopts
+        .get_uuid()
+        .expect("must specify uuid, this is done automatically in 'create_bm25'");
     let key_field = rdopts.get_key_field().expect("must specify key field");
     let key_field_type = match name_type_map.get(&key_field) {
         Some(field_type) => field_type,
@@ -182,8 +182,8 @@ pub extern "C" fn ambuild(
         .chain(json_fields)
         .chain(datetime_fields)
         .chain(std::iter::once((
-            key_field,
-            SearchFieldConfig::Key(key_config.into()),
+            key_field.clone(),
+            key_config,
             *key_field_type,
         )))
         // "ctid" is a reserved column name in Postgres, so we don't need to worry about
@@ -195,16 +195,29 @@ pub extern "C" fn ambuild(
         )))
         .collect();
 
+    let key_field_index = fields
+        .iter()
+        .position(|(name, _, _)| name == &key_field)
+        .expect("key field not found in columns"); // key field is already validated by now.
+
     // If there's only two fields in the vector, then those are just the Key and Ctid fields,
     // which we added above, and the user has not specified any fields to index.
     if fields.len() == 2 {
         panic!("no fields specified")
     }
 
+    let writer_client = WriterGlobal::client();
     let directory = WriterDirectory::from_index_name(&index_name);
-    SearchIndex::new(directory, fields).expect("could not build search index");
+    SearchIndex::create_index(
+        &writer_client,
+        directory,
+        fields,
+        uuid.clone(),
+        key_field_index,
+    )
+    .expect("error creating new index instance");
 
-    let state = do_heap_scan(index_info, &heap_relation, &index_relation);
+    let state = do_heap_scan(index_info, &heap_relation, &index_relation, uuid);
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = state.count as f64;
     result.index_tuples = state.count as f64;
@@ -219,8 +232,9 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
+    uuid: String,
 ) -> BuildState {
-    let mut state = BuildState::new();
+    let mut state = BuildState::new(uuid);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -286,12 +300,14 @@ unsafe fn build_callback_internal(
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
             let index_name = index_relation_ref.name();
-            let search_index = get_search_index(index_name);
-            let search_document = search_index
-                .row_to_search_document(ctid, &tupdesc, values, isnull)
-                .unwrap_or_else(|err| {
-                    panic!("error creating index entries for index '{index_name}': {err}",)
-                });
+            let directory = WriterDirectory::from_index_name(index_name);
+            let search_index = SearchIndex::from_cache(&directory, &state.uuid)
+                .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+            let search_document =
+                row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)
+                    .unwrap_or_else(|err| {
+                        panic!("error creating index entries for index '{index_name}': {err}",)
+                    });
 
             let writer_client = WriterGlobal::client();
 

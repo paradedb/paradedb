@@ -21,8 +21,8 @@ mod index;
 mod server;
 mod transfer;
 
-use crate::postgres::types::TantivyValueError;
-use crate::schema::SearchDocument;
+use crate::schema::{SearchDocument, SearchFieldConfig, SearchFieldType};
+use crate::{postgres::types::TantivyValueError, schema::SearchFieldName};
 pub use client::{Client, ClientError};
 pub use directory::*;
 pub use index::Writer;
@@ -44,6 +44,12 @@ pub enum WriterRequest {
         directory: WriterDirectory,
         field: Field,
         ctids: Vec<u64>,
+    },
+    CreateIndex {
+        directory: WriterDirectory,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        uuid: String,
+        key_field_index: usize,
     },
     DropIndex {
         directory: WriterDirectory,
@@ -76,7 +82,7 @@ enum ServerRequest<T: Serialize> {
 /// The two systems are otherwise decoupled, so they can be tested
 /// and re-used independently.
 pub trait Handler<T: DeserializeOwned> {
-    fn handle(&mut self, request: T) -> Result<(), ServerError>;
+    fn handle(&mut self, request: T) -> Result<(), anyhow::Error>;
 }
 
 pub trait WriterClient<T: Serialize> {

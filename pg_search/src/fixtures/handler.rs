@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::Result;
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 
@@ -35,7 +36,7 @@ impl<T: DeserializeOwned, F: Fn(T)> TestHandler<T, F> {
 }
 
 impl<T: DeserializeOwned, F: Fn(T)> Handler<T> for TestHandler<T, F> {
-    fn handle(&mut self, request: T) -> Result<(), crate::writer::ServerError> {
+    fn handle(&mut self, request: T) -> Result<()> {
         (self.handler)(request);
         Ok(())
     }

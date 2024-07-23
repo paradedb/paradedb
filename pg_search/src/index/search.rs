@@ -15,11 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::Result;
 use once_cell::sync::Lazy;
-use pgrx::{
-    pg_sys::{Datum, ItemPointerData},
-    PgTupleDesc,
-};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -30,7 +27,6 @@ use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::{error, info};
 
 use super::state::SearchState;
-use crate::postgres::utils::row_to_search_document;
 use crate::schema::{
     SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
     SearchIndexSchema, SearchIndexSchemaError,
@@ -74,60 +70,39 @@ pub struct SearchIndex {
     #[serde(skip_serializing)]
     pub reader: IndexReader,
     #[serde(skip_serializing)]
-    pub executor: &'static Executor,
-    #[serde(skip_serializing)]
-    underlying_index: Index,
+    pub underlying_index: Index,
+    pub uuid: String,
 }
 
 impl SearchIndex {
-    pub fn new(
+    pub fn create_index<W: WriterClient<WriterRequest>>(
+        writer: &Arc<Mutex<W>>,
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        uuid: String,
+        key_field_index: usize,
     ) -> Result<&'static mut Self, SearchIndexError> {
-        // If the writer directory exists, remove it. We need a fresh directory to
-        // create an index. This can happen after a VACUUM FULL, where the index needs
-        // to be rebuilt and this method is called again.
-        directory.remove().map_err(SearchIndexError::from)?;
-
-        let schema = SearchIndexSchema::new(fields)?;
-
-        let tantivy_dir_path = directory.tantivy_dir_path(true)?;
-        let mut underlying_index = Index::builder()
-            .schema(schema.schema.clone())
-            .create_in_dir(tantivy_dir_path)
-            .expect("failed to create index");
-
-        Self::setup_tokenizers(&mut underlying_index, &schema);
-
-        let new_self = Self {
-            reader: Self::reader(&underlying_index)?,
-            underlying_index,
+        writer.lock()?.request(WriterRequest::CreateIndex {
             directory: directory.clone(),
-            schema,
-            executor: Self::executor(),
-        };
+            fields,
+            uuid: uuid.clone(),
+            key_field_index,
+        })?;
 
-        // Serialize SearchIndex to disk so it can be initialized by other connections.
-        new_self.directory.save_index(&new_self)?;
-
-        // Save a reference to this SearchIndex so it can be re-used by this connection.
-        unsafe {
-            new_self.into_cache();
-        }
-
-        // We need to return the Self that is borrowed from the cache.
-        let new_self_ref = Self::from_cache(&directory)
+        // As the new index instance was created in a background process, we need
+        // to load it from disk to use it.
+        let new_self_ref = Self::from_disk(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
         Ok(new_self_ref)
     }
 
     #[allow(static_mut_refs)]
-    fn executor() -> &'static Executor {
+    pub fn executor() -> &'static Executor {
         unsafe { &SEARCH_EXECUTOR }
     }
 
-    fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
+    pub fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
         let tokenizers = schema
             .fields
             .iter()
@@ -147,7 +122,7 @@ impl SearchIndex {
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 
-    fn reader(index: &Index) -> Result<IndexReader, TantivyError> {
+    pub fn reader(index: &Index) -> Result<IndexReader, TantivyError> {
         index
             .reader_builder()
             .reload_policy(tantivy::ReloadPolicy::Manual)
@@ -158,21 +133,37 @@ impl SearchIndex {
         SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
     }
 
-    pub fn from_cache<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
-        unsafe {
-            if let Some(new_self) = SEARCH_INDEX_MEMORY.get_mut(directory) {
-                return Ok(new_self);
-            }
-        }
-
+    pub fn from_disk<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
         let new_self: Self = directory.load_index()?;
+        let uuid = new_self.uuid.clone();
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {
             new_self.into_cache();
         }
 
-        Self::from_cache(directory)
+        Self::from_cache(directory, &uuid)
+    }
+
+    pub fn from_cache<'a>(
+        directory: &WriterDirectory,
+        uuid: &str,
+    ) -> Result<&'a mut Self, SearchIndexError> {
+        unsafe {
+            if let Some(new_self) = SEARCH_INDEX_MEMORY.get_mut(directory) {
+                let cached_uuid = &new_self.uuid;
+                if cached_uuid == uuid {
+                    return Ok(new_self);
+                }
+            }
+        }
+
+        Self::from_disk(directory)
+    }
+
+    unsafe fn drop_from_cache(directory: &WriterDirectory) -> Result<()> {
+        SEARCH_INDEX_MEMORY.remove(directory);
+        Ok(())
     }
 
     pub fn query_parser(&self) -> QueryParser {
@@ -244,7 +235,7 @@ impl SearchIndex {
     pub fn delete<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
         writer: &Arc<Mutex<W>>,
-        should_delete: impl Fn(*mut ItemPointerData) -> bool,
+        should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
         let mut deleted: u32 = 0;
         let mut not_deleted: u32 = 0;
@@ -261,11 +252,7 @@ impl SearchIndex {
                     doc.get_first(self.schema.ctid_field().id.0).cloned()
                 })
                 .filter_map(|value| (&value).as_u64())
-                .map(|ctid_val| {
-                    let mut ctid = ItemPointerData::default();
-                    pgrx::u64_to_item_pointer(ctid_val, &mut ctid);
-                    (should_delete(&mut ctid), ctid_val)
-                })
+                .map(|ctid_val| (should_delete(ctid_val), ctid_val))
             {
                 if delete {
                     ctids_to_delete.push(ctid);
@@ -291,9 +278,15 @@ impl SearchIndex {
         index_name: &str,
     ) -> Result<(), SearchIndexError> {
         let directory = WriterDirectory::from_index_name(index_name);
-        let request = WriterRequest::DropIndex { directory };
+        let request = WriterRequest::DropIndex {
+            directory: directory.clone(),
+        };
 
+        // Request the background writer process to physically drop the index.
         writer.lock()?.request(request)?;
+
+        // Drop the index from this connection's cache.
+        unsafe { Self::drop_from_cache(&directory).map_err(SearchIndexError::from)? }
 
         Ok(())
     }
@@ -308,24 +301,6 @@ impl SearchIndex {
         writer.lock()?.request(request)?;
         Ok(())
     }
-
-    pub fn row_to_search_document(
-        &self,
-        ctid: ItemPointerData,
-        tupdesc: &PgTupleDesc,
-        values: *mut Datum,
-        isnull: *mut bool,
-    ) -> Result<SearchDocument, SearchIndexError> {
-        // Create a vector of index entries from the postgres row.
-        let mut search_document =
-            unsafe { row_to_search_document(tupdesc, values, isnull, &self.schema) }?;
-
-        // Insert the ctid value into the entries.
-        let ctid_index_value = pgrx::item_pointer_to_u64(ctid);
-        search_document.insert(self.schema.ctid_field().id, ctid_index_value.into());
-
-        Ok(search_document)
-    }
 }
 
 impl<'de> Deserialize<'de> for SearchIndex {
@@ -338,10 +313,18 @@ impl<'de> Deserialize<'de> for SearchIndex {
         struct SearchIndexHelper {
             schema: SearchIndexSchema,
             directory: WriterDirectory,
+            // An index created in an older version of pg_search may not have serialized a uuid
+            // to disk. Just use an empty string for backwards compatibility.
+            #[serde(default)]
+            uuid: String,
         }
 
         // Deserialize into the struct with automatic handling for most fields
-        let SearchIndexHelper { schema, directory } = SearchIndexHelper::deserialize(deserializer)?;
+        let SearchIndexHelper {
+            schema,
+            directory,
+            uuid,
+        } = SearchIndexHelper::deserialize(deserializer)?;
 
         let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path(true).unwrap();
 
@@ -360,7 +343,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             underlying_index,
             directory,
             schema,
-            executor: Self::executor(),
+            uuid,
         })
     }
 }
@@ -393,6 +376,9 @@ pub enum SearchIndexError {
 
     #[error("mutex lock on writer client failed: {0}")]
     WriterClientRace(String),
+
+    #[error(transparent)]
+    AnyhowError(#[from] anyhow::Error),
 }
 
 impl<T> From<PoisonError<T>> for SearchIndexError {
@@ -403,57 +389,17 @@ impl<T> From<PoisonError<T>> for SearchIndexError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{fixtures::*, schema::SearchConfig};
-    use rstest::*;
-    use tantivy::schema::OwnedValue;
-
     use super::SearchIndex;
+    use crate::{
+        fixtures::{mock_dir, MockWriterDirectory},
+        writer::SearchFs,
+    };
+    use rstest::*;
 
     /// Expected to panic because no index has been created in the directory.
     #[rstest]
     #[should_panic]
     fn test_index_from_disk_panics(mock_dir: MockWriterDirectory) {
         mock_dir.load_index::<SearchIndex>().unwrap();
-    }
-
-    #[rstest]
-    fn test_chinese_compatible_tokenizer(mut chinese_index: MockSearchIndex) {
-        let client = TestClient::new_arc();
-
-        let index = &mut chinese_index.index;
-        let schema = &index.schema;
-
-        // Insert fields into document.
-        let mut doc = schema.new_document();
-        let id_field = schema.key_field();
-        let ctid_field = schema.ctid_field();
-        let author_field = schema.get_search_field(&"author".into()).unwrap();
-        doc.insert(id_field.id, OwnedValue::I64(0));
-        doc.insert(ctid_field.id, OwnedValue::U64(0));
-        doc.insert(author_field.id, OwnedValue::Str("张伟".into()));
-
-        // Insert document into index.
-        index.insert(&client, doc.clone()).unwrap();
-
-        // Search in index
-        let search_config = SearchConfig {
-            query: crate::query::SearchQueryInput::Parse {
-                query_string: "author:张".into(),
-            },
-            key_field: "id".into(),
-            ..Default::default()
-        };
-        let state = index.search_state(&client, &search_config, true).unwrap();
-
-        let (_, doc_address, _, _) = *state
-            .search(index.executor)
-            .first()
-            .expect("query returned no results");
-        let found: tantivy::TantivyDocument = state
-            .searcher
-            .doc(doc_address)
-            .expect("no document at address");
-
-        assert_eq!(&found, &doc.doc);
     }
 }

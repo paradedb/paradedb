@@ -35,7 +35,10 @@ use serde_json::json;
 pub fn simple_schema(
     default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
 ) -> SearchIndexSchema {
-    SearchIndexSchema::new(default_fields).unwrap()
+    // As defined in the default_fields fixture, the key_field is the first
+    // entry in the vectory.
+    let default_fields_key_index = 0;
+    SearchIndexSchema::new(default_fields, default_fields_key_index).unwrap()
 }
 
 #[fixture]
@@ -71,11 +74,7 @@ pub fn default_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldT
     let boolean: SearchFieldConfig = serde_json::from_value(json!({"Boolean": {}})).unwrap();
 
     vec![
-        (
-            "id".into(),
-            SearchFieldConfig::Key(numeric.clone().into()),
-            SearchFieldType::I64,
-        ),
+        ("id".into(), numeric.clone(), SearchFieldType::I64),
         ("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64),
         ("description".into(), text.clone(), SearchFieldType::Text),
         ("rating".into(), numeric.clone(), SearchFieldType::I64),
@@ -94,11 +93,7 @@ pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldT
     let json: SearchFieldConfig = serde_json::from_value(json!({"Json": {}})).unwrap();
 
     vec![
-        (
-            "id".into(),
-            SearchFieldConfig::Key(numeric.clone().into()),
-            SearchFieldType::I64,
-        ),
+        ("id".into(), numeric.clone(), SearchFieldType::I64),
         ("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64),
         ("author".into(), text.clone(), SearchFieldType::Text),
         ("title".into(), text.clone(), SearchFieldType::Text),
@@ -127,12 +122,14 @@ pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldT
 pub fn default_index(
     default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
 ) -> MockSearchIndex {
-    MockSearchIndex::new(default_fields)
+    // Key field index is 0 (id) for default_fields.
+    MockSearchIndex::new(default_fields, 0)
 }
 
 #[fixture]
 pub fn chinese_index(
     chinese_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
 ) -> MockSearchIndex {
-    MockSearchIndex::new(chinese_fields)
+    // Key field index is 0 (id) for chinese_fields.
+    MockSearchIndex::new(chinese_fields, 0)
 }

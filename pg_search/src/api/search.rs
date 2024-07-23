@@ -19,7 +19,8 @@ use crate::env::needs_commit;
 use crate::index::state::{SearchAlias, SearchStateManager};
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
-use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
+use crate::writer::WriterDirectory;
+use crate::{globals::WriterGlobal, index::SearchIndex};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::TantivyDocument;
 
@@ -85,7 +86,9 @@ pub fn minmax_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let search_index = get_search_index(&search_config.index_name);
+    let directory = WriterDirectory::from_index_name(&search_config.index_name);
+    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
     let mut scan_state = search_index
@@ -97,7 +100,7 @@ pub fn minmax_bm25(
         .unwrap();
 
     // Collect into a Vec to allow multiple iterations
-    let top_docs: Vec<_> = scan_state.search_dedup(search_index.executor).collect();
+    let top_docs: Vec<_> = scan_state.search_dedup(SearchIndex::executor()).collect();
 
     // Calculate min and max scores
     let (min_score, max_score) = top_docs
@@ -142,7 +145,9 @@ pub fn score_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let search_index = get_search_index(&search_config.index_name);
+    let directory = WriterDirectory::from_index_name(&search_config.index_name);
+    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
     let mut scan_state = search_index
@@ -154,7 +159,7 @@ pub fn score_bm25(
         .expect("could not get scan state");
 
     let top_docs = scan_state
-        .search_dedup(search_index.executor)
+        .search_dedup(SearchIndex::executor())
         .map(|(score, doc_address)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
@@ -190,7 +195,9 @@ pub fn snippet(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let search_index = get_search_index(&search_config.index_name);
+    let directory = WriterDirectory::from_index_name(&search_config.index_name);
+    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
     let mut scan_state = search_index
@@ -210,7 +217,7 @@ pub fn snippet(
     }
 
     let top_docs = scan_state
-        .search_dedup(search_index.executor)
+        .search_dedup(SearchIndex::executor())
         .map(|(score, doc_address)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
@@ -254,5 +261,5 @@ fn drop_bm25_internal(index_name: &str) {
 
     // Drop the Tantivy data directory.
     SearchIndex::drop_index(&writer_client, index_name)
-        .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));
+        .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err:?}"));
 }

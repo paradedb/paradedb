@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::*;
+use pgrx::{pg_sys::ItemPointerData, *};
 
 use crate::{
     env::register_commit_callback, globals::WriterGlobal, index::SearchIndex,
@@ -35,7 +35,7 @@ pub extern "C" fn ambulkdelete(
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name();
     let directory = WriterDirectory::from_index_name(index_name);
-    let search_index = SearchIndex::from_cache(&directory)
+    let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     if stats.is_null() {
@@ -51,9 +51,12 @@ pub extern "C" fn ambulkdelete(
         .expect("could not register commit callbacks for delete operation");
 
     if let Some(actual_callback) = callback {
-        match search_index.delete(&writer_client, |ctid| unsafe {
-            actual_callback(ctid, callback_state)
-        }) {
+        let should_delete = |ctid_val| unsafe {
+            let mut ctid = ItemPointerData::default();
+            pgrx::u64_to_item_pointer(ctid_val, &mut ctid);
+            actual_callback(&mut ctid, callback_state)
+        };
+        match search_index.delete(&writer_client, should_delete) {
             Ok((deleted, not_deleted)) => {
                 stats.pages_deleted += deleted;
                 stats.num_pages += not_deleted;

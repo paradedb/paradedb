@@ -16,10 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::env::needs_commit;
+use crate::globals::WriterGlobal;
 use crate::index::state::SearchStateManager;
+use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
-use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
+use crate::writer::WriterDirectory;
 use pgrx::*;
 use rustc_hash::FxHashSet;
 
@@ -35,7 +37,9 @@ fn search_tantivy(
             .expect("could not parse search config");
 
         let writer_client = WriterGlobal::client();
-        let search_index = get_search_index(&search_config.index_name);
+        let directory = WriterDirectory::from_index_name(&search_config.index_name);
+        let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+            .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
         let scan_state = search_index
             .search_state(
                 &writer_client,
@@ -43,7 +47,7 @@ fn search_tantivy(
                 needs_commit(&search_config.index_name),
             )
             .unwrap();
-        let top_docs = scan_state.search(search_index.executor);
+        let top_docs = scan_state.search(SearchIndex::executor());
         let mut hs = FxHashSet::default();
 
         for (_score, _doc_address, key, _ctid) in top_docs {

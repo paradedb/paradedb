@@ -15,9 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use uuid::Uuid;
+
 use crate::{
     index::SearchIndex,
     schema::{SearchFieldConfig, SearchFieldName, SearchFieldType},
+    writer::Writer,
 };
 
 use super::MockWriterDirectory;
@@ -28,11 +31,21 @@ pub struct MockSearchIndex {
 }
 
 impl MockSearchIndex {
-    pub fn new(fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>) -> Self {
+    pub fn new(
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        key_field_index: usize,
+    ) -> Self {
         // We must store the TempDir instance on the struct, because it gets deleted when the
         // instance is dropped.
         let directory = MockWriterDirectory::new("mock_parade_search_index");
-        let index = SearchIndex::new(directory.writer_dir.clone(), fields).unwrap();
+        let mut writer = Writer::new();
+        let uuid = Uuid::new_v4().to_string();
+        writer
+            .create_index(directory.writer_dir.clone(), fields, uuid, key_field_index)
+            .expect("error creating index instance");
+
+        let index = SearchIndex::from_disk(&directory.writer_dir)
+            .expect("error reading new index from cache");
         Self { directory, index }
     }
 }

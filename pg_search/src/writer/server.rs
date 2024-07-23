@@ -76,7 +76,10 @@ where
     fn listen_transfer<P: AsRef<Path>>(&self, pipe_path: P) -> Result<(), ServerError> {
         // Our consumer will receive messages suitable for our handler.
         for incoming in transfer::read_stream::<T, P>(pipe_path)? {
-            self.handler.borrow_mut().handle(incoming?)?;
+            self.handler
+                .borrow_mut()
+                .handle(incoming?)
+                .map_err(ServerError::Anyhow)?;
         }
         Ok(())
     }
@@ -114,7 +117,9 @@ where
                     }
                     ServerRequest::Request(req) => {
                         if let Err(err) = self.handler.borrow_mut().handle(req) {
-                            if let Err(err) = incoming.respond(Self::response_err(err)) {
+                            if let Err(err) =
+                                incoming.respond(Self::response_err(ServerError::Anyhow(err)))
+                            {
                                 error!("server error responding to handler error: {err}");
                             }
                         } else if let Err(err) = incoming.respond(Self::response_ok()) {
@@ -162,6 +167,9 @@ pub enum ServerError {
 
     #[error("unexpected error: {0}")]
     Unexpected(#[from] Box<dyn std::error::Error>),
+
+    #[error("unexpected error: {0}")]
+    Anyhow(#[from] anyhow::Error),
 }
 
 #[cfg(test)]

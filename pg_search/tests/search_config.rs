@@ -61,7 +61,7 @@ fn default_tokenizer_config(mut conn: PgConnection) {
     	table_name => 'tokenizer_config',
     	schema_name => 'paradedb',
     	key_field => 'id',
-    	text_fields => '{"description": {}}'
+    	text_fields => paradedb.field('description')
     )"#
     .execute(&mut conn);
 
@@ -82,7 +82,7 @@ fn en_stem_tokenizer_config(mut conn: PgConnection) {
     	table_name => 'tokenizer_config',
     	schema_name => 'paradedb',
     	key_field => 'id',
-    	text_fields => '{"description": {"tokenizer": { "type": "en_stem" }}}'
+    	text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem'))
     )"#
     .execute(&mut conn);
 
@@ -103,7 +103,7 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
     	table_name => 'tokenizer_config',
     	schema_name => 'paradedb',
     	key_field => 'id',
-	    text_fields => '{"description": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 8, "prefix_only": false}}}'
+	    text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 8, prefix_only => false))
     )"#
     .execute(&mut conn);
 
@@ -126,7 +126,7 @@ fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
     	table_name => 'tokenizer_config',
     	schema_name => 'paradedb',
     	key_field => 'id',
-	    text_fields => '{"description": {"tokenizer": {"type": "chinese_compatible"}, "record": "position"}}'
+	    text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('chinese_compatible'), record => 'position')
     );
     INSERT INTO paradedb.tokenizer_config (description, rating, category) VALUES ('电脑', 4, 'Electronics');
     "#

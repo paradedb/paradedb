@@ -211,11 +211,9 @@ fn language_stem_search_test(mut conn: PgConnection) {
                 index_name => 'stem_test',
                 table_name => 'test_table',
                 key_field => 'id',
-                text_fields => '{{
-                    author: {{tokenizer: {{type: "stem", language:"{}"}}, record: "position"}},
-                    title: {{tokenizer: {{type: "stem", language:"{}"}}, record: "position"}},
-                    message: {{tokenizer: {{type: "stem", language:"{}"}}, record: "position"}}
-                }}'
+                text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('stem', language => '{}'), record => 'position') ||
+                               paradedb.field('title', tokenizer => paradedb.tokenizer('stem', language => '{}'), record => 'position') ||
+                               paradedb.field('message', tokenizer => paradedb.tokenizer('stem', language => '{}'), record => 'position')
             );"#,
             data, language_str, language_str, language_str
         );

@@ -26,14 +26,6 @@ CALL paradedb.create_bm25(
     index_name => 'one_republic_songs',
     table_name => 'one_republic_songs',
     key_field => 'song_id',
-    text_fields => '{
-        title: {},
-        album: {},
-        genre: {},
-        description: {},
-        lyrics: {fast: true}
-    }',
-    numeric_fields => '{
-        release_year: {},
-    }'
+    text_fields => paradedb.field('title') || paradedb.field('album') || paradedb.field('genre') || paradedb.field('description') || paradedb.field('lyrics', fast => true),
+    numeric_fields => paradedb.field('release_year')
 );

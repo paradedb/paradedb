@@ -33,54 +33,9 @@ const MAX_INDEX_NAME_LENGTH: usize = 52;
 #[pg_extern(
     sql = "
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
-    index_name text,
-    table_name text,
-    key_field text,
-    schema_name text DEFAULT CURRENT_SCHEMA,
-    text_fields text DEFAULT '{}',
-    numeric_fields text DEFAULT '{}',
-    boolean_fields text DEFAULT '{}',
-    json_fields text DEFAULT '{}',
-    datetime_fields text DEFAULT '{}',
-    predicates text DEFAULT ''
-)
-LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-",
-    name = "create_bm25"
-)]
-#[allow(clippy::too_many_arguments)]
-fn create_bm25_str(
-    index_name: &str,
-    table_name: &str,
-    key_field: &str,
-    schema_name: &str,
-    text_fields: &str,
-    numeric_fields: &str,
-    boolean_fields: &str,
-    json_fields: &str,
-    datetime_fields: &str,
-    predicates: &str,
-) -> Result<()> {
-    create_bm25_impl(
-        index_name,
-        table_name,
-        key_field,
-        schema_name,
-        text_fields,
-        numeric_fields,
-        boolean_fields,
-        json_fields,
-        datetime_fields,
-        predicates,
-    )
-}
-
-#[pg_extern(
-    sql = "
-CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
-    index_name text,
-    table_name text,
-    key_field text,
+    index_name text DEFAULT '',
+    table_name text DEFAULT '',
+    key_field text DEFAULT '',
     schema_name text DEFAULT CURRENT_SCHEMA,
     text_fields jsonb DEFAULT '{}',
     numeric_fields jsonb DEFAULT '{}',

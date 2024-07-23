@@ -169,7 +169,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
         index_name => 'mock_items',
         schema_name => 'public',
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     )"
     .execute(&mut source_conn);
     "CALL paradedb.create_bm25(
@@ -177,7 +177,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
         index_name => 'mock_items',
         schema_name => 'public',
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     )"
     .execute(&mut target_conn);
 

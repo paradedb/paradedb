@@ -38,7 +38,9 @@ CALL paradedb.create_bm25(
     numeric_fields => paradedb.field('rating'),
     boolean_fields => paradedb.field('in_stock'),
     json_fields => paradedb.field('metadata'),
-    datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date') || paradedb.field('latest_available_time')
+    datetime_fields => paradedb.field('created_at') ||
+                       paradedb.field('last_updated_date') ||
+                       paradedb.field('latest_available_time')
 );
 ```
 

@@ -466,8 +466,7 @@ CALL paradedb.create_bm25(
 ## Legacy Syntax
 
 The `paradedb.field` and `paradedb.tokenizer` functions were introduced in `0.8.6`. These functions are
-syntactic sugar for generating `JSONB`. Users that prefer the old syntax can still pass `jsonb` or
-JSON5-formatted strings into `_fields`.
+syntactic sugar for generating `JSONB`. Users that prefer the old syntax can still pass `jsonb` into `_fields`.
 
 ```sql
 -- These two queries are equivalent
@@ -475,7 +474,7 @@ CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  text_fields => '{description: {tokenizer: {type: "en_stem"}}}'
+  text_fields => '{"description": {"tokenizer": {"type": "en_stem"}}}'
 );
 
 CALL paradedb.create_bm25(

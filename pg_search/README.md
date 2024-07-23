@@ -6,7 +6,7 @@
 [![Test pg_search](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml)
 [![Benchmark pg_search](https://github.com/paradedb/paradedb/actions/workflows/benchmark-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/benchmark-pg_search.yml)
 
-## Overview
+## Overview--lcp20240723-aggregations-facets
 
 `pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`.
 

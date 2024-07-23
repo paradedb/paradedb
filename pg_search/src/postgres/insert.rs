@@ -68,7 +68,7 @@ pub unsafe extern "C" fn aminsert(
         .get_uuid()
         .expect("uuid not specified in 'create_bm25' index build, please rebuild pg_search index");
 
-    aminsert_internal(index_relation, values, isnull, heap_tid, uuid)
+    aminsert_internal(index_relation, values, isnull, heap_tid, &uuid)
 }
 
 #[inline(always)]

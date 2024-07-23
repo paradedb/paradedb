@@ -61,7 +61,7 @@ pub unsafe extern "C" fn aminsert(
     _check_unique: pg_sys::IndexUniqueCheck,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    let relid = pg_sys::RelationGetRelid(index_relation);
+    let relid = pg_sys::RelnameGetRelid(index_relation);
     let rdopts: PgBox<SearchIndexCreateOptions> = if !relid.is_null() {
         unsafe { PgBox::from_pg(relid as *mut SearchIndexCreateOptions) }
     } else {

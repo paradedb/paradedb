@@ -23,7 +23,7 @@ use crate::{env::register_commit_callback, globals::WriterGlobal};
 use pgrx::*;
 
 #[allow(clippy::too_many_arguments)]
-#[cfg(any(feature = "pg13" feature = "pg14", feature = "pg15", feature = "pg16"))]
+#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,

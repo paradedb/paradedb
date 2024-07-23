@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="../docs/logo/pg_search.svg" alt="pg_search" width="500px"></a>
+  <img src="../docs/logo/pg_search.svg" alt="pg_search" width="500px">lcp202406-aggregations-facets</a>
 <br>
 </h1>
 

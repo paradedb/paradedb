@@ -66,20 +66,11 @@ pub async fn executor_run(
         // Tech Debt: Find a less hacky way to let COPY/CREATE go through
         || query.to_lowercase().starts_with("copy")
         || query.to_lowercase().starts_with("create")
+        || query.to_lowercase().starts_with("prepare")
     {
         prev_hook(query_desc, direction, count, execute_once);
         return Ok(());
     }
-
-    let query = if query.to_lowercase().starts_with("prepare") {
-        // PREPARE name [ ( data_type [, ...] ) ] AS statement, it always includes keyword AS
-        let query_with_placeholder = query[query.to_lowercase().find("as").unwrap() + "AS".len()..]
-            .trim()
-            .to_owned();
-        fill_prepare_query_string(query_desc.clone(), query_with_placeholder)?
-    } else {
-        query
-    };
 
     match connection::create_arrow(query.as_str()) {
         Err(err) => {

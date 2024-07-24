@@ -1,0 +1,30 @@
+---
+title: 0.8.6
+---
+
+## pg_search
+
+### Bug Fixes
+
+- Fixed a cache invalidation bug affecting concurrent connections during index re-creation
+
+### New Features
+
+- Introduced new `paradedb.field` and `paradedb.tokenizer` functions that make it easier to configure fields in `create_bm25`. While Postgres
+  `JSONB` can still be passed to `create_bm25`, JSON5 strings without double quotes around keys are no longer supported.
+
+## pg_lakehouse
+
+### New Features
+
+- Introduced a `preserve_casing` option to `CREATE FOREIGN TABLE` that preserves the casing of column names during auto schema creation
+
+## ParadeDB
+
+### New Features
+
+- Upgraded Dockerfile to use `pgvector` version `0.7.3`
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.8.6).

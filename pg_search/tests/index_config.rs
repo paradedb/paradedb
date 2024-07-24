@@ -76,7 +76,7 @@ fn prevent_duplicate(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => '{description: {}}')"
+        text_fields => paradedb.field('description'))"
         .execute(&mut conn);
 
     match "CALL paradedb.create_bm25(
@@ -84,7 +84,7 @@ fn prevent_duplicate(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => '{description: {}}')"
+        text_fields => paradedb.field('description'))"
         .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with relation already exists"),
@@ -121,7 +121,7 @@ async fn drop_column(mut conn: PgConnection) {
         schema_name => 'public',
         table_name => 'test_table',
         key_field => 'id',
-        text_fields => '{fulltext: {}}'
+        text_fields => paradedb.field('fulltext')
     );
 
     CALL paradedb.drop_bm25('test_index');
@@ -135,7 +135,7 @@ async fn drop_column(mut conn: PgConnection) {
         schema_name => 'public',
         table_name => 'test_table',
         key_field => 'id',
-        text_fields => '{fulltext: {}}'
+        text_fields => paradedb.field('fulltext')
     );
     "#
     .execute(&mut conn);
@@ -158,7 +158,7 @@ fn default_text_field(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    text_fields => '{description: {}}')"
+	    text_fields => paradedb.field('description'))"
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -180,10 +180,7 @@ fn text_field_with_options(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    text_fields => '{description: {
-	        fast: true, "tokenizer": { type: "en_stem" },
-	        record: "freq", normalizer: "raw"
-	     }}'
+	    text_fields => paradedb.field('description', fast => true, record => 'freq', normalizer => 'raw', tokenizer => paradedb.tokenizer('en_stem'))
     )"#
     .execute(&mut conn);
 
@@ -206,9 +203,8 @@ fn multiple_text_fields(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    text_fields => '{
-	        "description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"},
-	        category: {}}'
+	    text_fields => paradedb.field('description', fast => true, record => 'freq', normalizer => 'raw', tokenizer => paradedb.tokenizer('en_stem')) ||
+                       paradedb.field('category')
     )"#
     .execute(&mut conn);
 
@@ -231,7 +227,7 @@ fn default_numeric_field(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    numeric_fields => '{rating: {}}'
+	    numeric_fields => paradedb.field('rating')
     );"
     .execute(&mut conn);
 
@@ -253,7 +249,7 @@ fn numeric_field_with_options(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    numeric_fields => '{rating: {fast: false}}'
+	    numeric_fields => paradedb.field('rating', fast => false)
     )"
     .execute(&mut conn);
 
@@ -275,7 +271,7 @@ fn default_boolean_field(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    boolean_fields => '{in_stock: {}}'
+	    boolean_fields => paradedb.field('in_stock')
     )"
     .execute(&mut conn);
 
@@ -297,7 +293,7 @@ fn boolean_field_with_options(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    boolean_fields => '{in_stock: {fast: false}}'
+	    boolean_fields => paradedb.field('in_stock', fast => false)
     )"
     .execute(&mut conn);
 
@@ -319,7 +315,7 @@ fn default_json_field(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    json_fields => '{metadata: {}}'
+	    json_fields => paradedb.field('metadata')
     )"
     .execute(&mut conn);
 
@@ -341,9 +337,7 @@ fn json_field_with_options(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    json_fields => '{
-	        metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}
-	    }'
+	    json_fields => paradedb.field('metadata', fast => true, expand_dots => false, tokenizer => paradedb.tokenizer('raw'), normalizer => 'raw')
     )"#
     .execute(&mut conn);
 
@@ -365,7 +359,7 @@ fn default_datetime_field(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        datetime_fields => '{created_at: {}, last_updated_date: {}}'
+        datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date')
     )"
     .execute(&mut conn);
 
@@ -388,10 +382,7 @@ fn datetime_field_with_options(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        datetime_fields => '{
-            created_at: {fast: true},
-            last_updated_date: {fast: false}
-        }'
+        datetime_fields => paradedb.field('created_at', fast => true) || paradedb.field('last_updated_date', fast => false)
     )"#
     .execute(&mut conn);
 
@@ -413,10 +404,10 @@ fn multiple_fields(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    text_fields => '{description: {}, category: {}}',
-	    numeric_fields => '{rating: {}}',
-	    boolean_fields => '{in_stock: {}}',
-	    json_fields => '{metadata: {}}'
+	    text_fields => paradedb.field('description') || paradedb.field('category'),
+	    numeric_fields => paradedb.field('rating'),
+	    boolean_fields => paradedb.field('in_stock'),
+	    json_fields => paradedb.field('metadata')
     )"
     .execute(&mut conn);
 
@@ -445,10 +436,10 @@ fn null_values(mut conn: PgConnection) {
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
-	    text_fields => '{description: {}, category: {}}',
-	    numeric_fields => '{rating: {}}',
-	    boolean_fields => '{in_stock: {}}',
-	    json_fields => '{metadata: {}}'
+	    text_fields => paradedb.field('description') || paradedb.field('category'),
+	    numeric_fields => paradedb.field('rating'),
+	    boolean_fields => paradedb.field('in_stock'),
+	    json_fields => paradedb.field('metadata')
     )"
     .execute(&mut conn);
 
@@ -479,7 +470,7 @@ fn null_key_field_build(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     )".execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with null key_field"),
@@ -501,7 +492,7 @@ fn null_key_field_insert(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     )"
     .execute(&mut conn);
 
@@ -527,7 +518,7 @@ fn column_name_camelcase(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'IdName',
-        text_fields => '{ColumnName: {}}'
+        text_fields => paradedb.field('ColumnName')
     )"
     .execute(&mut conn);
 
@@ -547,7 +538,7 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
         table_name => 'index_config1',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     )"
     .execute(&mut conn);
     "CALL paradedb.create_bm25(
@@ -555,7 +546,7 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
         table_name => 'index_config2',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     )"
     .execute(&mut conn);
     "BEGIN".execute(&mut conn);
@@ -582,7 +573,7 @@ fn index_name_too_long(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     )"
     .execute_result(&mut conn) {
         Ok(_) => panic!("should fail with index name too long"),

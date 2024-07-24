@@ -54,7 +54,7 @@ fn quickstart(mut conn: PgConnection) {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}'
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category')
     );
     "#
     .execute(&mut conn);
@@ -85,7 +85,7 @@ fn quickstart(mut conn: PgConnection) {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {tokenizer: {type: "ngram", min_gram: 4, max_gram: 4, prefix_only: false}}, category: {}}'
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false)) || paradedb.field('category')
     );
     "#.execute(&mut conn);
     let rows: Vec<(String, i32, String)> = r#"
@@ -248,7 +248,7 @@ fn identical_queries(mut conn: PgConnection) {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {}, category: {}}'
+            text_fields => paradedb.field('description') || paradedb.field('category')
     );
     "#
     .execute(&mut conn);
@@ -287,8 +287,8 @@ fn score_bm25(mut conn: PgConnection) {
         schema_name => 'public',
         table_name => 'mock_items',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
-        numeric_fields => '{rating: {}}'
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating')
     );
     "#
     .execute(&mut conn);
@@ -346,8 +346,8 @@ fn snippet(mut conn: PgConnection) {
         schema_name => 'public',
         table_name => 'mock_items',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
-        numeric_fields => '{rating: {}}'
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating')
     );
     "#
     .execute(&mut conn);

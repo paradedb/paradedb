@@ -42,11 +42,9 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
     	index_name => 'korean',
     	table_name => 'korean',
     	key_field => 'id',
-        text_fields => '{
-            author: {tokenizer: {type: "korean_lindera"}, record: "position"},
-            title: {tokenizer: {type: "korean_lindera"}, record: "position"},
-            message: {tokenizer: {type: "korean_lindera"}, record: "position"}
-        }'
+        text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('korean_lindera'), record => 'position') ||
+                       paradedb.field('title', tokenizer => paradedb.tokenizer('korean_lindera'), record => 'position') ||
+                       paradedb.field('message', tokenizer => paradedb.tokenizer('korean_lindera'), record => 'position')
     )"#
     .execute(&mut conn);
 
@@ -80,11 +78,9 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
     	index_name => 'chinese',
     	table_name => 'chinese',
         key_field => 'id',
-        text_fields => '{
-            author: {tokenizer: {type: "chinese_lindera"}, record: "position"},
-            title: {tokenizer: {type: "chinese_lindera"}, record: "position"},
-            message: {tokenizer: {type: "chinese_lindera"}, record: "position"}
-        }'
+        text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('chinese_lindera'), record => 'position') ||
+                       paradedb.field('title', tokenizer => paradedb.tokenizer('chinese_lindera'), record => 'position') ||
+                       paradedb.field('message', tokenizer => paradedb.tokenizer('chinese_lindera'), record => 'position')
     )"#
     .execute(&mut conn);
 
@@ -119,11 +115,9 @@ async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
     	index_name => 'japanese',
     	table_name => 'japanese',
         key_field => 'id',
-        text_fields => '{
-            author: {tokenizer: {type: "japanese_lindera"}, record: "position"},
-            title: {tokenizer: {type: "japanese_lindera"}, record: "position"},
-            message: {tokenizer: {type: "japanese_lindera"}, record: "position"}
-        }'
+        text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('japanese_lindera'), record => 'position') ||
+                       paradedb.field('title', tokenizer => paradedb.tokenizer('japanese_lindera'), record => 'position') ||
+                       paradedb.field('message', tokenizer => paradedb.tokenizer('japanese_lindera'), record => 'position')
     )"#
     .execute(&mut conn);
 

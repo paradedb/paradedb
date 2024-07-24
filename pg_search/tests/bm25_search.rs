@@ -168,7 +168,7 @@ fn quoted_table_name(mut conn: PgConnection) {
     	index_name => 'activity',
     	table_name => 'Activity',
     	key_field => 'key',
-    	text_fields => '{"name": {}}'
+    	text_fields => paradedb.field('name')
     )"#
     .execute(&mut conn);
     let row: (i32, String, i32) =
@@ -192,7 +192,7 @@ fn text_arrays(mut conn: PgConnection) {
     	index_name => 'example_table',
     	table_name => 'example_table',
     	key_field => 'id',
-    	text_fields => '{text_array: {}, varchar_array: {}}'
+    	text_fields => paradedb.field('text_array') || paradedb.field('varchar_array')
     )"#
     .execute(&mut conn);
     let row: (i32,) =
@@ -238,7 +238,7 @@ fn uuid(mut conn: PgConnection) {
     	index_name => 'uuid_table',
         table_name => 'uuid_table',
         key_field => 'id',
-        text_fields => '{"some_text": {}}'
+        text_fields => paradedb.field('some_text')
     );
     
     CALL paradedb.drop_bm25('uuid_table');"#
@@ -249,7 +249,7 @@ fn uuid(mut conn: PgConnection) {
         index_name => 'uuid_table',
         table_name => 'uuid_table',
         key_field => 'id',
-        text_fields => '{"some_text": {}, "random_uuid": {}}'
+        text_fields => paradedb.field('some_text') || paradedb.field('random_uuid')
     )"#
     .execute(&mut conn);
 
@@ -607,7 +607,7 @@ fn explain(mut conn: PgConnection) {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}'
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category')
     )"
     .execute(&mut conn);
 
@@ -634,7 +634,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
             schema_name => 'public',
             table_name => 'mock_items',
             key_field => 'id',
-            text_fields => '{description: {tokenizer: {type: \"en_stem\"}}}'
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem'))
     )"
     .execute(&mut conn);
 
@@ -821,8 +821,8 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -897,8 +897,8 @@ fn bm25_partial_index_explain(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_explain',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -926,8 +926,8 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_hybrid',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -1016,8 +1016,8 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'city = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -1029,8 +1029,8 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''123''::INTEGER'
     );"
     .execute_result(&mut conn);
@@ -1042,8 +1042,8 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics''' 
     );"
     .execute_result(&mut conn);
@@ -1054,8 +1054,8 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
@@ -1073,8 +1073,8 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
         schema_name => 'paradedb',
         table_name => 'test_partial_index',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: \"en_stem\"}}, category: {}}',
-        numeric_fields => '{rating: {}}',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
         predicates => 'category = ''Electronics'''
     );"
     .execute(&mut conn);
@@ -1125,7 +1125,7 @@ fn high_limit_rows(mut conn: PgConnection) {
         schema_name => 'public', 
         index_name => 'large_series', 
         key_field => 'id',
-        text_fields => '{description: {}}'
+        text_fields => paradedb.field('description')
     );"
     .execute(&mut conn);
 

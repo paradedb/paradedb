@@ -17,7 +17,7 @@
 
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
-use pgrx::Spi;
+use pgrx::{JsonB, Spi};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -30,23 +30,54 @@ use super::format::format_hybrid_function;
 // but we need to account for the trailing _bm25_index suffix
 const MAX_INDEX_NAME_LENGTH: usize = 52;
 
-#[pg_extern(sql = "
+#[pg_extern(
+    sql = "
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     index_name text DEFAULT '',
     table_name text DEFAULT '',
     key_field text DEFAULT '',
     schema_name text DEFAULT CURRENT_SCHEMA,
-    text_fields text DEFAULT '{}',
-    numeric_fields text DEFAULT '{}',
-    boolean_fields text DEFAULT '{}',
-    json_fields text DEFAULT '{}',
-    datetime_fields text DEFAULT '{}',
+    text_fields jsonb DEFAULT '{}',
+    numeric_fields jsonb DEFAULT '{}',
+    boolean_fields jsonb DEFAULT '{}',
+    json_fields jsonb DEFAULT '{}',
+    datetime_fields jsonb DEFAULT '{}',
     predicates text DEFAULT ''
 )
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-")]
+",
+    name = "create_bm25"
+)]
 #[allow(clippy::too_many_arguments)]
-fn create_bm25(
+fn create_bm25_jsonb(
+    index_name: &str,
+    table_name: &str,
+    key_field: &str,
+    schema_name: &str,
+    text_fields: JsonB,
+    numeric_fields: JsonB,
+    boolean_fields: JsonB,
+    json_fields: JsonB,
+    datetime_fields: JsonB,
+    predicates: &str,
+) -> Result<()> {
+    create_bm25_impl(
+        index_name,
+        table_name,
+        key_field,
+        schema_name,
+        &serde_json::to_string(&text_fields)?,
+        &serde_json::to_string(&numeric_fields)?,
+        &serde_json::to_string(&boolean_fields)?,
+        &serde_json::to_string(&json_fields)?,
+        &serde_json::to_string(&datetime_fields)?,
+        predicates,
+    )
+}
+
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn create_bm25_impl(
     index_name: &str,
     table_name: &str,
     key_field: &str,

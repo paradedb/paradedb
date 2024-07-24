@@ -39,7 +39,7 @@ fn boolean_term(mut conn: PgConnection) {
         table_name => 'test_table',
         index_name => 'test_index',
         key_field => 'id',
-        boolean_fields => '{"value": {}}'
+        boolean_fields => paradedb.field('value')
     );
     "#
     .execute(&mut conn);
@@ -77,7 +77,7 @@ fn integer_term(mut conn: PgConnection) {
         table_name => 'test_table',
         index_name => 'test_index',
         key_field => 'id',
-        numeric_fields => '{"value_int2": {}, "value_int4": {}, "value_int8": {}}'
+        numeric_fields => paradedb.field('value_int2') || paradedb.field('value_int4') || paradedb.field('value_int8')
     );
     "#
     .execute(&mut conn);
@@ -136,7 +136,7 @@ fn float_term(mut conn: PgConnection) {
         table_name => 'test_table',
         index_name => 'test_index',
         key_field => 'id',
-        numeric_fields => '{"value_float4": {}, "value_float8": {}, "value_numeric": {}}'
+        numeric_fields => paradedb.field('value_float4') || paradedb.field('value_float8') || paradedb.field('value_numeric')
     );
     "#
     .execute(&mut conn);
@@ -195,7 +195,9 @@ fn text_term(mut conn: PgConnection) {
         table_name => 'test_table',
         index_name => 'test_index',
         key_field => 'id',
-        text_fields => '{"value_text": {}, "value_varchar": {}, "value_uuid": {tokenizer: { type: "raw" }, normalizer: "raw", record: "basic", fieldnorms: false}}'
+        text_fields => paradedb.field('value_text') || 
+                       paradedb.field('value_varchar') || 
+                       paradedb.field('value_uuid', tokenizer => paradedb.tokenizer('raw'), normalizer => 'raw', record => 'basic', fieldnorms => false)        
     );
     "#
     .execute(&mut conn);
@@ -254,7 +256,11 @@ fn datetime_term(mut conn: PgConnection) {
         table_name => 'test_table',
         index_name => 'test_index',
         key_field => 'id',
-        datetime_fields => '{"value_date": {}, "value_timestamp": {}, "value_timestamptz": {}, "value_time": {}, "value_timetz": {}}'
+        datetime_fields => paradedb.field('value_date') || 
+                           paradedb.field('value_timestamp') || 
+                           paradedb.field('value_timestamptz') || 
+                           paradedb.field('value_time') || 
+                           paradedb.field('value_timetz')
     );
     "#
     .execute(&mut conn);

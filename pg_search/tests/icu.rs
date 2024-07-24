@@ -32,11 +32,9 @@ fn test_icu_arabic_tokenizer(mut conn: PgConnection) {
 	    index_name => 'idx_arabic',
 	    table_name => 'icu_arabic_posts',
 	    key_field => 'id',
-	    text_fields => '{
-            author:  {tokenizer: {type: "icu"},},
-            title:   {tokenizer: {type: "icu"},},
-            message: {tokenizer: {type: "icu"},}
-        }'
+	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
+                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
+                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
     )"#
     .execute(&mut conn);
 
@@ -64,11 +62,9 @@ fn test_icu_amharic_tokenizer(mut conn: PgConnection) {
 	    index_name => 'idx_amharic',
 	    table_name => 'icu_amharic_posts',
 	    key_field => 'id',
-	    text_fields => '{
-            author:  {tokenizer: {type: "icu"},},
-            title:   {tokenizer: {type: "icu"},},
-            message: {tokenizer: {type: "icu"},}
-        }'
+	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
+                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
+                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
     )"#
     .execute(&mut conn);
 
@@ -96,11 +92,9 @@ fn test_icu_greek_tokenizer(mut conn: PgConnection) {
 	    index_name => 'idx_greek',
 	    table_name => 'icu_greek_posts',
 	    key_field => 'id',
-	    text_fields => '{
-            author:  {tokenizer: {type: "icu"},},
-            title:   {tokenizer: {type: "icu"},},
-            message: {tokenizer: {type: "icu"},}
-        }'
+	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
+                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
+                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
     )"#
     .execute(&mut conn);
 
@@ -128,11 +122,9 @@ fn test_icu_czech_tokenizer(mut conn: PgConnection) {
 	    index_name => 'idx_czech',
 	    table_name => 'icu_czech_posts',
 	    key_field => 'id',
-	    text_fields => '{
-            author:  {tokenizer: {type: "icu"},},
-            title:   {tokenizer: {type: "icu"},},
-            message: {tokenizer: {type: "icu"},}
-        }'
+	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
+                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
+                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
     )"#
     .execute(&mut conn);
 
@@ -160,7 +152,7 @@ fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
 	    index_name => 'idx_czech_content',
 	    table_name => 'icu_czech_posts',
 	    key_field => 'id',
-	    text_fields => '{message: {tokenizer: {type: "icu"}}}'
+	    text_fields => paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
     )"#
     .execute(&mut conn);
 

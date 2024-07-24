@@ -114,12 +114,12 @@ To index the table, use the following SQL command:
 
 ```sql
 CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        schema_name => 'public',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
-        numeric_fields => '{rating: {}}'
+  index_name => 'search_idx',
+  schema_name => 'public',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description') || paradedb.field('category'),
+  numeric_fields => paradedb.field('rating')
 );
 ```
 

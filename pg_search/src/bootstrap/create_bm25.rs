@@ -187,7 +187,7 @@ fn create_bm25_impl(
 
     Spi::run(&format!(
         "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}, uuid={}) {};",
-        spi::quote_identifier(format!("{}_bm25_index", index_name)),
+        spi::quote_identifier(index_uuid.clone()),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
         spi::quote_identifier(key_field),

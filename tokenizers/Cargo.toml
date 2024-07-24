@@ -1,6 +1,6 @@
 [package]
 name = "tokenizers"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
 
 [features]

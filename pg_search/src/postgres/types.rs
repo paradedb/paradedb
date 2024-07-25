@@ -114,7 +114,6 @@ impl TantivyValue {
         datum: Datum,
         oid: PgOid,
     ) -> Result<Vec<Self>, TantivyValueError> {
-        pgrx::info!("try from datum {:?}", oid);
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 // Tantivy has a limitation that prevents JSON top-level arrays from being
@@ -134,7 +133,22 @@ impl TantivyValue {
                         serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
                     Ok(Self::json_value_to_tantivy_value(json_value))
                 }
-                _ => {
+                PgBuiltInOids::BOOLOID
+                | PgBuiltInOids::INT2OID
+                | PgBuiltInOids::INT4OID
+                | PgBuiltInOids::INT8OID
+                | PgBuiltInOids::OIDOID
+                | PgBuiltInOids::FLOAT4OID
+                | PgBuiltInOids::FLOAT8OID
+                | PgBuiltInOids::NUMERICOID
+                | PgBuiltInOids::TEXTOID
+                | PgBuiltInOids::VARCHAROID
+                | PgBuiltInOids::DATEOID
+                | PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | PgBuiltInOids::TIMEOID
+                | PgBuiltInOids::TIMETZOID
+                | PgBuiltInOids::UUIDOID => {
                     let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?;
                     array
@@ -143,6 +157,7 @@ impl TantivyValue {
                         .map(|element_datum| Self::try_from_datum(element_datum, oid))
                         .collect()
                 }
+                _ => Err(TantivyValueError::UnsupportedArrayOid(oid.value())),
             },
             _ => Err(TantivyValueError::InvalidOid),
         }

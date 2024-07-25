@@ -114,22 +114,9 @@ impl TantivyValue {
         datum: Datum,
         oid: PgOid,
     ) -> Result<Vec<Self>, TantivyValueError> {
+        pgrx::info!("try from datum {:?}", oid);
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                    let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?;
-                    array
-                        .iter()
-                        .flatten()
-                        .map(|element_datum| {
-                            TantivyValue::try_from(
-                                String::from_datum(element_datum, false)
-                                    .ok_or(TantivyValueError::DatumDeref)?,
-                            )
-                        })
-                        .collect()
-                }
                 // Tantivy has a limitation that prevents JSON top-level arrays from being
                 // inserted into the index. Therefore, we need to flatten the array elements
                 // individually before converting them into Tantivy values.
@@ -147,7 +134,15 @@ impl TantivyValue {
                         serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
                     Ok(Self::json_value_to_tantivy_value(json_value))
                 }
-                _ => Err(TantivyValueError::UnsupportedArrayOid(oid.value())),
+                _ => {
+                    let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?;
+                    array
+                        .iter()
+                        .flatten()
+                        .map(|element_datum| Self::try_from_datum(element_datum, oid))
+                        .collect()
+                }
             },
             _ => Err(TantivyValueError::InvalidOid),
         }

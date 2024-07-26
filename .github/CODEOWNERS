@@ -5,9 +5,9 @@
 /benchmarks/                                                   @philippemnoel @rebasedming
 /cargo-paradedb/                                               @neilyio @rebasedming
 /docker/                                                       @philippemnoel @rebasedming
-/docs/                                                         @rebasedming @neilyio @sardination
+/docs/                                                         @rebasedming @neilyio
 /pg_analytics/                                                 @rebasedming @philippemnoel
-/pg_lakehouse/                                                 @rebasedming @neilyio @sardination
-/pg_search/                                                    @rebasedming @neilyio @sardination
+/pg_lakehouse/                                                 @rebasedming @neilyio
+/pg_search/                                                    @rebasedming @neilyio
 /shared/                                                       @rebasedming @neilyio
 /tokenizers/                                                   @rebasedming @neilyio

@@ -286,3 +286,65 @@ async fn test_create_heap_from_parquet(mut conn: PgConnection, tempdir: TempDir)
 
     Ok(())
 }
+
+#[rstest]
+async fn test_quals_pushdown(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
+    let stored_batch = primitive_record_batch()?;
+    let parquet_path = tempdir.path().join("test_arrow_types.parquet");
+    let parquet_file = File::create(&parquet_path)?;
+
+    let mut writer = ArrowWriter::try_new(parquet_file, stored_batch.schema(), None).unwrap();
+    writer.write(&stored_batch)?;
+    writer.close()?;
+
+    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "primitive")
+        .execute(&mut conn);
+
+    "CREATE TABLE t1 (a int);".execute(&mut conn);
+
+    let fields: Vec<(&str, &str, &str, i32)> = vec![
+        ("boolean_col", "false", "false", 0),
+        ("int8_col", "-1", "-1", -1),
+        ("int16_col", "0", "0", 0),
+        ("int32_col", "1", "1", 1),
+        ("int64_col", "-1", "-1", -1),
+        ("uint8_col", "0", "0", 0),
+        ("uint16_col", "1", "1", 1),
+        ("uint32_col", "2", "2", -1),
+        ("uint64_col", "0", "0", 0),
+        ("float32_col", "1.0", "1", 1),
+        ("float64_col", "-1.0", "-1", -1),
+        ("date32_col", r#"'2020-01-01'"#, r#"'2020-01-01'"#, 1),
+        ("date64_col", r#"'2021-01-02'"#, r#"'2021-01-02'"#, -1),
+        //TODO ("binary_col", r#"decode('ABCDEF12','hex')"#, r#"test"#),
+    ];
+
+    for (col_name, val, plan_val, res) in fields {
+        let where_clause = format!("{col_name} = {val}");
+        // The condition in the clause may undergo simplification
+        let plan_clause = format!("{col_name} = {plan_val}");
+
+        // prevent executor push down, make sure it goes FDW
+        let query =
+            format!("SELECT int32_col from primitive LEFT join t1 on true WHERE {where_clause}");
+        let explain: Vec<(String,)> = format!("EXPLAIN {query}").fetch(&mut conn);
+
+        assert!(
+            explain[3].0.contains(&plan_clause),
+            "explain: {}\nquery: {}",
+            explain[3].0,
+            query,
+        );
+        // make sure
+        let rows: Vec<(i32,)> = query.clone().fetch(&mut conn);
+        assert!(
+            rows.len() == 1,
+            "rows length: {}\nquery: {}",
+            rows.len(),
+            query
+        );
+        assert_eq!(res, rows[0].0, "expect: {},  result: {} ", res, rows[0].0);
+    }
+
+    Ok(())
+}

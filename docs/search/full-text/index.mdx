@@ -52,7 +52,7 @@ SELECT * FROM search_idx.search('description:keyboard');
 
 ### Text Fields
 
-Columns of type `VARCHAR`, `TEXT`, `UUID`, `VARCHAR[]`, and `TEXT[]` can be indexed as text fields.
+Columns of type `VARCHAR`, `TEXT`, `UUID`, and their corresponding array types can be indexed as text fields.
 
 ```sql
 CALL paradedb.create_bm25(
@@ -98,9 +98,8 @@ CALL paradedb.create_bm25(
 
 ### Numeric Fields
 
-Columns of type `SMALLINT`, `INTEGER`, `BIGINT`, `OID`, `REAL`, `DOUBLE PRECISION`, and `NUMERIC` can be indexed
-as `numeric_fields`. The main reason to index a numeric field is if it is used for filtering
-or aggregations as part of the search query.
+Columns of type `SMALLINT`, `INTEGER`, `BIGINT`, `OID`, `REAL`, `DOUBLE PRECISION`, `NUMERIC`, and their corresponding array types can be indexed
+as `numeric_fields`. The main reason to index a numeric field is if it is used for filtering or aggregations as part of the search query.
 
 ```sql
 CALL paradedb.create_bm25(
@@ -128,7 +127,7 @@ CALL paradedb.create_bm25(
 
 ### Boolean Fields
 
-Columns of type `BOOLEAN` can be indexed as `boolean_fields`. Indexing a boolean field is useful if
+Columns of type `BOOLEAN` and `BOOLEAN[]` can be indexed as `boolean_fields`. Indexing a boolean field is useful if
 it is used for filtering as part of the search query.
 
 ```sql
@@ -200,7 +199,7 @@ CALL paradedb.create_bm25(
 
 ### Datetime Fields
 
-Columns of type `DATE`, `TIMESTAMP`, `TIMESTAMPTZ`, `TIME`, and `TIMETZ` can be indexed as `datetime_fields`.
+Columns of type `DATE`, `TIMESTAMP`, `TIMESTAMPTZ`, `TIME`, `TIMETZ`, and their corresponding array types can be indexed as `datetime_fields`.
 Indexing a datetime field is useful if it is used for filtering as part of the search query.
 
 ```sql

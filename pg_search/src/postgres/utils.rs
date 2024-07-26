@@ -68,8 +68,12 @@ pub unsafe fn row_to_search_document(
             continue;
         }
 
-        if is_array || is_json {
-            for value in TantivyValue::try_from_datum_array(datum, base_oid).unwrap() {
+        if is_array {
+            for value in TantivyValue::try_from_datum_array(datum, base_oid)? {
+                document.insert(search_field.id, value.tantivy_schema_value());
+            }
+        } else if is_json {
+            for value in TantivyValue::try_from_datum_json(datum, base_oid)? {
                 document.insert(search_field.id, value.tantivy_schema_value());
             }
         } else {

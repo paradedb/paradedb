@@ -121,11 +121,10 @@ jobs:
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
 
-      - name: Install pgrx, grcov & llvm-tools-preview
+      - name: Install pgrx & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
-          cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

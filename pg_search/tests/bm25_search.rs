@@ -195,7 +195,6 @@ fn text_arrays(mut conn: PgConnection) {
     	text_fields => paradedb.field('text_array') || paradedb.field('varchar_array')
     )"#
     .execute(&mut conn);
-
     let row: (i32,) =
         r#"SELECT * FROM example_table.search('text_array:text1')"#.fetch_one(&mut conn);
 

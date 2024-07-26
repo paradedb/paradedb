@@ -195,6 +195,7 @@ fn text_arrays(mut conn: PgConnection) {
     	text_fields => paradedb.field('text_array') || paradedb.field('varchar_array')
     )"#
     .execute(&mut conn);
+
     let row: (i32,) =
         r#"SELECT * FROM example_table.search('text_array:text1')"#.fetch_one(&mut conn);
 
@@ -211,6 +212,127 @@ fn text_arrays(mut conn: PgConnection) {
 
     assert_eq!(rows[0], (3,));
     assert_eq!(rows[1], (2,));
+}
+
+#[rstest]
+fn int_arrays(mut conn: PgConnection) {
+    r#"CREATE TABLE example_table (
+        id SERIAL PRIMARY KEY,
+        int_array INT[],
+        bigint_array BIGINT[]
+    );
+    INSERT INTO example_table (int_array, bigint_array) VALUES 
+    ('{1, 2, 3}', '{100, 200}'),
+    ('{4, 5, 6}', '{300, 400, 500}'),
+    ('{7, 8, 9}', '{600, 700, 800, 900}');
+    CALL paradedb.create_bm25(
+        index_name => 'example_table',
+        table_name => 'example_table',
+        key_field => 'id',
+        numeric_fields => paradedb.field('int_array') || paradedb.field('bigint_array')
+    )"#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM example_table.search('int_array:1', stable_sort => true)".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (1,));
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM example_table.search('bigint_array:500', stable_sort => true)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (2,));
+}
+
+#[rstest]
+fn boolean_arrays(mut conn: PgConnection) {
+    r#"CREATE TABLE example_table (
+        id SERIAL PRIMARY KEY,
+        bool_array BOOLEAN[]
+    );
+    INSERT INTO example_table (bool_array) VALUES 
+    ('{true, true, true}'),
+    ('{false, false, false}'),
+    ('{true, true, false}');
+    CALL paradedb.create_bm25(
+        index_name => 'example_table',
+        table_name => 'example_table',
+        key_field => 'id',
+        boolean_fields => paradedb.field('bool_array')
+    )"#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM example_table.search('bool_array:true', stable_sort => true)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0], (1,));
+    assert_eq!(rows[1], (3,));
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM example_table.search('bool_array:false', stable_sort => true)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0], (2,));
+    assert_eq!(rows[1], (3,));
+}
+
+#[rstest]
+fn datetime_arrays(mut conn: PgConnection) {
+    r#"CREATE TABLE example_table (
+        id SERIAL PRIMARY KEY,
+        date_array DATE[],
+        timestamp_array TIMESTAMP[]
+    );
+    INSERT INTO example_table (date_array, timestamp_array) VALUES 
+    (ARRAY['2023-01-01'::DATE, '2023-02-01'::DATE], ARRAY['2023-02-01 12:00:00'::TIMESTAMP, '2023-02-01 13:00:00'::TIMESTAMP]),
+    (ARRAY['2023-03-01'::DATE, '2023-04-01'::DATE], ARRAY['2023-04-01 14:00:00'::TIMESTAMP, '2023-04-01 15:00:00'::TIMESTAMP]),
+    (ARRAY['2023-05-01'::DATE, '2023-06-01'::DATE], ARRAY['2023-06-01 16:00:00'::TIMESTAMP, '2023-06-01 17:00:00'::TIMESTAMP]);
+    CALL paradedb.create_bm25(
+        index_name => 'example_table',
+        table_name => 'example_table',
+        key_field => 'id',
+        datetime_fields => paradedb.field('date_array') || paradedb.field('timestamp_array')
+    )
+    "#.execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        r#"SELECT id FROM example_table.search('date_array:"2023-02-01T00:00:00Z"', stable_sort => true)"#
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (1,));
+
+    let rows: Vec<(i32,)> =
+        r#"SELECT id FROM example_table.search('timestamp_array:"2023-04-01T15:00:00Z"', stable_sort => true)"#
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (2,));
+}
+
+#[rstest]
+fn json_arrays(mut conn: PgConnection) {
+    r#"CREATE TABLE example_table (
+        id SERIAL PRIMARY KEY,
+        json_array JSONB[]
+    );
+    INSERT INTO example_table (json_array) VALUES 
+    (ARRAY['{"name": "John", "age": 30}'::JSONB, '{"name": "Jane", "age": 25}'::JSONB]),
+    (ARRAY['{"name": "Bob", "age": 40}'::JSONB, '{"name": "Alice", "age": 35}'::JSONB]),
+    (ARRAY['{"name": "Mike", "age": 50}'::JSONB, '{"name": "Lisa", "age": 45}'::JSONB]);"#
+        .execute(&mut conn);
+
+    match "CALL paradedb.create_bm25(
+        index_name => 'example_table',
+        table_name => 'example_table',
+        key_field => 'id',
+        json_fields => paradedb.field('json_array')
+    )"
+    .execute_result(&mut conn)
+    {
+        Ok(_) => panic!("json arrays should not yet be supported"),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
+    }
 }
 
 #[rstest]

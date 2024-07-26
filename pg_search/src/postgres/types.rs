@@ -116,23 +116,6 @@ impl TantivyValue {
     ) -> Result<Vec<Self>, TantivyValueError> {
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                // Tantivy has a limitation that prevents JSON top-level arrays from being
-                // inserted into the index. Therefore, we need to flatten the array elements
-                // individually before converting them into Tantivy values.
-                PgBuiltInOids::JSONBOID => {
-                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?;
-                    let json_value: Value =
-                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
-                    Ok(Self::json_value_to_tantivy_value(json_value))
-                }
-                PgBuiltInOids::JSONOID => {
-                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?;
-                    let json_value: Value =
-                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
-                    Ok(Self::json_value_to_tantivy_value(json_value))
-                }
                 PgBuiltInOids::BOOLOID
                 | PgBuiltInOids::INT2OID
                 | PgBuiltInOids::INT4OID
@@ -158,6 +141,35 @@ impl TantivyValue {
                         .collect()
                 }
                 _ => Err(TantivyValueError::UnsupportedArrayOid(oid.value())),
+            },
+            _ => Err(TantivyValueError::InvalidOid),
+        }
+    }
+
+    pub unsafe fn try_from_datum_json(
+        datum: Datum,
+        oid: PgOid,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        match &oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                // Tantivy has a limitation that prevents JSON top-level arrays from being
+                // inserted into the index. Therefore, we need to flatten the array elements
+                // individually before converting them into Tantivy values.
+                PgBuiltInOids::JSONBOID => {
+                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?;
+                    let json_value: Value =
+                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
+                    Ok(Self::json_value_to_tantivy_value(json_value))
+                }
+                PgBuiltInOids::JSONOID => {
+                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?;
+                    let json_value: Value =
+                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
+                    Ok(Self::json_value_to_tantivy_value(json_value))
+                }
+                _ => Err(TantivyValueError::UnsupportedJsonOid(oid.value())),
             },
             _ => Err(TantivyValueError::InvalidOid),
         }
@@ -995,11 +1007,14 @@ pub enum TantivyValueError {
     #[error("Cannot convert oid of InvalidOid to TantivyValue")]
     InvalidOid,
 
-    #[error("Cannot convert builtin oid of {0} to TantivyValue")]
+    #[error("Type {0} is not yet supported")]
     UnsupportedOid(Oid),
 
-    #[error("Cannot convert builtin array oid of {0} to TantivyValue")]
+    #[error("Arrays of type {0} are not yet supported")]
     UnsupportedArrayOid(Oid),
+
+    #[error("Cannot convert builtin json oid of {0} to TantivyValue")]
+    UnsupportedJsonOid(Oid),
 
     #[error("Cannot convert type {0} to a TantivyValue")]
     UnsupportedFromConversion(String),

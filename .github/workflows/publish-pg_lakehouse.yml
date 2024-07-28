@@ -262,37 +262,24 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-          set -e  # Exit immediately if a command exits with a non-zero status
-
-          if [ "${{ matrix.arch }}" == "amd64" ]; then
-            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+          # Determine RHEL version to retrieve the correct repositories
+          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
+            RHEL_VERSION=8
+          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
+            RHEL_VERSION=9
           else
-            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-aarch64/pgdg-redhat-repo-latest.noarch.rpm"
+            echo "Unsupported RHEL version"
+            exit 1
           fi
 
-          echo "Installing PostgreSQL repository..."
-          sudo dnf install -y $REPO_URL || { echo "Failed to install repository RPM"; exit 1; }
+          # Install the repository RPM:
+          sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ steps.version.outputs.rpm_arch }}/pgdg-redhat-repo-latest.noarch.rpm
 
-          echo "Disabling all GPG checks and ignoring repo_gpgcheck..."
-          sudo sed -i 's/gpgcheck=1/gpgcheck=0/' /etc/yum.repos.d/*.repo
-          sudo sed -i 's/repo_gpgcheck=1/repo_gpgcheck=0/' /etc/yum.repos.d/*.repo
-
-          echo "Cleaning DNF cache and updating metadata..."
-          sudo dnf clean all
-          sudo dnf makecache --refresh
-
-          cat /etc/yum.repos.d/*.repo
-
-          echo "Installing PostgreSQL packages..."
-          sudo dnf install -y --nogpgcheck postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel || { echo "Failed to install PostgreSQL packages"; exit 1; }
-
-          echo "Setting permissions..."
-          sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/ || { echo "Failed to set permissions"; exit 1; }
-
-          echo "Updating PATH..."
-          echo "/usr/pgsql-${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-
-          echo "PostgreSQL installation completed successfully."
+          # Disable the built-in PostgreSQL module:
+          sudo dnf -qy module disable postgresql
+          
+          # Install PostgreSQL:
+          sudo dnf install -y postgresql${{ matrix.pg_version }}-server
 
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3

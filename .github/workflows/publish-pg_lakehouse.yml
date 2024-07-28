@@ -298,7 +298,13 @@ jobs:
 
       - name: Package pg_lakehouse Extension with pgrx
         working-directory: pg_lakehouse/
-        run: cargo pgrx package
+        run: |
+          if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
+            PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+          else
+            PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          fi
+          cargo pgrx package
 
       - name: Create .deb Package
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}

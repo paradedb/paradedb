@@ -162,7 +162,6 @@ async fn test_preserve_casing_on_table_create(mut conn: PgConnection, tempdir: T
     primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "MyTable")
         .execute(&mut conn);
 
-    "DROP FOREIGN TABLE \"MyTable\"".execute(&mut conn);
     format!(
         "CREATE FOREIGN TABLE \"MyTable\" (id INT) SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
         parquet_path.to_str().unwrap()

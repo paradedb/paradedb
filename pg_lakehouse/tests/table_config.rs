@@ -150,7 +150,10 @@ async fn test_preserve_casing(mut conn: PgConnection, tempdir: TempDir) -> Resul
 }
 
 #[rstest]
-async fn test_preserve_casing_on_table_create(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
+async fn test_preserve_casing_on_table_create(
+    mut conn: PgConnection,
+    tempdir: TempDir,
+) -> Result<()> {
     let stored_batch = primitive_record_batch()?;
     let parquet_path = tempdir.path().join("test_arrow_types.parquet");
     let parquet_file = File::create(&parquet_path)?;
@@ -166,7 +169,7 @@ async fn test_preserve_casing_on_table_create(mut conn: PgConnection, tempdir: T
         "CREATE FOREIGN TABLE \"MyTable\" (id INT) SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
         parquet_path.to_str().unwrap()
     )
-        .execute(&mut conn);
+    .execute(&mut conn);
 
     Ok(())
 }

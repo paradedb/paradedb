@@ -385,6 +385,7 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
+      # TODO:    postgresql-16-pgmq_1.2.1-1PARADEDB~jammy_amd64.deb
       - name: Upload pg_lakehouse .deb to GitHub Release
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         uses: shogo82148/actions-upload-release-asset@v1
@@ -395,6 +396,7 @@ jobs:
           asset_name: postgresql-${{ matrix.pg_version }}-pg_lakehouse_${{ steps.version.outputs.tag_version }}-1PARADEDB~TODO_${{ matrix.arch }}.deb
           overwrite: true
 
+      # TODO:    pg_search_13-0.8.5-1PARADEDB.el8.x86_64.rpm
       - name: Upload pg_lakehouse .rpm to GitHub Release
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         uses: shogo82148/actions-upload-release-asset@v1

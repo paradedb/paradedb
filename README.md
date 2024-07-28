@@ -56,7 +56,7 @@ ParadeDB and its extensions are available as commercial software for installatio
 
 ### Extensions
 
-You can find prebuilt binaries for all ParadeDB extensions on Debian 11, Debian 12, Ubuntu 22.04, and Red Hat Enterprise Linux 9 for Postgres 14, 15 and 16 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). We officially support Postgres 12 and above, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
+You can find prebuilt binaries for all ParadeDB extensions on Debian 12, Ubuntu 22.04, and Red Hat Enterprise Linux 9 for Postgres 14, 15 and 16 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). We officially support Postgres 12 and above, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
 For official support on non-Debian-based systems, please [contact us by email](mailto:sales@paradedb.com).
 

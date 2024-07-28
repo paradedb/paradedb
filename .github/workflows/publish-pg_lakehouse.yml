@@ -84,31 +84,6 @@ jobs:
             image: ubuntu:24.04
             pg_version: 16
             arch: arm64
-          # Debian 11
-          - runner: depot-ubuntu-latest-8
-            image: debian:11-slim
-            pg_version: 14
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: debian:11-slim
-            pg_version: 14
-            arch: arm64
-          - runner: depot-ubuntu-latest-8
-            image: debian:11-slim
-            pg_version: 15
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: debian:11-slim
-            pg_version: 15
-            arch: arm64
-          - runner: depot-ubuntu-latest-8
-            image: debian:11-slim
-            pg_version: 16
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: debian:11-slim
-            pg_version: 16
-            arch: arm64
           # Debian 12
           - runner: depot-ubuntu-latest-8
             image: debian:12-slim
@@ -348,7 +323,6 @@ jobs:
           echo 'Description: An analytical query engine for Postgres' >> $CONTROL_FILE
 
           # Create .deb package
-          # Note: We specify `xz` compression for compatibility with Debian 11
           sudo chown -R root:root ${package_dir}
           sudo chmod -R 755 ${package_dir}
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}

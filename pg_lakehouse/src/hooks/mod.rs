@@ -17,6 +17,7 @@
 
 mod executor;
 mod query;
+mod utility;
 
 use async_std::task::block_on;
 use pgrx::*;
@@ -48,6 +49,42 @@ impl hooks::PgHooks for LakehouseHook {
             panic!("{}", err);
         });
 
+        HookResult::new(())
+    }
+
+    fn process_utility_hook(
+        &mut self,
+        pstmt: PgBox<prelude::pg_sys::PlannedStmt>,
+        query_string: &core::ffi::CStr,
+        read_only_tree: Option<bool>,
+        context: prelude::pg_sys::ProcessUtilityContext,
+        params: PgBox<prelude::pg_sys::ParamListInfoData>,
+        query_env: PgBox<prelude::pg_sys::QueryEnvironment>,
+        dest: PgBox<prelude::pg_sys::DestReceiver>,
+        completion_tag: *mut prelude::pg_sys::QueryCompletion,
+        prev_hook: fn(
+            pstmt: PgBox<prelude::pg_sys::PlannedStmt>,
+            query_string: &core::ffi::CStr,
+            read_only_tree: Option<bool>,
+            context: prelude::pg_sys::ProcessUtilityContext,
+            params: PgBox<prelude::pg_sys::ParamListInfoData>,
+            query_env: PgBox<prelude::pg_sys::QueryEnvironment>,
+            dest: PgBox<prelude::pg_sys::DestReceiver>,
+            completion_tag: *mut prelude::pg_sys::QueryCompletion,
+        ) -> HookResult<()>,
+    ) -> HookResult<()> {
+        block_on(utility::process_utility(
+            pstmt,
+            query_string,
+            read_only_tree,
+            context,
+            params,
+            query_env,
+            dest,
+            completion_tag,
+            prev_hook,
+        ))
+        .unwrap_or_else(|err| panic!("{}", err));
         HookResult::new(())
     }
 }

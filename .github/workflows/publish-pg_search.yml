@@ -9,8 +9,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/rhel8 # TODO: Remove after testing
   workflow_dispatch:
     inputs:
       version:

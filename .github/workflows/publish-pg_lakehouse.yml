@@ -137,6 +137,10 @@ jobs:
             pg_version: 16
             arch: arm64
           # TODO: Add support for RHEL 8
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: amd64
 
     steps:
       - name: Checkout Git Repository

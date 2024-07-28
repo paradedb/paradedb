@@ -199,7 +199,7 @@ jobs:
           sudo dnf install -y rpmdevtools
 
           # Install clang and llvm-libs, required by pgrx
-          sudo dnf install -y clang llvm-libs
+          sudo dnf install -y --disable-modular-filtering clang llvm-libs
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

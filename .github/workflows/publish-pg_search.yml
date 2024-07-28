@@ -313,7 +313,7 @@ jobs:
           touch ${package_dir}/DEBIAN/control
           deb_version=${{ steps.version.outputs.tag_version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: pg-search' >> $CONTROL_FILE
+          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-search' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
           echo 'Section: database' >> $CONTROL_FILE
           echo 'Priority: optional' >> $CONTROL_FILE
@@ -336,7 +336,7 @@ jobs:
           echo "Creating RPM SPEC file..."
           spec_file=~/rpmbuild/SPECS/pg_search.spec
           cat <<EOF > $spec_file
-          Name:           pg_search
+          Name:           pg_search_${{ matrix.pg_version }}
           Version:        ${{ steps.version.outputs.tag_version }}
           Release:        1%{?dist}
           Summary:        Full-text search for PostgreSQL using BM25
@@ -393,7 +393,7 @@ jobs:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-          asset_name: pg_search-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: postgresql-${{ matrix.pg_version }}-pg_search_${{ steps.version.outputs.tag_version }}-1PARADEDB~TODO_${{ matrix.arch }}.deb            
           overwrite: true
 
       - name: Upload pg_search .rpm to GitHub Release

@@ -403,5 +403,5 @@ jobs:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_search-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.rpm_os }}.${{ steps.version.outputs.rpm_arch }}.rpm
-          asset_name: pg_search-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
+          asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.TODO.TODO.rpm            
           overwrite: true

@@ -251,6 +251,12 @@ fn construct_alter_table_statement(
         })
         .collect();
 
+    let table_name = if preserve_casing {
+        spi::quote_identifier(table_name)
+    } else {
+        table_name.to_string()
+    };
+
     format!(
         "ALTER TABLE {} {}",
         table_name,

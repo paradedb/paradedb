@@ -58,13 +58,13 @@ pub fn format_cell(cell: &Cell) -> String {
                 .collect::<Vec<String>>()
                 .join("");
             if hex.is_empty() {
-                r#"E''"#.to_string()
+                "''".to_string()
             } else {
-                format!(r#"E'\\x{}'"#, hex)
+                format!(r#"'\x{}'"#, hex)
             }
         }
         Cell::Uuid(uuid) => {
-            format!(r#"'{}'"#, uuid)
+            format!("'{}'", uuid)
         }
         Cell::BoolArray(array) => format_array(array),
         Cell::StringArray(array) => format_array(array),

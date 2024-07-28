@@ -98,7 +98,6 @@ pub trait BaseFdw {
         if !quals.is_empty() {
             let where_clauses = quals
                 .iter()
-                .inspect(|q| warning!("qual: {}\n", deparse_qual(q)))
                 .map(deparse_qual)
                 .collect::<Vec<String>>()
                 .join(" and ");

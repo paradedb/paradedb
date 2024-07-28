@@ -224,6 +224,8 @@ jobs:
           fi
           if [ "$DISTRO" = "ubuntu" ]; then
             OS_VERSION="$RELEASE"
+          elif [ "$DISTRO" = "debian" ]; then
+            OS_VERSION="$RELEASE"
           elif [ "$DISTRO" = "rhel" ]; then
             OS_VERSION="el$RELEASE"
           else
@@ -393,7 +395,7 @@ jobs:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-          asset_name: postgresql-${{ matrix.pg_version }}-pg_search_${{ steps.version.outputs.tag_version }}-1PARADEDB~${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
+          asset_name: "postgresql-${{ matrix.pg_version }}-pg_search_${{ steps.version.outputs.tag_version }}-1PARADEDB\\~${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb"
           overwrite: true
 
       - name: Upload pg_search .rpm to GitHub Release

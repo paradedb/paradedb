@@ -10,7 +10,7 @@ on:
     tags:
       - "v*"
     branches:
-      - phil/packaging # TODO: Remove after testing
+      - phil/rhel8 # TODO: Remove after testing
   workflow_dispatch:
     inputs:
       version:

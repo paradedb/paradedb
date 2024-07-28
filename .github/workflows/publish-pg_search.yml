@@ -186,11 +186,11 @@ jobs:
 
           # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
           wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol${RHEL_VERSION} -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
-          sudo dnf install -y epel-release llvm-toolset clang-devel
+
 
           # This package requires epel-release, which is why we install it last. It is required to
           # configure the build environment for creating the RPM package via rpmbuild
-          sudo dnf install -y rpmdevtools
+          sudo dnf install -y rpmdevtools clang-devel
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

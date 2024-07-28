@@ -267,7 +267,7 @@ jobs:
           else
             REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-aarch64/pgdg-redhat-repo-latest.noarch.rpm"
           fi
-          sudo dnf -y install $REPO_URL
+          sudo dnf install -y $REPO_URL
           sudo dnf module reset postgresql
           sudo dnf module enable postgresql:${{ matrix.pg_version }}
           sudo dnf config-manager --set-enabled pgdg${{ matrix.pg_version }}
@@ -280,7 +280,7 @@ jobs:
           sudo dnf clean all
           sudo dnf makecache
 
-          sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
+          sudo dnf install -y --nogpgcheck postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
           sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/
           echo "/usr/pgsql-${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 

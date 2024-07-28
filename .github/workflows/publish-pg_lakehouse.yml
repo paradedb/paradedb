@@ -268,17 +268,15 @@ jobs:
             REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-aarch64/pgdg-redhat-repo-latest.noarch.rpm"
           fi
           sudo dnf -y install $REPO_URL
+          sudo dnf module reset postgresql
+          sudo dnf module enable postgresql:${{ matrix.pg_version }}
+          sudo dnf config-manager --set-enabled pgdg${{ matrix.pg_version }}
 
           if [ "${{ matrix.arch }}" == "amd64" ]; then
             sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
           else
             sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-AARCH64-RHEL
           fi
-          sudo dnf clean all
-
-          sudo dnf module reset postgresql
-          sudo dnf module enable postgresql:${{ matrix.pg_version }}
-          sudo dnf config-manager --set-enabled pgdg${{ matrix.pg_version }}
           sudo dnf clean all
           sudo dnf makecache
 

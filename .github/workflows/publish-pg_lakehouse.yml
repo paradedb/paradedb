@@ -153,9 +153,6 @@ jobs:
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-          yum search llvm-toolset
-
-
           # Determine RHEL version to retrieve the correct repositories
           if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
             RHEL_VERSION=8
@@ -167,7 +164,7 @@ jobs:
           fi
 
           # Install dependencies
-          dnf install -y sudo wget gcc pkgconf-pkg-config openssl-devel jq rpm-build
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF

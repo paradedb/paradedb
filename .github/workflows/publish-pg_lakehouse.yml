@@ -379,7 +379,7 @@ jobs:
         with:
           subject-path: |
             ./pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-            ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+            ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -401,6 +401,6 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+          asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
           asset_name: pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
           overwrite: true

@@ -295,13 +295,6 @@ jobs:
           package_dir=pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
           # Copy files into directory structure
-          mkdir -p ${package_dir}/usr/lib/postgresql/lib
-          mkdir -p ${package_dir}/var/lib/postgresql/extension
-          cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
-          cp archive/*.control ${package_dir}/var/lib/postgresql/extension
-          cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
-
-          # Symlinks to copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
           mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
           cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib

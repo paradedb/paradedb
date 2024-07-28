@@ -153,6 +153,9 @@ jobs:
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
+          yum search llvm-toolset
+
+
           # Determine RHEL version to retrieve the correct repositories
           if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
             RHEL_VERSION=8

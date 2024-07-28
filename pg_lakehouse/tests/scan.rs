@@ -302,7 +302,7 @@ async fn test_quals_pushdown(mut conn: PgConnection, tempdir: TempDir) -> Result
 
     "CREATE TABLE t1 (a int);".execute(&mut conn);
 
-    let fields: Vec<(&str, &str, &str, i32)> = vec![
+    let test_case: Vec<(&str, &str, &str, i32)> = vec![
         ("boolean_col", "false", "false", 0),
         ("int8_col", "-1", "-1", -1),
         ("int16_col", "0", "0", 0),
@@ -316,10 +316,16 @@ async fn test_quals_pushdown(mut conn: PgConnection, tempdir: TempDir) -> Result
         ("float64_col", "-1.0", "-1", -1),
         ("date32_col", r#"'2020-01-01'"#, r#"'2020-01-01'"#, 1),
         ("date64_col", r#"'2021-01-02'"#, r#"'2021-01-02'"#, -1),
-        //TODO ("binary_col", r#"decode('ABCDEF12','hex')"#, r#"test"#),
+        (
+            "binary_col",
+            r#"decode(encode('hello', 'hex'),'hex')"#,
+            r#"test"#,
+            1,
+        ),
+        ("binary_col", r#"E''"#, r#"E''"#, -1),
     ];
 
-    for (col_name, val, plan_val, res) in fields {
+    for (col_name, val, plan_val, res) in test_case {
         let where_clause = format!("{col_name} = {val}");
         // The condition in the clause may undergo simplification
         let plan_clause = format!("{col_name} = {plan_val}");

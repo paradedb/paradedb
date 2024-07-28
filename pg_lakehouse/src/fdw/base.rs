@@ -26,6 +26,8 @@ use super::handler::FdwHandler;
 use crate::duckdb::connection;
 use crate::schema::cell::*;
 
+use super::utils::deparse_qual;
+
 const DEFAULT_SECRET: &str = "default_secret";
 
 pub trait BaseFdw {
@@ -96,7 +98,8 @@ pub trait BaseFdw {
         if !quals.is_empty() {
             let where_clauses = quals
                 .iter()
-                .map(|q| q.deparse())
+                .inspect(|q| warning!("qual: {}\n", deparse_qual(q)))
+                .map(deparse_qual)
                 .collect::<Vec<String>>()
                 .join(" and ");
             sql.push_str(&format!(" WHERE {}", where_clauses));

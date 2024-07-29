@@ -235,6 +235,7 @@ fn construct_alter_table_statement(
     columns: Vec<(String, String)>,
     preserve_casing: bool,
 ) -> String {
+    println!("{}", table_name);
     let column_definitions: Vec<String> = columns
         .iter()
         .map(|(column_name, duckdb_type)| {
@@ -251,15 +252,9 @@ fn construct_alter_table_statement(
         })
         .collect();
 
-    let table_name = if preserve_casing {
-        spi::quote_identifier(table_name)
-    } else {
-        table_name.to_string()
-    };
-
     format!(
         "ALTER TABLE {} {}",
-        table_name,
+        spi::quote_identifier(table_name),
         column_definitions.join(", ")
     )
 }

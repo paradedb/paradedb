@@ -182,7 +182,7 @@ async fn test_preserve_casing_on_table_create(
                 assert_eq!(mytable.foreign_table_name, "MyTable");
                 assert_ne!(mytable.foreign_table_name, "mytable");
             } else {
-                panic!("should have successfully found table with name \"MyTable\"");
+                panic!("should have successfully found table with predicate \"MyTable\" but found none");
             };
         }
         Err(error) => {

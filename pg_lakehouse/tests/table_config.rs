@@ -186,7 +186,7 @@ async fn test_preserve_casing_on_table_create(
             };
         }
         Err(error) => {
-            panic!("should have successfully found table with name \"MyTable\": {}", error.to_string());
+            panic!("should have successfully found table with name \"MyTable\": {}", error);
         }
     }
 
@@ -195,7 +195,7 @@ async fn test_preserve_casing_on_table_create(
         Err(error) => {
             panic!(
                 "should have successfully queried case sensitive table \"MyTable\": {}",
-                error.to_string()
+                error
             );
         }
     }

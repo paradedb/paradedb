@@ -103,7 +103,8 @@
             "search/full-text/complex",
             "search/full-text/aggregations",
             "search/full-text/scoring",
-            "search/full-text/highlighting"
+            "search/full-text/highlighting",
+            "search/full-text/joins"
           ]
         },
         {

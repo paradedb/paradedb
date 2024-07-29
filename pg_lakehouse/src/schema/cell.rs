@@ -1100,7 +1100,7 @@ where
                     match self
                         .get_timestamptz_value::<TimestampNanosecondType>(index, tz.clone())?
                     {
-                        Some(value) => Ok(Some(Cell::TimestampTz(value))),
+                        Some(value) => Ok(Some(Cell::Timestamptz(value))),
                         None => Ok(None),
                     }
                 }
@@ -1108,7 +1108,7 @@ where
                     match self
                         .get_timestamptz_value::<TimestampMicrosecondType>(index, tz.clone())?
                     {
-                        Some(value) => Ok(Some(Cell::TimestampTz(value))),
+                        Some(value) => Ok(Some(Cell::Timestamptz(value))),
                         None => Ok(None),
                     }
                 }
@@ -1116,13 +1116,13 @@ where
                     match self
                         .get_timestamptz_value::<TimestampMillisecondType>(index, tz.clone())?
                     {
-                        Some(value) => Ok(Some(Cell::TimestampTz(value))),
+                        Some(value) => Ok(Some(Cell::Timestamptz(value))),
                         None => Ok(None),
                     }
                 }
                 DataType::Timestamp(TimeUnit::Second, tz) => {
                     match self.get_timestamptz_value::<TimestampSecondType>(index, tz.clone())? {
-                        Some(value) => Ok(Some(Cell::TimestampTz(value))),
+                        Some(value) => Ok(Some(Cell::Timestamptz(value))),
                         None => Ok(None),
                     }
                 }

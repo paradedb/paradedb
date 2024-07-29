@@ -389,7 +389,7 @@ jobs:
       - name: Upload pg_search .deb to GitHub Release
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         env:
-          ASSET_NAME: "postgresql-${{ matrix.pg_version }}-pg_search_${{ steps.version.outputs.tag_version }}-1PARADEDB~${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb"
+          ASSET_NAME: "postgresql-${{ matrix.pg_version }}-pg_search_${{ steps.version.outputs.tag_version }}-1PARADEDB%7E${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb"
         uses: shogo82148/actions-upload-release-asset@v1
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

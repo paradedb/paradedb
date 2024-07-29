@@ -235,7 +235,6 @@ fn construct_alter_table_statement(
     columns: Vec<(String, String)>,
     preserve_casing: bool,
 ) -> String {
-    println!("{}", table_name);
     let column_definitions: Vec<String> = columns
         .iter()
         .map(|(column_name, duckdb_type)| {
@@ -247,8 +246,7 @@ fn construct_alter_table_statement(
             } else {
                 column_name.to_string()
             };
-
-            format!("ADD COLUMN {} {}", column_name, pg_type)
+          format!("ADD COLUMN {} {}", column_name, pg_type)
         })
         .collect();
 

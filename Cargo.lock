@@ -5465,6 +5465,7 @@ dependencies = [
  "deltalake",
  "duckdb",
  "futures",
+ "log",
  "pgrx",
  "pgrx-tests",
  "rstest 0.19.0",

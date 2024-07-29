@@ -26,8 +26,13 @@ use shared::fixtures::arrow::{
     setup_local_file_listing_with_casing,
 };
 use shared::fixtures::tempfile::TempDir;
-use sqlx::PgConnection;
+use sqlx::{FromRow, PgConnection};
 use std::fs::File;
+
+#[derive(FromRow, Debug)]
+struct ForeignTableInformationSchema {
+    foreign_table_name: String,
+}
 
 #[rstest]
 async fn test_table_case_sensitivity(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
@@ -166,10 +171,34 @@ async fn test_preserve_casing_on_table_create(
         .execute(&mut conn);
 
     format!(
-        "CREATE FOREIGN TABLE \"MyTable\" (id INT) SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
+        "CREATE FOREIGN TABLE \"MyTable\" () SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
         parquet_path.to_str().unwrap()
     )
-    .execute(&mut conn);
+        .execute(&mut conn);
+
+    match "SELECT foreign_table_name FROM information_schema.foreign_tables WHERE foreign_table_name='MyTable';".fetch_result::<ForeignTableInformationSchema>(&mut conn) {
+        Ok(result) => {
+            if let Some(mytable) = result.iter().find(|name| name.foreign_table_name == "MyTable") {
+                assert_eq!(mytable.foreign_table_name, "MyTable");
+                assert_ne!(mytable.foreign_table_name, "mytable");
+            } else {
+                panic!("should have successfully found table with name \"MyTable\"");
+            };
+        }
+        Err(error) => {
+            panic!("should have successfully found table with name \"MyTable\": {}", error.to_string());
+        }
+    }
+
+    match "SELECT * FROM \"MyTable\"".execute_result(&mut conn) {
+        Ok(_) => {}
+        Err(error) => {
+            panic!(
+                "should have successfully queried case sensitive table \"MyTable\": {}",
+                error.to_string()
+            );
+        }
+    }
 
     Ok(())
 }

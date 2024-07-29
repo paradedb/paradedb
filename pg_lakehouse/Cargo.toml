@@ -32,6 +32,7 @@ signal-hook-async-std = "0.2.2"
 supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false, rev = "95b621a" }
 thiserror = "1.0.59"
 uuid = "1.9.1"
+log = "0.4.22"
 
 [dev-dependencies]
 aws-config = "1.5.1"

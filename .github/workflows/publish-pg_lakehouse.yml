@@ -279,7 +279,7 @@ jobs:
           sudo dnf -qy module disable postgresql
 
           # Install PostgreSQL:
-          sudo dnf install -y postgresql${{ matrix.pg_version }}-server
+          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
 
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3

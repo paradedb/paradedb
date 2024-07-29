@@ -181,7 +181,7 @@ jobs:
           fi
 
           # Install dependencies
-          dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq rpm-build
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -209,11 +209,11 @@ jobs:
 
           # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
           wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol${RHEL_VERSION} -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
-
+          sudo dnf install -y epel-release
 
           # This package requires epel-release, which is why we install it last. It is required to
           # configure the build environment for creating the RPM package via rpmbuild
-          sudo dnf install -y rpmdevtools clang-devel
+          sudo dnf install -y rpmdevtools
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -296,7 +296,7 @@ jobs:
           sudo dnf -qy module disable postgresql
 
           # Install PostgreSQL:
-          sudo dnf install -y postgresql${{ matrix.pg_version }}-server
+          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
 
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version 0.11.3

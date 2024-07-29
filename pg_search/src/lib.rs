@@ -23,6 +23,7 @@ mod index;
 mod postgres;
 mod query;
 mod schema;
+mod wal;
 mod writer;
 
 #[cfg(test)]
@@ -30,6 +31,7 @@ pub mod fixtures;
 
 use crate::globals::WRITER_GLOBAL;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
+use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use shared::gucs::PostgresGlobalGucSettings;
 use shared::telemetry::setup_telemetry_background_worker;
@@ -59,6 +61,19 @@ pub unsafe extern "C" fn _PG_init() {
     setup_background_workers();
 
     setup_telemetry_background_worker(shared::telemetry::ParadeExtension::PgSearch);
+
+    // Register custom resource manager at 137,
+    let resource_manager_data = pg_sys::RmgrData {
+        rm_name: "pg_search".as_pg_cstr(),
+        rm_redo: Some(wal::pgsearch_wrm_redo),
+        rm_desc: Some(wal::pgsearch_wrm_desc),
+        rm_identify: Some(wal::pgsearch_wrm_identify),
+        rm_startup: Some(wal::pgsearch_startup),
+        rm_cleanup: Some(wal::pgsearch_cleanup),
+        rm_mask: None,
+        rm_decode: None,
+    };
+    pg_sys::RegisterCustomRmgr(wal::RESOURCE_MANAGER_ID, &resource_manager_data);
 }
 
 #[pg_guard]

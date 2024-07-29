@@ -198,9 +198,6 @@ jobs:
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
 
-          # Install clang and llvm-libs, required by pgrx
-          sudo dnf install -y
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 

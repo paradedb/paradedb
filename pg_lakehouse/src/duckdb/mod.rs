@@ -22,3 +22,4 @@ pub mod iceberg;
 pub mod parquet;
 pub mod secret;
 pub mod utils;
+mod time_bucket;

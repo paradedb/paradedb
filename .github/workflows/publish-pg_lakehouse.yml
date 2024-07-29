@@ -9,8 +9,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/packaging # TODO: Remove after testing
   workflow_dispatch:
     inputs:
       version:

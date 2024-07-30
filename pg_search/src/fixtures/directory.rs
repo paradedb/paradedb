@@ -27,19 +27,18 @@ pub struct MockWriterDirectory {
 }
 
 impl MockWriterDirectory {
-    pub fn new(index_name: &str) -> Self {
+    pub fn new(index_oid: u32) -> Self {
         // We must store the TempDir instance on the struct, because it gets deleted when the
         // instance is dropped.
         let temp_dir = tempfile::Builder::new()
-            .prefix(index_name)
+            .prefix(&index_oid.to_string())
             .tempdir()
             .expect("error creating tempdir for MockWriterDirectory");
         let temp_path = temp_dir.path().to_path_buf();
         Self {
             temp_dir,
             writer_dir: WriterDirectory {
-                index_name: index_name.to_string(),
-                database_oid: 0,
+                index_oid,
                 postgres_data_dir_path: temp_path,
             },
         }

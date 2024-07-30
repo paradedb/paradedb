@@ -27,7 +27,6 @@ use std::{
 use thiserror::Error;
 use walkdir::WalkDir;
 
-static PARADE_DATA_DIR_NAME: &str = "paradedb";
 static SEARCH_DIR_NAME: &str = "pg_search";
 static SEARCH_INDEX_CONFIG_FILE_NAME: &str = "search-index.json";
 static TANTIVY_DIR_NAME: &str = "tantivy";
@@ -69,47 +68,30 @@ pub trait SearchFs {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct WriterDirectory {
-    pub index_name: String,
-    pub database_oid: u32,
+    pub index_oid: u32,
     pub postgres_data_dir_path: PathBuf,
 }
 
 impl WriterDirectory {
     /// Useful in a connection process, where the database oid is available in the environment.
-    pub fn from_index_name(index_name: &str) -> Self {
-        let database_oid = env::postgres_database_oid();
-        let postgres_data_dir_path = env::postgres_data_dir_path();
+    pub fn from_index_oid(index_oid: u32) -> Self {
         Self {
-            index_name: index_name.into(),
-            database_oid,
-            postgres_data_dir_path,
-        }
-    }
-
-    /// Useful in a background process where the database oid must be specified.
-    #[allow(dead_code)]
-    pub fn from_db_id_and_index_name(database_oid: u32, index_name: &str) -> Self {
-        let postgres_data_dir_path = env::postgres_data_dir_path();
-        Self {
-            index_name: index_name.into(),
-            database_oid,
-            postgres_data_dir_path,
+            index_oid,
+            postgres_data_dir_path: env::postgres_data_dir_path(),
         }
     }
 
     /// The root path for the directory tree.
+    /// An important note for formatting this path. We face a limitation on the length of any
+    /// file path used by our extension (relative to the Postgres DATA_DIRECTORY).
     fn search_index_dir_path(
         &self,
         ensure_exists: bool,
     ) -> Result<SearchIndexDirPath, SearchDirectoryError> {
-        let database_oid = &self.database_oid;
-        let index_name = &self.index_name;
-        let unique_index_dir_name = format!("{database_oid}_{index_name}");
         let search_index_dir_path = &self
             .postgres_data_dir_path
-            .join(PARADE_DATA_DIR_NAME)
             .join(SEARCH_DIR_NAME)
-            .join(unique_index_dir_name);
+            .join(self.index_oid.to_string());
 
         if ensure_exists {
             Self::ensure_dir(search_index_dir_path)?;
@@ -281,7 +263,6 @@ impl SearchFs for WriterDirectory {
         let pid = std::process::id();
         let transfer_pipe_dir = &self
             .postgres_data_dir_path
-            .join(PARADE_DATA_DIR_NAME)
             .join(SEARCH_DIR_NAME)
             .join(WRITER_TRANSFER_DIR_NAME);
         let transfer_pipe_file = transfer_pipe_dir.join(pid.to_string());

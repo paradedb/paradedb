@@ -275,9 +275,9 @@ impl SearchIndex {
 
     pub fn drop_index<W: WriterClient<WriterRequest>>(
         writer: &Arc<Mutex<W>>,
-        index_name: &str,
+        index_oid: u32,
     ) -> Result<(), SearchIndexError> {
-        let directory = WriterDirectory::from_index_name(index_name);
+        let directory = WriterDirectory::from_index_oid(index_oid);
         let request = WriterRequest::DropIndex {
             directory: directory.clone(),
         };

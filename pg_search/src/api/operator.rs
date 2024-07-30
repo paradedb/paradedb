@@ -37,14 +37,14 @@ fn search_tantivy(
             .expect("could not parse search config");
 
         let writer_client = WriterGlobal::client();
-        let directory = WriterDirectory::from_index_name(&search_config.index_name);
+        let directory = WriterDirectory::from_index_oid(search_config.index_oid);
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
         let scan_state = search_index
             .search_state(
                 &writer_client,
                 &search_config,
-                needs_commit(&search_config.index_name),
+                needs_commit(search_config.index_oid),
             )
             .unwrap();
         let top_docs = scan_state.search(SearchIndex::executor());

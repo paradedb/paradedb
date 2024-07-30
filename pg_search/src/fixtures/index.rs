@@ -37,7 +37,8 @@ impl MockSearchIndex {
     ) -> Self {
         // We must store the TempDir instance on the struct, because it gets deleted when the
         // instance is dropped.
-        let directory = MockWriterDirectory::new("mock_parade_search_index");
+        // We can pass a fixed index OID as a mock.
+        let directory = MockWriterDirectory::new(42);
         let mut writer = Writer::new();
         let uuid = Uuid::new_v4().to_string();
         writer

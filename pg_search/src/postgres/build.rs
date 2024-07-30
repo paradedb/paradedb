@@ -21,6 +21,7 @@ use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::wal::{self, PgSearchWALData};
 use crate::writer::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
@@ -312,12 +313,30 @@ unsafe fn build_callback_internal(
 
             let writer_client = WriterGlobal::client();
 
+            // let mut wal_data =
+            //     PgSearchWALData::new_with_lock(index).expect("error creating wal data");
+            pg_sys::GenericXLogStart(index);
             search_index
-                .insert(&writer_client, search_document)
+                .insert(&writer_client, search_document.clone())
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback: {err:?}")
                 });
 
+            let request = crate::writer::WriterRequest::Insert {
+                directory: directory.clone(),
+                document: search_document.clone(),
+            };
+            let json = serde_json::to_string(&request).expect("blew up serializing to json");
+            let c_json = std::ffi::CString::new(json).expect("CString::new failed");
+            let json_ptr = c_json.as_ptr() as *mut std::ffi::c_char;
+            pg_sys::XLogBeginInsert();
+            pg_sys::XLogRegisterData(json_ptr, c_json.to_bytes().len() as u32);
+            pg_sys::XLogInsert(
+                wal::RESOURCE_MANAGER_ID,
+                wal::XLOG_RESOURCE_MANAGER_MESSAGE | pg_sys::XLR_SPECIAL_REL_UPDATE as u8,
+            );
+
+            // wal_data.wal_finish();
             register_commit_callback(&writer_client, search_index.directory.clone())
                 .expect("could not register commit callbacks for build operation");
         });

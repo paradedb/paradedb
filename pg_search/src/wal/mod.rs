@@ -45,6 +45,7 @@
 // // const PGSEARCH_WAL_ROLE_PRIMARY: i32 = 1; // Example constant
 
 pub unsafe extern "C" fn pgsearch_startup() {
+    pgrx::log!("WE'RE IN THE STARTUP!!!!");
     if !pg_sys::StandbyMode {
         return;
     }
@@ -76,6 +77,7 @@ pub unsafe extern "C" fn pgsearch_startup() {
 }
 
 pub unsafe extern "C" fn pgsearch_cleanup() {
+    pgrx::log!("WE'RE IN THE CLEANUP!!!!");
     // if !pg_sys::StandbyMode {
     //     return;
     // }
@@ -91,6 +93,7 @@ pub unsafe extern "C" fn pgsearch_cleanup() {
 }
 
 pub unsafe extern "C" fn pgsearch_wrm_redo(record: *mut pg_sys::XLogReaderState) {
+    pgrx::log!("WE'RE IN THE REDO!!!! {record:?}");
     if !pg_sys::StandbyMode {
         return;
     }
@@ -114,10 +117,12 @@ pub unsafe extern "C" fn pgsearch_wrm_desc(
     buffer: *mut pg_sys::StringInfoData,
     record: *mut pg_sys::XLogReaderState,
 ) {
+    pgrx::log!("WE'RE IN THE DESC!!!!");
     return;
 }
 
 pub unsafe extern "C" fn pgsearch_wrm_identify(info: u8) -> *const std::os::raw::c_char {
+    pgrx::log!("WE'RE IN THE IDENTIFY!!!!");
     pg_search_wrm_info_to_string(info)
 }
 
@@ -223,6 +228,7 @@ struct CurrentPage {
     page: pg_sys::Page,
 }
 
+#[derive(Debug)]
 struct MetaPage {
     buffer: pg_sys::Buffer,
     page: pg_sys::Page,
@@ -231,24 +237,28 @@ struct MetaPage {
 
 impl MetaPage {
     unsafe fn new(state: &mut GenericXLogState, index: *mut pg_sys::RelationData) -> Self {
+        pgrx::log!("CHECKING FORK NUMS");
         if pg_sys::RelationGetNumberOfBlocksInFork(index, pg_sys::ForkNumber_MAIN_FORKNUM) == 0 {
             let buffer = PgSearchWALData::wal_read_locked_buffer(
                 index,
                 P_NEW,
                 pg_sys::BUFFER_LOCK_EXCLUSIVE as pg_sys::LOCKMODE,
             );
+            pgrx::log!("buffer: {buffer:?}");
             // self.buffers.push(self.meta.buffer);
             let page = pg_sys::GenericXLogRegisterBuffer(
                 state,
                 buffer,
                 pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
             );
+            pgrx::log!("page: {page:?}");
             pg_sys::PageInit(
                 page,
                 pg_sys::BLCKSZ as usize,
                 std::mem::size_of::<MetaPageSpecial>(),
             );
             let page_special = page_get_special_pointer(page) as *mut MetaPageSpecial;
+            pgrx::log!("page_special: {page_special:?}");
             unsafe {
                 (*page_special).next =
                     (PGSEARCH_WAL_META_PAGE_BLOCK_NUMBER + 1) as pg_sys::BlockNumber;
@@ -267,9 +277,12 @@ impl MetaPage {
                 PGSEARCH_WAL_META_PAGE_BLOCK_NUMBER as u32,
                 pg_sys::BUFFER_LOCK_EXCLUSIVE as pg_sys::LOCKMODE,
             );
+            pgrx::log!("else buffer: {buffer:?}");
             // self.buffers.push(self.meta.buffer);
             let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
+            pgrx::log!("else page: {page:?}");
             let page_special = page_get_special_pointer(page) as *mut MetaPageSpecial;
+            pgrx::log!("else page_special: {page_special:?}");
 
             Self {
                 buffer,
@@ -295,7 +308,7 @@ impl MetaPage {
 // }
 
 impl PgSearchWALData {
-    unsafe fn new_with_lock(index: pg_sys::Relation) -> Option<Self> {
+    pub unsafe fn new_with_lock(index: pg_sys::Relation) -> Option<Self> {
         if index.is_null() {
             return None;
         }
@@ -305,18 +318,20 @@ impl PgSearchWALData {
         let mut state = *pg_sys::GenericXLogStart(index);
         let meta = MetaPage::new(&mut state, index);
 
-        Some(Self {
-            num_buffers: 0,
-            buffers: vec![pg_sys::InvalidBuffer as i32; MAX_GENERIC_XLOG_PAGES],
-            n_used_pages: 1, // meta page
-            current: CurrentPage {
-                buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
-                page: std::ptr::null_mut(),
-            },
-            state,
-            meta,
-            index,
-        })
+        // println!("WE MADE THOSE VARS: {state:?} ");
+        None
+        // Some(Self {
+        //     num_buffers: 0,
+        //     buffers: vec![pg_sys::InvalidBuffer as i32; MAX_GENERIC_XLOG_PAGES],
+        //     n_used_pages: 1, // meta page
+        //     current: CurrentPage {
+        //         buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+        //         page: std::ptr::null_mut(),
+        //     },
+        //     state,
+        //     meta,
+        //     index,
+        // })
     }
 
     unsafe fn wal_page_writer(&mut self, buffer: &[u8]) -> isize {
@@ -533,7 +548,7 @@ impl PgSearchWALData {
         unsafe { (page as *mut u8).add(maxalign_size) }
     }
 
-    unsafe fn wal_finish(&mut self) {
+    pub unsafe fn wal_finish(&mut self) {
         let (block, offset) = if !self.current.page.is_null() {
             (
                 pg_sys::BufferGetBlockNumber(self.current.buffer),
@@ -545,6 +560,9 @@ impl PgSearchWALData {
 
         pg_sys::GenericXLogFinish(&mut self.state);
         pg_search_index_status_set_wal_applied_position(self.index, block, offset as u16);
+
+        self.wal_data_release_buffers();
+        self.wal_unlock();
     }
 
     unsafe fn wal_data_release_buffers(&mut self) {

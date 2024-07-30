@@ -70,7 +70,7 @@ impl Transaction {
 
         if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
-            let cloned_id = id.clone();
+            let cloned_id = id;
             register_xact_callback(PgXactCallbackEvent::PreCommit, move || {
                 // The precommit cache should be cleared on its own, as it is not
                 // mutually exclusive with any other event.
@@ -97,7 +97,7 @@ impl Transaction {
         let mut cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock()?;
         if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
-            let cloned_id = id.clone();
+            let cloned_id = id;
             register_xact_callback(PgXactCallbackEvent::Commit, move || {
                 // Clear the caches so callbacks can be registered on next transaction.
                 Self::clear_commit_abort_caches(cloned_id)
@@ -119,7 +119,7 @@ impl Transaction {
         let mut cache = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.lock()?;
         if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
-            let cloned_id = id.clone();
+            let cloned_id = id;
             register_xact_callback(PgXactCallbackEvent::Abort, move || {
                 // Clear the caches so callbacks can be registered on next transaction.
                 Self::clear_commit_abort_caches(cloned_id)

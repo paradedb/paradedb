@@ -134,7 +134,30 @@ jobs:
             image: redhat/ubi9:latest
             pg_version: 16
             arch: arm64
-          # TODO: Add support for RHEL 8
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 16
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 16
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -158,7 +181,7 @@ jobs:
           fi
 
           # Install dependencies
-          dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq rpm-build
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -256,23 +279,24 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-          if [ "${{ matrix.arch }}" == "amd64" ]; then
-            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+          # Determine RHEL version to retrieve the correct repositories
+          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
+            RHEL_VERSION=8
+          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
+            RHEL_VERSION=9
           else
-            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-aarch64/pgdg-redhat-repo-latest.noarch.rpm"
+            echo "Unsupported RHEL version"
+            exit 1
           fi
-          sudo dnf -y install $REPO_URL
 
-          if [ "${{ matrix.arch }}" == "amd64" ]; then
-            sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
-          else
-            sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-AARCH64-RHEL
-          fi
-          sudo dnf clean all
+          # Install the repository RPM:
+          sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ steps.version.outputs.rpm_arch }}/pgdg-redhat-repo-latest.noarch.rpm
 
-          sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
-          sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/
-          echo "/usr/pgsql-${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+          # Disable the built-in PostgreSQL module:
+          sudo dnf -qy module disable postgresql
+
+          # Install PostgreSQL:
+          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
 
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version 0.11.3
@@ -291,7 +315,13 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        run: cargo pgrx package --features icu
+        run: |
+          if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
+            PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+          else
+            PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          fi
+          cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 
       - name: Create .deb Package
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}

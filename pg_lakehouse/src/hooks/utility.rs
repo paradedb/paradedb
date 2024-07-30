@@ -17,6 +17,7 @@
 
 #![allow(clippy::too_many_arguments)]
 
+use crate::duckdb::connection;
 use anyhow::Result;
 use pgrx::*;
 
@@ -44,9 +45,12 @@ pub async fn process_utility(
 ) -> Result<()> {
     unsafe {
         match pstmt.utilityStmt.as_ref().unwrap().type_ {
-            pg_sys::NodeTag::T_PrepareStmt => unimplemented!(),
-            pg_sys::NodeTag::T_ExecuteStmt => unimplemented!(),
-            pg_sys::NodeTag::T_DeallocateStmt => unimplemented!(),
+            pg_sys::NodeTag::T_PrepareStmt
+            | pg_sys::NodeTag::T_DeallocateStmt
+            | pg_sys::NodeTag::T_ExecuteStmt => {
+                let utility_query = query_string.to_str()?;
+                connection::execute(utility_query, [])?;
+            }
             _ => (),
         }
     }

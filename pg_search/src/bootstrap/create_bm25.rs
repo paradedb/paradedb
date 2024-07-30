@@ -414,9 +414,24 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
         "SELECT oid FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
         index_name
     );
-    let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)
-        .expect("error looking up index in drop_bm25")
-        .expect("no oid for index created in drop_bm25");
+
+    let oid_results = Spi::connect(|client| {
+        client
+            .select(&oid_query, None, None)?
+            .map(|row| anyhow::Ok((row["oid"].value()?,)))
+            .collect::<anyhow::Result<Vec<(Option<pg_sys::Oid>,)>, _>>()
+    })?;
+
+    let index_oid = if oid_results.is_empty() {
+        // No index with the passed name exists. Nothing to do, so return.
+        return Ok(());
+    } else {
+        oid_results
+            .first()
+            .expect("already asserted that oid_results is not empty")
+            .0
+            .expect("oid in drop_bm25 is unexpectedly NULL")
+    };
 
     Spi::run(&format!(
         r#"

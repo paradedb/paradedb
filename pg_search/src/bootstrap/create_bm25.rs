@@ -411,8 +411,8 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
     let schema_name = schema_name.unwrap_or("current_schema()");
 
     let oid_query = format!(
-        "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
-        format!("{}_bm25_index", index_name)
+        "SELECT oid FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
+        index_name
     );
     let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)
         .expect("error looking up index in drop_bm25")

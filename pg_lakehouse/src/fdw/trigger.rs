@@ -246,14 +246,13 @@ fn construct_alter_table_statement(
             } else {
                 column_name.to_string()
             };
-
             format!("ADD COLUMN {} {}", column_name, pg_type)
         })
         .collect();
 
     format!(
         "ALTER TABLE {} {}",
-        table_name,
+        spi::quote_identifier(table_name),
         column_definitions.join(", ")
     )
 }

@@ -148,3 +148,44 @@ async fn test_preserve_casing(mut conn: PgConnection, tempdir: TempDir) -> Resul
 
     Ok(())
 }
+
+#[rstest]
+async fn test_preserve_casing_on_table_create(
+    mut conn: PgConnection,
+    tempdir: TempDir,
+) -> Result<()> {
+    let stored_batch = primitive_record_batch()?;
+    let parquet_path = tempdir.path().join("test_arrow_types.parquet");
+    let parquet_file = File::create(&parquet_path)?;
+
+    let mut writer = ArrowWriter::try_new(parquet_file, stored_batch.schema(), None).unwrap();
+    writer.write(&stored_batch)?;
+    writer.close()?;
+
+    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "MyTable")
+        .execute(&mut conn);
+
+    format!(
+        "CREATE FOREIGN TABLE \"MyTable\" () SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
+        parquet_path.to_str().unwrap()
+    )
+        .execute(&mut conn);
+
+    let foreign_table_name: Vec<(String,)> =
+        "SELECT foreign_table_name FROM information_schema.foreign_tables WHERE foreign_table_name='MyTable';".fetch(&mut conn);
+    assert_eq!(foreign_table_name.len(), 1);
+    assert_ne!(foreign_table_name[0].0, "mytable");
+    assert_eq!(foreign_table_name[0].0, "MyTable");
+
+    match "SELECT * FROM \"MyTable\"".execute_result(&mut conn) {
+        Ok(_) => {}
+        Err(error) => {
+            panic!(
+                "should have successfully queried case sensitive table \"MyTable\": {}",
+                error
+            );
+        }
+    }
+
+    Ok(())
+}

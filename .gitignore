@@ -28,3 +28,6 @@ pgvector/
 
 # Env files
 .env
+
+# Jetbrains
+.idea

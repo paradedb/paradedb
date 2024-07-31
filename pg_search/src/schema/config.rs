@@ -25,6 +25,7 @@ use crate::{index::state::SearchAlias, query::SearchQueryInput};
 pub struct SearchConfig {
     pub query: SearchQueryInput,
     pub index_name: String,
+    pub index_oid: u32,
     pub key_field: String,
     pub offset_rows: Option<usize>,
     pub limit_rows: Option<usize>,

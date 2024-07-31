@@ -66,15 +66,18 @@ pub extern "C" fn amrescan(
 
     let search_config =
         SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
-    let index_name = &search_config.index_name;
 
     // Create the index and scan state
-    let directory = WriterDirectory::from_index_name(index_name);
+    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(&writer_client, &search_config, needs_commit(index_name))
+        .search_state(
+            &writer_client,
+            &search_config,
+            needs_commit(search_config.index_oid),
+        )
         .unwrap();
 
     let top_docs = state.search(SearchIndex::executor());

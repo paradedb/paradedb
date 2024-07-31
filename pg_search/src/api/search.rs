@@ -86,7 +86,7 @@ pub fn minmax_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_name(&search_config.index_name);
+    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -95,7 +95,7 @@ pub fn minmax_bm25(
         .search_state(
             &writer_client,
             &search_config,
-            needs_commit(&search_config.index_name),
+            needs_commit(search_config.index_oid),
         )
         .unwrap();
 
@@ -145,7 +145,7 @@ pub fn score_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_name(&search_config.index_name);
+    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -154,7 +154,7 @@ pub fn score_bm25(
         .search_state(
             &writer_client,
             &search_config,
-            needs_commit(&search_config.index_name),
+            needs_commit(search_config.index_oid),
         )
         .expect("could not get scan state");
 
@@ -195,7 +195,7 @@ pub fn snippet(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_name(&search_config.index_name);
+    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -204,7 +204,7 @@ pub fn snippet(
         .search_state(
             &writer_client,
             &search_config,
-            needs_commit(&search_config.index_name),
+            needs_commit(search_config.index_oid),
         )
         .expect("could not get scan state");
 
@@ -255,11 +255,14 @@ pub fn snippet(
     TableIterator::new(top_docs)
 }
 
-#[pg_extern]
-fn drop_bm25_internal(index_name: &str) {
+pub fn drop_bm25_internal(index_oid: pg_sys::Oid) {
+    // We need to receive the index_name as an argument here, because PGRX has
+    // some limitations around passing OID / u32 as a pg_extern parameter:
+    // https://github.com/pgcentralfoundation/pgrx/issues/1536
+
     let writer_client = WriterGlobal::client();
 
     // Drop the Tantivy data directory.
-    SearchIndex::drop_index(&writer_client, index_name)
-        .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err:?}"));
+    SearchIndex::drop_index(&writer_client, index_oid.as_u32())
+        .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid}: {err:?}"));
 }

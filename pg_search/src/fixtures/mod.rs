@@ -63,7 +63,8 @@ pub fn simple_doc(simple_schema: SearchIndexSchema) -> SearchDocument {
 
 #[fixture]
 pub fn mock_dir() -> MockWriterDirectory {
-    MockWriterDirectory::new("mock_writer_directory")
+    // We can pass a fixed index OID as a mock.
+    MockWriterDirectory::new(42)
 }
 
 #[fixture]

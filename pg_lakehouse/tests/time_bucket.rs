@@ -15,11 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod connection;
-pub mod csv;
-pub mod delta;
-pub mod iceberg;
-pub mod parquet;
-pub mod secret;
-pub mod utils;
-pub mod time_bucket;
+mod fixtures;
+
+use anyhow::Result;
+use fixtures::*;
+use rstest::*;
+use sqlx::PgConnection;
+
+#[rstest]
+async fn test_time_bucket(mut conn: PgConnection) -> Result<()> {
+    "SELECT time_bucket(INTERVAL 5 MINUTE, timestamp);".execute(&mut conn);
+    Ok(())
+}
+

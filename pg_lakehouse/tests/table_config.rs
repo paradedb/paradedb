@@ -26,13 +26,8 @@ use shared::fixtures::arrow::{
     setup_local_file_listing_with_casing,
 };
 use shared::fixtures::tempfile::TempDir;
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 use std::fs::File;
-
-#[derive(FromRow, Debug)]
-struct ForeignTableInformationSchema {
-    foreign_table_name: String,
-}
 
 #[rstest]
 async fn test_table_case_sensitivity(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
@@ -176,19 +171,11 @@ async fn test_preserve_casing_on_table_create(
     )
         .execute(&mut conn);
 
-    match "SELECT foreign_table_name FROM information_schema.foreign_tables WHERE foreign_table_name='MyTable';".fetch_result::<ForeignTableInformationSchema>(&mut conn) {
-        Ok(result) => {
-            if let Some(mytable) = result.iter().find(|name| name.foreign_table_name == "MyTable") {
-                assert_eq!(mytable.foreign_table_name, "MyTable");
-                assert_ne!(mytable.foreign_table_name, "mytable");
-            } else {
-                panic!("should have successfully found table with predicate \"MyTable\" but found none");
-            };
-        }
-        Err(error) => {
-            panic!("should have successfully found table with name \"MyTable\": {}", error);
-        }
-    }
+    let foreign_table_name: Vec<(String,)> =
+        "SELECT foreign_table_name FROM information_schema.foreign_tables WHERE foreign_table_name='MyTable';".fetch(&mut conn);
+    assert_eq!(foreign_table_name.len(), 1);
+    assert_ne!(foreign_table_name[0].0, "mytable");
+    assert_eq!(foreign_table_name[0].0, "MyTable");
 
     match "SELECT * FROM \"MyTable\"".execute_result(&mut conn) {
         Ok(_) => {}

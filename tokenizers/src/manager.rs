@@ -29,8 +29,6 @@ use crate::icu::ICUTokenizer;
 use crate::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
 use crate::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
 
-pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
-
 // Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
 // The "type" field will not be present on the deserialized value.
@@ -48,6 +46,7 @@ pub enum SearchTokenizer {
     Stem {
         language: Language,
     },
+    Lowercase,
     WhiteSpace,
     ChineseCompatible,
     SourceCode,
@@ -70,6 +69,7 @@ impl SearchTokenizer {
             SearchTokenizer::Raw => json!({ "type": "raw" }),
             SearchTokenizer::EnStem => json!({ "type": "en_stem" }),
             SearchTokenizer::Stem { language } => json!({ "type": "stem", "language": language }),
+            SearchTokenizer::Lowercase => json!({ "type": "lowercase" }),
             SearchTokenizer::WhiteSpace => json!({ "type": "whitespace" }),
             SearchTokenizer::ChineseCompatible => json!({ "type": "chinese_compatible" }),
             SearchTokenizer::SourceCode => json!({ "type": "source_code" }),
@@ -111,6 +111,7 @@ impl SearchTokenizer {
                     })?;
                 Ok(SearchTokenizer::Stem { language })
             }
+            "lowercase" => Ok(SearchTokenizer::Lowercase),
             "whitespace" => Ok(SearchTokenizer::WhiteSpace),
             "chinese_compatible" => Ok(SearchTokenizer::ChineseCompatible),
             "source_code" => Ok(SearchTokenizer::SourceCode),
@@ -176,6 +177,7 @@ impl SearchTokenizer {
             SearchTokenizer::Raw => "raw".into(),
             SearchTokenizer::EnStem => "en_stem".into(),
             SearchTokenizer::Stem { language } => format!("stem_{}", language_to_str(language)),
+            SearchTokenizer::Lowercase => "lowercase".into(),
             SearchTokenizer::WhiteSpace => "whitespace".into(),
             SearchTokenizer::ChineseCompatible => "chinese_compatible".into(),
             SearchTokenizer::SourceCode => "source_code".into(),
@@ -189,76 +191,6 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera => "korean_lindera".into(),
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer => "icu".into(),
-        }
-    }
-}
-
-impl From<SearchTokenizer> for TextAnalyzer {
-    fn from(val: SearchTokenizer) -> Self {
-        match val {
-            SearchTokenizer::Default => TextAnalyzer::builder(SimpleTokenizer::default())
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .filter(LowerCaser)
-                .build(),
-            SearchTokenizer::WhiteSpace => TextAnalyzer::builder(WhitespaceTokenizer::default())
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .filter(LowerCaser)
-                .build(),
-            SearchTokenizer::EnStem => TextAnalyzer::builder(SimpleTokenizer::default())
-                .filter(RemoveLongFilter::limit(40))
-                .filter(LowerCaser)
-                .filter(Stemmer::new(Language::English))
-                .build(),
-            SearchTokenizer::Stem { language } => TextAnalyzer::builder(SimpleTokenizer::default())
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .filter(LowerCaser)
-                .filter(Stemmer::new(language))
-                .build(),
-            SearchTokenizer::Raw => TextAnalyzer::builder(RawTokenizer::default())
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .build(),
-            SearchTokenizer::ChineseCompatible => TextAnalyzer::builder(ChineseTokenizer)
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .filter(LowerCaser)
-                .build(),
-            SearchTokenizer::SourceCode => TextAnalyzer::builder(CodeTokenizer::default())
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .filter(LowerCaser)
-                .filter(AsciiFoldingFilter)
-                .build(),
-            SearchTokenizer::Ngram {
-                min_gram,
-                max_gram,
-                prefix_only,
-            } => {
-                TextAnalyzer::builder(NgramTokenizer::new(min_gram, max_gram, prefix_only).unwrap())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build()
-            }
-            SearchTokenizer::ChineseLindera => {
-                TextAnalyzer::builder(LinderaChineseTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build()
-            }
-            SearchTokenizer::JapaneseLindera => {
-                TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build()
-            }
-            SearchTokenizer::KoreanLindera => {
-                TextAnalyzer::builder(LinderaKoreanTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build()
-            }
-            #[cfg(feature = "icu")]
-            SearchTokenizer::ICUTokenizer => TextAnalyzer::builder(ICUTokenizer)
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .filter(LowerCaser)
-                .build(),
         }
     }
 }

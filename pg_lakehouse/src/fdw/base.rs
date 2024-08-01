@@ -26,8 +26,6 @@ use super::handler::FdwHandler;
 use crate::duckdb::connection;
 use crate::schema::cell::*;
 
-use super::utils::deparse_qual;
-
 const DEFAULT_SECRET: &str = "default_secret";
 
 pub trait BaseFdw {
@@ -96,9 +94,10 @@ pub trait BaseFdw {
         let mut sql = format!("SELECT {targets} FROM {schema_name}.{table_name}");
 
         if !quals.is_empty() {
+            let mut formatter = DuckDbFormatter::new();
             let where_clauses = quals
                 .iter()
-                .map(deparse_qual)
+                .map(|x| x.deparse_with_fmt(&mut formatter))
                 .collect::<Vec<String>>()
                 .join(" and ");
             sql.push_str(&format!(" WHERE {}", where_clauses));
@@ -255,4 +254,30 @@ pub enum BaseFdwError {
 
     #[error(transparent)]
     Options(#[from] OptionsError),
+}
+
+struct DuckDbFormatter {}
+
+impl CellFormatter for DuckDbFormatter {
+    fn fmt_cell(&mut self, cell: &Cell) -> String {
+        match cell {
+            Cell::Bytea(v) => {
+                let byte_u8 = unsafe { varlena_to_byte_slice(*v) };
+                let hex = byte_u8
+                    .iter()
+                    .map(|b| format!(r#"\x{:02X}"#, b))
+                    .collect::<Vec<String>>()
+                    .join("");
+                format!("'{}'", hex)
+            }
+
+            cell => format!("{}", cell),
+        }
+    }
+}
+
+impl DuckDbFormatter {
+    fn new() -> Self {
+        Self {}
+    }
 }

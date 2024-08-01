@@ -319,10 +319,26 @@ async fn test_quals_pushdown(mut conn: PgConnection, tempdir: TempDir) -> Result
         (
             "binary_col",
             r#"decode(encode('hello', 'hex'),'hex')"#,
-            r#"test"#,
+            r#"'\x68\x65\x6C\x6C\x6F'"#,
             1,
         ),
-        ("binary_col", r#"E''"#, r#"E''"#, -1),
+        ("binary_col", r#"E''"#, r#"''"#, -1),
+        (
+            "large_binary_col",
+            r#"'\x68656C6C6F'"#,
+            r#"'\x68\x65\x6C\x6C\x6F'"#,
+            1,
+        ),
+        (
+            "large_binary_col",
+            r#"'\x70617271756574'"#,
+            r#"'\x70\x61\x72\x71\x75\x65\x74'"#,
+            0,
+        ),
+        ("utf8_col", "'Hello'", "'Hello'", 1),
+        ("utf8_col", "'There'", "'There'", -1),
+        ("large_utf8_col", "'Hello'", "'Hello'", 1),
+        ("large_utf8_col", "'World'", "'World'", 0),
     ];
 
     for (col_name, val, plan_val, res) in test_case {
@@ -337,20 +353,23 @@ async fn test_quals_pushdown(mut conn: PgConnection, tempdir: TempDir) -> Result
 
         assert!(
             explain[3].0.contains(&plan_clause),
-            "explain: {}\nquery: {}",
+            "explain plan error: explain: {}\nplan_clause: {}\n",
             explain[3].0,
-            query,
+            plan_clause,
         );
-        // make sure
+        // make sure the result is correct
         let rows: Vec<(i32,)> = query.clone().fetch(&mut conn);
         assert!(
             rows.len() == 1,
-            "rows length: {}\nquery: {}",
+            "result error: rows length: {}\nquery: {}\n",
             rows.len(),
             query
         );
-        assert_eq!(res, rows[0].0, "expect: {},  result: {} ", res, rows[0].0);
+        assert_eq!(
+            res, rows[0].0,
+            "result error: expect: {},  result: {} \n query: {}",
+            res, rows[0].0, query
+        );
     }
-
     Ok(())
 }

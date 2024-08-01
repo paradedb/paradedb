@@ -14,8 +14,8 @@ on:
     paths:
       - ".github/workflows/test-paradedb.yml"
       - "docker/**"
-      - "pg_lakehouse/**"
-      - "!pg_lakehouse/README.md"
+      - "pg_analytics/**"
+      - "!pg_analytics/README.md"
       - "pg_search/**"
       - "!pg_search/README.md"
       - "shared/**"

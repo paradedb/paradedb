@@ -41,7 +41,7 @@ impl ParadeExtension {
     fn name(&self) -> String {
         match self {
             Self::PgSearch => "pg_search",
-            Self::PgLakehouse => "pg_lakehouse",
+            Self::PgLakehouse => "pg_analytics",
         }
         .into()
     }

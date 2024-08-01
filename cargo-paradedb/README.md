@@ -75,7 +75,7 @@ Query a `pg_search` index (index must already exist):
 cargo paradedb bench eslogs query-search-index
 ```
 
-### Benchmark pg_lakehouse
+### Benchmark pg_analytics
 
 Note: This benchmark pulls the entire 100 million-row ClickBench dataset in Parquet format, which is ~15GBs.
 

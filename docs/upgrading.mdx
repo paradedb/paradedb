@@ -7,7 +7,7 @@ title: Updating ParadeDB
 ParadeDB ships all of its functionality via Postgres extensions. All updates to ParadeDB can be
 received by updating one or more of the following extensions:
 
-1. `pg_lakehouse` for accelerated analytical queries
+1. `pg_analytics` for accelerated analytical queries
 2. `pg_search` for full text search
 3. `pgvector` for dense and sparse vector search
 
@@ -27,11 +27,11 @@ SELECT extversion FROM pg_extension WHERE extname = '<extension_name>';
 
 ## Updating to a New Version
 
-If a new version of `pg_search` or `pg_lakehouse` is available, it will be listed in the [changelog](/changelog).
+If a new version of `pg_search` or `pg_analytics` is available, it will be listed in the [changelog](/changelog).
 Here, you can view the changes made and decide if you want to upgrade. Note that some updates may alter an
 extension's API interface.
 
-The latest `pg_search` and `pg_lakehouse` will always be pegged to the same version. `pgvector`, on the other hand, is
+The latest `pg_search` and `pg_analytics` will always be pegged to the same version. `pgvector`, on the other hand, is
 created and maintained outside of ParadeDB, so it maintains its own version. Users should refer to the `pgvector`
 [README](https://github.com/pgvector/pgvector) for documentation on its latest changes.
 
@@ -48,13 +48,13 @@ Then, run the following commands to upgrade the extensions:
 
 ```sql
 ALTER EXTENSION pg_search UPDATE TO '<version_number>';
-ALTER EXTENSION pg_lakehouse UPDATE TO '<version_number>';
+ALTER EXTENSION pg_analytics UPDATE TO '<version_number>';
 ```
 
 <Accordion title="Example Usage">
   ```sql
   ALTER EXTENSION pg_search UPDATE TO '0.9.0';
-  ALTER EXTENSION pg_lakehouse UPDATE TO '0.9.0';
+  ALTER EXTENSION pg_analytics UPDATE TO '0.9.0';
   ```
 </Accordion>
 

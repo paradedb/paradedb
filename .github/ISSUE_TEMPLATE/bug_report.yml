@@ -47,7 +47,7 @@ body:
         - ParadeDB Docker Image
         - ParadeDB Helm Chart
         - ParadeDB pg_search Extension
-        - ParadeDB pg_lakehouse Extension
+        - ParadeDB pg_analytics Extension
     validations:
       required: true
 

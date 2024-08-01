@@ -1,8 +1,8 @@
 ---
-title: pg_lakehouse
+title: pg_analytics
 ---
 
-This guide explains how to install the `pg_lakehouse` extension inside an existing PostgreSQL database. These
+This guide explains how to install the `pg_analytics` extension inside an existing PostgreSQL database. These
 instructions are for deploying on Linux Debian/Ubuntu. If you are using a different version of Linux, please
 [contact us](mailto:sales@paradedb.com).
 
@@ -10,9 +10,9 @@ instructions are for deploying on Linux Debian/Ubuntu. If you are using a differ
 
 Ensure that you have superuser access to the Postgres database.
 
-# Install `pg_lakehouse`
+# Install `pg_analytics`
 
-ParadeDB provides prebuilt binaries for the `pg_lakehouse` extension on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15 and 16 on both amd64 (x86_64) and arm64. They can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). If you
+ParadeDB provides prebuilt binaries for the `pg_analytics` extension on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15 and 16 on both amd64 (x86_64) and arm64. They can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). If you
 are using a different version of Postgres or a different operating system, you will need to build the extension from source.
 
 ## Using Prebuilt Binaries
@@ -64,10 +64,10 @@ Please follow these [instructions](https://github.com/paradedb/paradedb/tree/v0.
 
 # Update `postgresql.conf`
 
-Next, add `pg_lakehouse` to `shared_preload_libraries` in `postgresql.conf`.
+Next, add `pg_analytics` to `shared_preload_libraries` in `postgresql.conf`.
 
 ```conf
-shared_preload_libraries = 'pg_lakehouse'
+shared_preload_libraries = 'pg_analytics'
 ```
 
 Reload your PostgreSQL server for these changes to take effect.
@@ -77,7 +77,7 @@ Reload your PostgreSQL server for these changes to take effect.
 Once the extension binary is installed on your system, connect to your Postgres database via your client of choice (e.g. `psql`) and run the following command:
 
 ```sql
-CREATE EXTENSION pg_lakehouse;
+CREATE EXTENSION pg_analytics;
 ```
 
 That's it! For next steps, follow the [quickstart guide](/analytics/quickstart).

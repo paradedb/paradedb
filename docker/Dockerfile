@@ -68,10 +68,10 @@ WORKDIR /tmp/pg_search
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
-# pg_lakehouse
+# pg_analytics
 ######################
 
-FROM builder AS builder-pg_lakehouse
+FROM builder AS builder-pg_analytics
 
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
@@ -84,11 +84,11 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-COPY pg_lakehouse/ /tmp/pg_lakehouse
+COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
 
 # Build the extension
-WORKDIR /tmp/pg_lakehouse
+WORKDIR /tmp/pg_analytics
 RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
@@ -185,13 +185,13 @@ COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Switch to root for configuring runtime dependencies
 USER root
 
-# Required for pg_lakehouse, pg_cron
+# Required for pg_analytics, pg_cron
 RUN mkdir .duckdb/ && chmod 777 .duckdb/ && \
     apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
 
@@ -202,7 +202,7 @@ RUN mkdir .duckdb/ && chmod 777 .duckdb/ && \
 # The `postgres` database is the default database that exists in every Postgres installation. The pg_cron
 # extension requires a database to store its metadata tables. By using `postgres`, we ensure that it has a
 # stable, always-available database for its operations, no matter what other databases are created or deleted.
-RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_lakehouse,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
+RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_analytics,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
 
 # Switch back to the postgres user
@@ -211,4 +211,4 @@ USER postgres
 # Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
 COPY ./docker/update_pg_search.sh /usr/local/bin/
-COPY ./docker/update_pg_lakehouse.sh /usr/local/bin/
+COPY ./docker/update_pg_analytics.sh /usr/local/bin/

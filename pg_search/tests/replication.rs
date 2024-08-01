@@ -292,7 +292,6 @@ async fn test_ephemeral_postgres() -> Result<()> {
     Ok(())
 }
 
-// Test function to test the ephemeral PostgreSQL setup
 #[rstest]
 async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     let source_postgres = EphemeralPostgres::new();

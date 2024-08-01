@@ -46,7 +46,7 @@ CALL paradedb.create_bm25(
         table_name => 'mock_items',
         key_field => 'id',
         text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) ||
-                       paradedb.field('category')
+                       paradedb.field('category'),
         numeric_fields => paradedb.field('rating')
 );
 ```

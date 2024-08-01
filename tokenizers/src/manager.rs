@@ -15,19 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(feature = "icu")]
+use crate::icu::ICUTokenizer;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tantivy::tokenizer::{
-    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter,
-    SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
-};
-
-use crate::code::CodeTokenizer;
-#[cfg(feature = "icu")]
-use crate::icu::ICUTokenizer;
-use crate::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
-use crate::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
+use tantivy::tokenizer::Language;
 
 // Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.

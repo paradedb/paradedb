@@ -134,8 +134,14 @@ impl SearchIndex {
     }
 
     pub fn from_disk<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
-        let new_self: Self = directory.load_index()?;
+        let mut new_self: Self = directory.load_index()?;
         let uuid = new_self.uuid.clone();
+
+        // In the case of a physical replication of the database, the absolute path that is stored
+        // in the serialized WriterDirectory might refer to the source database's file system.
+        // We should overwrite it with the dynamically generated one that's been passed as an
+        // argument here.
+        new_self.directory = directory.clone();
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {

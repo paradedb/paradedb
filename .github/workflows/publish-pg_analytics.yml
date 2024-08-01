@@ -164,6 +164,9 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Clone paradedb/pg_analytics Repository
+        run: git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+
       - name: Install Debian Dependencies
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
@@ -344,7 +347,7 @@ jobs:
           touch ${package_dir}/DEBIAN/control
           deb_version=${{ steps.version.outputs.tag_version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-lakehouse' >> $CONTROL_FILE
+          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-analytics' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
           echo 'Section: database' >> $CONTROL_FILE
           echo 'Priority: optional' >> $CONTROL_FILE

@@ -346,9 +346,9 @@ async fn test_quals_pushdown(mut conn: PgConnection, tempdir: TempDir) -> Result
         // The condition in the clause may undergo simplification
         let plan_clause = format!("{col_name} = {plan_val}");
 
-        // prevent executor push down, make sure it goes FDW
+        // prevent executor push down, make sure it goes FDW (by using LEFT JOIN with normal postgres table)
         let query =
-            format!("SELECT int32_col from primitive LEFT join t1 on true WHERE {where_clause}");
+            format!("SELECT int32_col from primitive LEFT JOIN t1 on true WHERE {where_clause}");
         let explain: Vec<(String,)> = format!("EXPLAIN {query}").fetch(&mut conn);
 
         assert!(
@@ -371,5 +371,87 @@ async fn test_quals_pushdown(mut conn: PgConnection, tempdir: TempDir) -> Result
             res, rows[0].0, query
         );
     }
+    Ok(())
+}
+
+#[rstest]
+async fn test_complex_quals_pushdown(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
+    let stored_batch = primitive_record_batch()?;
+    let parquet_path = tempdir.path().join("test_arrow_types.parquet");
+    let parquet_file = File::create(&parquet_path)?;
+
+    let mut writer = ArrowWriter::try_new(parquet_file, stored_batch.schema(), None).unwrap();
+    writer.write(&stored_batch)?;
+    writer.close()?;
+
+    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "primitive")
+        .execute(&mut conn);
+
+    "CREATE TABLE t1 (a int);".execute(&mut conn);
+
+    let query = r#"SELECT int64_col
+            FROM primitive LEFT JOIN t1 ON true
+        WHERE (
+            boolean_col = TRUE
+            AND int8_col = 1
+            AND int16_col = 1
+            AND int32_col = 1
+            AND int64_col = 1
+            AND uint8_col = 1
+            AND uint16_col = 1
+            AND uint32_col = 1
+            AND uint64_col = 1
+            AND float32_col = 1.0
+            AND float64_col = 1.0
+            AND date32_col = DATE '2020-01-01'
+            AND date64_col = TIMESTAMP '2021-01-01'
+            AND binary_col = E'\\x68656c6c6f'
+            AND large_binary_col = E'\\x68656c6c6f'
+            AND utf8_col = 'Hello'
+            AND large_utf8_col = 'Hello'
+        )
+        OR (
+            boolean_col = FALSE
+            AND int8_col = 0
+            AND int16_col = 0
+            AND int32_col = 0
+            AND int64_col = 0
+            AND uint8_col = 0
+            AND uint16_col = 0
+            AND uint32_col = 0
+            AND uint64_col = 0
+            AND float32_col = 0.0
+            AND float64_col = 0.0
+            AND date32_col = DATE '2020-01-03'
+            AND date64_col = TIMESTAMP '2021-01-03'
+            AND binary_col = E'\\x70617271756574'
+            AND large_binary_col = E'\\x70617271756574'
+            AND utf8_col = 'World'
+            AND large_utf8_col = 'World'
+        );"#;
+
+    // make sure the result is correct with complex clauses.
+    let rows: Vec<(i64,)> = query.fetch(&mut conn);
+
+    // TODO: check the plan. Wrappers not parse quals correctly. So there is not qual pushdown
+    assert!(
+        rows.len() == 2,
+        "result error: rows length: {}\nquery: {}\n",
+        rows.len(),
+        query
+    );
+
+    assert_eq!(
+        1, rows[0].0,
+        "result error: expect: {}, result: {} \n query: {}",
+        1, rows[0].0, query
+    );
+
+    assert_eq!(
+        0, rows[1].0,
+        "result error: expect: {}, result: {} \n query: {}",
+        0, rows[1].0, query
+    );
+
     Ok(())
 }

@@ -65,6 +65,10 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
+      - name: Clone paradedb/pg_analytics Repository
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+
       - name: Install Rust
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: dtolnay/rust-toolchain@stable

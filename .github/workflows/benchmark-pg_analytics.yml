@@ -46,6 +46,9 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Clone paradedb/pg_analytics Repository
+        run: git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 

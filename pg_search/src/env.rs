@@ -30,12 +30,10 @@ use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
 /// after initialization.
 static SEARCH_ENV: Lazy<SearchEnv> = Lazy::new(|| SearchEnv {
     postgres_data_dir: Mutex::new(None),
-    postgres_database_oid: Mutex::new(None),
 });
 
 struct SearchEnv {
     postgres_data_dir: Mutex<Option<PathBuf>>,
-    postgres_database_oid: Mutex<Option<u32>>,
 }
 
 pub fn postgres_data_dir_path() -> PathBuf {
@@ -52,21 +50,13 @@ pub fn postgres_data_dir_path() -> PathBuf {
         .clone()
 }
 
-pub fn postgres_database_oid() -> u32 {
-    *SEARCH_ENV
-        .postgres_database_oid
-        .lock()
-        .expect("Failed to lock mutex")
-        .get_or_insert_with(|| unsafe { pgrx::pg_sys::MyDatabaseId.as_u32() })
-}
-
 pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
     writer: &Arc<Mutex<W>>,
     directory: WriterDirectory,
 ) -> Result<(), TransactionError> {
     let writer_client = writer.clone();
     let commit_directory = directory.clone();
-    Transaction::call_once_on_precommit(directory.clone().index_name, move || {
+    Transaction::call_once_on_precommit(directory.clone().index_oid, move || {
         let mut error: Option<anyhow::Error> = None;
         {
             // This lock must happen in an enclosing block so it is dropped and
@@ -95,7 +85,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
 
     let writer_client = writer.clone();
     let abort_directory = directory.clone();
-    Transaction::call_once_on_abort(directory.clone().index_name, move || {
+    Transaction::call_once_on_abort(directory.clone().index_oid, move || {
         let mut error: Option<anyhow::Error> = None;
         {
             // This lock must happen in an enclosing block so it is dropped and
@@ -125,7 +115,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
     Ok(())
 }
 
-pub fn needs_commit(index_name: &str) -> bool {
-    Transaction::needs_commit(index_name)
+pub fn needs_commit(index_oid: u32) -> bool {
+    Transaction::needs_commit(index_oid)
         .expect("error performing commit check in transaction cache")
 }

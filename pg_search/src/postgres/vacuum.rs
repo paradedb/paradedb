@@ -39,7 +39,7 @@ pub extern "C" fn amvacuumcleanup(
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name();
-    let directory = WriterDirectory::from_index_name(index_name);
+    let directory = WriterDirectory::from_index_oid(index_relation.oid().as_u32());
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

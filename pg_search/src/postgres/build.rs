@@ -53,7 +53,7 @@ pub extern "C" fn ambuild(
 ) -> *mut pg_sys::IndexBuildResult {
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
-    let index_name = index_relation.name().to_string();
+    let index_oid = index_relation.oid();
 
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
@@ -207,7 +207,7 @@ pub extern "C" fn ambuild(
     }
 
     let writer_client = WriterGlobal::client();
-    let directory = WriterDirectory::from_index_name(&index_name);
+    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
     SearchIndex::create_index(
         &writer_client,
         directory,
@@ -300,7 +300,8 @@ unsafe fn build_callback_internal(
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
             let index_name = index_relation_ref.name();
-            let directory = WriterDirectory::from_index_name(index_name);
+            let index_oid = index_relation_ref.oid();
+            let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
                 .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
             let search_document =

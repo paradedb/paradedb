@@ -38,25 +38,23 @@ static SEARCH_STATE_MANAGER: Lazy<Arc<Mutex<SearchStateManager>>> = Lazy::new(||
     }))
 });
 
-const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_current_search";
-
 pub struct SearchStateManager {
     state_map: HashMap<SearchAlias, SearchState>,
     result_map: HashMap<SearchAlias, HashMap<TantivyValue, (Score, DocAddress)>>,
 }
 
 impl SearchStateManager {
-    fn register_callback() -> Result<(), TransactionError> {
+    fn register_callback(index_oid: u32) -> Result<(), TransactionError> {
         // Commit and abort are mutually exclusive. One of the two is guaranteed
         // to be called on any transaction. We'll use that opportunity to clean
         // up the cache.
-        Transaction::call_once_on_commit(TRANSACTION_CALLBACK_CACHE_ID.to_string(), move || {
+        Transaction::call_once_on_commit(index_oid, move || {
             let mut current_search = SEARCH_STATE_MANAGER
                 .lock()
                 .expect("could not lock current search lookup in commit callback");
             current_search.state_map.drain();
         })?;
-        Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID.to_string(), move || {
+        Transaction::call_once_on_abort(index_oid, move || {
             let mut current_search = SEARCH_STATE_MANAGER
                 .lock()
                 .expect("could not lock current search lookup in abort callback");
@@ -153,7 +151,7 @@ impl SearchStateManager {
     }
 
     pub fn set_state(state: SearchState) -> Result<(), SearchStateError> {
-        Self::register_callback().map_err(SearchStateError::from)?;
+        Self::register_callback(state.config.index_oid).map_err(SearchStateError::from)?;
 
         let mut manager = SEARCH_STATE_MANAGER
             .lock()

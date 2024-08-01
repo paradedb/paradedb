@@ -138,15 +138,6 @@ fn create_bm25_impl(
         );
     }
 
-    let index_uuid = Uuid::new_v4().to_string();
-    let index_json = json!({
-        "index_name": format!("{}_bm25_index", index_name),
-        "table_name": table_name,
-        "key_field": key_field,
-        "schema_name": schema_name,
-        "uuid":  index_uuid
-    });
-
     Spi::run(&format!(
         "CREATE SCHEMA {}",
         spi::quote_identifier(index_name)
@@ -185,9 +176,12 @@ fn create_bm25_impl(
         "".to_string()
     };
 
+    let index_uuid = Uuid::new_v4().to_string();
+    let index_name_suffixed = format!("{}_bm25_index", index_name);
+
     Spi::run(&format!(
         "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}, uuid={}) {};",
-        spi::quote_identifier(format!("{}_bm25_index", index_name)),
+        spi::quote_identifier(index_name_suffixed.clone()),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
         spi::quote_identifier(key_field),
@@ -198,7 +192,7 @@ fn create_bm25_impl(
         spi::quote_literal(boolean_fields),
         spi::quote_literal(json_fields),
         spi::quote_literal(datetime_fields),
-        spi::quote_identifier(index_uuid),
+        spi::quote_identifier(index_uuid.clone()),
         predicate_where))?;
 
     let predicate = if !predicates.is_empty() {
@@ -206,6 +200,24 @@ fn create_bm25_impl(
     } else {
         "".to_string()
     };
+
+    let oid_query = format!(
+        "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
+        &index_name_suffixed
+    );
+    let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)
+        .expect("error looking up index in create_bm25")
+        .expect("no oid for index created in create_bm25")
+        .as_u32();
+
+    let index_json = json!({
+        "index_name": index_name_suffixed,
+        "index_oid": index_oid,
+        "table_name": table_name,
+        "key_field": key_field,
+        "schema_name": schema_name,
+        "uuid":  index_uuid
+    });
 
     Spi::run(&format_bm25_function(
         &spi::quote_qualified_identifier(index_name, "search"),
@@ -398,6 +410,29 @@ LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
     let schema_name = schema_name.unwrap_or("current_schema()");
 
+    let oid_query = format!(
+        "SELECT oid FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
+        index_name
+    );
+
+    let oid_results = Spi::connect(|client| {
+        client
+            .select(&oid_query, None, None)?
+            .map(|row| anyhow::Ok((row["oid"].value()?,)))
+            .collect::<anyhow::Result<Vec<(Option<pg_sys::Oid>,)>, _>>()
+    })?;
+
+    let index_oid = if oid_results.is_empty() {
+        // No index with the passed name exists. Nothing to do, so return.
+        return Ok(());
+    } else {
+        oid_results
+            .first()
+            .expect("already asserted that oid_results is not empty")
+            .0
+            .expect("oid in drop_bm25 is unexpectedly NULL")
+    };
+
     Spi::run(&format!(
         r#"
         DO $$
@@ -409,8 +444,6 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
 
             EXECUTE 'DROP INDEX IF EXISTS {}.{}'; 
             EXECUTE 'DROP SCHEMA IF EXISTS {} CASCADE';
-            PERFORM paradedb.drop_bm25_internal({});
-
             EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
         END;
         $$;
@@ -418,8 +451,9 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
         spi::quote_identifier(schema_name),
         spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(index_name),
-        spi::quote_literal(format!("{}_bm25_index", index_name))
     ))?;
+
+    crate::api::search::drop_bm25_internal(index_oid);
 
     Ok(())
 }

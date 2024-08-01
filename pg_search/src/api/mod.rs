@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod config;
-mod index;
-mod operator;
-mod search;
+pub mod config;
+pub mod index;
+pub mod operator;
+pub mod search;

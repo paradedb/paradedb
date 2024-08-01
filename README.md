@@ -89,14 +89,7 @@ docker run \
   paradedb/paradedb:latest
 ```
 
-This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `superuser_password` will be associated with superuser `postgres` and is necessary for ParadeDB extensions to install properly.
-
-The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`. The volume needs to be writable by a user with `uid = 1001`, which is a security requirement of the Bitnami PostgreSQL Docker image. You can do so with:
-
-```bash
-sudo useradd -u 1001 <user>
-sudo chown <user> </path/to/paradedb_data>
-```
+This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `superuser_password` will be associated with superuser `postgres` and is necessary for ParadeDB extensions to install properly. The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`.
 
 You can then connect to the database using `psql`:
 

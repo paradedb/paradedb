@@ -1,12 +1,8 @@
 #
 # This docker-compose.yml file is for production deployments of ParadeDB. It pulls the latest
 # ParadeDB image from Docker Hub, which has all ParadeDB extensions pre-installed and properly configured.
-# It is intended for hobby production use. Make sure to update POSTGRESQL_USERNAME, POSTGRESQL_PASSWORD,
-# POSTGRESQL_DATABASE, and POSTGRESQL_POSTGRES_PASSWORD before production usage.
-#
-# There are several other environment variables which can be specified here to configure replication, TLS,
-# and a few other settings. They can be found here:
-# https://github.com/bitnami/containers/blob/main/bitnami/postgresql/README.md#environment-variables
+# It is intended for hobby production use. Make sure to update POSTGRES_USER, POSTGRES_PASSWORD, and
+# POSTGRES_DB before production usage.
 #
 
 services:
@@ -14,15 +10,14 @@ services:
     image: paradedb/paradedb:latest
     container_name: paradedb
     environment:
-      POSTGRESQL_USERNAME: myuser
-      POSTGRESQL_PASSWORD: mypassword
-      POSTGRESQL_DATABASE: mydatabase
-      POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydatabase
       PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
     ports:
       - "5432:5432"
     volumes:
-      - paradedb_data:/bitnami/postgresql
+      - paradedb_data:/var/lib/postgresql
 
 volumes:
   paradedb_data:

@@ -4,7 +4,6 @@ ARG PG_VERSION_MAJOR=16
 # First Stage: Builder
 ###############################################
 
-# We build the extensions on the official PostgreSQL image
 # Note: Debian Bookworm = Debian 12
 FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
 
@@ -145,7 +144,9 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 ###############################################
 
 # Note: Debian Bookworm = Debian 12
-FROM ghcr.io/cloudnative-pg/postgresql:${PG_VERSION_MAJOR}-bookworm as paradedb
+FROM postgres:${PG_VERSION_MAJOR}-bookworm as paradedb
+
+LABEL maintainer="ParadeDB - https://paradedb.com"
 
 ARG PG_VERSION_MAJOR=16
 
@@ -168,5 +169,6 @@ COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VER
 COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
-# Create the DuckDB directory
-RUN mkdir .duckdb/ && chown 777 .duckdb/
+# Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
+COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
+COPY ./docker/update_paradedb.sh /usr/local/bin/

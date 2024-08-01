@@ -6,12 +6,29 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# We only pre-configure the database on primary nodes, since replica nodes are read-only
-# and will get the extensions from the replica node via physical replication
-if [ "$POSTGRESQL_REPLICATION_MODE" = "slave" ]; then
-  echo "Skipping ParadeDB bootstrap on replica nodes..."
-  exit 0
-fi
+# Perform all actions as $POSTGRES_USER
+export PGUSER="$POSTGRES_USER"
+
+# Create the 'template_paradedb' template db
+"${psql[@]}" <<- 'EOSQL'
+CREATE DATABASE template_paradedb IS_TEMPLATE true;
+EOSQL
+
+# Load ParadeDB extensions into both template_database and $POSTGRES_DB
+for DB in template_paradedb "$POSTGRES_DB"; do
+	echo "Loading ParadeDB extensions into $DB"
+	"${psql[@]}" --dbname="$DB" <<-'EOSQL'
+    CREATE EXTENSION IF NOT EXISTS pg_search;
+    CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
+    CREATE EXTENSION IF NOT EXISTS pg_ivm;
+    CREATE EXTENSION IF NOT EXISTS vector;
+    CREATE EXTENSION IF NOT EXISTS vectorscale;
+EOSQL
+done
+
+
+
+
 
 # If no user is set, the default user will be the `postgres` superuser, so we
 # set the superuser password to default to the user password in that case

@@ -21,6 +21,7 @@ mod fdw;
 mod hooks;
 mod schema;
 
+use crate::env;
 use hooks::LakehouseHook;
 use pgrx::*;
 use shared::{
@@ -32,6 +33,11 @@ use shared::{
 pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
 
 pg_module_magic!();
+
+// Make DuckDB store its .duckdb folder in the Postgres data directory, for permissions reasons.
+let postgres_data_dir_path = env::postgres_data_dir_path();
+let dir_str = postgres_data_dir_path.to_string_lossy().replace("'", "''");
+extension_sql!(r#"SELECT duckdb_execute($$SET home_directory = '{}'$$);"#, dir_str);
 
 static mut EXTENSION_HOOK: LakehouseHook = LakehouseHook;
 

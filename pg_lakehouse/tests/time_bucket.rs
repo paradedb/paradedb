@@ -27,10 +27,7 @@ use sqlx::PgConnection;
 use std::fs::File;
 
 #[rstest]
-async fn test_preserve_casing_on_table_create(
-    mut conn: PgConnection,
-    tempdir: TempDir,
-) -> Result<()> {
+async fn test_time_bucket(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
     let stored_batch = primitive_record_batch()?;
     let parquet_path = tempdir.path().join("test_arrow_types.parquet");
     let parquet_file = File::create(&parquet_path)?;

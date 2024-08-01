@@ -8,7 +8,7 @@ to make the process as smooth as possible.
 Before submitting a pull request, please review this document, which outlines what
 conventions to follow when submitting changes. If you have any questions not covered
 in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ)
-or via [email](support@paradedb.com).
+or via [email](mailto:support@paradedb.com).
 
 ### Development Workflow
 

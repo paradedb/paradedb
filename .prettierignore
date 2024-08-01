@@ -13,5 +13,6 @@
 /docs/search/full-text/fuzzy.mdx
 /docs/search/full-text/scoring.mdx
 /docs/search/full-text/highlighting.mdx
+/docs/search/full-text/joins.mdx
 /docs/upgrading.mdx
 /pg_search/benchmarks/out/

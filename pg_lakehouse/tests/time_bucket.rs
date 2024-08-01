@@ -18,13 +18,51 @@
 mod fixtures;
 
 use anyhow::Result;
+use datafusion::parquet::arrow::ArrowWriter;
 use fixtures::*;
 use rstest::*;
+use shared::fixtures::arrow::{primitive_record_batch, primitive_setup_fdw_local_file_listing};
+use shared::fixtures::tempfile::TempDir;
 use sqlx::PgConnection;
+use std::fs::File;
 
 #[rstest]
-async fn test_time_bucket(mut conn: PgConnection) -> Result<()> {
-    "SELECT time_bucket(INTERVAL 5 MINUTE, timestamp);".execute(&mut conn);
+async fn test_preserve_casing_on_table_create(
+    mut conn: PgConnection,
+    tempdir: TempDir,
+) -> Result<()> {
+    let stored_batch = primitive_record_batch()?;
+    let parquet_path = tempdir.path().join("test_arrow_types.parquet");
+    let parquet_file = File::create(&parquet_path)?;
+
+    let mut writer = ArrowWriter::try_new(parquet_file, stored_batch.schema(), None).unwrap();
+    writer.write(&stored_batch)?;
+    writer.close()?;
+
+    primitive_setup_fdw_local_file_listing(parquet_path.as_path().to_str().unwrap(), "MyTable")
+        .execute(&mut conn);
+
+    format!(
+        "CREATE FOREIGN TABLE \"MyTable\" () SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
+        parquet_path.to_str().unwrap()
+    )
+        .execute(&mut conn);
+
+    let foreign_table_name: Vec<(String,)> =
+        "SELECT foreign_table_name FROM information_schema.foreign_tables WHERE foreign_table_name='MyTable';".fetch(&mut conn);
+    assert_eq!(foreign_table_name.len(), 1);
+    assert_ne!(foreign_table_name[0].0, "mytable");
+    assert_eq!(foreign_table_name[0].0, "MyTable");
+
+    match "SELECT * FROM \"MyTable\"".execute_result(&mut conn) {
+        Ok(_) => {}
+        Err(error) => {
+            panic!(
+                "should have successfully queried case sensitive table \"MyTable\": {}",
+                error
+            );
+        }
+    }
+
     Ok(())
 }
-

@@ -182,6 +182,9 @@ brew install postgresql@16
 wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
 sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 sudo apt-get update && sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+
+# Arch
+sudo pacman -S extra/postgresql
 ```
 
 If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to add the `pg_config` binary to your path before continuing:
@@ -204,6 +207,9 @@ cargo pgrx init --pg16=/usr/local/opt/postgresql@16/bin/pg_config
 
 # Ubuntu
 cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
+
+# Arch
+cargo pgrx init --pg16=/usr/bin/pg_config
 ```
 
 If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
@@ -225,6 +231,9 @@ sudo apt-get install -y libicu70
 
 # Ubuntu 24.04
 sudo apt-get install -y libicu74
+
+# Arch
+sudo pacman -S core/icu
 ```
 
 Additionally, on macOS you'll need to add the `icu-config` binary to your path before continuing:

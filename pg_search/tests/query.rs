@@ -310,12 +310,18 @@ fn exists_query(mut conn: PgConnection) {
     }
 
     // Exists with boolean query
-    "INSERT INTO paradedb.bm25_search (id, rating) VALUES (42, NULL)".execute(&mut conn);
+    "INSERT INTO paradedb.bm25_search (id, description, rating) VALUES (42, 'shoes', NULL)"
+        .execute(&mut conn);
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-        query => paradedb.boolean(must => paradedb.exists('rating'))
+        query => paradedb.boolean(
+            must => ARRAY[
+                paradedb.exists('rating'),
+                paradedb.parse('description:shoes')
+            ]
+        )
     )"#
     .fetch_collect(&mut conn);
-    assert_eq!(columns.len(), 41);
+    assert_eq!(columns.len(), 3);
 }

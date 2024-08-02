@@ -274,7 +274,7 @@ CREATE EXTENSION pg_search;
 
 ### Testing
 
-We use `cargo test` as our runner for `pg_lakehouse` tests.
+We use `cargo test` as our runner for `pg_search` tests.
 
 ## License
 

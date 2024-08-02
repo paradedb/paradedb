@@ -34,10 +34,10 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 
 - [x] Search
   - [x] Full-text search with BM25 with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
-  - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector) & [pgvectorscale](https://github.com/timescale/pgvectorscale#pgvectorscale)
+  - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
 - [ ] Analytics
-  - [x] An analytical query engine over any object store or table format with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
+  - [x] An analytical query engine over data in Postgres or in any object store or table format with [pg_analytics](https://github.com/paradedb/pg_analytics)
   - [ ] Column-oriented table access method for fast analytics inside Postgres
   - [ ] High-volume data/Kafka ingest
 - [x] Self-Hosted ParadeDB

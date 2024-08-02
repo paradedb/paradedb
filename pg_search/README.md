@@ -221,8 +221,6 @@ Note: While it is possible to develop using pgrx's own Postgres installation(s),
 ```bash
 # Ubuntu
 sudo apt install libclang-dev
-# or
-sudo apt install clang
 
 # Arch
 sudo pacman -S extra/clang

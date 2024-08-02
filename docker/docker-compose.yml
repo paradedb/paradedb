@@ -1,8 +1,9 @@
 #
-# This docker-compose.yml file is for production deployments of ParadeDB. It pulls the latest
-# ParadeDB image from Docker Hub, which has all ParadeDB extensions pre-installed and properly configured.
-# It is intended for hobby production use. Make sure to update POSTGRES_USER, POSTGRES_PASSWORD, and
-# POSTGRES_DB before production usage.
+# This docker-compose.yml file is for hobby production deployments of ParadeDB. It pulls the latest
+# ParadeDB image from Docker Hub, which has packages all ParadeDB extensions. It is intended for hobby
+# production use. For professional production usage, we recommend using our Helm chart.
+# 
+# Make sure to update POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB before use.
 #
 
 services:
@@ -17,7 +18,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - paradedb_data:/var/lib/postgresql
+      - paradedb_data:/var/lib/postgresql/
 
 volumes:
   paradedb_data:

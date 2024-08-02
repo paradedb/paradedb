@@ -45,7 +45,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 - [x] Specialized Workloads
   - [ ] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
   - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
-  - [ ] Support for basic incremental view maintenance (IVM) via [pg_ivm](https://github.com/sraoss/pg_ivm)
+  - [x] Support for basic incremental view maintenance (IVM) via [pg_ivm](https://github.com/sraoss/pg_ivm)
 
 ## Get Started
 
@@ -59,17 +59,15 @@ ParadeDB and its extensions are available as commercial software for installatio
 
 You can find prebuilt binaries for all ParadeDB extensions on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15 and 16 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). We officially support Postgres 12 and above, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
-For official support on non-Debian-based systems, please [contact us by email](mailto:sales@paradedb.com).
-
 ### Docker Image
 
 To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
 
 ```bash
-docker run --name paradedb paradedb/paradedb
+docker run --name paradedb -e POSTGRES_PASSWORD=password paradedb/paradedb
 ```
 
-This will start a ParadeDB instance with default user `postgres` and password `postgres`. You can then connect to the database using `psql`:
+This will start a ParadeDB instance with default user `postgres` and password `password`. You can then connect to the database using `psql`:
 
 ```bash
 docker exec -it paradedb psql -U postgres
@@ -84,11 +82,12 @@ docker run \
   -e POSTGRES_PASSWORD=<password> \
   -e POSTGRES_DB=<dbname> \
   -p 5432:5432 \
+  -v paradedb_data:/var/lib/postgresql/ \
   -d \
   paradedb/paradedb:latest
 ```
 
-This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `superuser_password` will be associated with superuser `postgres` and is necessary for ParadeDB extensions to install properly. The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`.
+This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`.
 
 You can then connect to the database using `psql`:
 

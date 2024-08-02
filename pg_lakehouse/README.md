@@ -64,6 +64,7 @@ docker run \
   -e POSTGRES_PASSWORD=<password> \
   -e POSTGRES_DB=<dbname> \
   -p 5432:5432 \
+  -v paradedb_data:/var/lib/postgresql/ \
   -d \
   paradedb/paradedb:latest
 ```

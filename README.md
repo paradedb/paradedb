@@ -39,13 +39,13 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 - [ ] Analytics
   - [x] An analytical query engine over any object store or table format with [pg_lakehouse](https://github.com/paradedb/paradedb/tree/dev/pg_lakehouse#overview)
   - [ ] Column-oriented table access method for fast analytics inside Postgres
-  - [ ] High-volume data/Kafka ingest
 - [x] Self-Hosted ParadeDB
-  - [x] Docker image based on [bitnami/postgresql](https://hub.docker.com/r/bitnami/postgresql) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
-  - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
+  - [x] Docker image based on [postgres](https://hub.docker.com/_/postgres) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
+  - [x] Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [x] Specialized Workloads
-  - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
+  - [ ] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
   - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
+  - [ ] Support for basic incremental view maintenance (IVM) via [pg_ivm](https://github.com/sraoss/pg_ivm)
 
 ## Get Started
 
@@ -80,11 +80,9 @@ To install ParadeDB locally or on-premise, we recommend using our `docker-compos
 ```bash
 docker run \
   --name paradedb \
-  -e POSTGRESQL_USERNAME=<user> \
-  -e POSTGRESQL_PASSWORD=<password> \
-  -e POSTGRESQL_DATABASE=<dbname> \
-  -e POSTGRESQL_POSTGRES_PASSWORD=<superuser_password> \
-  -v paradedb_data:/bitnami/postgresql \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
   -p 5432:5432 \
   -d \
   paradedb/paradedb:latest

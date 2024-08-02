@@ -60,11 +60,9 @@ The easiest way to use the extension is to run the ParadeDB Dockerfile:
 ```bash
 docker run \
   --name paradedb \
-  -e POSTGRESQL_USERNAME=<user> \
-  -e POSTGRESQL_PASSWORD=<password> \
-  -e POSTGRESQL_DATABASE=<dbname> \
-  -e POSTGRESQL_POSTGRES_PASSWORD=<superuser_password> \
-  -v paradedb_data:/bitnami/postgresql \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
   -p 5432:5432 \
   -d \
   paradedb/paradedb:latest

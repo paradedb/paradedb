@@ -38,7 +38,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Hybrid search
 - [ ] Analytics
   - [x] An analytical query engine over any object store or table format with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
-  - [x] Column-oriented table access method for fast analytics inside Postgres
+  - [ ] Column-oriented table access method for fast analytics inside Postgres
   - [ ] High-volume data/Kafka ingest
 - [x] Self-Hosted ParadeDB
   - [x] Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))

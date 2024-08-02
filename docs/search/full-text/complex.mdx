@@ -142,9 +142,13 @@ Matches all documents with a non-null value in the specified field. All matched 
 
 ```sql
 SELECT * FROM search_idx.search(
-	query => paradedb.exists('rating')
+	query => paradedb.exists(field => 'rating')
 );
 ```
+
+<ParamField body="field">
+  Specifies the field within the document to search for the term.
+</ParamField>
 
 This query is useful for filtering on `NULL` values inside a boolean query. For instance, the following code block
 finds all rows with `description` matching `shoes` that have a non-null `rating`.

@@ -126,6 +126,20 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     fi
 
 ######################
+# pg_cron
+######################
+
+FROM builder as builder-pg_cron
+
+# Build the extension
+WORKDIR /tmp
+RUN git clone --branch v1.6.2 https://github.com/citusdata/pg_cron.git
+WORKDIR /tmp/pg_cron
+RUN echo "trusted = true" >> pg_cron.control && \
+    make clean -j && \
+    make USE_PGXS=1 -j
+
+######################
 # pg_ivm
 ######################
 
@@ -159,6 +173,9 @@ COPY --from=builder-pgvector /tmp/pgvector/*.control /usr/share/postgresql/${PG_
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_cron /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_cron /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_cron /tmp/pg_cron/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
@@ -171,7 +188,10 @@ COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-p
 
 # Switch to root for configuring runtime dependencies
 USER root
+# Required for pg_lakehouse
 RUN mkdir .duckdb/ && chmod 777 .duckdb/
+# Required for pg_cron
+RUN apt-get install -y --no-install-recommends libpq5
 USER postgres
 
 # Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.

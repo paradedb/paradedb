@@ -45,6 +45,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [x] Specialized Workloads
   - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
+  - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
 
 ## Get Started
 

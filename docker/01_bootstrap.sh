@@ -10,6 +10,30 @@ set -Eeuo pipefail
 # Perform all actions as $POSTGRES_USER
 export PGUSER="$POSTGRES_USER"
 
+# Add extensions to shared_preload_libraries
+PG_CONF="/var/lib/postgresql/data/postgresql.conf"
+LIBRARIES_TO_ADD="pg_search,pg_lakehouse,pg_cron"
+if [ -f "$PG_CONF" ]; then
+  if grep -q "^shared_preload_libraries" "$PG_CONF"; then
+    # If the line exists, append new libraries to it
+    sed -i "s/^shared_preload_libraries = '\(.*\)'/shared_preload_libraries = '\1,$LIBRARIES_TO_ADD'/" "$PG_CONF"
+  else
+    # If the line doesn't exist, add it
+    echo "shared_preload_libraries = '$LIBRARIES_TO_ADD'" >> "$PG_CONF"
+  fi
+  echo "Added $LIBRARIES_TO_ADD to shared_preload_libraries in postgresql.conf"
+else
+  echo "Error: postgresql.conf not found at $PG_CONF"
+  exit 1
+fi
+
+# This setting is required by pg_cron to CREATE EXTENSION properly. It can only be installed in one database,
+# so we install it in the user database. Creating the `pg_cron` extension requires a restart of the PostgreSQL server.
+echo "cron.database_name = '$POSTGRESQL_DB'" >> "$PG_CONF"
+
+echo "Restarting PostgreSQL to apply changes..."
+pg_ctl restart
+
 # Create the 'template_paradedb' template db
 "${psql[@]}" <<- 'EOSQL'
 CREATE DATABASE template_paradedb IS_TEMPLATE true;
@@ -35,23 +59,7 @@ for DB in template_paradedb "$POSTGRES_DB"; do
 EOSQL
 done
 
-# Add ParadeDB extensions to shared_preload_libraries
-PG_CONF="/var/lib/postgresql/data/postgresql.conf"
-LIBRARIES_TO_ADD="pg_search,pg_lakehouse"
-if [ -f "$PG_CONF" ]; then
-  if grep -q "^shared_preload_libraries" "$PG_CONF"; then
-    # If the line exists, append new libraries to it
-    sed -i "s/^shared_preload_libraries = '\(.*\)'/shared_preload_libraries = '\1,$LIBRARIES_TO_ADD'/" "$PG_CONF"
-  else
-    # If the line doesn't exist, add it
-    echo "shared_preload_libraries = '$LIBRARIES_TO_ADD'" >> "$PG_CONF"
-  fi
-  echo "Added $LIBRARIES_TO_ADD to shared_preload_libraries in postgresql.conf"
-else
-  echo "Error: postgresql.conf not found at $PG_CONF"
-  exit 1
-fi
-
+# TODO: Is this restart required?
 echo "Restarting PostgreSQL to apply changes..."
 pg_ctl restart
 

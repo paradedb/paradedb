@@ -53,8 +53,24 @@ jobs:
       - name: Check for Errors in the ParadeDB Docker Image
         working-directory: docker/
         run: |
-          CONTAINER_ID=$(docker ps -q --filter "name=paradedb-dev")
+          CONTAINER_ID=$(docker ps -aq --filter "name=paradedb-dev")
           echo "paradedb-dev container ID: $CONTAINER_ID"
 
-          echo "Checking for errors in the ParadeDB Docker Image..."
-          docker logs $CONTAINER_ID | grep -q ERROR || exit 0
+          if [ -z "$CONTAINER_ID" ]; then
+            echo "Error: Container 'paradedb-dev' was not found. It may have failed to start."
+            exit 1
+          fi
+
+          echo "Printing logs for the ParadeDB Docker container..."
+          docker logs $CONTAINER_ID
+
+          echo "Checking container status..."
+          CONTAINER_STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_ID)
+
+          if [ "$CONTAINER_STATUS" != "running" ]; then
+            echo "Error: Container 'paradedb-dev' is not running. Current status: $CONTAINER_STATUS"
+            exit 1
+          fi
+
+          echo "Checking for errors in the ParadeDB Docker Image logs..."
+          docker logs $CONTAINER_ID | grep -q ERROR && exit 1 || exit 0

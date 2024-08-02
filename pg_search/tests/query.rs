@@ -285,3 +285,43 @@ fn single_queries(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);
 }
+
+#[rstest]
+fn exists_query(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Simple exists query
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.exists('rating')
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 41);
+
+    // Non fast field should fail
+    match r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.exists('description')
+    )"#
+    .execute_result(&mut conn)
+    {
+        Err(err) => assert!(err.to_string().contains("not a fast field")),
+        _ => panic!("exists() over non-fast field should fail"),
+    }
+
+    // Exists with boolean query
+    "INSERT INTO paradedb.bm25_search (id, description, rating) VALUES (42, 'shoes', NULL)"
+        .execute(&mut conn);
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.boolean(
+            must => ARRAY[
+                paradedb.exists('rating'),
+                paradedb.parse('description:shoes')
+            ]
+        )
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 3);
+}

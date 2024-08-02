@@ -184,6 +184,11 @@ pub fn empty() -> SearchQueryInput {
     SearchQueryInput::Empty
 }
 
+#[pg_extern(immutable, parallel_safe)]
+pub fn exists(field: String) -> SearchQueryInput {
+    SearchQueryInput::Exists { field }
+}
+
 // Not clear on whether this query makes sense to support, as only our "key_field" is a fast
 // field... and the user can just use SQL to select a range. We'll keep the implementation here
 // for now, but we should remove when we decide definitively that we don't need this.

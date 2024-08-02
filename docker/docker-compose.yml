@@ -2,7 +2,7 @@
 # This docker-compose.yml file is for hobby production deployments of ParadeDB. It pulls the latest
 # ParadeDB image from Docker Hub, which has packages all ParadeDB extensions. It is intended for hobby
 # production use. For professional production usage, we recommend using our Helm chart.
-# 
+#
 # Make sure to update POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB before use.
 #
 

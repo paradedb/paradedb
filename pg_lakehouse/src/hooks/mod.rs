@@ -15,8 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod executor;
+#[macro_use]
 mod query;
+mod executor;
 mod utility;
 
 use async_std::task::block_on;

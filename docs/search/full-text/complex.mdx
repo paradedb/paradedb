@@ -12,7 +12,6 @@ Query objects are composable, allowing for arbitrarily fine-grained queries. A q
 
 ```sql
 SELECT * FROM search_idx.search('description:shoes');
-
 SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'));
 ```
 
@@ -22,7 +21,7 @@ The `paradedb` schema exposes the following functions to construct query objects
 
 ### All
 
-This query type indiscriminately matches every document in the index, assigning a uniform score of 1.0 to each.
+This query type indiscriminately matches every document in the index, assigning a uniform score of `1.0` to each.
 
 ```sql
 SELECT * FROM search_idx.search(
@@ -143,9 +142,13 @@ Matches all documents with a non-null value in the specified field. All matched 
 
 ```sql
 SELECT * FROM search_idx.search(
-	query => paradedb.exists('rating')
+	query => paradedb.exists(field => 'rating')
 );
 ```
+
+<ParamField body="field">
+  Specifies the field within the document to search for the term.
+</ParamField>
 
 This query is useful for filtering on `NULL` values inside a boolean query. For instance, the following code block
 finds all rows with `description` matching `shoes` that have a non-null `rating`.

@@ -183,7 +183,7 @@ wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-
 sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 sudo apt-get update && sudo apt-get install -y postgresql-16 postgresql-server-dev-16
 
-# Arch
+# Arch Linux
 sudo pacman -S extra/postgresql
 ```
 
@@ -208,7 +208,7 @@ cargo pgrx init --pg16=/usr/local/opt/postgresql@16/bin/pg_config
 # Ubuntu
 cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
 
-# Arch
+# Arch Linux
 cargo pgrx init --pg16=/usr/bin/pg_config
 ```
 
@@ -222,7 +222,7 @@ Note: While it is possible to develop using pgrx's own Postgres installation(s),
 # Ubuntu
 sudo apt install libclang-dev
 
-# Arch
+# Arch Linux
 sudo pacman -S extra/clang
 ```
 
@@ -242,7 +242,7 @@ sudo apt-get install -y libicu70
 # Ubuntu 24.04
 sudo apt-get install -y libicu74
 
-# Arch
+# Arch Linux
 sudo pacman -S core/icu
 ```
 

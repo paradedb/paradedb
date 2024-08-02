@@ -84,7 +84,8 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-RUN git clone --branch 0.1.0 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
+# TODO: Once we start publishing releases for `paradedb/pg_analytics`, switch to a specific version tag
+RUN git clone --branch main https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 COPY shared/ /tmp/shared
 
 # Build the extension

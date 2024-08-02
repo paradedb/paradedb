@@ -29,6 +29,7 @@ done
 # Add the `paradedb` schema to both template_database and $POSTGRES_DB
 for DB in template_paradedb "$POSTGRES_DB"; do
   echo "Adding 'paradedb' schema to $DB"
+  "${psql[@]}" --dbname="$DB" <<-'EOSQL'
   ALTER DATABASE "$DB" SET search_path TO "$user",public,paradedb;
 EOSQL
 done

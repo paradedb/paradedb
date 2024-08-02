@@ -165,7 +165,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Clone paradedb/pg_analytics Repository
-        run: git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+        run: git clone --force https://github.com/paradedb/pg_analytics.git pg_analytics/
 
       - name: Install Debian Dependencies
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}

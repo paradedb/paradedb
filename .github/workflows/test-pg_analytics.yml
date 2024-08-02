@@ -67,7 +67,7 @@ jobs:
 
       - name: Clone paradedb/pg_analytics Repository
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+        run: git clone --force https://github.com/paradedb/pg_analytics.git pg_analytics/
 
       - name: Install Rust
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

@@ -12,7 +12,6 @@ Query objects are composable, allowing for arbitrarily fine-grained queries. A q
 
 ```sql
 SELECT * FROM search_idx.search('description:shoes');
-
 SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'));
 ```
 
@@ -22,7 +21,7 @@ The `paradedb` schema exposes the following functions to construct query objects
 
 ### All
 
-This query type indiscriminately matches every document in the index, assigning a uniform score of 1.0 to each.
+This query type indiscriminately matches every document in the index, assigning a uniform score of `1.0` to each.
 
 ```sql
 SELECT * FROM search_idx.search(

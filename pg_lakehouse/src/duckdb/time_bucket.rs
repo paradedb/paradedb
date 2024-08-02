@@ -16,9 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::iter::TableIterator;
-use pgrx::pg_sys::Datum;
 use pgrx::*;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
 pub enum TimeBucketInput {
@@ -122,7 +120,7 @@ pub fn time_bucket_date_offset_interval(
 pub fn time_bucket_timestamp(
     bucket_width: Interval,
     input: Timestamp,
-) -> TableIterator<'static, (name!(time_bucket, Date),)> {
+) -> TableIterator<'static, (name!(time_bucket, Timestamp),)> {
     let bucket_query = create_time_bucket(bucket_width, TimeBucketInput::Timestamp(input), None);
 
     TableIterator::once((bucket_query
@@ -135,7 +133,7 @@ pub fn time_bucket_timestamp_offset_date(
     bucket_width: Interval,
     input: Timestamp,
     offset: Date,
-) -> TableIterator<'static, (name!(time_bucket, Date),)> {
+) -> TableIterator<'static, (name!(time_bucket, Timestamp),)> {
     let bucket_query = create_time_bucket(
         bucket_width,
         TimeBucketInput::Timestamp(input),
@@ -152,7 +150,7 @@ pub fn time_bucket_timestamp_offset_interval(
     bucket_width: Interval,
     input: Timestamp,
     offset: Interval,
-) -> TableIterator<'static, (name!(time_bucket, Date),)> {
+) -> TableIterator<'static, (name!(time_bucket, Timestamp),)> {
     let bucket_query = create_time_bucket(
         bucket_width,
         TimeBucketInput::Timestamp(input),

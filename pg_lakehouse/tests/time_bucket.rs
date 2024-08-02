@@ -18,17 +18,18 @@
 mod fixtures;
 
 use anyhow::Result;
+use chrono::NaiveDateTime;
 use datafusion::parquet::arrow::ArrowWriter;
 use fixtures::*;
 use rstest::*;
-use shared::fixtures::arrow::{primitive_record_batch, primitive_setup_fdw_local_file_listing};
+use shared::fixtures::arrow::{primitive_setup_fdw_local_file_listing, time_series_record_batch};
 use shared::fixtures::tempfile::TempDir;
 use sqlx::PgConnection;
 use std::fs::File;
 
 #[rstest]
 async fn test_time_bucket(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
-    let stored_batch = primitive_record_batch()?;
+    let stored_batch = time_series_record_batch()?;
     let parquet_path = tempdir.path().join("test_arrow_types.parquet");
     let parquet_file = File::create(&parquet_path)?;
 
@@ -40,26 +41,39 @@ async fn test_time_bucket(mut conn: PgConnection, tempdir: TempDir) -> Result<()
         .execute(&mut conn);
 
     format!(
-        "CREATE FOREIGN TABLE \"MyTable\" () SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
+        "CREATE FOREIGN TABLE timeseries () SERVER parquet_server OPTIONS (files '{}')",
         parquet_path.to_str().unwrap()
     )
-        .execute(&mut conn);
+    .execute(&mut conn);
 
-    let foreign_table_name: Vec<(String,)> =
-        "SELECT foreign_table_name FROM information_schema.foreign_tables WHERE foreign_table_name='MyTable';".fetch(&mut conn);
-    assert_eq!(foreign_table_name.len(), 1);
-    assert_ne!(foreign_table_name[0].0, "mytable");
-    assert_eq!(foreign_table_name[0].0, "MyTable");
-
-    match "SELECT * FROM \"MyTable\"".execute_result(&mut conn) {
+    match "SELECT time_bucket(INTERVAL '2 DAY', timestamp::DATE) AS bucket, AVG(value) as avg_value FROM timeseries GROUP BY bucket ORDER BY bucket;".execute_result(&mut conn) {
         Ok(_) => {}
         Err(error) => {
             panic!(
-                "should have successfully queried case sensitive table \"MyTable\": {}",
+                "should have successfully called time_bucket() for timeseries data: {}",
                 error
             );
         }
     }
+
+    match "SELECT time_bucket(INTERVAL '2 DAY') AS bucket, AVG(value) as avg_value FROM timeseries GROUP BY bucket ORDER BY bucket;".execute_result(&mut conn) {
+        Ok(_) => {
+            panic!(
+                "should have failed call to time_bucket() for timeseries data with incorrect parameters"
+            );
+        }
+        Err(_) => {}
+    }
+
+    let data: Vec<(NaiveDateTime,)> = "SELECT time_bucket(INTERVAL '6 MINUTE', timestamp::TIMESTAMP) AS bucket, AVG(value) as avg_value FROM timeseries GROUP BY bucket ORDER BY bucket;"
+        .fetch_result(&mut conn).unwrap();
+
+    assert_eq!(2, data.len());
+
+    let data: Vec<(NaiveDateTime,)> = "SELECT time_bucket(INTERVAL '1 MINUTE', timestamp::TIMESTAMP) AS bucket, AVG(value) as avg_value FROM timeseries GROUP BY bucket ORDER BY bucket;"
+        .fetch_result(&mut conn).unwrap();
+
+    assert_eq!(10, data.len());
 
     Ok(())
 }

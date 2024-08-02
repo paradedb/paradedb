@@ -19,9 +19,10 @@ use std::sync::Arc;
 
 use anyhow::{bail, Result};
 use bigdecimal::{BigDecimal, ToPrimitive};
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use datafusion::arrow::array::*;
 use datafusion::arrow::buffer::Buffer;
+use datafusion::arrow::datatypes::TimeUnit::Millisecond;
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
 use pgrx::pg_sys::InvalidOid;
@@ -181,6 +182,29 @@ pub fn primitive_record_batch() -> Result<RecordBatch> {
                 Some("There"),
                 Some("World"),
             ])),
+        ],
+    )?)
+}
+
+pub fn time_series_record_batch() -> Result<RecordBatch> {
+    // Define the fields for each datatype
+    let fields = vec![
+        Field::new("value", DataType::Int32, false),
+        Field::new("timestamp", DataType::Timestamp(Millisecond, None), false),
+    ];
+
+    let schema = Arc::new(Schema::new(fields));
+
+    let start_time = DateTime::from_timestamp(60, 0).unwrap();
+    let timestamps: Vec<i64> = (0..10)
+        .map(|i| (start_time + Duration::minutes(i)).timestamp_millis())
+        .collect();
+
+    Ok(RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int32Array::from(vec![1, -1, 0, 2, 3, 4, 5, 6, 7, 8])),
+            Arc::new(TimestampMillisecondArray::from(timestamps)),
         ],
     )?)
 }

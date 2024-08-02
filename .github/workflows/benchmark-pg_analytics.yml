@@ -47,8 +47,11 @@ jobs:
         uses: actions/checkout@v4
 
       # We remove the existing pg_analytics/ directory, which just contains the README.md
-      - name: Clone paradedb/pg_analytics Repository
-        run: rm -rf pg_analytics/ && git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+      - name: Clone paradedb/pg_analytics Repository & Add pg_analytics to Cargo.toml
+        run: |
+          rm -rf pg_analytics/
+          git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+          sed -i '/members = \[/,/\]/s/\]/    "pg_analytics",\n]/' Cargo.toml
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

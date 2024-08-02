@@ -68,7 +68,10 @@ jobs:
       # We remove the existing pg_analytics/ directory, which just contains the README.md
       - name: Clone paradedb/pg_analytics Repository
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: rm -rf pg_analytics/ && git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+        run: |
+          rm -rf pg_analytics/
+          git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+          sed -i '/members = \[/,/\]/s/\]/    "pg_analytics",\n]/' Cargo.toml
 
       - name: Install Rust
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

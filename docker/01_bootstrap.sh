@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2154
 
 # This script is executed at the initialization of the ParadeDB container
 # to configure it with required extensions and Postgres settings
@@ -30,7 +31,7 @@ done
 for DB in template_paradedb "$POSTGRES_DB"; do
   echo "Adding 'paradedb' schema to $DB"
   "${psql[@]}" --dbname="$DB" <<-'EOSQL'
-  ALTER DATABASE "$DB" SET search_path TO "$user",public,paradedb;
+    ALTER DATABASE "$DB" SET search_path TO "$user",public,paradedb;
 EOSQL
 done
 

@@ -21,7 +21,6 @@ mod fdw;
 mod hooks;
 mod schema;
 
-use crate::env;
 use hooks::LakehouseHook;
 use pgrx::*;
 use shared::{

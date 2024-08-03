@@ -14,7 +14,6 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 use pgrx::iter::TableIterator;
 use pgrx::*;
 use std::fmt::{Display, Formatter};
@@ -62,11 +61,11 @@ fn create_time_bucket(
 ) -> String {
     if let Some(bucket_offset) = offset {
         format!(
-            "time_bucket(INTERVAL {}, {}, {})",
+            "SELECT time_bucket(INTERVAL {}, {}, {});",
             bucket_width, input, bucket_offset
         )
     } else {
-        format!("time_bucket(INTERVAL {}, {})", bucket_width, input)
+        format!("SELECT time_bucket(INTERVAL {}, {});", bucket_width, input)
     }
 }
 

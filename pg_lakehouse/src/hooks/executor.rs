@@ -60,6 +60,11 @@ pub async fn executor_run(
             }
         });
 
+    if !is_duckdb_query && query.contains("time_bucket") {
+        panic!("Function `time_bucket()` must be used with a DuckDB FDW. Native postgres does not support this function.\
+        If you believe this function should be implemented natively as a fallback please submit a ticket to https://github.com/paradedb/pg_analytics/issues.")
+    }
+
     if rtable.is_null()
         || query_desc.operation != pg_sys::CmdType_CMD_SELECT
         || !is_duckdb_query

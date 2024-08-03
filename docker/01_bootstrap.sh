@@ -41,7 +41,7 @@ EOSQL
 # Load ParadeDB extensions into both template_database and $POSTGRES_DB
 for DB in template_paradedb "$POSTGRES_DB"; do
   echo "Loading ParadeDB extensions into $DB"
-  "${psql[@]}" --dbname="$DB" <<-'EOSQL'
+  "${psql[@]}" -d "$DB" <<-'EOSQL'
     CREATE EXTENSION IF NOT EXISTS pg_search;
     CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
     CREATE EXTENSION IF NOT EXISTS pg_ivm;
@@ -53,7 +53,7 @@ done
 # Add the `paradedb` schema to both template_database and $POSTGRES_DB
 for DB in template_paradedb "$POSTGRES_DB"; do
   echo "Adding 'paradedb' schema to $DB"
-  "${psql[@]}" --dbname="$DB" <<-'EOSQL'
+  "${psql[@]}" -d "$DB" <<-'EOSQL'
     ALTER DATABASE "$DB" SET search_path TO "$user",public,paradedb;
 EOSQL
 done

@@ -1,8 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2154
 
-# This script is executed at the initialization of the ParadeDB container
-# to configure it with required extensions and Postgres settings
+# Executed at container start to boostrap ParadeDB extensions and Postgres settings.
 
 # Exit on subcommand errors
 set -Eeuo pipefail

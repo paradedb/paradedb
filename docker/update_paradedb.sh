@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# TODO
+# Upgrades ParadeDB extensions to the specified version. Assumes the new version of the 
+# extensions is already downloaded and installed on the system.
 
 # Exit on subcommand errors
 set -Eeuo pipefail

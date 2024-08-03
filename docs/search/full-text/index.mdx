@@ -278,19 +278,21 @@ CALL paradedb.create_bm25(
 The following tokenizer names are accepted by the `paradedb.tokenizer` function.
 
 <ParamField body="default">
-  Chops the text on according to whitespace and punctuation, removes tokens that
-  are too long, and converts to lowercase. Filters out tokens larger than 255
-  bytes.
+  Tokenizes the text by splitting on whitespace and punctuation, filters out tokens that
+  are larger than 255 bytes, and converts to lowercase.
+</ParamField>
+<ParamField body="whitespace">
+  Tokenizes the text by splitting on whitespace only, filters out tokens that
+  are larger than 255 bytes, and converts to lowercase.
 </ParamField>
 <ParamField body="raw">
   Does not process nor tokenize text. Filters out tokens larger than 255 bytes.
 </ParamField>
-<ParamField body="en_stem">
-  Like `default`, but also applies stemming on the resulting tokens. Filters out
-  tokens larger than 255 bytes.
+<ParamField body="lowercase">
+  Equivalent to `raw`, but also converts to lowercase.
 </ParamField>
-<ParamField body="whitespace">
-  Tokenizes the text by splitting on whitespaces.
+<ParamField body="regex">
+  Tokenizes text using a regular expression. The regular expression can be specified with the `pattern` parameter.
 </ParamField>
 <ParamField body="ngram">
   Tokenizes text by splitting words into overlapping substrings based on the specified parameters.
@@ -323,7 +325,7 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
   languages.
 </ParamField>
 <ParamField body="stem">
-  Applies multi-language stemming to tokens, filtering out those larger than 255 bytes. The language can be specified with the
+  Applies multi-language stemming to tokens, filters out tokens larger than 255 bytes, and converts to lowercase. The language can be specified with the
   `language` parameter.
 
 {" "}
@@ -336,6 +338,9 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
   </ParamField>
 </Expandable>
 
+</ParamField>
+<ParamField body="en_stem" deprecated={true}>
+  Equivalent to `stem` with language set to `English`.
 </ParamField>
 
 ### Fast Fields

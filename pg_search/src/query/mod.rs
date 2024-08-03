@@ -25,8 +25,8 @@ use serde::{Deserialize, Serialize};
 use tantivy::{
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
-        FastFieldRangeWeight, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery, PhraseQuery,
-        Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
+        ExistsQuery, FastFieldRangeWeight, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
+        PhraseQuery, Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
     schema::{Field, FieldType, IndexRecordOption, OwnedValue},
@@ -56,6 +56,9 @@ pub enum SearchQueryInput {
     },
     #[default]
     Empty,
+    Exists {
+        field: String,
+    },
     FastFieldRangeWeight {
         field: String,
         lower_bound: std::ops::Bound<u64>,
@@ -250,6 +253,7 @@ impl SearchQueryInput {
                 }
             }
             Self::Empty => Ok(Box::new(EmptyQuery)),
+            Self::Exists { field } => Ok(Box::new(ExistsQuery::new_exists_query(field))),
             Self::FastFieldRangeWeight {
                 field,
                 lower_bound,

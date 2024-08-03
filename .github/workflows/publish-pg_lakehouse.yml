@@ -84,31 +84,6 @@ jobs:
             image: ubuntu:24.04
             pg_version: 16
             arch: arm64
-          # Debian 11
-          - runner: depot-ubuntu-latest-8
-            image: debian:11-slim
-            pg_version: 14
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: debian:11-slim
-            pg_version: 14
-            arch: arm64
-          - runner: depot-ubuntu-latest-8
-            image: debian:11-slim
-            pg_version: 15
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: debian:11-slim
-            pg_version: 15
-            arch: arm64
-          - runner: depot-ubuntu-latest-8
-            image: debian:11-slim
-            pg_version: 16
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: debian:11-slim
-            pg_version: 16
-            arch: arm64
           # Debian 12
           - runner: depot-ubuntu-latest-8
             image: debian:12-slim
@@ -159,7 +134,30 @@ jobs:
             image: redhat/ubi9:latest
             pg_version: 16
             arch: arm64
-          # TODO: Add support for RHEL 8
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 16
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 16
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -183,7 +181,7 @@ jobs:
           fi
 
           # Install dependencies
-          dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq rpm-build
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -239,14 +237,23 @@ jobs:
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
           if [ -x "$(command -v lsb_release)" ]; then
-            DISTRO=$(echo "$(lsb_release -is)" | tr '[:upper:]' '[:lower:]')
-            RELEASE=$(lsb_release -rs)
+            DISTRO=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
+            RELEASE=$(lsb_release -cs)
           else
             DISTRO=$(cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '"')
             RELEASE=$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)
           fi
-          echo "OS Version: $DISTRO-$RELEASE"
-          echo "os_version=$DISTRO-$RELEASE" >> $GITHUB_OUTPUT
+          if [ "$DISTRO" = "ubuntu" ]; then
+            OS_VERSION="$RELEASE"
+          elif [ "$DISTRO" = "debian" ]; then
+            OS_VERSION="$RELEASE"
+          elif [ "$DISTRO" = "rhel" ]; then
+            OS_VERSION="el$RELEASE"
+          else
+            OS_VERSION="$DISTRO-$RELEASE"
+          fi
+          echo "OS Version: $OS_VERSION"
+          echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
           # RHEL uses different architecture and OS naming conventions when packaging via rpmbuid. We need to
           # retrieve those as well to programmatically retrieve and upload the correct RPM package
@@ -258,8 +265,6 @@ jobs:
             fi
             echo "RPM Arch: $ARCH"
             echo "rpm_arch=$ARCH" >> $GITHUB_OUTPUT
-            echo "RPM OS: el$RELEASE"
-            echo "rpm_os=el$RELEASE" >> $GITHUB_OUTPUT
           fi
 
       - name: Install & Configure Supported PostgreSQL Version on Debian
@@ -274,23 +279,24 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         run: |
-          if [ "${{ matrix.arch }}" == "amd64" ]; then
-            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+          # Determine RHEL version to retrieve the correct repositories
+          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
+            RHEL_VERSION=8
+          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
+            RHEL_VERSION=9
           else
-            REPO_URL="https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-aarch64/pgdg-redhat-repo-latest.noarch.rpm"
+            echo "Unsupported RHEL version"
+            exit 1
           fi
-          sudo dnf -y install $REPO_URL
 
-          if [ "${{ matrix.arch }}" == "amd64" ]; then
-            sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
-          else
-            sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-AARCH64-RHEL
-          fi
-          sudo dnf clean all
+          # Install the repository RPM:
+          sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ steps.version.outputs.rpm_arch }}/pgdg-redhat-repo-latest.noarch.rpm
 
-          sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
-          sudo chown -R $(whoami) /usr/pgsql-${{ matrix.pg_version }}/ /var/lib/pgsql/${{ matrix.pg_version }}/data/
-          echo "/usr/pgsql-${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+          # Disable the built-in PostgreSQL module:
+          sudo dnf -qy module disable postgresql
+
+          # Install PostgreSQL:
+          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
 
       - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
@@ -309,7 +315,13 @@ jobs:
 
       - name: Package pg_lakehouse Extension with pgrx
         working-directory: pg_lakehouse/
-        run: cargo pgrx package
+        run: |
+          if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
+            PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+          else
+            PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          fi
+          cargo pgrx package --pg-config $PG_CONFIG_PATH
 
       - name: Create .deb Package
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
@@ -320,13 +332,6 @@ jobs:
           package_dir=pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
           # Copy files into directory structure
-          mkdir -p ${package_dir}/usr/lib/postgresql/lib
-          mkdir -p ${package_dir}/var/lib/postgresql/extension
-          cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
-          cp archive/*.control ${package_dir}/var/lib/postgresql/extension
-          cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
-
-          # Symlinks to copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
           mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
           cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
@@ -338,7 +343,7 @@ jobs:
           touch ${package_dir}/DEBIAN/control
           deb_version=${{ steps.version.outputs.tag_version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: pg-lakehouse' >> $CONTROL_FILE
+          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-lakehouse' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
           echo 'Section: database' >> $CONTROL_FILE
           echo 'Priority: optional' >> $CONTROL_FILE
@@ -348,7 +353,6 @@ jobs:
           echo 'Description: An analytical query engine for Postgres' >> $CONTROL_FILE
 
           # Create .deb package
-          # Note: We specify `xz` compression for compatibility with Debian 11
           sudo chown -R root:root ${package_dir}
           sudo chmod -R 755 ${package_dir}
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
@@ -362,7 +366,7 @@ jobs:
           echo "Creating RPM SPEC file..."
           spec_file=~/rpmbuild/SPECS/pg_lakehouse.spec
           cat <<EOF > $spec_file
-          Name:           pg_lakehouse
+          Name:           pg_lakehouse_${{ matrix.pg_version }}
           Version:        ${{ steps.version.outputs.tag_version }}
           Release:        1%{?dist}
           Summary:        An analytical query engine for Postgres
@@ -405,7 +409,7 @@ jobs:
         with:
           subject-path: |
             ./pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-            ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.rpm_os }}.${{ steps.version.outputs.rpm_arch }}.rpm
+            ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -418,7 +422,7 @@ jobs:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-          asset_name: pg_lakehouse-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: postgresql-${{ matrix.pg_version }}-pg-lakehouse_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
           overwrite: true
 
       - name: Upload pg_lakehouse .rpm to GitHub Release
@@ -427,6 +431,6 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.rpm_os }}.${{ steps.version.outputs.rpm_arch }}.rpm
-          asset_name: pg_lakehouse-v${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.rpm
+          asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+          asset_name: pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
           overwrite: true

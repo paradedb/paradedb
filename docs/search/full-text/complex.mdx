@@ -12,7 +12,6 @@ Query objects are composable, allowing for arbitrarily fine-grained queries. A q
 
 ```sql
 SELECT * FROM search_idx.search('description:shoes');
-
 SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'));
 ```
 
@@ -22,7 +21,7 @@ The `paradedb` schema exposes the following functions to construct query objects
 
 ### All
 
-This query type indiscriminately matches every document in the index, assigning a uniform score of 1.0 to each.
+This query type indiscriminately matches every document in the index, assigning a uniform score of `1.0` to each.
 
 ```sql
 SELECT * FROM search_idx.search(
@@ -64,6 +63,19 @@ SELECT * FROM search_idx.search(
   one must be matched.
 </ParamField>
 
+Note that in order for a boolean query to return a result, one of `must` or `should` must be provided.
+`must_not` acts as a mask and does not produce a result set. For instance, in order to find
+all rows from `mock_items` where `description` does not contain `shoes`, `paradedb.all()` should be used:
+
+```sql
+SELECT * FROM search_idx.search(
+  query => paradedb.boolean(
+    should => paradedb.all(),
+    must_not => paradedb.parse('description:shoes')
+  )
+);
+```
+
 ### Boost
 
 A boost query wraps around another query to amplify its scoring impact, without altering the set of matched documents.
@@ -83,7 +95,7 @@ SELECT * FROM search_idx.search(
 
 Applies a constant score across all documents matched by the underlying query. It can avoid unnecessary score computation on the wrapped query.
 
-```
+```sql
 SELECT * FROM search_idx.search(
     query => paradedb.const_score(query => paradedb.all(), score => 3.9)
 );
@@ -116,6 +128,39 @@ Serves as a placeholder, matching no documents. It's useful for testing scenario
 ```sql
 SELECT * FROM search_idx.search(
 	query => paradedb.empty()
+);
+```
+
+### Exists
+
+Matches all documents with a non-null value in the specified field. All matched documents get a BM25 score of `1.0`.
+
+<Note>
+  Will error if the field has not been indexed as a [fast
+  field](/search/full-text/index#fast-fields).
+</Note>
+
+```sql
+SELECT * FROM search_idx.search(
+	query => paradedb.exists(field => 'rating')
+);
+```
+
+<ParamField body="field">
+  Specifies the field within the document to search for the term.
+</ParamField>
+
+This query is useful for filtering on `NULL` values inside a boolean query. For instance, the following code block
+finds all rows with `description` matching `shoes` that have a non-null `rating`.
+
+```sql
+SELECT * FROM search_idx.search(
+  query => paradedb.boolean(
+    must => ARRAY[
+      paradedb.parse('description:shoes'),
+      paradedb.exists('rating')
+    ]
+  )
 );
 ```
 

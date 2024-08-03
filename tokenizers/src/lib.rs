@@ -42,6 +42,12 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
 
     for search_tokenizer in search_tokenizers {
         let tokenizer_option = match search_tokenizer {
+            SearchTokenizer::Default => Some(
+                TextAnalyzer::builder(SimpleTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
             SearchTokenizer::Raw => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
@@ -59,8 +65,8 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
                     .filter(LowerCaser)
                     .build(),
             ),
-            SearchTokenizer::RegexTokenizer => Some(
-                TextAnalyzer::builder(RegexTokenizer::new(regex_pattern!("\\w+")).unwrap())
+            SearchTokenizer::RegexTokenizer { pattern } => Some(
+                TextAnalyzer::builder(RegexTokenizer::new(pattern).unwrap())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .build(),
@@ -108,6 +114,13 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
                     .filter(LowerCaser)
                     .build(),
             ),
+            SearchTokenizer::EnStem => Some(
+                TextAnalyzer::builder(SimpleTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .filter(Stemmer::new(Language::English))
+                    .build(),
+            ),
             SearchTokenizer::Stem { language } => Some(
                 TextAnalyzer::builder(SimpleTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
@@ -122,7 +135,6 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
                     .filter(LowerCaser)
                     .build(),
             ),
-            _ => None,
         };
 
         if let Some(text_analyzer) = tokenizer_option {

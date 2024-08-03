@@ -22,18 +22,51 @@ sudo apt-get install -y libicu74
 
 # Install `pg_search`
 
-ParadeDB provides prebuilt binaries for the `pg_search` extension on Debian 11, Debian 12, Ubuntu 22.04 and Red Hat Enterprise Linux 9 for Postgres 14, 15 and 16 on both amd64 (x86_64) and arm64. They can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). If you
+ParadeDB provides prebuilt binaries for the `pg_search` extension on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15 and 16 on both amd64 (x86_64) and arm64. They can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). If you
 are using a different version of Postgres or a different operating system, you will need to build the extension from source.
 
 ## Using Prebuilt Binaries
 
-```bash
-# Example for Ubuntu 22.04, don't forget replace the OS, arch and Postgres for your system
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.8.6/pg_search-v0.8.6-ubuntu-22.04-amd64-pg16.deb" -o /tmp/pg_search.deb
+<CodeGroup>
+
+```bash Ubuntu 24.04
+# Available Postgres version are 14, 15, 16
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.8.6/postgresql-16-pg-search_0.8.6-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
-Note: You can replace `v0.8.6` with the `pg_search` version you wish to install, and `pg16` with the version of Postgres you are using.
+```bash Ubuntu 22.04
+# Available Postgres version are 14, 15, 16
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.8.6/postgresql-16-pg-search_0.8.6-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_search.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash Debian 12
+# Available Postgres version are 14, 15, 16
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.8.6/postgresql-16-pg-search_0.8.6-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash RHEL 9
+# Available Postgres version are 14, 15, 16
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.8.6/pg_search_16-0.8.6-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
+sudo dnf install -y /tmp/*.rpm
+```
+
+```bash RHEL 8
+# Available Postgres version are 14, 15, 16
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.8.6/pg_search_16-0.8.6-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_search.rpm
+sudo dnf install -y /tmp/*.rpm
+```
+
+</CodeGroup>
+
+Note: You can replace `v0.8.6` with the `pg_search` version you wish to install, and `16` with the version of Postgres you are using.
 
 ## Building from Source
 

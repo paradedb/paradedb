@@ -26,7 +26,9 @@ use cjk::ChineseTokenizer;
 use code::CodeTokenizer;
 use lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
 use tantivy::tokenizer::{
-    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer, RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager, WhitespaceTokenizer
+    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
+    RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager,
+    WhitespaceTokenizer,
 };
 use tracing::info;
 

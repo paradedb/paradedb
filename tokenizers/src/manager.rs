@@ -67,7 +67,9 @@ impl SearchTokenizer {
             SearchTokenizer::Stem { language } => json!({ "type": "stem", "language": language }),
             SearchTokenizer::Lowercase => json!({ "type": "lowercase" }),
             SearchTokenizer::WhiteSpace => json!({ "type": "whitespace" }),
-            SearchTokenizer::RegexTokenizer { pattern } => json!({ "type": "regex", "pattern": pattern }),
+            SearchTokenizer::RegexTokenizer { pattern } => {
+                json!({ "type": "regex", "pattern": pattern })
+            }
             SearchTokenizer::ChineseCompatible => json!({ "type": "chinese_compatible" }),
             SearchTokenizer::SourceCode => json!({ "type": "source_code" }),
             SearchTokenizer::Ngram {
@@ -111,9 +113,10 @@ impl SearchTokenizer {
             "lowercase" => Ok(SearchTokenizer::Lowercase),
             "whitespace" => Ok(SearchTokenizer::WhiteSpace),
             "regex" => {
-                let pattern: String = serde_json::from_value(value["pattern"].clone()).map_err(|_| {
-                    anyhow::anyhow!("regex tokenizer requires a string 'pattern' field")
-                })?;
+                let pattern: String =
+                    serde_json::from_value(value["pattern"].clone()).map_err(|_| {
+                        anyhow::anyhow!("regex tokenizer requires a string 'pattern' field")
+                    })?;
                 Ok(SearchTokenizer::RegexTokenizer { pattern })
             }
             "chinese_compatible" => Ok(SearchTokenizer::ChineseCompatible),

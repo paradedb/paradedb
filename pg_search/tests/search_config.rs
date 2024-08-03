@@ -223,11 +223,9 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
 
 #[rstest]
 fn regex_tokenizer_config(mut conn: PgConnection) {
-    // Create the test table
     "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    // Create the BM25 index using a regex tokenizer that matches words with 4 or more characters
     r#"CALL paradedb.create_bm25(
         index_name => 'bm25_search',
         table_name => 'bm25_search',
@@ -243,17 +241,14 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Query 1: Search for the word "simple" which is 6 characters long
     let count: (i64,) =
         "SELECT COUNT(*) FROM bm25_search.search('description:simple')".fetch_one(&mut conn);
     assert_eq!(count.0, 1);
 
-    // Query 2: Search for the word "is" which is only 2 characters long
     let count: (i64,) =
         "SELECT COUNT(*) FROM bm25_search.search('description:is')".fetch_one(&mut conn);
     assert_eq!(count.0, 0);
 
-    // Query 3: Search for the word "longer" which is 6 characters long
     let count: (i64,) =
         "SELECT COUNT(*) FROM bm25_search.search('description:longer')".fetch_one(&mut conn);
     assert_eq!(count.0, 1);

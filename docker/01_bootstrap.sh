@@ -29,7 +29,7 @@ fi
 
 # This setting is required by pg_cron to CREATE EXTENSION properly. It can only be installed in one database,
 # so we install it in the user database. Creating the `pg_cron` extension requires a restart of the PostgreSQL server.
-echo "cron.database_name = '$POSTGRESQL_DB'" >> "$PG_CONF"
+echo "cron.database_name = '$POSTGRES_DB'" >> "$PG_CONF"
 
 echo "Restarting PostgreSQL to apply changes..."
 pg_ctl restart

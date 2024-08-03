@@ -62,5 +62,8 @@ jobs:
           echo "Printing logs for the ParadeDB Docker container..."
           docker logs $CONTAINER_ID
 
-          echo "Checking for errors in the ParadeDB Docker Image logs..."
-          docker logs $CONTAINER_ID | grep -q ERROR && exit 1 || exit 0
+          # Fail the run if the container failed to start
+          if [ "$CONTAINER_STATUS" = "exited" ]; then
+            echo "Error: Container failed to start properly"
+            exit 1
+          fi

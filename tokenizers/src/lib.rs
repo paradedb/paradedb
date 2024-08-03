@@ -26,8 +26,7 @@ use cjk::ChineseTokenizer;
 use code::CodeTokenizer;
 use lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
 use tantivy::tokenizer::{
-    AsciiFoldingFilter, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter,
-    SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager,
+    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer, RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager, WhitespaceTokenizer
 };
 use tracing::info;
 
@@ -46,6 +45,24 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
             SearchTokenizer::Raw => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .build(),
+            ),
+            SearchTokenizer::Lowercase => Some(
+                TextAnalyzer::builder(RawTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::WhiteSpace => Some(
+                TextAnalyzer::builder(WhitespaceTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::RegexTokenizer => Some(
+                TextAnalyzer::builder(RegexTokenizer::new(regex_pattern!("\\w+")).unwrap())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
                     .build(),
             ),
             SearchTokenizer::ChineseCompatible => Some(

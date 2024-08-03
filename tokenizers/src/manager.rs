@@ -49,6 +49,7 @@ pub enum SearchTokenizer {
         language: Language,
     },
     WhiteSpace,
+    RegexTokenizer,
     ChineseCompatible,
     SourceCode,
     Ngram {
@@ -71,6 +72,7 @@ impl SearchTokenizer {
             SearchTokenizer::EnStem => json!({ "type": "en_stem" }),
             SearchTokenizer::Stem { language } => json!({ "type": "stem", "language": language }),
             SearchTokenizer::WhiteSpace => json!({ "type": "whitespace" }),
+            SearchTokenizer::RegexTokenizer => json!({ "type": "regex" }),
             SearchTokenizer::ChineseCompatible => json!({ "type": "chinese_compatible" }),
             SearchTokenizer::SourceCode => json!({ "type": "source_code" }),
             SearchTokenizer::Ngram {
@@ -177,6 +179,7 @@ impl SearchTokenizer {
             SearchTokenizer::EnStem => "en_stem".into(),
             SearchTokenizer::Stem { language } => format!("stem_{}", language_to_str(language)),
             SearchTokenizer::WhiteSpace => "whitespace".into(),
+            SearchTokenizer::RegexTokenizer => "regex".into(),
             SearchTokenizer::ChineseCompatible => "chinese_compatible".into(),
             SearchTokenizer::SourceCode => "source_code".into(),
             SearchTokenizer::Ngram {

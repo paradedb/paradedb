@@ -231,7 +231,7 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
         table_name => 'bm25_search',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('regex', pattern => r'\b\w{4,}\b'))
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('regex_token', pattern => '\b\w{4,}\b'))
     );
     INSERT INTO paradedb.bm25_search (id, description) VALUES 
         (1, 'This is a simple test'),

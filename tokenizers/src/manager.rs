@@ -68,7 +68,7 @@ impl SearchTokenizer {
             SearchTokenizer::Lowercase => json!({ "type": "lowercase" }),
             SearchTokenizer::WhiteSpace => json!({ "type": "whitespace" }),
             SearchTokenizer::RegexTokenizer { pattern } => {
-                json!({ "type": "regex", "pattern": pattern })
+                json!({ "type": "regex_token", "pattern": pattern })
             }
             SearchTokenizer::ChineseCompatible => json!({ "type": "chinese_compatible" }),
             SearchTokenizer::SourceCode => json!({ "type": "source_code" }),
@@ -112,10 +112,10 @@ impl SearchTokenizer {
             }
             "lowercase" => Ok(SearchTokenizer::Lowercase),
             "whitespace" => Ok(SearchTokenizer::WhiteSpace),
-            "regex" => {
+            "regex_token" => {
                 let pattern: String =
                     serde_json::from_value(value["pattern"].clone()).map_err(|_| {
-                        anyhow::anyhow!("regex tokenizer requires a string 'pattern' field")
+                        anyhow::anyhow!("regex tokenizer requires a string 'pattern' field {value:#?}")
                     })?;
                 Ok(SearchTokenizer::RegexTokenizer { pattern })
             }
@@ -185,7 +185,7 @@ impl SearchTokenizer {
             SearchTokenizer::Stem { language } => format!("stem_{}", language_to_str(language)),
             SearchTokenizer::Lowercase => "lowercase".into(),
             SearchTokenizer::WhiteSpace => "whitespace".into(),
-            SearchTokenizer::RegexTokenizer { pattern } => format!("regex_{}", pattern),
+            SearchTokenizer::RegexTokenizer { .. } => "regex_token".into(),
             SearchTokenizer::ChineseCompatible => "chinese_compatible".into(),
             SearchTokenizer::SourceCode => "source_code".into(),
             SearchTokenizer::Ngram {
@@ -249,6 +249,19 @@ mod tests {
                 prefix_only: true
             }
         );
+    }
+
+    #[rstest]
+    fn test_regex_tokenizer() {
+        let json = r#"{
+        "type": "regex_token",
+        "pattern": "a+b*"
+    }"#;
+        let tokenizer = SearchTokenizer::RegexTokenizer {
+            pattern: "a+b*".to_string()
+        };
+
+        assert_eq!(tokenizer, SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap());
     }
 
     #[rstest]

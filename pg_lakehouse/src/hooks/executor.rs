@@ -71,6 +71,9 @@ pub async fn executor_run(
         return Ok(());
     }
 
+    // set Duckdb search_path(schema) according to Postgres search_path
+    set_search_path()?;
+
     match connection::create_arrow(query.as_str()) {
         Err(err) => {
             connection::clear_arrow();
@@ -160,4 +163,46 @@ fn write_batches_to_slots(
     }
 
     Ok(())
+}
+
+fn set_search_path() -> Result<()> {
+    let search_path = get_postgres_search_path();
+    let duckdb_schemas = connection::get_current_schemas()?;
+
+    // Notice that DuckDB requires trimming schema name, whereas PostgreSQL does not
+    let schemas = search_path
+        .into_iter()
+        .filter(|s| duckdb_schemas.contains(s))
+        .collect::<Vec<_>>()
+        .join(",");
+    // Sets the default search schema. Equivalent to setting search_path.
+    connection::execute(format!("SET SCHEMA '{schemas}'").as_str(), [])?;
+
+    Ok(())
+}
+
+fn get_postgres_search_path() -> Vec<String> {
+    let active_schemas =
+        unsafe { PgList::<pg_sys::Oid>::from_pg(pg_sys::fetch_search_path(false)) };
+
+    let mut schema_vec: Vec<String> = Vec::with_capacity(active_schemas.len());
+    for schema_oid in active_schemas.iter_oid() {
+        let tuple = unsafe {
+            pg_sys::SearchSysCache1(
+                pg_sys::SysCacheIdentifier_NAMESPACEOID as i32,
+                schema_oid.into_datum().unwrap(),
+            )
+        };
+
+        if !tuple.is_null() {
+            let pg_namespace = unsafe { pg_sys::GETSTRUCT(tuple) as pg_sys::Form_pg_namespace };
+            let name = pg_sys::name_data_to_str(unsafe { &(*pg_namespace).nspname });
+
+            schema_vec.push(name.to_string());
+
+            unsafe { pg_sys::ReleaseSysCache(tuple) };
+        }
+    }
+
+    schema_vec
 }

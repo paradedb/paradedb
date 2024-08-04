@@ -208,3 +208,17 @@ pub fn view_exists(table_name: &str, schema_name: &str) -> Result<bool> {
         }
     }
 }
+
+pub fn get_current_schemas() -> Result<Vec<String>> {
+    let conn = unsafe { &mut *get_global_connection().get() };
+    let mut stmt = conn.prepare("select DISTINCT(nspname) from pg_namespace;")?;
+    let schemas: Vec<String> = stmt
+        .query_map([], |row| {
+            let s: String = row.get(0)?;
+            Ok(s)
+        })?
+        .map(|x| x.unwrap())
+        .collect();
+
+    Ok(schemas)
+}

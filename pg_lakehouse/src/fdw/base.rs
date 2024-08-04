@@ -78,9 +78,6 @@ pub trait BaseFdw {
             handler,
         )?;
 
-        // Ensure we are in the same DuckDB schema as the Postgres schema
-        connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
-
         // Construct SQL scan statement
         let targets = if columns.is_empty() {
             "*".to_string()

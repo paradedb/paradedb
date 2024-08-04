@@ -115,7 +115,7 @@ impl SearchTokenizer {
             "regex_token" => {
                 let pattern: String =
                     serde_json::from_value(value["pattern"].clone()).map_err(|_| {
-                        anyhow::anyhow!("regex tokenizer requires a string 'pattern' field {value:#?}")
+                        anyhow::anyhow!("regex tokenizer requires a string 'pattern' field")
                     })?;
                 Ok(SearchTokenizer::RegexTokenizer { pattern })
             }

@@ -10,7 +10,7 @@ ARG PG_VERSION_MAJOR=16
 FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
 
 ARG PG_VERSION_MAJOR=16
-ARG RUST_VERSION=1.79.0
+ARG RUST_VERSION=1.80.0
 ARG PGRX_VERSION=0.11.3
 
 # Declare buildtime environment variables
@@ -34,7 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libopenblas-dev \
     postgresql-server-dev-all \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/cc cc /usr/bin/clang 100 \
+    && update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 100
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain "${RUST_VERSION}" -y
 

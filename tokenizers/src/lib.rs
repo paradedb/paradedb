@@ -68,7 +68,7 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
                     .build(),
             ),
             SearchTokenizer::RegexTokenizer { pattern } => Some(
-                TextAnalyzer::builder(RegexTokenizer::new(pattern).unwrap())
+                TextAnalyzer::builder(RegexTokenizer::new(pattern.as_str()).unwrap())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .build(),

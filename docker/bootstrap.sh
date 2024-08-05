@@ -10,7 +10,7 @@ set -Eeuo pipefail
 export PGUSER="$POSTGRES_USER"
 
 # Create the 'template_paradedb' template db
-psql -c "CREATE DATABASE template_paradedb IS_TEMPLATE true;"
+psql -d postgres -c "CREATE DATABASE template_paradedb IS_TEMPLATE true;"
 
 # Load ParadeDB extensions into both template_database and $POSTGRES_DB
 for DB in template_paradedb "$POSTGRES_DB"; do

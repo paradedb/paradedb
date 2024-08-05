@@ -75,7 +75,14 @@ mod tests {
             Some(false),
             Some("position".to_string()),
             Some(true),
-            Some(tokenizer("ngram", Some(4), Some(4), Some(false), None, None)),
+            Some(tokenizer(
+                "ngram",
+                Some(4),
+                Some(4),
+                Some(false),
+                None,
+                None,
+            )),
             Some("lowercase".to_string()),
         );
 

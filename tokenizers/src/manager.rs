@@ -258,10 +258,13 @@ mod tests {
         "pattern": "a+b*"
     }"#;
         let tokenizer = SearchTokenizer::RegexTokenizer {
-            pattern: "a+b*".to_string()
+            pattern: "a+b*".to_string(),
         };
 
-        assert_eq!(tokenizer, SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap());
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap()
+        );
     }
 
     #[rstest]

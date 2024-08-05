@@ -4,7 +4,7 @@
 # Executed at container start to boostrap ParadeDB extensions and Postgres settings.
 
 # Exit on subcommand errors
-set -Eeuo pipefail
+# set -Eeuo pipefail
 
 # Perform all actions as $POSTGRES_USER
 export PGUSER="$POSTGRES_USER"
@@ -42,7 +42,7 @@ EOSQL
 for DB in template_paradedb "$POSTGRES_DB"; do
   echo "Loading ParadeDB extensions into $DB"
   echo "${psql[@]} --dbname=$DB"  # Debugging statement to check the command
-	"${psql[@]}" --dbname="$DB" <<-'EOSQL'
+  "${psql[@]}" --dbname="$DB" <<-'EOSQL'
     CREATE EXTENSION IF NOT EXISTS pg_search;
     CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
     CREATE EXTENSION IF NOT EXISTS pg_ivm;
@@ -54,7 +54,7 @@ done
 # Add the `paradedb` schema to both template_database and $POSTGRES_DB
 for DB in template_paradedb "$POSTGRES_DB"; do
   echo "Adding 'paradedb' search_path to $DB"
-	"${psql[@]}" --dbname="$DB" <<-'EOSQL'
+  "${psql[@]}" --dbname="$DB" <<-'EOSQL'
     ALTER DATABASE \"$DB\" SET search_path TO public,paradedb;
 EOSQL
 done

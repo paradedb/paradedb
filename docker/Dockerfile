@@ -190,10 +190,10 @@ COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-p
 
 # Switch to root for configuring runtime dependencies
 USER root
+
 # Required for pg_lakehouse, pg_cron
 RUN mkdir .duckdb/ && chmod 777 .duckdb/ && \
     apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
-USER postgres
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the
@@ -204,6 +204,9 @@ USER postgres
 # stable, always-available database for its operations, no matter what other databases are created or deleted.
 RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_analytics,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
+
+# Switch back to the postgres user
+USER postgres
 
 # Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh

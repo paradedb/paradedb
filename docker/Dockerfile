@@ -210,4 +210,5 @@ USER postgres
 
 # Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
-COPY ./docker/update_paradedb.sh /usr/local/bin/
+COPY ./docker/update_pg_search.sh /usr/local/bin/
+COPY ./docker/update_pg_lakehouse.sh /usr/local/bin/

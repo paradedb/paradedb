@@ -28,6 +28,7 @@ repos:
       - id: check-vcs-permalinks
       - id: detect-private-key
       - id: detect-aws-credentials
+        args: ["--allow-missing-credentials"]
       - id: debug-statements
       - id: destroyed-symlinks
       - id: fix-encoding-pragma

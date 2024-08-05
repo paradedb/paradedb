@@ -30,7 +30,7 @@ use tantivy::tokenizer::Language;
 // `from_json_value` methods. We don't use serde_json to ser/de the
 // SearchTokenizer, because our bincode serialization format is incompatible
 // with the "tagged" format we use in our public API.
-#[derive(Serialize, Deserialize, Default, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub enum SearchTokenizer {
     #[default]
     Default,
@@ -41,6 +41,9 @@ pub enum SearchTokenizer {
     },
     Lowercase,
     WhiteSpace,
+    RegexTokenizer {
+        pattern: String,
+    },
     ChineseCompatible,
     SourceCode,
     Ngram {
@@ -64,6 +67,9 @@ impl SearchTokenizer {
             SearchTokenizer::Stem { language } => json!({ "type": "stem", "language": language }),
             SearchTokenizer::Lowercase => json!({ "type": "lowercase" }),
             SearchTokenizer::WhiteSpace => json!({ "type": "whitespace" }),
+            SearchTokenizer::RegexTokenizer { pattern } => {
+                json!({ "type": "regex", "pattern": pattern })
+            }
             SearchTokenizer::ChineseCompatible => json!({ "type": "chinese_compatible" }),
             SearchTokenizer::SourceCode => json!({ "type": "source_code" }),
             SearchTokenizer::Ngram {
@@ -106,6 +112,13 @@ impl SearchTokenizer {
             }
             "lowercase" => Ok(SearchTokenizer::Lowercase),
             "whitespace" => Ok(SearchTokenizer::WhiteSpace),
+            "regex" => {
+                let pattern: String =
+                    serde_json::from_value(value["pattern"].clone()).map_err(|_| {
+                        anyhow::anyhow!("regex tokenizer requires a string 'pattern' field")
+                    })?;
+                Ok(SearchTokenizer::RegexTokenizer { pattern })
+            }
             "chinese_compatible" => Ok(SearchTokenizer::ChineseCompatible),
             "source_code" => Ok(SearchTokenizer::SourceCode),
             "ngram" => {
@@ -172,6 +185,7 @@ impl SearchTokenizer {
             SearchTokenizer::Stem { language } => format!("stem_{}", language_to_str(language)),
             SearchTokenizer::Lowercase => "lowercase".into(),
             SearchTokenizer::WhiteSpace => "whitespace".into(),
+            SearchTokenizer::RegexTokenizer { .. } => "regex".into(),
             SearchTokenizer::ChineseCompatible => "chinese_compatible".into(),
             SearchTokenizer::SourceCode => "source_code".into(),
             SearchTokenizer::Ngram {
@@ -234,6 +248,22 @@ mod tests {
                 max_gram: 60,
                 prefix_only: true
             }
+        );
+    }
+
+    #[rstest]
+    fn test_regexizer() {
+        let json = r#"{
+        "type": "regex",
+        "pattern": "a+b*"
+    }"#;
+        let tokenizer = SearchTokenizer::RegexTokenizer {
+            pattern: "a+b*".to_string(),
+        };
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap()
         );
     }
 

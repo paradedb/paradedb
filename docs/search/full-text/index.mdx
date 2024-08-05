@@ -291,6 +291,14 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
 <ParamField body="lowercase">
   Equivalent to `raw`, but also converts to lowercase.
 </ParamField>
+<ParamField body="regex">
+  Tokenizes text using a regular expression. The regular expression can be specified with the `pattern` parameter.
+  <Expandable title="Config Options">
+    <ParamField body="pattern">
+      The regular expression pattern used to tokenize the text. Example: `\\W+` splits on non-word characters.
+    </ParamField>
+  </Expandable>
+</ParamField>
 <ParamField body="ngram">
   Tokenizes text by splitting words into overlapping substrings based on the specified parameters.
   <Expandable title="Config Options">

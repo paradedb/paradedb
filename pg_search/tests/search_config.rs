@@ -222,6 +222,39 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn regex_tokenizer_config(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    r#"CALL paradedb.create_bm25(
+        index_name => 'bm25_search',
+        table_name => 'bm25_search',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('regex', pattern => '\b\w{4,}\b'))
+    );
+    INSERT INTO paradedb.bm25_search (id, description) VALUES 
+        (11001, 'This is a simple test'),
+        (11002, 'Rust is awesome'),
+        (11003, 'Regex patterns are powerful'),
+        (11004, 'Find the longer words');
+    "#
+    .execute(&mut conn);
+
+    let count: (i64,) =
+        "SELECT COUNT(*) FROM bm25_search.search('description:simple')".fetch_one(&mut conn);
+    assert_eq!(count.0, 1);
+
+    let count: (i64,) =
+        "SELECT COUNT(*) FROM bm25_search.search('description:is')".fetch_one(&mut conn);
+    assert_eq!(count.0, 0);
+
+    let count: (i64,) =
+        "SELECT COUNT(*) FROM bm25_search.search('description:longer')".fetch_one(&mut conn);
+    assert_eq!(count.0, 1);
+}
+
+#[rstest]
 fn language_stem_tokenizer_config(mut conn: PgConnection) {
     // Define languages and corresponding test data
     let languages = vec![

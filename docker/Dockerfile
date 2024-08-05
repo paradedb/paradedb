@@ -5,7 +5,7 @@ ARG PG_VERSION_MAJOR=16
 ###############################################
 
 # Note: Debian Bookworm = Debian 12
-FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
+FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.79.0
@@ -46,7 +46,7 @@ RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
 # pg_search
 ######################
 
-FROM builder as builder-pg_search
+FROM builder AS builder-pg_search
 
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
@@ -71,7 +71,7 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 # pg_lakehouse
 ######################
 
-FROM builder as builder-pg_lakehouse
+FROM builder AS builder-pg_lakehouse
 
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
@@ -95,7 +95,7 @@ RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/
 # pgvector
 ######################
 
-FROM builder as builder-pgvector
+FROM builder AS builder-pgvector
 
 # Build the extension
 WORKDIR /tmp
@@ -110,7 +110,7 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 # pgvectorscale
 ######################
 
-FROM builder as builder-pgvectorscale
+FROM builder AS builder-pgvectorscale
 
 ARG TARGETARCH
 
@@ -129,7 +129,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 # pg_cron
 ######################
 
-FROM builder as builder-pg_cron
+FROM builder AS builder-pg_cron
 
 # Build the extension
 WORKDIR /tmp
@@ -143,7 +143,7 @@ RUN echo "trusted = true" >> pg_cron.control && \
 # pg_ivm
 ######################
 
-FROM builder as builder-pg_ivm
+FROM builder AS builder-pg_ivm
 
 # Build the extension
 WORKDIR /tmp
@@ -158,7 +158,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 ###############################################
 
 # Note: Debian Bookworm = Debian 12
-FROM postgres:${PG_VERSION_MAJOR}-bookworm as paradedb
+FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com"
 
@@ -195,5 +195,5 @@ RUN apt-get install -y --no-install-recommends libpq5
 USER postgres
 
 # Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
-COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
+COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/01_bootstrap.sh
 COPY ./docker/update_paradedb.sh /usr/local/bin/

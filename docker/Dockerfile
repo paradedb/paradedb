@@ -160,7 +160,9 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Note: Debian Bookworm = Debian 12
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
-LABEL maintainer="ParadeDB - https://paradedb.com"
+LABEL maintainer="ParadeDB - https://paradedb.com" \
+      org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
+      org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 ARG PG_VERSION_MAJOR=16
 
@@ -195,5 +197,5 @@ RUN apt-get install -y --no-install-recommends libpq5
 USER postgres
 
 # Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
-COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/01_bootstrap.sh
+COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
 COPY ./docker/update_paradedb.sh /usr/local/bin/

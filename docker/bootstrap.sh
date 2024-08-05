@@ -34,26 +34,28 @@ echo "Restarting PostgreSQL to apply changes..."
 pg_ctl restart
 
 # Create the 'template_paradedb' template db
-psql -c "CREATE DATABASE template_paradedb IS_TEMPLATE true;"
+"${psql[@]}" <<- 'EOSQL'
+CREATE DATABASE template_paradedb IS_TEMPLATE true;
+EOSQL
 
 # Load ParadeDB extensions into both template_database and $POSTGRES_DB
 for DB in template_paradedb "$POSTGRES_DB"; do
   echo "Loading ParadeDB extensions into $DB"
-  psql -d "$DB" -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
-  psql -d "$DB" -c "CREATE EXTENSION IF NOT EXISTS pg_lakehouse;"
-  psql -d "$DB" -c "CREATE EXTENSION IF NOT EXISTS pg_ivm;"
-  psql -d "$DB" -c "CREATE EXTENSION IF NOT EXISTS vector;"
-  psql -d "$DB" -c "CREATE EXTENSION IF NOT EXISTS vectorscale;"
+	"${psql[@]}" --dbname="$DB" <<-'EOSQL'
+  CREATE EXTENSION IF NOT EXISTS pg_search;
+  CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
+  CREATE EXTENSION IF NOT EXISTS pg_ivm;
+  CREATE EXTENSION IF NOT EXISTS vector;
+  CREATE EXTENSION IF NOT EXISTS vectorscale;
+EOSQL
 done
 
 # Add the `paradedb` schema to both template_database and $POSTGRES_DB
 for DB in template_paradedb "$POSTGRES_DB"; do
-  echo "Adding 'paradedb' schema to $DB"
-  psql -d "$DB" -c "ALTER DATABASE \"$DB\" SET search_path TO public,paradedb;"
+  echo "Adding 'paradedb' search_path to $DB"
+	"${psql[@]}" --dbname="$DB" <<-'EOSQL'
+  ALTER DATABASE \"$DB\" SET search_path TO public,paradedb;
+EOSQL
 done
-
-# TODO: Is this restart required?
-echo "Restarting PostgreSQL to apply changes..."
-pg_ctl restart
 
 echo "ParadeDB bootstrap completed!"

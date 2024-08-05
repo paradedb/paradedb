@@ -4,7 +4,7 @@
 # Executed at container start to boostrap ParadeDB extensions and Postgres settings.
 
 # Exit on subcommand errors
-# set -Eeuo pipefail
+set -Eeuo pipefail
 
 # Perform all actions as $POSTGRES_USER
 export PGUSER="$POSTGRES_USER"
@@ -30,8 +30,10 @@ fi
 # so we install it in the user database. Creating the `pg_cron` extension requires a restart of the PostgreSQL server.
 echo "cron.database_name = '$POSTGRES_DB'" >> "$PG_CONF"
 
+# Sleep for 10 seconds to allow the server to restart
 echo "Restarting PostgreSQL to apply changes..."
 pg_ctl restart
+sleep 10
 
 # Create the 'template_paradedb' template db
 "${psql[@]}" <<- 'EOSQL'

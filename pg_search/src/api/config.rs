@@ -35,6 +35,7 @@ pub fn tokenizer(
     max_gram: default!(Option<i32>, "NULL"),
     prefix_only: default!(Option<bool>, "NULL"),
     language: default!(Option<String>, "NULL"),
+    pattern: default!(Option<String>, "NULL"),
 ) -> JsonB {
     let mut config = Map::new();
 
@@ -44,7 +45,7 @@ pub fn tokenizer(
     max_gram.map(|v| config.insert("max_gram".to_string(), Value::Number(v.into())));
     prefix_only.map(|v| config.insert("prefix_only".to_string(), Value::Bool(v)));
     language.map(|v| config.insert("language".to_string(), Value::String(v)));
-
+    pattern.map(|v| config.insert("pattern".to_string(), Value::String(v)));
     JsonB(json!(config))
 }
 #[cfg(test)]
@@ -74,7 +75,7 @@ mod tests {
             Some(false),
             Some("position".to_string()),
             Some(true),
-            Some(tokenizer("ngram", Some(4), Some(4), Some(false), None)),
+            Some(tokenizer("ngram", Some(4), Some(4), Some(false), None, None)),
             Some("lowercase".to_string()),
         );
 

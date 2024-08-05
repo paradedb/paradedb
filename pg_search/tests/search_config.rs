@@ -234,10 +234,10 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
         text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('regex', pattern => '\b\w{4,}\b'))
     );
     INSERT INTO paradedb.bm25_search (id, description) VALUES 
-        (1, 'This is a simple test'),
-        (2, 'Rust is awesome'),
-        (3, 'Regex patterns are powerful'),
-        (4, 'Find the longer words');
+        (11001, 'This is a simple test'),
+        (11002, 'Rust is awesome'),
+        (11003, 'Regex patterns are powerful'),
+        (11004, 'Find the longer words');
     "#
     .execute(&mut conn);
 

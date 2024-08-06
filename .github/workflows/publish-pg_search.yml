@@ -184,7 +184,7 @@ jobs:
           fi
 
           # Install dependencies
-          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build libicu-devel
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build libicu libicu-devel
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF

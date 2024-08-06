@@ -39,12 +39,13 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 - [ ] Analytics
   - [x] An analytical query engine over any object store or table format with [pg_lakehouse](https://github.com/paradedb/paradedb/tree/dev/pg_lakehouse#overview)
   - [ ] Column-oriented table access method for fast analytics inside Postgres
-  - [ ] High-volume data/Kafka ingest
 - [x] Self-Hosted ParadeDB
-  - [x] Docker image based on [bitnami/postgresql](https://hub.docker.com/r/bitnami/postgresql) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
-  - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
+  - [x] Docker image based on [postgres](https://hub.docker.com/_/postgres) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
+  - [x] Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [x] Specialized Workloads
-  - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
+  - [ ] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
+  - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
+  - [x] Support for basic incremental view maintenance (IVM) via [pg_ivm](https://github.com/sraoss/pg_ivm)
 
 ## Get Started
 
@@ -58,17 +59,15 @@ ParadeDB and its extensions are available as commercial software for installatio
 
 You can find prebuilt binaries for all ParadeDB extensions on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15 and 16 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). We officially support Postgres 12 and above, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
-For official support on non-Debian-based systems, please [contact us by email](mailto:sales@paradedb.com).
-
 ### Docker Image
 
 To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
 
 ```bash
-docker run --name paradedb paradedb/paradedb
+docker run --name paradedb -e POSTGRES_PASSWORD=password paradedb/paradedb
 ```
 
-This will start a ParadeDB instance with default user `postgres` and password `postgres`. You can then connect to the database using `psql`:
+This will start a ParadeDB instance with default user `postgres` and password `password`. You can then connect to the database using `psql`:
 
 ```bash
 docker exec -it paradedb psql -U postgres
@@ -79,24 +78,16 @@ To install ParadeDB locally or on-premise, we recommend using our `docker-compos
 ```bash
 docker run \
   --name paradedb \
-  -e POSTGRESQL_USERNAME=<user> \
-  -e POSTGRESQL_PASSWORD=<password> \
-  -e POSTGRESQL_DATABASE=<dbname> \
-  -e POSTGRESQL_POSTGRES_PASSWORD=<superuser_password> \
-  -v paradedb_data:/bitnami/postgresql \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
+  -v paradedb_data:/var/lib/postgresql/ \
   -p 5432:5432 \
   -d \
   paradedb/paradedb:latest
 ```
 
-This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `superuser_password` will be associated with superuser `postgres` and is necessary for ParadeDB extensions to install properly.
-
-The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`. The volume needs to be writable by a user with `uid = 1001`, which is a security requirement of the Bitnami PostgreSQL Docker image. You can do so with:
-
-```bash
-sudo useradd -u 1001 <user>
-sudo chown <user> </path/to/paradedb_data>
-```
+This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`.
 
 You can then connect to the database using `psql`:
 

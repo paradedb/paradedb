@@ -52,4 +52,18 @@ jobs:
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
       - name: Check for Errors in the ParadeDB Docker Image
         working-directory: docker/
-        run: docker logs $(docker ps -q --filter "name=paradedb-dev") | grep -q ERROR || exit 0
+        run: |
+          CONTAINER_ID=$(docker ps -aq --filter "name=paradedb-dev")
+          CONTAINER_STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_ID)
+          echo "paradedb-dev container ID: $CONTAINER_ID"
+          echo "Container status: $CONTAINER_STATUS"
+
+          echo ""
+          echo "Printing logs for the ParadeDB Docker container..."
+          docker logs $CONTAINER_ID
+
+          # Fail the run if the container failed to start
+          if [ "$CONTAINER_STATUS" = "exited" ]; then
+            echo "Error: Container failed to start properly"
+            exit 1
+          fi

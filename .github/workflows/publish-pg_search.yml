@@ -318,8 +318,6 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        env:
-          
         run: |
           if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
             PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"

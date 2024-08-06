@@ -276,6 +276,8 @@ jobs:
           find /usr/include -name "*icu*.h"
           find /usr -name "unumberformatter.h"
 
+          rpm -q libicu
+
       - name: Install & Configure Supported PostgreSQL Version on Debian
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         run: |
@@ -331,13 +333,7 @@ jobs:
             PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
 
-          # Export icu variables for Red Hat Enterprise Linux 8
-          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib64
-          export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/lib64/pkgconfig
-          export ICU_INCLUDE_DIR=/usr/include
-          export ICU_LIB_DIR=/usr/lib64
-          export C_INCLUDE_PATH=$C_INCLUDE_PATH:/usr/include/unicode
-
+          export ICU_VERSION=60.3
           cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 
       - name: Create .deb Package

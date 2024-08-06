@@ -71,7 +71,7 @@ pub async fn executor_run(
         return Ok(());
     }
 
-    // set Duckdb search_path(schema) according to Postgres search_path
+    // Set Duckdb search_path(schema) according to Postgres search_path
     set_search_path()?;
 
     match connection::create_arrow(query.as_str()) {
@@ -175,8 +175,8 @@ fn set_search_path() -> Result<()> {
         .filter(|s| duckdb_schemas.contains(s))
         .collect::<Vec<_>>()
         .join(",");
-    // Sets the default search schema. Equivalent to setting search_path.
-    connection::execute(format!("SET SCHEMA '{schemas}'").as_str(), [])?;
+    // Set the default catalog search path
+    connection::execute(format!("SET search_path TO '{schemas}'").as_str(), [])?;
 
     Ok(())
 }

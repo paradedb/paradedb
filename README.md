@@ -40,8 +40,8 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] An analytical query engine over any object store or table format with [pg_lakehouse](https://github.com/paradedb/paradedb/tree/dev/pg_lakehouse#overview)
   - [ ] Column-oriented table access method for fast analytics inside Postgres
 - [x] Self-Hosted ParadeDB
-  - [x] Docker image based on [postgres](https://hub.docker.com/_/postgres) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
-  - [x] Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) & [deployment instructions](https://docs.paradedb.com/deploy/helm)
+  - [x] Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))
+  - [x] Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) ([see deployment instructions](https://docs.paradedb.com/deploy/helm))
 - [x] Specialized Workloads
   - [ ] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
   - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)

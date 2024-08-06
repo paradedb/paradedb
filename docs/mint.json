@@ -81,10 +81,7 @@
         },
         {
           "group": "Deploying Extensions",
-          "pages": [
-            "deploy/pg_search",
-            "deploy/pg_lakehouse"
-          ]
+          "pages": ["deploy/pg_search", "deploy/pg_lakehouse"]
         },
         "upgrading",
         "support"
@@ -126,6 +123,10 @@
         {
           "group": "Hybrid Search",
           "pages": ["search/hybrid/basic"]
+        },
+        {
+          "group": "Replication",
+          "pages": ["search/replication/setup"]
         }
       ]
     },

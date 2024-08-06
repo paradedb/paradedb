@@ -1,0 +1,211 @@
+---
+title: Setting Up Streaming Replication with ParadeDB
+---
+
+In this guide, we'll walk through setting up streaming replication for `pg_search`. This setup allows you to replicate data from a primary server to one or more standby server for high availability and data redundancy.
+
+### Environment Setup
+
+We'll use the following environment setup for our demonstration:
+
+**Primary Server**
+
+- **OS**: Ubuntu 24.04
+- **IP**: 192.168.0.30
+- **Database**: marketplace
+- **Replication User**: replicator
+- **Replication Password**: passw0rd
+
+**Standby Servers**
+
+- **OS**: Ubuntu 24.04
+- **IP**: 192.168.0.31, 192.168.0.32
+
+## Configuring the Primary Server for Replication
+
+### 1. Edit `postgresql.conf`
+
+The `postgresql.conf` file is the main configuration file for PostgreSQL. It contains all the server settings that control the behavior and performance of your PostgreSQL instance.
+
+1. **listen_addresses**: This parameter specifies the IP addresses on which PostgreSQL listens for connections. By default, PostgreSQL only listens on `localhost`. To allow other servers (like your standby servers) to connect for replication, you need to include their IP addresses.
+
+   ```ini
+   listen_addresses = 'localhost,192.168.0.30'
+   ```
+
+2. **max_wal_senders**: This parameter determines the maximum number of concurrent connections that can send WAL (Write-Ahead Log) data.
+   ```ini
+   max_wal_senders = 10
+   ```
+3. **shared_preload_libraries**: As usual, the extension needs to be included in the list of shared preload libraries.
+   ```ini
+   shared_preload_libraries = 'pg_search'
+   ```
+
+### 2. Edit `pg_hba.conf`
+
+The `pg_hba.conf` file (PostgreSQL Host-Based Authentication file) controls client authentication, defining who can connect to the PostgreSQL server, how they can connect, and from where. It ensures that only authorized users and systems can access the database.
+
+We need to allow the replication user to connect from the standby servers' IP addresses. Add the following lines to allow replication from the local network and localhost. This configuration ensures that the replication user can connect from the specified IP range.
+
+```ini
+local   replication     all                                     peer
+host    replication     all             127.0.0.1/32            scram-sha-256
+host    replication     all             ::1/128                 scram-sha-256
+host    replication     all             192.168.0.0/24          scram-sha-256
+```
+
+### 3. Create the Replication User
+
+In PostgreSQL, a user is required to handle replication connections securely. This user needs specific permissions to read the WAL and perform replication tasks.
+
+Creating a dedicated replication user ensures that the replication process is secure and isolated from other database operations. This user will have the necessary permissions to perform replication but will not have broader administrative privileges.
+
+```bash
+sudo -u postgres createuser --pwprompt --replication replicator
+Enter password for new role: (passw0rd)
+Enter it again: (passw0rd)
+```
+
+`--pwprompt` prompts you to enter a password for the new user.
+
+`--replication` grants the replication privilege to the new user, allowing it to handle replication tasks.
+
+#### 5. Insert Data and Create BM25 Index on Primary
+
+Create a database:
+
+```bash
+sudo -u postgres -H createdb marketplace
+```
+
+Insert some data:
+
+```sql
+CREATE TABLE mock_items (
+  id SERIAL PRIMARY KEY,
+  description TEXT,
+  rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+  category VARCHAR(255),
+  in_stock BOOLEAN,
+  metadata JSONB,
+  created_at TIMESTAMP,
+  last_updated_date DATE,
+  latest_available_time TIME
+);
+
+
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1);
+```
+
+Build a `pg_search` index:
+
+```sql
+CALL paradedb.create_bm25(
+  table_name => 'mock_items',
+  index_name => 'mock_items',
+  schema_name => 'public',
+  key_field => 'id',
+  text_fields => paradedb.field('description')
+);
+```
+
+#### 8. Run pg_basebackup to create Standby Instance
+
+You should run `pg_basebackup` on your standby server to create a physical byte-for-byte replica of your primary cluster. The `--pgdata` directory specifies the where the standby cluster will be created. The directory must exist, and must be empty.
+
+```bash
+mkdir -p /var/lib/postgresql/16/main
+
+pg_basebackup --create-slot --slot standby1 --host 192.168.0.30 --pgdata /var/lib/postgresql/16/main --progress --username replicator --write-recovery-conf
+pg_basebackup --create-slot --slot standby2 --host 192.168.0.30 --pgdata /var/lib/postgresql/16/main --progress --username replicator --write-recovery-conf
+```
+
+#### 10. Start PostgreSQL on Standby Server
+
+Start PostgreSQL on standby servers:
+
+```bash
+sudo systemctl start postgresql
+```
+
+### Verification
+
+Now you can verify the replication. The data inserted on the primary server should appear on the standby servers, confirming that streaming replication with ParadeDB is working correctly.
+
+```sql
+SELECT * FROM mock_items.search('description:shoes')
+```
+
+---
+
+## Setting Up Logical Replication with ParadeDB
+
+Logical replication allows you to replicate changes to specific tables between PostgreSQL instances. After creating a physical replica with `pg_basebackup`, you can set up a subscription to propagate changes on the primary server to the standby.
+
+#### 1. Create Publication on Primary
+
+```sql
+CREATE PUBLICATION mock_items_pub FOR TABLE mock_items;
+```
+
+#### 2. Create Subscription on Standy
+
+```sql
+CREATE SUBSCRIPTION sub_marketplace
+CONNECTION 'host=172.16.0.1 port=5432 dbname=marketplace user=replicator password=passw0rd'
+PUBLICATION pub_marketplace;
+```
+
+#### 3. Insert Data on Publisher
+
+```sql
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+VALUES ('Blue running shoes', 'Footwear', true, '14:00:00', '2024-07-10', '{}', '2024-07-10 14:00:00', 2)
+```
+
+### Verification
+
+Verify the replication on the Subscriber server:
+
+```sql
+SELECT description FROM mock_items.search('description:"running shoes"');
+```
+
+The data inserted on the Publisher server should appear on the Subscriber server.
+
+---
+
+## Schema Changes in Logical Replication
+
+ParadeDB leverages PostgreSQL’s built-in logical replication to provide flexible and efficient data synchronization, and is subject to the same limitations. A well-known caveat of logical replication is that schema changes (DDL commands) are not replciated. This means that any changes to the schema on the source database, such as adding new columns or tables, will not be automatically applied to the subscriber.
+
+```sql
+-- On Publisher
+ALTER TABLE mock_items ADD COLUMN num_stock;
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating, num_stock)
+VALUES ('Green running shoes', 'Footwear', true, '14:00:00', '2024-07-09', '{}', '2024-07-09 14:00:00', 2, 900);
+
+-- On Subscriber
+ERROR: logical replication target relation "public.mock_items" is missing some replicated columns
+```
+
+To workaround this, pause the subscription on the subscriber, manually apply the schema changes, then resume the subscription:
+
+```sql
+-- On Subscriber
+ALTER SUBSCRIPTION mock_items_sub DISABLE;
+ALTER TABLE entries ADD COLUMN num_stock int;
+ALTER SUBSCRIPTION mock_items_sub ENABLE;
+```
+
+If new tables are added and your publication is not `FOR ALL TABLES`, add them to the publication manually:
+
+```sql
+-- On Publisher
+ALTER PUBLICATION mock_items_pub ADD TABLE newly_added_table;
+
+-- On Subscriber
+ALTER SUBSCRIPTION mock_items_sub REFRESH PUBLICATION;
+```

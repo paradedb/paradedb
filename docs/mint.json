@@ -81,10 +81,11 @@
         },
         {
           "group": "Deploying Extensions",
-          "pages": [
-            "deploy/pg_search",
-            "deploy/pg_lakehouse"
-          ]
+          "pages": ["deploy/pg_search", "deploy/pg_lakehouse"]
+        },
+        {
+          "group": "Replication",
+          "pages": ["replication/pg_search", "replication/pg_lakehouse"]
         },
         "upgrading",
         "support"

@@ -270,6 +270,12 @@ jobs:
             echo "rpm_arch=$ARCH" >> $GITHUB_OUTPUT
           fi
 
+
+      - name: Search for unicode files
+        run: |
+          find /usr/include -name "*icu*.h"
+          find /usr -name "unumberformatter.h"
+
       - name: Install & Configure Supported PostgreSQL Version on Debian
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         run: |
@@ -330,6 +336,7 @@ jobs:
           export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/lib64/pkgconfig
           export ICU_INCLUDE_DIR=/usr/include
           export ICU_LIB_DIR=/usr/lib64
+          export C_INCLUDE_PATH=$C_INCLUDE_PATH:/usr/include/unicode
 
           cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 

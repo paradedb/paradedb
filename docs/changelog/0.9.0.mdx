@@ -4,12 +4,6 @@ title: 0.9.0
 
 ## pg_search
 
-### Bug Fixes
-
-- Fixed a bug where
-
-- Fixed a cache invalidation bug affecting concurrent connections during index re-creation
-
 ### New Features
 
 - Introduced the ability to create BM25 indexes over arrays of any type, aside from JSON arrays.
@@ -24,6 +18,7 @@ title: 0.9.0
 ### Bug Fixes
 
 - Fixed a bug where case senstivity would not be preserved over table names.
+- Fixed a bug where querying Delta Lake tables from a different object store than AWS S3 would fail.
 
 ## ParadeDB
 
@@ -31,7 +26,7 @@ title: 0.9.0
 
 - Converted the ParadeDB base Docker image to the official Postgres Docker image, based on Debian Bookworm (Debian 12).
 - Added `pg_cron` to the ParadeDB Docker image, which can be used to schedule periodic jobs in Postgres.
-- Upgraded Dockerfile to use `pgvector` version `0.7.4`
+- Upgraded the ParadeDB `pgvector` version to `0.7.4`
 
 ## Full Changelog
 

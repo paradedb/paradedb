@@ -184,7 +184,7 @@ jobs:
           fi
 
           # Install dependencies
-          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build libicu libicu-devel
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build
 
           # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
           sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
@@ -217,6 +217,17 @@ jobs:
           # This package requires epel-release, which is why we install it last. It is required to
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
+
+      # On RHEL 8, we need to install ICU from source since the package is v60.3 and we need v62+
+      - name: Install ICU
+        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
+        run: |
+          wget https://github.com/unicode-org/icu/releases/download/release-69-1/icu4c-69_1-src.tgz
+          tar -xzf icu4c-69_1-src.tgz
+          cd icu/source
+          ./configure --prefix=/usr/local
+          make
+          sudo make install
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -333,7 +344,10 @@ jobs:
             PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
 
-          export ICU_VERSION=60.3
+          export ICU_INCLUDE_DIR=/usr/local/include
+          export ICU_LIB_DIR=/usr/local/lib
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+
           cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 
       - name: Create .deb Package

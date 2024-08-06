@@ -318,12 +318,21 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
+        env:
+          
         run: |
           if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
             PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
           else
             PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
+
+          # Export icu variables for Red Hat Enterprise Linux 8
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib64
+          export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/lib64/pkgconfig
+          export ICU_INCLUDE_DIR=/usr/include
+          export ICU_LIB_DIR=/usr/lib64
+
           cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 
       - name: Create .deb Package

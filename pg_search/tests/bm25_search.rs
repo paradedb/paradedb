@@ -1207,8 +1207,14 @@ fn index_size(mut conn: PgConnection) {
 
     let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
 
+    let index_oid =
+        "SELECT oid::int4 FROM pg_class WHERE relname = 'bm25_search_bm25_index' AND relkind = 'i'"
+            .fetch_one::<(i32,)>(&mut conn)
+            .0;
+
     let index_dir = PathBuf::from(data_directory)
         .join("pg_search")
+        .join(&index_oid.to_string())
         .join("tantivy");
 
     assert!(

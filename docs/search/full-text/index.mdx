@@ -440,14 +440,20 @@ CALL paradedb.drop_bm25(
 
 The `schema` function returns a table with information about the index schema.
 
+You can also check the size of an index in bytes with `index_size`.
+
 ```sql
 SELECT * FROM <index_name>.schema();
+
+SELECT * FROM <index_name>.index_size();
 ```
 
 <Accordion title="Example Usage">
 
 ```sql
 SELECT * FROM search_idx.schema();
+
+SELECT * FROM search_idx.index_size();
 ```
 
 </Accordion>

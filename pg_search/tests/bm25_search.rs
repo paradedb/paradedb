@@ -1200,3 +1200,43 @@ fn high_limit_rows(mut conn: PgConnection) {
             .fetch(&mut conn);
     assert_eq!(rows.len(), 200000);
 }
+
+#[rstest]
+fn index_size(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
+
+    let index_oid =
+        "SELECT oid::int4 FROM pg_class WHERE relname = 'bm25_search_bm25_index' AND relkind = 'i'"
+            .fetch_one::<(i32,)>(&mut conn)
+            .0;
+
+    let index_dir = PathBuf::from(data_directory)
+        .join("pg_search")
+        .join(index_oid.to_string())
+        .join("tantivy");
+
+    assert!(
+        index_dir.exists(),
+        "expected index directory to exist at: {:?}",
+        index_dir
+    );
+
+    let mut expected_size = 0;
+
+    for entry_result in walkdir::WalkDir::new(index_dir) {
+        let entry = entry_result.unwrap();
+        if entry.path().is_file() {
+            expected_size += entry.metadata().unwrap().len();
+        }
+    }
+
+    // Calculate the index size using the new method
+    let size: i64 = "SELECT bm25_search.index_size()"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0;
+
+    // Ensure the size is greater than zero, meaning the index has been created
+    assert_eq!(size, expected_size as i64);
+}

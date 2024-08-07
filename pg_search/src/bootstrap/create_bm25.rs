@@ -22,6 +22,8 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
 
+use crate::writer::{SearchFs, WriterDirectory};
+
 use super::format::format_bm25_function;
 use super::format::format_empty_function;
 use super::format::format_hybrid_function;
@@ -393,6 +395,14 @@ fn create_bm25_impl(
     ))?;
 
     Spi::run(&format!(
+        "CREATE OR REPLACE FUNCTION {index_name}.index_size() RETURNS bigint AS $func$
+        BEGIN
+            RETURN paradedb.index_size_impl('{index_name}');
+        END;
+        $func$ LANGUAGE plpgsql"
+    ))?;
+
+    Spi::run(&format!(
         "SET client_min_messages TO {}",
         spi::quote_literal(original_client_min_messages)
     ))?;
@@ -456,4 +466,30 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
     crate::api::search::drop_bm25_internal(index_oid);
 
     Ok(())
+}
+
+#[pg_extern(sql = "
+CREATE OR REPLACE FUNCTION paradedb.index_size_impl(
+    index_name text
+) RETURNS bigint
+LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
+")]
+fn index_size(index_name: &str) -> Result<i64> {
+    // Fetch the OID of the index using its name
+    let oid_query = format!(
+        "SELECT oid FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
+        index_name
+    );
+
+    let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)?
+        .ok_or_else(|| anyhow::anyhow!("Index '{}' not found", index_name))?
+        .as_u32();
+
+    // Create a WriterDirectory with the obtained index_oid
+    let writer_directory = WriterDirectory::from_index_oid(index_oid);
+
+    // Call the total_size method to get the size in bytes
+    let total_size = writer_directory.total_size()?;
+
+    Ok(total_size as i64)
 }

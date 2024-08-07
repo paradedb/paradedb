@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::env;
+use anyhow::Result;
 use derive_more::AsRef;
 use fs2::FileExt;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -64,6 +65,20 @@ pub trait SearchFs {
         &self,
         ensure_exists: bool,
     ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError>;
+    /// Get the total size in bytes of the directory.
+    fn total_size(&self) -> Result<u64> {
+        let path = self.tantivy_dir_path(false)?;
+        let mut total_size = 0;
+
+        for entry_result in WalkDir::new(path) {
+            let entry = entry_result?;
+            if entry.path().is_file() {
+                total_size += entry.metadata()?.len();
+            }
+        }
+
+        Ok(total_size)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]

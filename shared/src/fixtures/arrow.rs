@@ -261,13 +261,16 @@ pub fn auto_create_table(server: &str, table: &str) -> String {
     format!("CREATE FOREIGN TABLE {table} () SERVER {server}")
 }
 
-pub fn create_foreign_table(server: &str, table: &str, fields: &[(&str, &str)]) -> String {
-    let fields_definition = fields
+fn create_field_definition(fields: &[(&str, &str)]) -> String {
+    fields
         .iter()
         .map(|(field_name, field_type)| format!("{field_name} {field_type}"))
         .collect::<Vec<_>>()
-        .join(",");
+        .join(",")
+}
 
+pub fn create_foreign_table(server: &str, table: &str, fields: &[(&str, &str)]) -> String {
+    let fields_definition = create_field_definition(fields);
     format!("CREATE FOREIGN TABLE {table} ({fields_definition}) SERVER {server}")
 }
 
@@ -295,47 +298,49 @@ pub fn setup_fdw_local_parquet_file_listing(
 
 // Some fields have been commented out to get tests to pass
 // See https://github.com/paradedb/paradedb/issues/1299
+fn primitive_table_columns() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("boolean_col", "boolean"),
+        ("int8_col", "smallint"),
+        ("int16_col", "smallint"),
+        ("int32_col", "integer"),
+        ("int64_col", "bigint"),
+        ("uint8_col", "smallint"),
+        ("uint16_col", "integer"),
+        ("uint32_col", "bigint"),
+        ("uint64_col", "numeric(20)"),
+        ("float32_col", "real"),
+        ("float64_col", "double precision"),
+        ("date32_col", "date"),
+        ("date64_col", "date"),
+        ("binary_col", "bytea"),
+        ("large_binary_col", "bytea"),
+        ("utf8_col", "text"),
+        ("large_utf8_col", "text"),
+    ]
+}
+
 pub fn primitive_create_table(server: &str, table: &str) -> String {
-    format!(
-        "CREATE FOREIGN TABLE {table} (
-            boolean_col       boolean,
-            int8_col          smallint,
-            int16_col         smallint,
-            int32_col         integer,
-            int64_col         bigint,
-            uint8_col         smallint,
-            uint16_col        integer,
-            uint32_col        bigint,
-            uint64_col        numeric(20),
-            float32_col       real,
-            float64_col       double precision,
-            date32_col        date,
-            date64_col        date,
-            binary_col        bytea,
-            large_binary_col  bytea,
-            utf8_col          text,
-            large_utf8_col    text
-        )
-        SERVER {server}"
-    )
+    create_foreign_table(server, table, &primitive_table_columns())
+}
+
+fn primitive_delta_table_columns() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("boolean_col", "boolean"),
+        ("int8_col", "smallint"),
+        ("int16_col", "smallint"),
+        ("int32_col", "integer"),
+        ("int64_col", "bigint"),
+        ("float32_col", "real"),
+        ("float64_col", "double precision"),
+        ("date32_col", "date"),
+        ("binary_col", "bytea"),
+        ("utf8_col", "text"),
+    ]
 }
 
 pub fn primitive_create_delta_table(server: &str, table: &str) -> String {
-    format!(
-        "CREATE FOREIGN TABLE {table} (
-            boolean_col       boolean,
-            int8_col          smallint,
-            int16_col         smallint,
-            int32_col         integer,
-            int64_col         bigint,
-            float32_col       real,
-            float64_col       double precision,
-            date32_col        date,
-            binary_col        bytea,
-            utf8_col          text
-        )
-        SERVER {server}"
-    )
+    create_foreign_table(server, table, &primitive_delta_table_columns())
 }
 
 pub fn primitive_setup_fdw_s3_listing(
@@ -389,21 +394,7 @@ pub fn primitive_setup_fdw_s3_delta(
 }
 
 pub fn primitive_setup_fdw_local_file_listing(local_file_path: &str, table: &str) -> String {
-    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
-        "parquet_wrapper",
-        "parquet_fdw_handler",
-        "parquet_fdw_validator",
-    );
-    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
-    let create_table = primitive_create_table("parquet_server", table);
-
-    format!(
-        r#"
-        {create_foreign_data_wrapper};
-        {create_server};
-        {create_table} OPTIONS (files '{local_file_path}'); 
-    "#
-    )
+    setup_fdw_local_parquet_file_listing(local_file_path, table, &primitive_table_columns())
 }
 
 pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, table: &str) -> String {

@@ -327,21 +327,21 @@ jobs:
           fi
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      - name: Package pg_search Extension with pgrx
-        working-directory: pg_search/
-        run: |
-          if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
-            PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          else
-            PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          fi
+      # - name: Package pg_search Extension with pgrx
+      #   working-directory: pg_search/
+      #   run: |
+      #     if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
+      #       PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+      #     else
+      #       PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+      #     fi
 
-          export ICU_INCLUDE_DIR=/usr/local/include
-          export ICU_LIB_DIR=/usr/local/lib
-          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
-          export ICU_VERSION=69
+      #     export ICU_INCLUDE_DIR=/usr/local/include
+      #     export ICU_LIB_DIR=/usr/local/lib
+      #     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+      #     export ICU_VERSION=69
 
-          cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
+      #     cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 
       - name: Create .deb Package
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}

@@ -1214,7 +1214,7 @@ fn index_size(mut conn: PgConnection) {
 
     let index_dir = PathBuf::from(data_directory)
         .join("pg_search")
-        .join(&index_oid.to_string())
+        .join(index_oid.to_string())
         .join("tantivy");
 
     assert!(

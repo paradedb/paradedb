@@ -109,6 +109,31 @@ jobs:
             image: debian:12-slim
             pg_version: 16
             arch: arm64
+          # Red Hat Enterprise Linux 8
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 16
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 16
+            arch: arm64
           # Red Hat Enterprise Linux 9
           - runner: depot-ubuntu-latest-8
             image: redhat/ubi9:latest
@@ -132,30 +157,6 @@ jobs:
             arch: amd64
           - runner: depot-ubuntu-latest-arm-4
             image: redhat/ubi9:latest
-            pg_version: 16
-            arch: arm64
-          - runner: depot-ubuntu-latest-8
-            image: redhat/ubi8:latest
-            pg_version: 14
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: redhat/ubi8:latest
-            pg_version: 14
-            arch: arm64
-          - runner: depot-ubuntu-latest-8
-            image: redhat/ubi8:latest
-            pg_version: 15
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: redhat/ubi8:latest
-            pg_version: 15
-            arch: arm64
-          - runner: depot-ubuntu-latest-8
-            image: redhat/ubi8:latest
-            pg_version: 16
-            arch: amd64
-          - runner: depot-ubuntu-latest-arm-4
-            image: redhat/ubi8:latest
             pg_version: 16
             arch: arm64
 

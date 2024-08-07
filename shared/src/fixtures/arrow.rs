@@ -65,6 +65,62 @@ fn binary_array_data() -> ArrayData {
         .unwrap()
 }
 
+#[derive(Debug)]
+struct FieldDesc {
+    name: String,
+    data_type: DataType,
+    nullable: bool,
+    pg_type: String,
+}
+
+impl<T> From<(T, DataType, bool, T)> for FieldDesc
+where
+    T: ToString,
+{
+    fn from(value: (T, DataType, bool, T)) -> Self {
+        Self {
+            name: value.0.to_string(),
+            data_type: value.1,
+            nullable: value.2,
+            pg_type: value.3.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FieldSpec(Vec<FieldDesc>);
+
+impl FieldSpec {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn arrow_schema(&self) -> Schema {
+        let fields = self
+            .0
+            .iter()
+            .map(|fd| Field::new(&fd.name, fd.data_type.clone(), fd.nullable))
+            .collect::<Vec<_>>();
+        Schema::new(fields)
+    }
+
+    pub fn postgres_schema(&self) -> Vec<(&str, &str)> {
+        self.0
+            .iter()
+            .map(|fd| (fd.name.as_str(), fd.pg_type.as_str()))
+            .collect::<Vec<_>>()
+    }
+}
+
+impl<T> From<Vec<(T, DataType, bool, T)>> for FieldSpec
+where
+    T: ToString,
+{
+    fn from(value: Vec<(T, DataType, bool, T)>) -> Self {
+        Self(value.into_iter().map(FieldDesc::from).collect())
+    }
+}
+
 /// A separate version of the primitive_record_batch fixture,
 /// narrowed to only the types that Delta Lake supports.
 pub fn delta_primitive_record_batch() -> Result<RecordBatch> {
@@ -203,6 +259,38 @@ pub fn primitive_create_user_mapping_options(user: &str, server: &str) -> String
 
 pub fn auto_create_table(server: &str, table: &str) -> String {
     format!("CREATE FOREIGN TABLE {table} () SERVER {server}")
+}
+
+pub fn create_foreign_table(server: &str, table: &str, fields: &[(&str, &str)]) -> String {
+    let fields_definition = fields
+        .iter()
+        .map(|(field_name, field_type)| format!("{field_name} {field_type}"))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    format!("CREATE FOREIGN TABLE {table} ({fields_definition}) SERVER {server}")
+}
+
+pub fn setup_fdw_local_parquet_file_listing(
+    local_file_path: &str,
+    table: &str,
+    fields: &[(&str, &str)],
+) -> String {
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "parquet_wrapper",
+        "parquet_fdw_handler",
+        "parquet_fdw_validator",
+    );
+    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
+    let create_table = create_foreign_table("parquet_server", table, fields);
+
+    format!(
+        r#"
+        {create_foreign_data_wrapper};
+        {create_server};
+        {create_table} OPTIONS (files '{local_file_path}'); 
+    "#
+    )
 }
 
 // Some fields have been commented out to get tests to pass

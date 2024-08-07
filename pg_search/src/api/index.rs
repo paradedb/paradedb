@@ -24,6 +24,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::ToString;
 use crate::writer::WriterDirectory;
 use core::panic;
+use std::collections::HashMap;
 use std::ops::Bound;
 
 #[allow(clippy::type_complexity)]
@@ -233,37 +234,74 @@ pub fn fuzzy_term(
     }
 }
 
-// Avoid exposing more_like_this for now until we can decide on the exact API.
-// Lucene and Elasticsearch seem to have different interfaces for this query,
-// and Tantivy doesn't have any examples of its use, so its unclear what the best
-// way to use it is with pg_search.
-#[allow(unused)]
+#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
+pub fn more_like_this_empty() -> SearchQueryInput {
+    panic!("more_like_this must be called with either with_document_id or with_document_fields");
+}
+
 #[allow(clippy::too_many_arguments)]
-pub fn more_like_this(
-    min_doc_frequency: default!(Option<i32>, "NULL"),
-    max_doc_frequency: default!(Option<i32>, "NULL"),
-    min_term_frequency: default!(Option<i32>, "NULL"),
-    max_query_terms: default!(Option<i32>, "NULL"),
-    min_word_length: default!(Option<i32>, "NULL"),
-    max_word_length: default!(Option<i32>, "NULL"),
-    boost_factor: default!(Option<f32>, "NULL"),
-    stop_words: default!(Option<Vec<String>>, "NULL"),
-    fields: default!(Array<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
+pub fn more_like_this_fields(
+    with_document_fields: String,
+    with_min_doc_frequency: default!(Option<i32>, "NULL"),
+    with_max_doc_frequency: default!(Option<i32>, "NULL"),
+    with_min_term_frequency: default!(Option<i32>, "NULL"),
+    with_max_query_terms: default!(Option<i32>, "NULL"),
+    with_min_word_length: default!(Option<i32>, "NULL"),
+    with_max_word_length: default!(Option<i32>, "NULL"),
+    with_boost_factor: default!(Option<f32>, "NULL"),
+    with_stop_words: default!(Option<Vec<String>>, "NULL"),
 ) -> SearchQueryInput {
-    let fields = fields.iter_deny_null().map(|input| match input {
-        SearchQueryInput::Term { field, value, .. } => (field.unwrap_or("".into()), value),
-        _ => panic!("only term queries can be passed to more_like_this"),
-    });
+    let document_fields: HashMap<String, tantivy::schema::OwnedValue> =
+        json5::from_str(&with_document_fields).expect("could not parse with_document_fields");
+
     SearchQueryInput::MoreLikeThis {
-        min_doc_frequency: min_doc_frequency.map(|n| n as u64),
-        max_doc_frequency: max_doc_frequency.map(|n| n as u64),
-        min_term_frequency: min_term_frequency.map(|n| n as usize),
-        max_query_terms: max_query_terms.map(|n| n as usize),
-        min_word_length: min_word_length.map(|n| n as usize),
-        max_word_length: max_word_length.map(|n| n as usize),
-        boost_factor,
-        stop_words,
-        fields: fields.collect(),
+        min_doc_frequency: with_min_doc_frequency.map(|n| n as u64),
+        max_doc_frequency: with_max_doc_frequency.map(|n| n as u64),
+        min_term_frequency: with_min_term_frequency.map(|n| n as usize),
+        max_query_terms: with_max_query_terms.map(|n| n as usize),
+        min_word_length: with_min_word_length.map(|n| n as usize),
+        max_word_length: with_max_word_length.map(|n| n as usize),
+        boost_factor: with_boost_factor,
+        stop_words: with_stop_words,
+        document_fields: document_fields.into_iter().collect(),
+        document_id: None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
+pub fn more_like_this_id(
+    with_document_id: AnyElement,
+    with_min_doc_frequency: default!(Option<i32>, "NULL"),
+    with_max_doc_frequency: default!(Option<i32>, "NULL"),
+    with_min_term_frequency: default!(Option<i32>, "NULL"),
+    with_max_query_terms: default!(Option<i32>, "NULL"),
+    with_min_word_length: default!(Option<i32>, "NULL"),
+    with_max_word_length: default!(Option<i32>, "NULL"),
+    with_boost_factor: default!(Option<f32>, "NULL"),
+    with_stop_words: default!(Option<Vec<String>>, "NULL"),
+) -> SearchQueryInput {
+    SearchQueryInput::MoreLikeThis {
+        min_doc_frequency: with_min_doc_frequency.map(|n| n as u64),
+        max_doc_frequency: with_max_doc_frequency.map(|n| n as u64),
+        min_term_frequency: with_min_term_frequency.map(|n| n as usize),
+        max_query_terms: with_max_query_terms.map(|n| n as usize),
+        min_word_length: with_min_word_length.map(|n| n as usize),
+        max_word_length: with_max_word_length.map(|n| n as usize),
+        boost_factor: with_boost_factor,
+        stop_words: with_stop_words,
+        document_fields: vec![],
+        document_id: unsafe {
+            Some(
+                TantivyValue::try_from_datum(
+                    with_document_id.datum(),
+                    PgOid::from_untagged(with_document_id.oid()),
+                )
+                .unwrap_or_else(|err| panic!("could not read more_like_this document_id: {err}"))
+                .0,
+            )
+        },
     }
 }
 

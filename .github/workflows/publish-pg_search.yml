@@ -339,6 +339,7 @@ jobs:
           export ICU_INCLUDE_DIR=/usr/local/include
           export ICU_LIB_DIR=/usr/local/lib
           export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+          export ICU_VERSION=69
 
           cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 

@@ -515,20 +515,19 @@ fn value_to_term(
                     // Serialization turns date into string, so we have to turn it back into a Tantivy date
                     // First try with no precision beyond seconds, then try with precision
                     let datetime =
-                        match chrono::NaiveDateTime::parse_from_str(&text, "%Y-%m-%dT%H:%M:%SZ") {
+                        match chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%SZ") {
                             Ok(dt) => dt,
-                            Err(_) => chrono::NaiveDateTime::parse_from_str(
-                                &text,
-                                "%Y-%m-%dT%H:%M:%S%.fZ",
-                            )
-                            .map_err(|_| QueryError::FieldTypeMismatch)?,
+                            Err(_) => {
+                                chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.fZ")
+                                    .map_err(|_| QueryError::FieldTypeMismatch)?
+                            }
                         };
                     let tantivy_datetime = tantivy::DateTime::from_timestamp_micros(
                         datetime.and_utc().timestamp_micros(),
                     );
                     Term::from_field_date(field, tantivy_datetime)
                 }
-                _ => Term::from_field_text(field, &text),
+                _ => Term::from_field_text(field, text),
             }
         }
         OwnedValue::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
@@ -545,8 +544,8 @@ fn value_to_term(
         OwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
         OwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
         OwnedValue::Date(date) => Term::from_field_date(field, *date),
-        OwnedValue::Facet(facet) => Term::from_facet(field, &facet),
-        OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
+        OwnedValue::Facet(facet) => Term::from_facet(field, facet),
+        OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
         OwnedValue::Object(_) => panic!("json cannot be converted to term"),
         OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
         _ => panic!("Tantivy OwnedValue type not supported"),

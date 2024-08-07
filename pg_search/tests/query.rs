@@ -363,7 +363,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "more_like_this must be called with either with_document_id or with_document_fields")
+            , "error returned from database: more_like_this must be called with either with_document_id or with_document_fields")
         }
         _ => panic!("with_document_id or with_document_fields validation failed"),
     }

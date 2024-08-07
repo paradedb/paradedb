@@ -234,9 +234,15 @@ pub fn fuzzy_term(
     }
 }
 
+#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
+pub fn more_like_this_empty() -> SearchQueryInput {
+    panic!("more_like_this must be called with either with_document_id or with_document_fields");
+}
+
 #[allow(clippy::too_many_arguments)]
-#[pg_extern(immutable, parallel_safe)]
-pub fn more_like_this(
+#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
+pub fn more_like_this_fields(
+    with_document_fields: String,
     with_min_doc_frequency: default!(Option<i32>, "NULL"),
     with_max_doc_frequency: default!(Option<i32>, "NULL"),
     with_min_term_frequency: default!(Option<i32>, "NULL"),
@@ -245,18 +251,9 @@ pub fn more_like_this(
     with_max_word_length: default!(Option<i32>, "NULL"),
     with_boost_factor: default!(Option<f32>, "NULL"),
     with_stop_words: default!(Option<Vec<String>>, "NULL"),
-    with_document_fields: default!(Option<String>, "'{}'"),
-    with_document_id: default!(Option<AnyElement>, "NULL"),
 ) -> SearchQueryInput {
     let document_fields: HashMap<String, tantivy::schema::OwnedValue> =
-        serde_json::from_str(&with_document_fields.unwrap())
-            .expect("could not parse with_document_fields");
-
-    if !(with_document_id.is_none() ^ document_fields.is_empty()) {
-        panic!(
-            "more_like_this must be called with either with_document_id or with_document_fields"
-        );
-    }
+        json5::from_str(&with_document_fields).expect("could not parse with_document_fields");
 
     SearchQueryInput::MoreLikeThis {
         min_doc_frequency: with_min_doc_frequency.map(|n| n as u64),
@@ -268,11 +265,43 @@ pub fn more_like_this(
         boost_factor: with_boost_factor,
         stop_words: with_stop_words,
         document_fields: document_fields.into_iter().collect(),
-        document_id: with_document_id.map(|element| unsafe {
-            TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
+        document_id: None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[pg_extern(name = "more_like_this", immutable, parallel_safe)]
+pub fn more_like_this_id(
+    with_document_id: AnyElement,
+    with_min_doc_frequency: default!(Option<i32>, "NULL"),
+    with_max_doc_frequency: default!(Option<i32>, "NULL"),
+    with_min_term_frequency: default!(Option<i32>, "NULL"),
+    with_max_query_terms: default!(Option<i32>, "NULL"),
+    with_min_word_length: default!(Option<i32>, "NULL"),
+    with_max_word_length: default!(Option<i32>, "NULL"),
+    with_boost_factor: default!(Option<f32>, "NULL"),
+    with_stop_words: default!(Option<Vec<String>>, "NULL"),
+) -> SearchQueryInput {
+    SearchQueryInput::MoreLikeThis {
+        min_doc_frequency: with_min_doc_frequency.map(|n| n as u64),
+        max_doc_frequency: with_max_doc_frequency.map(|n| n as u64),
+        min_term_frequency: with_min_term_frequency.map(|n| n as usize),
+        max_query_terms: with_max_query_terms.map(|n| n as usize),
+        min_word_length: with_min_word_length.map(|n| n as usize),
+        max_word_length: with_max_word_length.map(|n| n as usize),
+        boost_factor: with_boost_factor,
+        stop_words: with_stop_words,
+        document_fields: vec![],
+        document_id: unsafe {
+            Some(
+                TantivyValue::try_from_datum(
+                    with_document_id.datum(),
+                    PgOid::from_untagged(with_document_id.oid()),
+                )
                 .unwrap_or_else(|err| panic!("could not read more_like_this document_id: {err}"))
-                .0
-        }),
+                .0,
+            )
+        },
     }
 }
 

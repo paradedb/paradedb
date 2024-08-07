@@ -394,3 +394,601 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
+
+#[rstest]
+fn more_like_this_empty(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id SERIAL PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (flavour) VALUES 
+        ('apple'),
+        ('banana'), 
+        ('cherry'), 
+        ('banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    match r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(),
+        stable_sort => true
+    );
+    "#
+    .fetch_result::<()>(&mut conn)
+    {
+        Err(err) => {
+            assert_eq!(err
+            .to_string()
+            , "error returned from database: more_like_this must be called with either with_document_id or with_document_fields")
+        }
+        _ => panic!("with_document_id or with_document_fields validation failed"),
+    }
+}
+
+#[rstest]
+fn more_like_this_text(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id SERIAL PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (flavour) VALUES 
+        ('apple'),
+        ('banana'), 
+        ('cherry'), 
+        ('banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_boolean_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id BOOLEAN PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        (true, 'apple'),
+        (false, 'banana')
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(bool, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 1);
+}
+
+#[rstest]
+fn more_like_this_uuid_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id UUID PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        ('f159c89e-2162-48cd-85e3-e42b71d2ecd0', 'apple'),
+        ('38bf27a0-1aa8-42cd-9cb0-993025e0b8d0', 'banana'), 
+        ('b5faacc0-9eba-441a-81f8-820b46a3b57e', 'cherry'), 
+        ('eb833eb6-c598-4042-b84a-0045828fceea', 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(uuid::Uuid, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_i64_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id BIGINT PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        (1, 'apple'),
+        (2, 'banana'), 
+        (3, 'cherry'), 
+        (4, 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i64, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_i32_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id INT PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        (1, 'apple'),
+        (2, 'banana'), 
+        (3, 'cherry'), 
+        (4, 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_i16_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id SMALLINT PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        (1, 'apple'),
+        (2, 'banana'), 
+        (3, 'cherry'), 
+        (4, 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i16, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_f32_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id FLOAT4 PRIMARY KEY,
+        flavour TEXT
+    );
+
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        (1.1, 'apple'),
+        (2.2, 'banana'),
+        (3.3, 'cherry'),
+        (4.4, 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(f32, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_f64_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+    id FLOAT8 PRIMARY KEY,
+    flavour TEXT
+    );
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        (1.1, 'apple'),
+        (2.2, 'banana'), 
+        (3.3, 'cherry'), 
+        (4.4, 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(f64, String)> = r#"
+    SELECT id, flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_numeric_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+    id NUMERIC PRIMARY KEY,
+    flavour TEXT
+    );
+    
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        (1.1, 'apple'),
+        (2.2, 'banana'), 
+        (3.3, 'cherry'), 
+        (4.4, 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(f64, String)> = r#"
+    SELECT CAST(id AS FLOAT8), flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_date_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+    id DATE PRIMARY KEY,
+    flavour TEXT
+    );
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        ('2023-05-03', 'apple'),
+        ('2023-05-04', 'banana'), 
+        ('2023-05-05', 'cherry'), 
+        ('2023-05-06', 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> = r#"
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_time_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+    id TIME PRIMARY KEY,
+    flavour TEXT
+    );
+    
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        ('08:09:10', 'apple'),
+        ('09:10:11', 'banana'), 
+        ('10:11:12', 'cherry'), 
+        ('11:12:13', 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> = r#"
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_timestamp_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+    id TIMESTAMP PRIMARY KEY,
+    flavour TEXT
+    );
+    
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        ('2023-05-03 08:09:10', 'apple'),
+        ('2023-05-04 09:10:11', 'banana'), 
+        ('2023-05-05 10:11:12', 'cherry'), 
+        ('2023-05-06 11:12:13', 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> = r#"
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_timestamptz_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+    id TIMESTAMP WITH TIME ZONE PRIMARY KEY,
+    flavour TEXT
+    );
+    
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        ('2023-05-03 08:09:10 EST', 'apple'),
+        ('2023-05-04 09:10:11 PST', 'banana'), 
+        ('2023-05-05 10:11:12 MST', 'cherry'), 
+        ('2023-05-06 11:12:13 CST', 'banana split');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> = r#"
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn more_like_this_timetz_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_more_like_this_table (
+        id TIME WITH TIME ZONE PRIMARY KEY,
+        flavour TEXT
+    );
+    INSERT INTO test_more_like_this_table (id, flavour) VALUES 
+        ('08:09:10 EST',
+        'apple'),
+        ('09:10:11 PST', 'banana'),
+        ('10:11:12 MST', 'cherry'),
+        ('11:12:13 CST', 'banana split');
+    "#
+    .execute(&mut conn);
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_table',
+        index_name => 'test_more_like_this_index',
+        key_field => 'id',
+        text_fields => '{"flavour": {}}'    
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> = r#"
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"flavour": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+}

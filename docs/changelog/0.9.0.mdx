@@ -1,0 +1,33 @@
+---
+title: 0.9.0
+---
+
+## pg_search
+
+### New Features
+
+- Introduced the ability to create BM25 indexes over arrays of any type, aside from JSON arrays.
+- Added support for creating BM25 indexes over a JOIN of two tables via materialized views.
+- Added support for logical replication and `pg_basebackup`.
+- Added support for selecting rows that have a particular value for a particular field via the Tantivy ExistsQuery.
+- Added support for tokenizing via regular expressions via the Tantivy RegexTokenizer.
+- Added support for tokenizing text to lower case via the `lowercase` tokenizer.
+
+## pg_lakehouse
+
+### Bug Fixes
+
+- Fixed a bug where case senstivity would not be preserved over table names.
+- Fixed a bug where querying Delta Lake tables from a different object store than AWS S3 would fail.
+
+## ParadeDB
+
+### New Features
+
+- Converted the ParadeDB base Docker image to the official Postgres Docker image, based on Debian Bookworm (Debian 12).
+- Added `pg_cron` to the ParadeDB Docker image, which can be used to schedule periodic jobs in Postgres.
+- Upgraded the ParadeDB `pgvector` version to `0.7.4`
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.9.0).

@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-paradedb"
-version = "0.8.6"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "async-std",
@@ -5453,7 +5453,7 @@ dependencies = [
 
 [[package]]
 name = "pg_lakehouse"
-version = "0.8.6"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "arrow-buffer 52.1.0",
@@ -5485,7 +5485,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.8.6"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "approx",
@@ -7026,7 +7026,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.8.6"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "async-std",
@@ -7625,7 +7625,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "supabase-wrappers"
 version = "0.1.18"
-source = "git+https://github.com/paradedb/wrappers.git?rev=6c58451#6c584516e87c0efb346524c72cb9f1683a18d12b"
+source = "git+https://github.com/paradedb/wrappers.git?rev=27af09b#27af09ba4e7c17ae10df887fe3acab474a6bd856"
 dependencies = [
  "pgrx",
  "supabase-wrappers-macros",
@@ -7637,7 +7637,7 @@ dependencies = [
 [[package]]
 name = "supabase-wrappers-macros"
 version = "0.1.16"
-source = "git+https://github.com/paradedb/wrappers.git?rev=6c58451#6c584516e87c0efb346524c72cb9f1683a18d12b"
+source = "git+https://github.com/paradedb/wrappers.git?rev=27af09b#27af09ba4e7c17ae10df887fe3acab474a6bd856"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8070,7 +8070,7 @@ checksum = "c7c4ceeeca15c8384bbc3e011dbd8fccb7f068a440b752b7d9b32ceb0ca0e2e8"
 
 [[package]]
 name = "tokenizers"
-version = "0.8.6"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "lindera-core",

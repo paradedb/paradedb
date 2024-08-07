@@ -167,7 +167,7 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         .get("preserve_casing")
         .map_or(false, |s| s.eq_ignore_ascii_case("true"));
     let alter_table_statement =
-        construct_alter_table_statement(table_name, schema_rows, preserve_casing);
+        construct_alter_table_statement(schema_name, table_name, schema_rows, preserve_casing);
     Spi::run(alter_table_statement.as_str())?;
 
     Ok(())
@@ -231,6 +231,7 @@ fn duckdb_type_to_pg(column_name: &str, duckdb_type: &str) -> Result<String> {
 
 #[inline]
 fn construct_alter_table_statement(
+    schema_name: &str,
     table_name: &str,
     columns: Vec<(String, String)>,
     preserve_casing: bool,
@@ -251,7 +252,8 @@ fn construct_alter_table_statement(
         .collect();
 
     format!(
-        "ALTER TABLE {} {}",
+        "ALTER TABLE {}.{} {}",
+        spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
         column_definitions.join(", ")
     )

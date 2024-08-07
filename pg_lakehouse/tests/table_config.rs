@@ -204,7 +204,7 @@ async fn test_table_with_custom_schema(mut conn: PgConnection, tempdir: TempDir)
         .execute(&mut conn);
 
     // test quoted schema name
-    format!("CREATE SCHEMA \"MY_SCHEMA\"").execute(&mut conn);
+    "CREATE SCHEMA \"MY_SCHEMA\"".to_string().execute(&mut conn);
     match
         format!( "CREATE FOREIGN TABLE \"MY_SCHEMA\".\"MyTable\" () SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
                 parquet_path.to_str().unwrap()
@@ -219,7 +219,7 @@ async fn test_table_with_custom_schema(mut conn: PgConnection, tempdir: TempDir)
     }
 
     // test non-quoted schema name
-    format!("CREATE SCHEMA MY_SCHEMA").execute(&mut conn);
+    "CREATE SCHEMA MY_SCHEMA".to_string().execute(&mut conn);
     match
         format!( "CREATE FOREIGN TABLE MY_SCHEMA.MyTable () SERVER parquet_server OPTIONS (files '{}', preserve_casing 'true')",
                 parquet_path.to_str().unwrap()

@@ -1200,3 +1200,16 @@ fn high_limit_rows(mut conn: PgConnection) {
             .fetch(&mut conn);
     assert_eq!(rows.len(), 200000);
 }
+
+#[rstest]
+fn index_size(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Calculate the index size using the new method
+    let size: i64 = "SELECT bm25_search.index_size()"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0;
+
+    // Ensure the size is greater than zero, meaning the index has been created
+    assert!(size > 0);
+}

@@ -58,6 +58,17 @@ fn main() -> Result<()> {
                 } => block_on(subcommand::bench_eslogs_query_search_index(
                     index, query, limit, url,
                 )),
+                EsLogsCommand::BuildGINTSIndex { table, index, url } => block_on(
+                    subcommand::bench_eslogs_build_gints_index(table, index, url),
+                ),
+                EsLogsCommand::QueryGINTSIndex {
+                    index,
+                    query,
+                    limit,
+                    url,
+                } => block_on(subcommand::bench_eslogs_query_gints_index(
+                    index, query, limit, url,
+                )),
                 EsLogsCommand::BuildParquetTable { table, url } => {
                     block_on(subcommand::bench_eslogs_build_parquet_table(table, url))
                 }

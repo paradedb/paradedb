@@ -48,7 +48,7 @@ pub async fn bench_hits(url: &str, workload: &str, full: bool) -> Result<()> {
     let _os = run_fun!(uname)?;
 
     println!("\n*********************************************************************************");
-    println!("* Benchmarking pg_lakehouse against ClickBench");
+    println!("* Benchmarking pg_analytics against ClickBench");
     println!("*********************************************************************************\n");
 
     let root_file_path = PathBuf::from_str("/tmp")?;
@@ -151,7 +151,7 @@ async fn run_queries(conn: &mut PgConnection) -> Result<()> {
 fn create_query_sql(file_path: &str) -> String {
     format!(
         r#"
-CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
+CREATE EXTENSION IF NOT EXISTS pg_analytics;
 DROP FOREIGN DATA WRAPPER IF EXISTS parquet_wrapper CASCADE;
 CREATE FOREIGN DATA WRAPPER parquet_wrapper
     HANDLER parquet_fdw_handler

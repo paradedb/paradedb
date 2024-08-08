@@ -1,9 +1,9 @@
-# workflows/publish-pg_lakehouse.yml
+# workflows/publish-pg_analytics.yml
 #
-# Publish pg_lakehouse
-# Build and publish the pg_lakehouse extension as .deb and .rpm to GitHub Releases.
+# Publish pg_analytics
+# Build and publish the pg_analytics extension as .deb and .rpm to GitHub Releases.
 
-name: Publish pg_lakehouse
+name: Publish pg_analytics
 
 on:
   push:
@@ -12,12 +12,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_lakehouse release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "The version to set for the pg_analytics release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
         default: ""
 
 concurrency:
-  group: publish-pg_lakehouse-${{ github.head_ref || github.ref }}
+  group: publish-pg_analytics-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 # Used by actions/attest-build-provenance to sign the builds
@@ -26,8 +26,8 @@ permissions:
   attestations: write
 
 jobs:
-  publish-pg_lakehouse:
-    name: Publish pg_lakehouse for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
+  publish-pg_analytics:
+    name: Publish pg_analytics for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
@@ -163,6 +163,13 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
+
+      # We remove the existing pg_analytics/ directory, which just contains the README.md
+      - name: Clone paradedb/pg_analytics Repository & Add pg_analytics to Cargo.toml
+        run: |
+          rm -rf pg_analytics/
+          git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+          sed -i '/members = \[/,/\]/s/\]/    "pg_analytics",\n]/' Cargo.toml
 
       - name: Install Debian Dependencies
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
@@ -304,7 +311,7 @@ jobs:
 
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Initialize pgrx for Current PostgreSQL Version
-        working-directory: pg_lakehouse/
+        working-directory: pg_analytics/
         shell: bash
         run: |
           if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
@@ -314,8 +321,8 @@ jobs:
           fi
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      - name: Package pg_lakehouse Extension with pgrx
-        working-directory: pg_lakehouse/
+      - name: Package pg_analytics Extension with pgrx
+        working-directory: pg_analytics/
         run: |
           if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
             PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
@@ -329,8 +336,8 @@ jobs:
         run: |
           # Create installable package
           mkdir archive
-          cp `find target/release -type f -name "pg_lakehouse*"` archive
-          package_dir=pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
+          cp `find target/release -type f -name "pg_analytics*"` archive
+          package_dir=pg_analytics-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
@@ -344,7 +351,7 @@ jobs:
           touch ${package_dir}/DEBIAN/control
           deb_version=${{ steps.version.outputs.tag_version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-lakehouse' >> $CONTROL_FILE
+          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-analytics' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
           echo 'Section: database' >> $CONTROL_FILE
           echo 'Priority: optional' >> $CONTROL_FILE
@@ -365,9 +372,9 @@ jobs:
           rpmdev-setuptree
 
           echo "Creating RPM SPEC file..."
-          spec_file=~/rpmbuild/SPECS/pg_lakehouse.spec
+          spec_file=~/rpmbuild/SPECS/pg_analytics.spec
           cat <<EOF > $spec_file
-          Name:           pg_lakehouse_${{ matrix.pg_version }}
+          Name:           pg_analytics_${{ matrix.pg_version }}
           Version:        ${{ steps.version.outputs.tag_version }}
           Release:        1%{?dist}
           Summary:        An analytical query engine for Postgres
@@ -378,60 +385,60 @@ jobs:
           Requires:       postgresql${{ matrix.pg_version }}-server
 
           %description
-          pg_lakehouse is a Postgres extension that enables fast analytics over
+          pg_analytics is a Postgres extension that enables fast analytics over
           data lakes from Postgres. It is built on top of DuckDB, using pgrx.
 
           %install
           %{__rm} -rf %{buildroot}
           install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
           install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -m 755 %{_sourcedir}/pg_lakehouse_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_lakehouse.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
-          install -m 644 %{_sourcedir}/pg_lakehouse_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_lakehouse*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -m 644 %{_sourcedir}/pg_lakehouse_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_lakehouse.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 755 %{_sourcedir}/pg_analytics_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_analytics.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
+          install -m 644 %{_sourcedir}/pg_analytics_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_analytics*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 644 %{_sourcedir}/pg_analytics_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_analytics.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
 
           %files
-          /usr/pgsql-${{ matrix.pg_version }}/lib/pg_lakehouse.so
-          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_lakehouse.control
-          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_lakehouse*sql
+          /usr/pgsql-${{ matrix.pg_version }}/lib/pg_analytics.so
+          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_analytics.control
+          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_analytics*sql
 
           %changelog
           * Thu Jun 6 2024 ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
           - Initial RPM Release
           EOF
 
-          echo "Copying pg_lakehouse binaries to RPM build directory..."
-          cp -r target/release/pg_lakehouse-pg${{ matrix.pg_version }}/ ~/rpmbuild/SOURCES/pg_lakehouse_${{ matrix.pg_version }}
+          echo "Copying pg_analytics binaries to RPM build directory..."
+          cp -r target/release/pg_analytics-pg${{ matrix.pg_version }}/ ~/rpmbuild/SOURCES/pg_analytics_${{ matrix.pg_version }}
 
           echo "Building RPM package..."
-          rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_lakehouse.spec
+          rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_analytics.spec
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: |
-            ./pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-            ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+            ./pg_analytics-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+            ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_analytics_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      - name: Upload pg_lakehouse .deb to GitHub Release
+      - name: Upload pg_analytics .deb to GitHub Release
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' || matrix.image == 'ubuntu:22.04' || matrix.image == 'ubuntu:24.04' }}
         uses: shogo82148/actions-upload-release-asset@v1
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_lakehouse-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-          asset_name: postgresql-${{ matrix.pg_version }}-pg-lakehouse_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
+          asset_path: ./pg_analytics-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: postgresql-${{ matrix.pg_version }}-pg-analytics_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
           overwrite: true
 
-      - name: Upload pg_lakehouse .rpm to GitHub Release
+      - name: Upload pg_analytics .rpm to GitHub Release
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
         uses: shogo82148/actions-upload-release-asset@v1
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
-          asset_name: pg_lakehouse_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+          asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_analytics_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+          asset_name: pg_analytics_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
           overwrite: true

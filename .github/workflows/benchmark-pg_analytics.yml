@@ -1,10 +1,10 @@
-# workflows/benchmark-pg_lakehouse.yml
+# workflows/benchmark-pg_analytics.yml
 #
-# Benchmark pg_lakehouse
-# Benchmark ParadeDB's pg_lakehouse performance on a nightly basis. This workflow can also be triggered
+# Benchmark pg_analytics
+# Benchmark ParadeDB's pg_analytics performance on a nightly basis. This workflow can also be triggered
 # manually to benchmark other systems on one-off basis, to compare against ParadeDB.
 
-name: Benchmark pg_lakehouse
+name: Benchmark pg_analytics
 
 on:
   schedule:
@@ -15,21 +15,21 @@ on:
       - dev
       - main
     paths:
-      - ".github/workflows/benchmark-pg_lakehouse.yml"
+      - ".github/workflows/benchmark-pg_analytics.yml"
       - "cargo-paradedb/**"
       - "docker/Dockerfile"
-      - "pg_lakehouse/**"
-      - "!pg_lakehouse/README.md"
+      - "pg_analytics/**"
+      - "!pg_analytics/README.md"
       - "shared/Cargo.toml"
   workflow_dispatch:
 
 concurrency:
-  group: benchmark-pg_lakehouse-${{ github.head_ref || github.ref }}
+  group: benchmark-pg_analytics-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  benchmark-pg_lakehouse:
-    name: Benchmark pg_lakehouse on ${{ matrix.name }}
+  benchmark-pg_analytics:
+    name: Benchmark pg_analytics on ${{ matrix.name }}
     runs-on: depot-ubuntu-latest-8
     if: github.event.pull_request.draft == false
     strategy:
@@ -46,6 +46,13 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      # We remove the existing pg_analytics/ directory, which just contains the README.md
+      - name: Clone paradedb/pg_analytics Repository & Add pg_analytics to Cargo.toml
+        run: |
+          rm -rf pg_analytics/
+          git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+          sed -i '/members = \[/,/\]/s/\]/    "pg_analytics",\n]/' Cargo.toml
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -57,23 +64,23 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install pgrx & pg_lakehouse
-        working-directory: pg_lakehouse/
+      - name: Install pgrx & pg_analytics
+        working-directory: pg_analytics/
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
           cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
-      - name: Add pg_lakehouse to shared_preload_libraries
+      - name: Add pg_analytics to shared_preload_libraries
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_lakehouse'/" postgresql.conf
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'/" postgresql.conf
 
       - name: Install the ParadeDB Benchmarking Tool
         working-directory: cargo-paradedb/
         run: cargo run install
 
       - name: Run Official ${{ matrix.name }} Benchmark
-        working-directory: pg_lakehouse/
+        working-directory: pg_analytics/
         run: |
           cargo pgrx start pg${{ matrix.pg_version }}
           cargo paradedb bench hits run ${{ matrix.flags }} --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
@@ -81,4 +88,4 @@ jobs:
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_lakehouse on ${{ matrix.name }} workflow failed in `paradedb/paradedb` -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_analytics on ${{ matrix.name }} workflow failed in `paradedb/paradedb` -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

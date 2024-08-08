@@ -1,9 +1,9 @@
-# workflows/test-pg_lakehouse.yml
+# workflows/test-pg_analytics.yml
 #
-# Test pg_lakehouse
-# Run unit and integration tests for the pg_lakehouse extension.
+# Test pg_analytics
+# Run unit and integration tests for the pg_analytics extension.
 
-name: Test pg_lakehouse
+name: Test pg_analytics
 
 on:
   pull_request:
@@ -12,9 +12,9 @@ on:
       - dev
       - main
     paths:
-      - ".github/workflows/test-pg_lakehouse.yml"
-      - "pg_lakehouse/**"
-      - "!pg_lakehouse/README.md"
+      - ".github/workflows/test-pg_analytics.yml"
+      - "pg_analytics/**"
+      - "!pg_analytics/README.md"
       - "shared/**"
   push:
     branches:
@@ -22,17 +22,17 @@ on:
   workflow_dispatch:
     inputs:
       test_upgrade_version:
-        description: "Upcoming pg_lakehouse version to test upgrading against"
+        description: "Upcoming pg_analytics version to test upgrading against"
         required: false
         default: ""
 
 concurrency:
-  group: test-pg_lakehouse-${{ github.head_ref || github.ref }}
+  group: test-pg_analytics-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-pg_lakehouse:
-    name: Test pg_lakehouse on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+  test-pg_analytics:
+    name: Test pg_analytics on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     if: github.event.pull_request.draft == false
     strategy:
@@ -65,6 +65,14 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
+      # We remove the existing pg_analytics/ directory, which just contains the README.md
+      - name: Clone paradedb/pg_analytics Repository
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
+          rm -rf pg_analytics/
+          git clone https://github.com/paradedb/pg_analytics.git pg_analytics/
+          sed -i '/members = \[/,/\]/s/\]/    "pg_analytics",\n]/' Cargo.toml
+
       - name: Install Rust
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: dtolnay/rust-toolchain@stable
@@ -73,7 +81,7 @@ jobs:
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_lakehouse/
+        working-directory: pg_analytics/
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
           RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
@@ -90,7 +98,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_lakehouse-${{ HashFiles('Cargo.lock') }}
+          shared-key: ${{ runner.os }}-rust-cache-pg_analytics-${{ HashFiles('Cargo.lock') }}
           cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
@@ -112,17 +120,17 @@ jobs:
           rustup component add llvm-tools-preview
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      - name: Add pg_lakehouse to shared_preload_libraries
+      - name: Add pg_analytics to shared_preload_libraries
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_lakehouse'/" postgresql.conf
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'/" postgresql.conf
 
-      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_lakehouse extension. Since we
+      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_analytics extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
-      # clean any cached pg_lakehouse & dependencies build artifacts before running the tests
+      # clean any cached pg_analytics & dependencies build artifacts before running the tests
       - name: Clean Cached Build Artifacts
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
-        working-directory: pg_lakehouse/
+        working-directory: pg_analytics/
         run: cargo clean
 
       # The SHA hash here must exactly match the Image::Tag that is referenced in the
@@ -131,11 +139,11 @@ jobs:
         run: docker pull localstack/localstack@sha256:73698e485240939490134aadd7e429ac87ff068cd5ad09f5de8ccb76727c13e1
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
-      - name: Run pg_lakehouse Cargo Test Suite
+      - name: Run pg_analytics Cargo Test Suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_lakehouse/
+        working-directory: pg_analytics/
         env:
-          LLVM_PROFILE_FILE: target/coverage/pg_lakehouse-%p-%m.profraw
+          LLVM_PROFILE_FILE: target/coverage/pg_analytics-%p-%m.profraw
           RUST_BACKTRACE: full
         run: |
           # Variables (we disable telemetry to avoid skewing the user metrics with CI runs)
@@ -161,34 +169,34 @@ jobs:
             echo "Running extension upgrade test from v$BASE_RELEASE to v$NEW_VERSION..."
 
             echo ""
-            echo "Downloading pg_lakehouse v$BASE_RELEASE..."
-            curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_lakehouse-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
-            sudo dpkg -i "pg_lakehouse-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            echo "Downloading pg_analytics v$BASE_RELEASE..."
+            curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_analytics-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            sudo dpkg -i "pg_analytics-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
 
             echo ""
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
 
             echo ""
-            echo "Loading pg_lakehouse v$BASE_RELEASE..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"
+            echo "Loading pg_analytics v$BASE_RELEASE..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_analytics VERSION '$BASE_RELEASE';"
 
             echo ""
-            echo "Verifying current pg_lakehouse installed version..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_lakehouse';"
+            echo "Verifying current pg_analytics installed version..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_analytics';"
 
             echo ""
-            echo "Building pg_lakehouse v$NEW_VERSION..."
+            echo "Building pg_analytics v$NEW_VERSION..."
             sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
             cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
             echo ""
-            echo "Upgrading pg_lakehouse to v$NEW_VERSION..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_lakehouse UPDATE TO '$NEW_VERSION';"
+            echo "Upgrading pg_analytics to v$NEW_VERSION..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_analytics UPDATE TO '$NEW_VERSION';"
 
             echo ""
-            echo "Verifying current pg_lakehouse installed version..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_lakehouse';"
+            echo "Verifying current pg_analytics installed version..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_analytics';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
@@ -199,7 +207,7 @@ jobs:
             cargo pgrx start pg${{ matrix.pg_version }}
           else
             echo ""
-            echo "Building pg_lakehouse..."
+            echo "Building pg_analytics..."
             cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
             echo ""
@@ -212,7 +220,7 @@ jobs:
           cargo pgrx test "pg${{ matrix.pg_version }}"
 
       # On promotion PRs, we test packaging the extension with production features enabled
-      - name: Test Packaging pg_lakehouse
+      - name: Test Packaging pg_analytics
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_lakehouse/
+        working-directory: pg_analytics/
         run: cargo clean && cargo pgrx package

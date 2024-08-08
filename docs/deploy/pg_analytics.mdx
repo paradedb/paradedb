@@ -1,0 +1,83 @@
+---
+title: pg_analytics
+---
+
+This guide explains how to install the `pg_analytics` extension inside an existing PostgreSQL database. These
+instructions are for deploying on Linux Debian/Ubuntu. If you are using a different version of Linux, please
+[contact us](mailto:sales@paradedb.com).
+
+# Prerequisites
+
+Ensure that you have superuser access to the Postgres database.
+
+# Install `pg_analytics`
+
+ParadeDB provides prebuilt binaries for the `pg_analytics` extension on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15 and 16 on both amd64 (x86_64) and arm64. They can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). If you
+are using a different version of Postgres or a different operating system, you will need to build the extension from source.
+
+## Using Prebuilt Binaries
+
+<CodeGroup>
+
+```bash Ubuntu 24.04
+# Available Postgres version are 14, 15, 16
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.0/postgresql-16-pg-analytics_0.9.0-1PARADEDB-noble_amd64.deb" -o /tmp/pg_analytics.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash Ubuntu 22.04
+# Available Postgres version are 14, 15, 16
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.0/postgresql-16-pg-analytics_0.9.0-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_analytics.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash Debian 12
+# Available Postgres version are 14, 15, 16
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.0/postgresql-16-pg-analytics_0.9.0-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_analytics.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash RHEL 9
+# Available Postgres version are 14, 15, 16
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.0/pg_analytics_16-0.9.0-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_analytics.rpm
+sudo dnf install -y /tmp/*.rpm
+```
+
+```bash RHEL 8
+# Available Postgres version are 14, 15, 16
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.0/pg_analytics_16-0.9.0-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_analytics.rpm
+sudo dnf install -y /tmp/*.rpm
+```
+
+</CodeGroup>
+
+Note: You can replace `v0.9.0` with the `pg_analytics` version you wish to install, and `16` with the version of Postgres you are using.
+
+## Building from Source
+
+Please follow these [instructions](https://github.com/paradedb/paradedb/tree/v0.9.0/pg_analytics#installation).
+
+# Update `postgresql.conf`
+
+Next, add `pg_analytics` to `shared_preload_libraries` in `postgresql.conf`.
+
+```conf
+shared_preload_libraries = 'pg_analytics'
+```
+
+Reload your PostgreSQL server for these changes to take effect.
+
+# Load the Extension
+
+Once the extension binary is installed on your system, connect to your Postgres database via your client of choice (e.g. `psql`) and run the following command:
+
+```sql
+CREATE EXTENSION pg_analytics;
+```
+
+That's it! For next steps, follow the [quickstart guide](/analytics/quickstart).

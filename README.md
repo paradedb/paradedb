@@ -34,11 +34,12 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 
 - [x] Search
   - [x] Full-text search with BM25 with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
-  - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector) & [pgvectorscale](https://github.com/timescale/pgvectorscale#pgvectorscale)
+  - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
 - [ ] Analytics
-  - [x] An analytical query engine over any object store or table format with [pg_lakehouse](https://github.com/paradedb/paradedb/tree/dev/pg_lakehouse#overview)
+  - [x] An analytical query engine over data in Postgres or in any object store or table format with [pg_analytics](https://github.com/paradedb/pg_analytics)
   - [ ] Column-oriented table access method for fast analytics inside Postgres
+  - [ ] High-volume data/Kafka ingest
 - [x] Self-Hosted ParadeDB
   - [x] Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))
   - [x] Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) ([see deployment instructions](https://docs.paradedb.com/deploy/helm))
@@ -99,7 +100,7 @@ ParadeDB collects anonymous telemetry to help us understand how many people are 
 
 ```sql
 ALTER SYSTEM SET paradedb.pg_search_telemetry TO 'off';
-ALTER SYSTEM SET paradedb.pg_lakehouse_telemetry TO 'off';
+ALTER SYSTEM SET paradedb.pg_analytics_telemetry TO 'off';
 ```
 
 ### Helm Chart

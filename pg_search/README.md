@@ -302,7 +302,7 @@ DATABASE_URL=postgres://USER_NAME@localhost:PORT/pg_search
 
 USER_NAME should be replaced with your system user name. (eg: output of `whoami`)
 
-PORT should be replaced witrh 28800 + your postgres version. (eg: 28816 for postgres 16)
+PORT should be replaced with 28800 + your postgres version. (eg: 28816 for postgres 16)
 
 ## License
 

@@ -18,6 +18,8 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
+use crate::fdw::base::OptionCheck;
+
 use super::utils;
 
 pub enum ParquetOption {
@@ -33,8 +35,8 @@ pub enum ParquetOption {
     // TODO: EncryptionConfig
 }
 
-impl ParquetOption {
-    pub fn as_str(&self) -> &str {
+impl OptionCheck for ParquetOption {
+    fn as_str(&self) -> &str {
         match self {
             Self::BinaryAsString => "binary_as_string",
             Self::FileName => "file_name",
@@ -48,7 +50,7 @@ impl ParquetOption {
         }
     }
 
-    pub fn is_required(&self) -> bool {
+    fn is_required(&self) -> bool {
         match self {
             Self::BinaryAsString => false,
             Self::FileName => false,
@@ -62,7 +64,8 @@ impl ParquetOption {
         }
     }
 
-    pub fn iter() -> impl Iterator<Item = Self> {
+    type Iter = std::array::IntoIter<Self, 9>;
+    fn iter() -> Self::Iter {
         [
             Self::BinaryAsString,
             Self::FileName,

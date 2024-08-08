@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
 use super::base::*;
-use crate::duckdb::delta::DeltaOption;
+use crate::duckdb::{delta::DeltaOption, secret::UserMappingOptions};
 
 #[wrappers_fdw(
     author = "ParadeDB",
@@ -110,20 +110,11 @@ impl ForeignDataWrapper<BaseFdwError> for DeltaFdw {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
                 FOREIGN_SERVER_RELATION_ID => {}
                 FOREIGN_TABLE_RELATION_ID => {
-                    let valid_options: Vec<String> = DeltaOption::iter()
-                        .map(|opt| opt.as_str().to_string())
-                        .collect();
-
-                    validate_options(opt_list.clone(), valid_options)?;
-
-                    for opt in DeltaOption::iter() {
-                        if opt.is_required() {
-                            check_options_contain(&opt_list, opt.as_str())?;
-                        }
-                    }
+                    validate_mapping_option::<DeltaOption>(opt_list)?;
                 }
-                // TODO: Sanitize user mapping options
-                _ => {}
+                _ => {
+                    validate_mapping_option::<UserMappingOptions>(opt_list)?;
+                }
             }
         }
 

@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
 use super::base::*;
-use crate::duckdb::parquet::ParquetOption;
+use crate::duckdb::{parquet::ParquetOption, secret::UserMappingOptions};
 
 #[wrappers_fdw(
     author = "ParadeDB",
@@ -91,6 +91,7 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
         _server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
+        warning!("user_mapping_options: {:?}", user_mapping_options);
         Ok(Self {
             current_batch: None,
             current_batch_index: 0,
@@ -110,20 +111,11 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
                 FOREIGN_SERVER_RELATION_ID => {}
                 FOREIGN_TABLE_RELATION_ID => {
-                    let valid_options: Vec<String> = ParquetOption::iter()
-                        .map(|opt| opt.as_str().to_string())
-                        .collect();
-
-                    validate_options(opt_list.clone(), valid_options)?;
-
-                    for opt in ParquetOption::iter() {
-                        if opt.is_required() {
-                            check_options_contain(&opt_list, opt.as_str())?;
-                        }
-                    }
+                    validate_mapping_option::<ParquetOption>(opt_list)?;
                 }
-                // TODO: Sanitize user mapping options
-                _ => {}
+                _ => {
+                    validate_mapping_option::<UserMappingOptions>(opt_list)?;
+                }
             }
         }
 

@@ -18,14 +18,16 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
+use crate::fdw::base::OptionCheck;
+
 pub enum IcebergOption {
     AllowMovedPaths,
     Files,
     PreserveCasing,
 }
 
-impl IcebergOption {
-    pub fn as_str(&self) -> &str {
+impl OptionCheck for IcebergOption {
+    fn as_str(&self) -> &str {
         match self {
             Self::AllowMovedPaths => "allow_moved_paths",
             Self::Files => "files",
@@ -33,7 +35,7 @@ impl IcebergOption {
         }
     }
 
-    pub fn is_required(&self) -> bool {
+    fn is_required(&self) -> bool {
         match self {
             Self::AllowMovedPaths => false,
             Self::Files => true,
@@ -41,7 +43,8 @@ impl IcebergOption {
         }
     }
 
-    pub fn iter() -> impl Iterator<Item = Self> {
+    type Iter = std::array::IntoIter<Self, 3>;
+    fn iter() -> Self::Iter {
         [Self::AllowMovedPaths, Self::Files, Self::PreserveCasing].into_iter()
     }
 }

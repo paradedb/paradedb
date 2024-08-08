@@ -18,6 +18,8 @@
 use anyhow::{anyhow, bail, Result};
 use std::collections::HashMap;
 
+use crate::fdw::base::OptionCheck;
+
 pub enum UserMappingOptions {
     // Universal
     Type,
@@ -46,8 +48,8 @@ pub enum UserMappingOptions {
     ProxyPassword,
 }
 
-impl UserMappingOptions {
-    pub fn as_str(&self) -> &str {
+impl OptionCheck for UserMappingOptions {
+    fn as_str(&self) -> &str {
         match self {
             Self::Type => "type",
             Self::Provider => "provider",
@@ -74,8 +76,7 @@ impl UserMappingOptions {
         }
     }
 
-    #[allow(unused)]
-    pub fn is_required(&self) -> bool {
+    fn is_required(&self) -> bool {
         match self {
             Self::Type => true,
             Self::Provider => false,
@@ -102,8 +103,8 @@ impl UserMappingOptions {
         }
     }
 
-    #[allow(unused)]
-    pub fn iter() -> impl Iterator<Item = Self> {
+    type Iter = std::array::IntoIter<Self, 22>;
+    fn iter() -> Self::Iter {
         [
             Self::Type,
             Self::Provider,

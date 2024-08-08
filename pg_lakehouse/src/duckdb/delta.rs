@@ -18,27 +18,30 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
+use crate::fdw::base::OptionCheck;
+
 pub enum DeltaOption {
     Files,
     PreserveCasing,
 }
 
-impl DeltaOption {
-    pub fn as_str(&self) -> &str {
+impl OptionCheck for DeltaOption {
+    fn as_str(&self) -> &str {
         match self {
             Self::Files => "files",
             Self::PreserveCasing => "preserve_casing",
         }
     }
 
-    pub fn is_required(&self) -> bool {
+    fn is_required(&self) -> bool {
         match self {
             Self::Files => true,
             Self::PreserveCasing => false,
         }
     }
 
-    pub fn iter() -> impl Iterator<Item = Self> {
+    type Iter = std::array::IntoIter<Self, 2>;
+    fn iter() -> Self::Iter {
         [Self::Files, Self::PreserveCasing].into_iter()
     }
 }

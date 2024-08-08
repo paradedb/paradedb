@@ -18,6 +18,8 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
+use crate::fdw::base::OptionCheck;
+
 use super::utils;
 
 pub enum CsvOption {
@@ -56,8 +58,8 @@ pub enum CsvOption {
     UnionByName,
 }
 
-impl CsvOption {
-    pub fn as_str(&self) -> &str {
+impl OptionCheck for CsvOption {
+    fn as_str(&self) -> &str {
         match self {
             Self::AllVarchar => "all_varchar",
             Self::AllowQuotedNulls => "allow_quoted_nulls",
@@ -95,7 +97,7 @@ impl CsvOption {
         }
     }
 
-    pub fn is_required(&self) -> bool {
+    fn is_required(&self) -> bool {
         match self {
             Self::AllVarchar => false,
             Self::AllowQuotedNulls => false,
@@ -133,7 +135,9 @@ impl CsvOption {
         }
     }
 
-    pub fn iter() -> impl Iterator<Item = Self> {
+    type Iter = std::array::IntoIter<Self, 33>;
+
+    fn iter() -> Self::Iter {
         [
             Self::AllVarchar,
             Self::AllowQuotedNulls,

@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
 use super::base::*;
-use crate::duckdb::csv::CsvOption;
+use crate::duckdb::{csv::CsvOption, secret::UserMappingOptions};
 
 #[wrappers_fdw(
     author = "ParadeDB",
@@ -110,20 +110,11 @@ impl ForeignDataWrapper<BaseFdwError> for CsvFdw {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
                 FOREIGN_SERVER_RELATION_ID => {}
                 FOREIGN_TABLE_RELATION_ID => {
-                    let valid_options: Vec<String> = CsvOption::iter()
-                        .map(|opt| opt.as_str().to_string())
-                        .collect();
-
-                    validate_options(opt_list.clone(), valid_options)?;
-
-                    for opt in CsvOption::iter() {
-                        if opt.is_required() {
-                            check_options_contain(&opt_list, opt.as_str())?;
-                        }
-                    }
+                    validate_mapping_option::<CsvOption>(opt_list)?;
                 }
-                // TODO: Sanitize user mapping options
-                _ => {}
+                _ => {
+                    validate_mapping_option::<UserMappingOptions>(opt_list)?;
+                }
             }
         }
 

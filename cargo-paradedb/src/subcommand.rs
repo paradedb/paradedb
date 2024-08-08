@@ -219,6 +219,47 @@ pub async fn bench_eslogs_query_search_index(
     .await
 }
 
+pub async fn bench_eslogs_build_gints_index(
+    table: String,
+    index: String,
+    url: String,
+) -> Result<()> {
+    let drop_query =
+        format!("DROP INDEX IF EXISTS {index}");
+
+    let create_query = format!(
+        "CREATE INDEX {index} ON {table} USING gin ((to_tsvector('english', message)));"
+    );
+
+    Benchmark {
+        group_name: "GIN TSQuery/TSVector Index".into(),
+        function_name: "bench_eslogs_build_gints_index".into(),
+        // First, drop any existing index to ensure a clean environment.
+        setup_query: Some(drop_query),
+        query: create_query,
+        database_url: url,
+    }
+    .run_pg_once()
+    .await
+}
+
+pub async fn bench_eslogs_query_gints_index(
+    index: String,
+    query: String,
+    limit: u64,
+    url: String,
+) -> Result<()> {
+    Benchmark {
+        group_name: "GIN TSQuery/TSVector Query".into(),
+        function_name: "bench_eslogs_query_gints_index".into(),
+        setup_query: None,
+        query: format!("SELECT * FROM {table} WHERE to_tsvector('english', message) && '{query}'::tsquery LIMIT {limit};"),
+        database_url: url,
+    }
+    .run_pg()
+    .await
+}
+
 pub async fn bench_eslogs_build_parquet_table(table: String, url: String) -> Result<()> {
     let parquet_table_name = format!("{table}_parquet");
     let drop_query = format!(

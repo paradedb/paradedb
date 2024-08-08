@@ -1,5 +1,5 @@
 title: "[General] "
-labels: ["General"]
+labels: ["question"]
 body:
   - type: markdown
     attributes:
@@ -7,11 +7,21 @@ body:
         This discussion type is for anything that doesn't fit in another category. If you are looking to raise an issue,
         please do so on the relevant ParadeDB repository:
 
-        * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository
-        * [paradedb/pg_analytics](https://github.com/paradedb/pg_analytics/issues/new/) - ParadeDB pg_analytics extension repository
-        * [paradedb/helm-charts](https://github.com/paradedb/helm-charts/issues/new/) - ParadeDB Helm Chart repository
+          * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository
+          * [paradedb/pg_analytics](https://github.com/paradedb/pg_analytics/issues/new/) - ParadeDB pg_analytics extension repository
+          * [paradedb/helm-charts](https://github.com/paradedb/helm-charts/issues/new/) - ParadeDB Helm Chart repository
 
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
+
+
+  - type: textarea
+    attributes:
+      label: What 
+      description: A short, clear and concise description of the current situation.
+    validations:
+      required: true
+
+
 
   - type: markdown
     attributes:

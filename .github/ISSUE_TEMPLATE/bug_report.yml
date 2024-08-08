@@ -8,7 +8,7 @@ body:
       value: "### Bug Report"
   - type: markdown
     attributes:
-      values: >
+      value: >
         ParadeDB has other repositories for different components. Please make sure you are filing your issue in the correct repository:
 
         * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository

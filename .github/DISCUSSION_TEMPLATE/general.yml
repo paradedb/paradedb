@@ -1,12 +1,11 @@
-name: Feature request
-description: Suggest an idea for this project.
-labels:
-  - feature
+title: "[General] "
+labels: ["question"]
 body:
   - type: markdown
     attributes:
       value: >
-        ParadeDB has other repositories for different components. Please make sure you are filing your issue in the correct repository:
+        This discussion type is for anything that doesn't fit in another category. If you are looking to raise an issue,
+        please do so on the relevant ParadeDB repository:
 
           * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository
           * [paradedb/pg_analytics](https://github.com/paradedb/pg_analytics/issues/new/) - ParadeDB pg_analytics extension repository
@@ -16,28 +15,14 @@ body:
 
   - type: textarea
     attributes:
-      label: What feature are you requesting?
-      description: A short, clear and concise description of the desired feature.
+      label: What would you like to discuss?
+      description: Share a project, ask a question, or start a conversation.
     validations:
       required: true
-
-  - type: textarea
-    attributes:
-      label: Why are you requesting this feature?
-      description: A short, clear and concise description of why this feature is important.
-    validations:
-      required: true
-
-  - type: textarea
-    attributes:
-      label: What is your proposed implementation for this feature?
-      description: A short, clear and concise description of how you'd implement this feature.
-    validations:
-      required: false
 
   - type: markdown
     attributes:
-      value: "### Identity Disclosure:"
+      value: "### Identity Disclosure"
   - type: input
     attributes:
       label: "Full Name:"
@@ -50,7 +35,6 @@ body:
       placeholder: e.g., Acme Corporation
     validations:
       required: true
-
   - type: markdown
     attributes:
       value: |

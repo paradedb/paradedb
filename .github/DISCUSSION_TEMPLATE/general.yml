@@ -1,0 +1,29 @@
+title: "[General] "
+labels: ["General Introduction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+
+
+        This discussion type is reserved for maintainers to make announcements about ParadeDB.
+
+  - type: dropdown
+    id: download
+    attributes:
+      label: Which area of this project could be most improved?
+      options:
+        - Documentation
+        - Pull request review time
+        - Bug fix time
+        - Release cadence
+    validations:
+      required: true
+
+  - type: checkboxes
+    attributes:
+      label: Check that box!
+      options:
+        - label: This one!
+          required: true
+        - label: I won't stop you if you check this one, too

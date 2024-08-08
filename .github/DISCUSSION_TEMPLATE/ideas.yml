@@ -1,5 +1,5 @@
 title: "[Ideas] "
-labels: ["feature"]
+labels: ["feature", "idea", "suggestion"]
 body:
   - type: markdown
     attributes:
@@ -8,24 +8,17 @@ body:
 
   - type: textarea
     attributes:
-      label: What feature are you requesting?
-      description: A short, clear and concise description of the desired feature.
+      label: What idea are you proposing?
+      description: A short, clear and concise description of the desired feature or proposed idea.
     validations:
       required: true
 
   - type: textarea
     attributes:
-      label: Why are you requesting this feature?
-      description: A short, clear and concise description of why this feature is important.
+      label: Why are you proposing this idea?
+      description: A short, clear and concise description of why this feature or idea is important.
     validations:
       required: true
-
-  - type: textarea
-    attributes:
-      label: What is your proposed implementation for this feature?
-      description: A short, clear and concise description of how you'd implement this feature.
-    validations:
-      required: false
 
   - type: markdown
     attributes:

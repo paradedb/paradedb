@@ -1,29 +1,34 @@
 title: "[General] "
-labels: ["General Introduction"]
+labels: ["General"]
 body:
   - type: markdown
     attributes:
-      value: |
+      value: >
+        This discussion type is for anything that doesn't fit in another category. If you are looking to raise an issue,
+        please do so on the relevant ParadeDB repository:
 
+        * [paradedb/paradedb](https://github.com/paradedb/paradedb/issues/news/) - ParadeDB core and pg_search extension repository
+        * [paradedb/pg_analytics](https://github.com/paradedb/pg_analytics/issues/new/) - ParadeDB pg_analytics extension repository
+        * [paradedb/helm-charts](https://github.com/paradedb/helm-charts/issues/new/) - ParadeDB Helm Chart repository
 
-        This discussion type is reserved for maintainers to make announcements about ParadeDB.
+        Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
 
-  - type: dropdown
-    id: download
+  - type: markdown
     attributes:
-      label: Which area of this project could be most improved?
-      options:
-        - Documentation
-        - Pull request review time
-        - Bug fix time
-        - Release cadence
+      value: "### Identity Disclosure"
+  - type: input
+    attributes:
+      label: "Full Name:"
+      placeholder: e.g., John Doe
     validations:
       required: true
-
-  - type: checkboxes
+  - type: input
     attributes:
-      label: Check that box!
-      options:
-        - label: This one!
-          required: true
-        - label: I won't stop you if you check this one, too
+      label: "Affiliation:"
+      placeholder: e.g., Acme Corporation
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        If the above is not given and is not obvious from your GitHub profile page, we might close your issue without further review. Please refer to the [reasoning behind this rule](https://berthub.eu/articles/posts/anonymous-help/) if you have questions.

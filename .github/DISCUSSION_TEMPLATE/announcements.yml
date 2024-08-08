@@ -1,5 +1,5 @@
 title: "[Announcements] "
-labels: ["General Introduction"]
+labels: ["announcement"]
 body:
   - type: markdown
     attributes:

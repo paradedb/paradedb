@@ -1,9 +1,6 @@
 title: "[Q&A] "
-labels: ["bugn"]
+labels: ["bug", "question"]
 body:
-  - type: markdown
-    attributes:
-      value: "### Bug Report"
   - type: markdown
     attributes:
       value: >
@@ -45,7 +42,7 @@ body:
         - ParadeDB Docker Image
         - ParadeDB Helm Chart
         - ParadeDB pg_search Extension
-        - ParadeDB pg_lakehouse Extension
+        - ParadeDB pg_analytics Extension
     validations:
       required: true
 

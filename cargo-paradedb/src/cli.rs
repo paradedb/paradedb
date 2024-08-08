@@ -109,6 +109,31 @@ pub enum EsLogsCommand {
         #[arg(short, long, env = "DATABASE_URL")]
         url: String,
     },
+    BuildGINTSIndex {
+        /// Postgres table name to index.
+        #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_TABLE)]
+        table: String,
+        /// Postgres table name to index.
+        #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_INDEX_NAME)]
+        index: String,
+        /// Postgres database url to connect to.
+        #[arg(short, long, env = "DATABASE_URL")]
+        url: String,
+    },
+    QueryGINTSIndex {
+        /// Postgres index name to query.
+        #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_INDEX_NAME)]
+        index: String,
+        /// Query to run.
+        #[arg(short, long, default_value = "message:flame")]
+        query: String,
+        /// Limit results to return.
+        #[arg(short, long, default_value_t = 1)]
+        limit: u64,
+        /// Postgres database url to connect to.
+        #[arg(short, long, env = "DATABASE_URL")]
+        url: String,
+    },
     BuildParquetTable {
         /// Postgres table name to build from.
         #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_TABLE)]

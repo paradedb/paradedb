@@ -13,15 +13,12 @@ body:
 
         Please report security vulnerabilities using GitHub's [report vulnerability form](https://github.com/paradedb/paradedb/security/advisories/new).
 
-
   - type: textarea
     attributes:
-      label: What 
-      description: A short, clear and concise description of the current situation.
+      label: What would you like to discuss?
+      description: Share a project, ask a question, or start a conversation.
     validations:
       required: true
-
-
 
   - type: markdown
     attributes:

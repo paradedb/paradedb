@@ -18,7 +18,7 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
-use crate::fdw::base::OptionCheck;
+use crate::fdw::base::OptionValidator;
 
 use super::utils;
 
@@ -58,7 +58,7 @@ pub enum CsvOption {
     UnionByName,
 }
 
-impl OptionCheck for CsvOption {
+impl OptionValidator for CsvOption {
     fn as_str(&self) -> &str {
         match self {
             Self::AllVarchar => "all_varchar",

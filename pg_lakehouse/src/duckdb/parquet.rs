@@ -18,7 +18,7 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
-use crate::fdw::base::OptionCheck;
+use crate::fdw::base::OptionValidator;
 
 use super::utils;
 
@@ -35,7 +35,7 @@ pub enum ParquetOption {
     // TODO: EncryptionConfig
 }
 
-impl OptionCheck for ParquetOption {
+impl OptionValidator for ParquetOption {
     fn as_str(&self) -> &str {
         match self {
             Self::BinaryAsString => "binary_as_string",

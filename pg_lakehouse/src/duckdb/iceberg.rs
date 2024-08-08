@@ -18,7 +18,7 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
-use crate::fdw::base::OptionCheck;
+use crate::fdw::base::OptionValidator;
 
 pub enum IcebergOption {
     AllowMovedPaths,
@@ -26,7 +26,7 @@ pub enum IcebergOption {
     PreserveCasing,
 }
 
-impl OptionCheck for IcebergOption {
+impl OptionValidator for IcebergOption {
     fn as_str(&self) -> &str {
         match self {
             Self::AllowMovedPaths => "allow_moved_paths",

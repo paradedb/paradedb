@@ -18,14 +18,14 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
-use crate::fdw::base::OptionCheck;
+use crate::fdw::base::OptionValidator;
 
 pub enum DeltaOption {
     Files,
     PreserveCasing,
 }
 
-impl OptionCheck for DeltaOption {
+impl OptionValidator for DeltaOption {
     fn as_str(&self) -> &str {
         match self {
             Self::Files => "files",

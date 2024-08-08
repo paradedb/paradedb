@@ -18,7 +18,7 @@
 use anyhow::{anyhow, bail, Result};
 use std::collections::HashMap;
 
-use crate::fdw::base::OptionCheck;
+use crate::fdw::base::OptionValidator;
 
 pub enum UserMappingOptions {
     // Universal
@@ -48,7 +48,7 @@ pub enum UserMappingOptions {
     ProxyPassword,
 }
 
-impl OptionCheck for UserMappingOptions {
+impl OptionValidator for UserMappingOptions {
     fn as_str(&self) -> &str {
         match self {
             Self::Type => "type",

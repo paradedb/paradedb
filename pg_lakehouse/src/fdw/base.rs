@@ -247,14 +247,14 @@ pub enum BaseFdwError {
     Options(#[from] OptionsError),
 }
 
-pub trait OptionCheck {
+pub trait OptionValidator {
     fn is_required(&self) -> bool;
     fn as_str(&self) -> &str;
     type Iter: Iterator<Item = Self>;
     fn iter() -> Self::Iter;
 }
 
-pub fn validate_mapping_option<T: OptionCheck>(opt_list: Vec<Option<String>>) -> Result<()> {
+pub fn validate_mapping_option<T: OptionValidator>(opt_list: Vec<Option<String>>) -> Result<()> {
     let valid_options: Vec<String> = T::iter().map(|opt| opt.as_str().to_string()).collect();
 
     validate_options(opt_list.clone(), valid_options)?;

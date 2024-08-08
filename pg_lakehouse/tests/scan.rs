@@ -26,9 +26,10 @@ use deltalake::writer::{DeltaWriter, RecordBatchWriter};
 use fixtures::*;
 use rstest::*;
 use shared::fixtures::arrow::{
-    delta_primitive_record_batch, primitive_record_batch, primitive_setup_fdw_local_file_delta,
-    primitive_setup_fdw_local_file_listing, primitive_setup_fdw_s3_delta,
-    primitive_setup_fdw_s3_listing,
+    delta_primitive_record_batch, primitive_create_foreign_data_wrapper, primitive_create_server,
+    primitive_create_table, primitive_create_user_mapping_options, primitive_record_batch,
+    primitive_setup_fdw_local_file_delta, primitive_setup_fdw_local_file_listing,
+    primitive_setup_fdw_s3_delta, primitive_setup_fdw_s3_listing,
 };
 use shared::fixtures::tempfile::TempDir;
 use sqlx::postgres::types::PgInterval;
@@ -88,6 +89,46 @@ async fn test_arrow_types_s3_listing(#[future(awt)] s3: S3, mut conn: PgConnecti
             retrieved_batch.column_by_name(field.name())
         )
     }
+
+    Ok(())
+}
+
+#[rstest]
+async fn test_wrong_user_mapping_s3_listing(
+    #[future(awt)] s3: S3,
+    mut conn: PgConnection,
+) -> Result<()> {
+    let s3_bucket = "test_wrong_user_mapping_s3_listing";
+    let s3_key = "test_wrong_user_mapping_s3_listing.parquet";
+    let s3_endpoint = s3.url.clone();
+    let s3_object_path = format!("s3://{s3_bucket}/{s3_key}");
+
+    let stored_batch = primitive_record_batch()?;
+    s3.create_bucket(s3_bucket).await?;
+    s3.put_batch(s3_bucket, s3_key, &stored_batch).await?;
+
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "parquet_wrapper",
+        "parquet_fdw_handler",
+        "parquet_fdw_validator",
+    );
+    let create_user_mapping_options =
+        primitive_create_user_mapping_options("public", "parquet_server");
+    let create_server = primitive_create_server("parquet_server", "parquet_wrapper");
+    let create_table = primitive_create_table("parquet_server", "primitive");
+
+    // this is the wrong user mapping because the type is not provided
+    let wrong_user_mapping = format!(
+        r#"
+        {create_foreign_data_wrapper};
+        {create_server};
+        {create_user_mapping_options} OPTIONS (region 'us-east-1', endpoint '{s3_endpoint}', use_ssl 'false', url_style 'path');
+        {create_table} OPTIONS (files '{s3_object_path}');
+    "#
+    );
+
+    let result = wrong_user_mapping.execute_result(&mut conn);
+    assert!(result.is_err());
 
     Ok(())
 }

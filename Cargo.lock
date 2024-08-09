@@ -3978,9 +3978,11 @@ dependencies = [
  "tiny_http",
  "tokenizers",
  "tracing",
+ "tracing-subscriber",
  "utoipa",
  "uuid",
  "walkdir",
+ "zstd-sys",
 ]
 
 [[package]]

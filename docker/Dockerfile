@@ -193,7 +193,12 @@ COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-p
 USER root
 
 # Required for pg_analytics, pg_cron
+#
+# If a user connects to ParadeDB with the superuser, the DuckDB folder will be created in the user's home directory. If
+# the user connects with the postgres user, the DuckDB folder will be created in the /var/lib/postgresql directory. We
+# chmod both directories to ensure that DuckDB can write to them no matter which user is used to connect to the database.
 RUN mkdir .duckdb/ && chmod 777 .duckdb/ && \
+    mkdir /var/lib/postgresql/.duckdb/ && chmod 777 /var/lib/postgresql/.duckdb/ && \
     apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which

@@ -3987,11 +3987,9 @@ dependencies = [
  "tiny_http",
  "tokenizers",
  "tracing",
- "tracing-subscriber",
  "utoipa",
  "uuid",
  "walkdir",
- "zstd-sys",
 ]
 
 [[package]]
@@ -6049,6 +6047,7 @@ dependencies = [
  "lindera-tokenizer",
  "once_cell",
  "rstest",
+ "rust_icu_common",
  "rust_icu_sys",
  "rust_icu_ubrk",
  "rust_icu_uloc",

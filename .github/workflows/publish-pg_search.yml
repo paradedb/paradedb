@@ -353,7 +353,7 @@ jobs:
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
           echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: Full-text search for PostgreSQL using BM25' >> $CONTROL_FILE
+          echo 'Description: Full text search for PostgreSQL using BM25' >> $CONTROL_FILE
 
           # Create .deb package
           sudo chown -R root:root ${package_dir}
@@ -372,7 +372,7 @@ jobs:
           Name:           pg_search_${{ matrix.pg_version }}
           Version:        ${{ steps.version.outputs.tag_version }}
           Release:        1%{?dist}
-          Summary:        Full-text search for PostgreSQL using BM25
+          Summary:        Full text search for PostgreSQL using BM25
           License:        GNU Affero General Public License v3.0
           URL:            https://github.com/paradedb/paradedb
 
@@ -380,7 +380,7 @@ jobs:
           Requires:       postgresql${{ matrix.pg_version }}-server
 
           %description
-          pg_search is a Postgres extension that enables full-text search over
+          pg_search is a Postgres extension that enables full text search over
           PostgreSQL tables using the BM25 algorithm. It is built on top of Tantivy,
           the Rust-based alternative to Apache Lucene, using pgrx.
 

@@ -46,7 +46,7 @@ pub struct CorpusArgs {
 /// Which benchmark dataset to run or generate.
 #[derive(Debug, clap::Subcommand)]
 pub enum Corpus {
-    // The generated logs from the ElasticSearch benchmark tool.
+    // The generated logs from the Elasticsearch benchmark tool.
     Eslogs(EsLogsArgs),
     Hits(HitsArgs),
 }

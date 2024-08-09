@@ -57,7 +57,7 @@ be the name of a column that will function as a row's unique identifier within t
 can just be the name of your table's primary key column.
 </Note>
 
-We're now ready to execute a full-text search. We'll look for rows with a `rating` greater than `2` where `description` matches `keyboard`
+We're now ready to execute a full text search. We'll look for rows with a `rating` greater than `2` where `description` matches `keyboard`
 or `category` matches `electronics`.
 
 ```sql
@@ -86,7 +86,7 @@ Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal pe
 `limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
 
 Similarly, the `rating` column was indexed and the `rating:>2` filter was used instead of the SQL `WHERE` clause
-for [efficient filtering](/search/full-text/bm25#efficient-filtering).
+for [efficient filtering](/search/full text/bm25#efficient-filtering).
 </Note>
 
 Next, let's see how ParadeDB handles a phrase query like `bluetooth speaker`. Let's also surface results even
@@ -179,7 +179,7 @@ LEFT JOIN mock_items ON snippet.id = mock_items.id;
 ```
 </Accordion>
 
-Please refer to our [advanced search queries](/search/full-text/complex) guide for all available
+Please refer to our [advanced search queries](/search/full text/complex) guide for all available
 query types.
 
 ## Similarity Search

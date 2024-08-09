@@ -43,9 +43,11 @@ tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "c7f13
 thiserror = "1.0.56"
 tiny_http = "0.12.0"
 tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
 utoipa = "4.2.0"
 walkdir = "2.5.0"
 num_cpus = "1.16.0"
+zstd-sys = "=2.0.9"
 chrono = "0.4.38"
 ordered-float = "4.2.0"
 uuid = "1.10.0"
@@ -71,4 +73,4 @@ sqlx = { version = "0.7.3", features = [
 tempfile = "3.9.0"
 
 [package.metadata.cargo-machete]
-ignored = ["indexmap", "libc", "tantivy-common"]
+ignored = ["indexmap", "libc", "tantivy-common", "tracing-subscriber", "zstd-sys"]

@@ -79,7 +79,7 @@ the configuration file. This change will apply to all future sessions.
 
 Defines the maximum number of simultaneous connections to ParadeDB. A high number of connections
 can lead to resource contention and slow down search queries. If you need to use a high number of
-connections, we recommend using a connection pooler like `pgBouncer`.
+connections, we recommend using a connection pooler like [PgBouncer](https://www.pgbouncer.org/).
 
 ```sql
 ALTER SYSTEM SET max_connections = '200';

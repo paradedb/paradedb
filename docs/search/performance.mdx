@@ -1,0 +1,95 @@
+---
+title: Performance Optimization
+---
+
+Achieving the best performance out of ParadeDB requires configuring it properly for your system
+and workload(s). Here we provide a list of best practices to serve as a starting point to optimizing
+your search queries.
+
+## Implement Pagination
+
+If you do not specify any `limit_rows` and `offset_rows`, ParadeDB will rank results on your entire
+index, which can meaningfully slow down search queries. We suggest that you use limits and offsets to
+scope each search query to the number of results that you want to display at any given time on your application.
+
+Note the use of `limits_rows` and `offset_rows`, as opposed to `LIMIT` and `OFFSET`, which are not pushed down
+to the BM25 index.
+
+```sql
+-- ✅ Correct syntax
+SELECT description, rating, category
+FROM search_idx.search(
+  '(description:keyboard OR category:electronics) AND rating:>2',
+  limit_rows => 5
+);
+
+-- ❌ Incorrect syntax
+SELECT description, rating, category
+FROM search_idx.search(
+  '(description:keyboard OR category:electronics) AND rating:>2')
+LIMIT 5;
+```
+
+SELECT description, rating, category
+FROM search_idx.search(
+'(description:keyboard OR category:electronics) AND rating:>2',
+limit_rows => 5
+);
+
+## Select the Appropriate Hardware
+
+Higher amounts of RAM and a faster storage driver are the two most important hardware components
+to extracting the best performance from ParadeDB. We recommend that you select memory-optimized instances
+with SSD storage when deploying.
+
+## Optimize the Tantivy Settings
+
+Coming soon.
+
+### Heap Size
+
+Coming soon.
+
+### Reader Cache
+
+Coming soon.
+
+### Number of Documents per Segment
+
+Coming soon.
+
+### Number of Indexing Threads
+
+Coming soon.
+
+## Optimize the Postgres Settings
+
+There are a few Postgres settings which can be modified to improve the performance of ParadeDB. You can find
+all the settings in `/var/lib/postgresql/data/postgresql.conf` in the ParadeDB Docker image.
+
+### work_mem
+
+Memory used for sort operations and hash tables. If your ParadeDB query combines BM25 search
+queries with complex Postgres operations like JOINs, a higher `work_mem` can significantly
+improve performance.
+
+```sql
+ALTER SYSTEM SET WORK_MEM = '16MB';
+SELECT pg_reload_conf();
+```
+
+Note that updating this setting _does not require_ restarting the Postgres process, simply reloading
+the configuration file. This change will apply to all future sessions.
+
+### max_connections
+
+Defines the maximum number of simultaneous connections to ParadeDB. A high number of connections
+can lead to resource contention and slow down search queries. If you need to use a high number of
+connections, we recommend using a connection pooler like `pgBouncer`.
+
+```sql
+ALTER SYSTEM SET max_connections = '200';
+```
+
+Note that updating this setting _requires_ restarting the Postgres process. This change will apply to
+all future sessions.

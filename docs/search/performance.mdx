@@ -30,12 +30,6 @@ FROM search_idx.search(
 LIMIT 5;
 ```
 
-SELECT description, rating, category
-FROM search_idx.search(
-'(description:keyboard OR category:electronics) AND rating:>2',
-limit_rows => 5
-);
-
 ## Select the Appropriate Hardware
 
 Higher amounts of RAM and a faster storage driver are the two most important hardware components

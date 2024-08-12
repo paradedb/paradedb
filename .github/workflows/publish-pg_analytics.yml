@@ -233,7 +233,8 @@ jobs:
         run: |
           if [ -z "${{ github.event.inputs.version }}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
-              VERSION=${GITHUB_REF#refs/tags/v}
+              # For pg_analytics, we read the version from pg_analytics/Cargo.toml as it is different from the main repository
+              VERSION=$(grep '^version' pg_analytics/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
             else
               # If there is no tag and no provided version, it's a test run and we set a default version
               VERSION="0.0.0"

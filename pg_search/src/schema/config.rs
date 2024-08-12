@@ -19,7 +19,7 @@ use pgrx::JsonB;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer};
 use std::str::FromStr;
 
-use crate::{index::state::SearchAlias, query::SearchQueryInput};
+use crate::query::SearchQueryInput;
 
 #[derive(Debug, Deserialize, Default, Clone, PartialEq)]
 pub struct SearchConfig {
@@ -33,7 +33,6 @@ pub struct SearchConfig {
     pub highlight_field: Option<String>,
     pub prefix: Option<String>,
     pub postfix: Option<String>,
-    pub alias: Option<SearchAlias>,
     pub stable_sort: Option<bool>,
     pub uuid: String,
 }

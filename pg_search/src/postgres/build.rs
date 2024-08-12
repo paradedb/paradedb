@@ -55,6 +55,8 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
 
+    info!("ambuild {:?}", index_oid);
+
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
     } else {
@@ -208,6 +210,9 @@ pub extern "C" fn ambuild(
 
     let writer_client = WriterGlobal::client();
     let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+
+    info!("create index {:?}", directory);
+
     SearchIndex::create_index(
         &writer_client,
         directory,

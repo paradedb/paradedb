@@ -71,22 +71,6 @@ async fn basic_search_ids(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn with_rank_bm25(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    let rows: Vec<(i32, f32)> = "SELECT id, paradedb.rank_bm25(id) FROM bm25_search.search('category:electronics OR description:keyboard', stable_sort => true)"
-        .fetch(&mut conn);
-
-    let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
-    let expected = [2, 1, 12, 22, 32];
-    assert_eq!(ids, expected);
-
-    let ranks: Vec<_> = rows.iter().map(|r| r.1).collect();
-    let expected = [5.3764954, 4.931014, 2.1096356, 2.1096356, 2.1096356];
-    assert_eq!(ranks, expected);
-}
-
-#[rstest]
 fn json_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -404,24 +388,6 @@ fn hybrid(mut conn: PgConnection) {
     USING hnsw (embedding vector_l2_ops)"#
         .execute(&mut conn);
 
-    // Deprecated rank_hybrid function
-    // Test with query object.
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.rank_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.rank_hybrid(
-            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
-
     // Test with string query.
     let columns: SimpleProductsTableVec = r#"
     SELECT m.*, s.score_hybrid
@@ -496,20 +462,8 @@ fn multi_tree(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn highlight(mut conn: PgConnection) {
+fn snippet(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
-    let row: (String,) = "
-        SELECT paradedb.highlight(id, 'description')
-        FROM bm25_search.search('description:shoes', stable_sort => true)"
-        .fetch_one(&mut conn);
-    assert_eq!(row.0, "Generic <b>shoes</b>");
-
-    let row: (String,) = "
-        SELECT paradedb.highlight(id, 'description', prefix => '<h1>', postfix => '</h1>')
-        FROM bm25_search.search('description:shoes', stable_sort => true)"
-        .fetch_one(&mut conn);
-    assert_eq!(row.0, "Generic <h1>shoes</h1>");
-
     let row: (i32, String, f32) = "
         SELECT *
         FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true)"
@@ -555,24 +509,6 @@ fn hybrid_with_complex_key_field_name(mut conn: PgConnection) {
     USING hnsw (embedding vector_l2_ops)"#
         .execute(&mut conn);
 
-    // Test deprecated rank_hybrid function with query object
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.rank_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.rank_hybrid(
-            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.custom_key_field = s.custom_key_field
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
-
-    // Test new score_hybrid function with query object
     let columns: SimpleProductsTableVec = r#"
     SELECT m.*, s.score_hybrid
     FROM paradedb.bm25_search m
@@ -614,24 +550,6 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
     USING hnsw (embedding vector_l2_ops)"#
         .execute(&mut conn);
 
-    // Test deprecated rank_hybrid function with query object.
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.rank_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.rank_hybrid(
-            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![1]);
-
-    // Test new score_hybrid function with query object.
     let columns: SimpleProductsTableVec = r#"
     SELECT m.*, s.score_hybrid
     FROM paradedb.bm25_search m
@@ -1008,10 +926,10 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
 
     // Ensure all of them match the predicate
     let columns: SimpleProductsTableVec = r#"
-    SELECT t.*, s.rank_hybrid
+    SELECT t.*, s.score_hybrid
     FROM paradedb.test_partial_hybrid t
     RIGHT JOIN (
-        SELECT * FROM partial_idx.rank_hybrid(
+        SELECT * FROM partial_idx.score_hybrid(
             bm25_query => paradedb.parse('rating:>1'),
             similarity_query => '''[1,2,3]'' <-> embedding',
             bm25_weight => 0.9,
@@ -1044,7 +962,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     SELECT t.category
     FROM paradedb.test_partial_hybrid t
     RIGHT JOIN (
-        SELECT * FROM partial_idx.rank_hybrid(
+        SELECT * FROM partial_idx.score_hybrid(
             bm25_query => paradedb.parse('rating:>1'),
             similarity_query => '''[1,2,3]'' <-> embedding',
             bm25_weight => 0.9,

@@ -583,3 +583,49 @@ fn index_name_too_long(mut conn: PgConnection) {
         ),
     };
 }
+
+#[rstest]
+fn partitioned_index(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE sales (
+            id SERIAL,
+            sale_date DATE NOT NULL,
+            amount NUMERIC NOT NULL, description TEXT,
+            PRIMARY KEY (id, sale_date)
+        ) PARTITION BY RANGE (sale_date);
+
+        CREATE TABLE sales_2023_q1 PARTITION OF sales
+        FOR VALUES FROM ('2023-01-01') TO ('2023-03-31');
+
+        CREATE TABLE sales_2023_q2 PARTITION OF sales
+        FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
+
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-01-10', 150.00, 'Ergonomic metal keyboard'),
+        ('2023-01-15', 200.00, 'Plastic keyboard'),
+        ('2023-02-05', 300.00, 'Sleek running shoes'),
+        ('2023-03-12', 175.50, 'Bluetooth speaker'),
+        ('2023-03-25', 225.75, 'Artistic ceramic vase');
+
+        INSERT INTO sales (sale_date, amount, description) VALUES
+        ('2023-04-01', 250.00, 'Modern wall clock'),
+        ('2023-04-18', 180.00, 'Designer wall paintings'),
+        ('2023-05-09', 320.00, 'Handcrafted wooden frame');
+    "#
+    .execute(&mut conn);
+
+    match r#"
+        CALL paradedb.create_bm25(
+            index_name => 'sales_index',
+            table_name => 'sales',
+            schema_name => 'public',
+            key_field => 'id',
+            text_fields => paradedb.field('description'),
+            datetime_fields => paradedb.field('sale_date'),
+            numeric_fields => paradedb.field('amount')
+        )
+    "#.execute_result(&mut conn) {
+        Ok(_) => panic!("should fail with partitioned table"),
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature, contact support@paradedb.com"),
+    };
+}

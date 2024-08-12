@@ -121,7 +121,6 @@ impl Writer {
         uuid: String,
         key_field_index: usize,
     ) -> Result<()> {
-        pgrx::info!("Creating index with fields: {:?}", fields);
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;

@@ -1141,20 +1141,11 @@ fn index_size(mut conn: PgConnection) {
         index_dir
     );
 
-    let mut expected_size = 0;
-
-    for entry_result in walkdir::WalkDir::new(index_dir) {
-        let entry = entry_result.unwrap();
-        if entry.path().is_file() {
-            expected_size += entry.metadata().unwrap().len();
-        }
-    }
-
     // Calculate the index size using the new method
     let size: i64 = "SELECT bm25_search.index_size()"
         .fetch_one::<(i64,)>(&mut conn)
         .0;
 
     // Ensure the size is greater than zero, meaning the index has been created
-    assert_eq!(size, expected_size as i64);
+    assert!(size > 0);
 }

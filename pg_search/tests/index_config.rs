@@ -29,7 +29,7 @@ fn fmt_err<T: std::error::Error>(err: T) -> String {
 
 #[rstest]
 fn invalid_create_bm25(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
         .execute(&mut conn);
 
     match "CALL paradedb.create_bm25(

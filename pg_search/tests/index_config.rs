@@ -626,6 +626,6 @@ fn partitioned_index(mut conn: PgConnection) {
         )
     "#.execute_result(&mut conn) {
         Ok(_) => panic!("should fail with partitioned table"),
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature, contact support@paradedb.com"),
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature. Contact support@paradedb.com for access."),
     };
 }

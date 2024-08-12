@@ -221,7 +221,7 @@ jobs:
           echo "Running Rust tests..."
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          cargo pgrx test "--features icu pg${{ matrix.pg_version }}"
+          cargo pgrx test "--features icu" "pg${{ matrix.pg_version }}"
 
       # On promotion PRs, we test packaging the extension with production features enabled
       - name: Test Packaging pg_search

@@ -31,9 +31,6 @@ jobs:
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
             echo "Using prod configuration..."
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "environment=staging" >> $GITHUB_OUTPUT
-            echo "Using staging configuration..."
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
             echo "Using dev configuration..."
@@ -53,13 +50,6 @@ jobs:
             # Increment GHA variable version by 0.0.1 for next release
             GHA_VAR_NAME="VERSION_PATCH"
             GHA_VAR_VALUE="$(( ${{ vars.VERSION_PATCH }} + 1 ))"
-          elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
-            echo 'Using staging configuration...'
-            CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
-
-            # Increment GHA variable version by staging-rc.1 for next release
-            GHA_VAR_NAME="VERSION_STAGING_RC"
-            GHA_VAR_VALUE="$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))"
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
             CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
@@ -80,7 +70,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          # on prod we update patch and reset dev/staging RCs to 0
+          # on prod we update patch and reset dev RC to 0
           if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
             gh api \
               --method PATCH \
@@ -97,16 +87,8 @@ jobs:
               /repos/paradedb/paradedb/actions/variables/VERSION_DEV_RC \
               -f name='VERSION_DEV_RC' \
               -f value='0'
-
-            gh api \
-              --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/paradedb/paradedb/actions/variables/VERSION_STAGING_RC \
-              -f name='VERSION_STAGING_RC' \
-              -f value='0'
-          # on dev/staging we only update dev/staging RC
-          elif [[ "${{ steps.env.outputs.environment }}" == "staging" || "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+          # on dev we only update dev RC
+          elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \

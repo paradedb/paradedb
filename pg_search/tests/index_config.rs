@@ -64,6 +64,18 @@ fn invalid_create_bm25(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with invalid field"),
         Err(err) => assert!(err.to_string().contains("not exist"), "{}", fmt_err(err)),
     };
+
+    match "CALL paradedb.create_bm25(
+	    index_name => 'index_config',
+	    table_name => 'index_config',
+	    key_field => 'id',
+	    numeric_fields => paradedb.field('id')		
+    )"
+    .execute_result(&mut conn)
+    {
+        Ok(_) => panic!("should fail with invalid field"),
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: key_field id cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields")
+    };
 }
 
 #[rstest]

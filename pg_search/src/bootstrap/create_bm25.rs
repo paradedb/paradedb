@@ -176,6 +176,13 @@ fn create_bm25_impl(
             Ok(obj) => {
                 if let Value::Object(map) = obj {
                     for key in map.keys() {
+                        if key == key_field {
+                            bail!(
+                                "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields",
+                                spi::quote_identifier(key.clone())
+                            );
+                        }
+
                         column_names.insert(spi::quote_identifier(key.clone()));
                     }
                 }

@@ -69,7 +69,7 @@
       "url": "changelog"
     }
   ],
-  "versions": ["Version 0.9.0"],
+  "versions": ["v0.9.1"],
   "navigation": [
     {
       "group": "Documentation",

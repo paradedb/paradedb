@@ -37,7 +37,8 @@ use crate::writer::{
 };
 
 // Must be at least 15,000,000 or Tantivy will panic.
-const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
+pub const INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT: usize = 500_000_000;
+pub const INDEX_TANTIVY_MEMORY_BUDGET_MIN: usize = 15_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
@@ -72,6 +73,7 @@ pub struct SearchIndex {
     #[serde(skip_serializing)]
     pub underlying_index: Index,
     pub uuid: String,
+    pub memory_budget: usize,
 }
 
 impl SearchIndex {
@@ -81,12 +83,14 @@ impl SearchIndex {
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         uuid: String,
         key_field_index: usize,
+        memory_budget: usize,
     ) -> Result<&'static mut Self, SearchIndexError> {
         writer.lock()?.request(WriterRequest::CreateIndex {
             directory: directory.clone(),
             fields,
             uuid: uuid.clone(),
             key_field_index,
+            memory_budget: memory_budget,
         })?;
 
         // As the new index instance was created in a background process, we need
@@ -213,9 +217,16 @@ impl SearchIndex {
     /// be entirely owned by the new process, with no references.
     pub fn writer(directory: &WriterDirectory) -> Result<IndexWriter, SearchIndexError> {
         let search_index: Self = directory.load_index()?;
+
+        let memory_budget = if search_index.memory_budget < 15_000_000 {
+            INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT
+        } else {
+            search_index.memory_budget
+        };
+
         let index_writer = search_index
             .underlying_index
-            .writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
+            .writer(memory_budget)?;
         Ok(index_writer)
     }
 
@@ -314,22 +325,21 @@ impl<'de> Deserialize<'de> for SearchIndex {
     where
         D: Deserializer<'de>,
     {
-        // A helper struct that lets us use the default serialization for most fields.
         #[derive(Deserialize)]
         struct SearchIndexHelper {
             schema: SearchIndexSchema,
             directory: WriterDirectory,
-            // An index created in an older version of pg_search may not have serialized a uuid
-            // to disk. Just use an empty string for backwards compatibility.
             #[serde(default)]
             uuid: String,
+            #[serde(default="default_memory_budget")]
+            memory_budget: usize,
         }
 
-        // Deserialize into the struct with automatic handling for most fields
         let SearchIndexHelper {
             schema,
             directory,
             uuid,
+            memory_budget,
         } = SearchIndexHelper::deserialize(deserializer)?;
 
         let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path(true).unwrap();
@@ -337,19 +347,24 @@ impl<'de> Deserialize<'de> for SearchIndex {
         let mut underlying_index =
             Index::open_in_dir(tantivy_dir_path).expect("failed to open index");
 
-        // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);
 
         let reader = Self::reader(&underlying_index)
             .unwrap_or_else(|_| panic!("failed to create index reader while retrieving index"));
 
-        // Construct the SearchIndex.
+        let memory_budget = if memory_budget < 15_000_000 {
+            INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT
+        } else {
+            memory_budget
+        };
+
         Ok(SearchIndex {
             reader,
             underlying_index,
             directory,
             schema,
             uuid,
+            memory_budget: memory_budget,
         })
     }
 }
@@ -391,6 +406,10 @@ impl<T> From<PoisonError<T>> for SearchIndexError {
     fn from(err: PoisonError<T>) -> Self {
         SearchIndexError::WriterClientRace(format!("{}", err))
     }
+}
+
+fn default_memory_budget() -> usize {
+    INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT
 }
 
 #[cfg(test)]

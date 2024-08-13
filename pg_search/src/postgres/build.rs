@@ -17,7 +17,7 @@
 
 use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
-use crate::index::SearchIndex;
+use crate::index::{SearchIndex, INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
@@ -214,6 +214,7 @@ pub extern "C" fn ambuild(
         fields,
         uuid.clone(),
         key_field_index,
+        INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT,
     )
     .expect("error creating new index instance");
 

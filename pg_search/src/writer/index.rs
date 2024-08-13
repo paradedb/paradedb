@@ -18,6 +18,8 @@
 use super::{Handler, IndexError, SearchFs, WriterDirectory, WriterRequest};
 use crate::{
     index::SearchIndex,
+    index::INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT,
+    index::INDEX_TANTIVY_MEMORY_BUDGET_MIN,
     schema::{
         SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
     },
@@ -120,6 +122,7 @@ impl Writer {
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         uuid: String,
         key_field_index: usize,
+        memory_budget: usize,
     ) -> Result<()> {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
 
@@ -131,12 +134,20 @@ impl Writer {
 
         SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
 
+        // if memory budget is not provided, use the default value
+        let memory_budget = if memory_budget < INDEX_TANTIVY_MEMORY_BUDGET_MIN {
+            INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT
+        } else {
+            memory_budget
+        };
+
         let new_self = SearchIndex {
             reader: SearchIndex::reader(&underlying_index)?,
             underlying_index,
             directory: directory.clone(),
             schema,
             uuid,
+            memory_budget,
         };
 
         // Serialize SearchIndex to disk so it can be initialized by other connections.
@@ -171,12 +182,13 @@ impl Handler<WriterRequest> for Writer {
                 fields,
                 uuid,
                 key_field_index,
+                memory_budget,
             } => {
                 // If the writer directory exists, remove it. We need a fresh directory to
                 // create an index. This can happen after a VACUUM FULL, where the index needs
                 // to be rebuilt and this method is called again.
                 self.drop_index(directory.clone())?;
-                self.create_index(directory, fields, uuid, key_field_index)?;
+                self.create_index(directory, fields, uuid, key_field_index, memory_budget)?;
                 Ok(())
             }
             WriterRequest::DropIndex { directory } => Ok(self.drop_index(directory)?),

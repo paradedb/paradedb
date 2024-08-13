@@ -50,6 +50,7 @@ pub enum WriterRequest {
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         uuid: String,
         key_field_index: usize,
+        memory_budget: usize,
     },
     DropIndex {
         directory: WriterDirectory,

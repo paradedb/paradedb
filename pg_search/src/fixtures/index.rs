@@ -42,7 +42,7 @@ impl MockSearchIndex {
         let mut writer = Writer::new();
         let uuid = Uuid::new_v4().to_string();
         writer
-            .create_index(directory.writer_dir.clone(), fields, uuid, key_field_index)
+            .create_index(directory.writer_dir.clone(), fields, uuid, key_field_index, 1)
             .expect("error creating index instance");
 
         let index = SearchIndex::from_disk(&directory.writer_dir)

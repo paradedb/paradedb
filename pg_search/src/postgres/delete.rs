@@ -55,7 +55,7 @@ pub extern "C" fn ambulkdelete(
             pgrx::u64_to_item_pointer(ctid_val, &mut ctid);
             actual_callback(&mut ctid, callback_state)
         };
-        match search_index.delete(&writer_client, should_delete) {
+        match search_index.bulk_delete(&writer_client, should_delete) {
             Ok((deleted, not_deleted)) => {
                 stats.pages_deleted += deleted;
                 stats.num_pages += not_deleted;

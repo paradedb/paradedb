@@ -385,11 +385,14 @@ fn create_bm25_impl(
         spi::quote_literal(original_client_min_messages)
     ))?;
 
-    Spi::run(&format!(
-        "CREATE TRIGGER test_trigger AFTER DELETE ON {}.{} FOR EACH ROW EXECUTE FUNCTION paradedb.trigger_example()", 
-        spi::quote_identifier(schema_name),
-        spi::quote_identifier(table_name)
-    ))?;
+    // let trigger_name = format!("{}_trigger", index_name);
+    // Spi::run(&format!(
+    //     "CREATE TRIGGER {}_trigger AFTER DELETE ON {}.{} FOR EACH ROW EXECUTE FUNCTION paradedb.trigger_example({})", 
+    //     spi::quote_identifier(trigger_name),
+    //     spi::quote_identifier(schema_name),
+    //     spi::quote_identifier(table_name),
+    //     index_oid
+    // ))?;
 
     Ok(())
 }

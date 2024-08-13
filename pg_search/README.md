@@ -226,7 +226,9 @@ sudo pacman -S extra/clang
 ```
 
 #### pgvector
+
 `pgvector` needed for hybrid search unit tests.
+
 ```bash
 # Note: Replace 16 with your version of Postgres
 git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git

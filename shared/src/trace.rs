@@ -2,8 +2,11 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::{Level, Subscriber};
+use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
+/// We only want to initialize the logger once per process. This atomic boolean will be
+/// our flag to make sure we initializing only once.
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 struct JsonVisitor<'a>(&'a mut HashMap<String, serde_json::Value>);
@@ -141,16 +144,24 @@ impl<S: Subscriber> Layer<S> for EreportLogger {
 /// This function needs to be called in every process for logging to work.
 /// It should be called explicitly in background workers, and also in a hook
 /// that will automatically intialize it for connection processes.
-pub fn init_ereport_logger() {
+pub fn init_ereport_logger(crate_name: &str) {
     if INITIALIZED.load(Ordering::SeqCst) {
         return;
     }
 
     INITIALIZED.store(true, Ordering::SeqCst);
 
+    let default_directive: Directive = format!("{crate_name}=debug")
+        .parse()
+        .expect("should be able to parse default directive");
+
     tracing_subscriber::registry()
         .with(EreportLogger::new())
-        .with(EnvFilter::from_default_env())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(default_directive)
+                .from_env_lossy(),
+        )
         .init();
 }
 
@@ -204,7 +215,7 @@ impl pgrx::PgHooks for TraceHook {
             eflags: i32,
         ) -> pgrx::HookResult<()>,
     ) -> pgrx::HookResult<()> {
-        init_ereport_logger();
+        init_ereport_logger("pg_search");
         prev_hook(query_desc, eflags)
     }
 }

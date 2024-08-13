@@ -108,7 +108,7 @@ pub fn setup_background_workers() {
 pub extern "C" fn pg_search_insert_worker(_arg: pg_sys::Datum) {
     // This function runs in the spawned background worker process. That means
     // that we need to re-initialize logging.
-    shared::trace::init_ereport_logger();
+    shared::trace::init_ereport_logger("pg_search");
 
     debug!("starting pg_search insert worker at PID {}", process::id());
     let writer = writer::Writer::new();
@@ -141,7 +141,7 @@ pub extern "C" fn pg_search_insert_worker(_arg: pg_sys::Datum) {
 pub extern "C" fn pg_search_shutdown_worker(_arg: pg_sys::Datum) {
     // This function runs in the spawned background worker process. That means
     // that we need to re-initialize logging.
-    shared::trace::init_ereport_logger();
+    shared::trace::init_ereport_logger("pg_search");
 
     debug!(
         "starting pg_search shutdown worker at PID {}",

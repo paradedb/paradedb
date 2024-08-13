@@ -224,9 +224,7 @@ impl SearchIndex {
             search_index.memory_budget
         };
 
-        let index_writer = search_index
-            .underlying_index
-            .writer(memory_budget)?;
+        let index_writer = search_index.underlying_index.writer(memory_budget)?;
         Ok(index_writer)
     }
 
@@ -331,7 +329,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             directory: WriterDirectory,
             #[serde(default)]
             uuid: String,
-            #[serde(default="default_memory_budget")]
+            #[serde(default = "default_memory_budget")]
             memory_budget: usize,
         }
 

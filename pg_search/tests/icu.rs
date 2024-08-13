@@ -157,7 +157,7 @@ fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let columns: IcuCzechPostsTableVec =
-        r#"SELECT *, paradedb.rank_bm25("id") FROM idx_czech_content.search(query => paradedb.phrase(field => 'message', phrases => ARRAY['šla', 'sbírat']));"#
+        r#"SELECT * FROM idx_czech_content.search(query => paradedb.phrase(field => 'message', phrases => ARRAY['šla', 'sbírat']));"#
             .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![1]);

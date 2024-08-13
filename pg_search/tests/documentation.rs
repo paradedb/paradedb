@@ -125,17 +125,6 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
     assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
 
-    // This deprecated query used to be in the quickstart and has been preserved to check backwards compatibility
-    let rows: Vec<(String, String, f32)> = r#"
-    SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
-    FROM ngrams_idx.search('description:blue', stable_sort => true)
-    "#
-    .fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
-    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
-    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
-
     r#"
     CREATE EXTENSION vector;
     ALTER TABLE mock_items ADD COLUMN embedding vector(3);

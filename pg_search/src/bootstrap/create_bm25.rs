@@ -128,6 +128,25 @@ fn create_bm25_impl(
         );
     }
 
+    let is_partitioned_query = format!(
+        "SELECT EXISTS (SELECT 1 FROM pg_inherits WHERE inhparent = '{}.{}'::regclass)",
+        spi::quote_identifier(schema_name),
+        spi::quote_identifier(table_name),
+    );
+    let partitioned = Spi::get_one::<bool>(&is_partitioned_query)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Could not check if {}.{} is partitioned",
+            schema_name,
+            table_name
+        )
+    })?;
+
+    if partitioned {
+        bail!(
+            "Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature. Contact support@paradedb.com for access."
+        );
+    }
+
     if text_fields == "{}"
         && numeric_fields == "{}"
         && boolean_fields == "{}"
@@ -157,6 +176,13 @@ fn create_bm25_impl(
             Ok(obj) => {
                 if let Value::Object(map) = obj {
                     for key in map.keys() {
+                        if key == key_field {
+                            bail!(
+                                "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields",
+                                spi::quote_identifier(key.clone())
+                            );
+                        }
+
                         column_names.insert(spi::quote_identifier(key.clone()));
                     }
                 }
@@ -321,6 +347,7 @@ fn create_bm25_impl(
                                 (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ())
                         END AS score
                     FROM {}.{}
+                    {}
                     ORDER BY __similarity_query__
                     LIMIT $2
                 ),
@@ -335,48 +362,6 @@ fn create_bm25_impl(
                                 (MAX(score_bm25) OVER () - MIN(score_bm25) OVER ())
                         END AS score
                     FROM paradedb.score_bm25($1, NULL::{}, {})
-                )
-                SELECT
-                    COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,
-                    (COALESCE(similarity.score, 0.0) * $3 + COALESCE(bm25.score, 0.0) * $4)::real AS score_hybrid
-                FROM similarity
-                FULL OUTER JOIN bm25 ON similarity.key_field = bm25.key_field
-                ORDER BY score_hybrid DESC;
-            ",
-            spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name),
-            key_type,
-            key_oid.as_u32()
-        ),
-        &index_json
-    ))?;
-
-    // This function has been deprecated in favor of `score_hybrid` as of version 0.8.5.
-    Spi::run(&format_hybrid_function(
-        &spi::quote_qualified_identifier(index_name, "rank_hybrid"),
-        &format!("TABLE({} {}, rank_hybrid real)", spi::quote_identifier(key_field), key_type),
-        &format!(
-            "
-                WITH similarity AS (
-                    SELECT
-                        __key_field__ as key_field,
-                        CASE
-                            WHEN (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ()) = 0 THEN
-                                0
-                            ELSE
-                                1 - ((__similarity_query__) - MIN(__similarity_query__) OVER ()) / 
-                                (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ())
-                        END AS score
-                    FROM {}.{}
-                    {}
-                    ORDER BY __similarity_query__
-                    LIMIT $2
-                ),
-                bm25 AS (
-                    SELECT 
-                        id as key_field,
-                        rank_bm25 as score 
-                    FROM paradedb.minmax_bm25($1, NULL::{}, {})
                 )
                 SELECT
                     COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,

@@ -226,6 +226,21 @@ CALL paradedb.create_bm25(
   and filtering.
 </ParamField>
 
+## Choosing a Key Field
+
+The `key_field` option is used to uniquely identify documents within an index and cannot be tokenized. For instance,
+the following configuration is not allowed:
+
+```sql
+-- This will throw an error
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'description',
+  text_fields => paradedb.field('description')
+);
+```
+
 ## Multiple Fields
 
 The `||` operator can be used to index multiple fields.
@@ -461,6 +476,10 @@ SELECT * FROM search_idx.index_size();
 <ParamField body="index_name" required>
   The name of the index.
 </ParamField>
+
+## Partitioned BM25 Index
+
+Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature. [Contact us](mailto:sales@paradedb.com) for access.
 
 ## Partial BM25 Index
 

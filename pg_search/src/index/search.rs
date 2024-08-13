@@ -90,7 +90,7 @@ impl SearchIndex {
             fields,
             uuid: uuid.clone(),
             key_field_index,
-            memory_budget: memory_budget,
+            memory_budget,
         })?;
 
         // As the new index instance was created in a background process, we need
@@ -362,7 +362,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             directory,
             schema,
             uuid,
-            memory_budget: memory_budget,
+            memory_budget,
         })
     }
 }

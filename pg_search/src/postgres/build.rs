@@ -17,7 +17,9 @@
 
 use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
-use crate::index::{SearchIndex, INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT};
+use crate::index::{
+    SearchIndex, INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT, INDEX_TANTIVY_MEMORY_BUDGET_MIN,
+};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
@@ -208,13 +210,23 @@ pub extern "C" fn ambuild(
 
     let writer_client = WriterGlobal::client();
     let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+
+    let index_memory_budget = {
+        let budget = rdopts.get_memory_budget() as usize;
+        if budget < INDEX_TANTIVY_MEMORY_BUDGET_MIN {
+            INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT
+        } else {
+            budget
+        }
+    };
+
     SearchIndex::create_index(
         &writer_client,
         directory,
         fields,
         uuid.clone(),
         key_field_index,
-        INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT,
+        index_memory_budget,
     )
     .expect("error creating new index instance");
 

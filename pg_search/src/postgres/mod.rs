@@ -27,6 +27,7 @@ mod vacuum;
 mod validate;
 
 pub mod datetime;
+mod trigger;
 pub mod types;
 pub mod utils;
 

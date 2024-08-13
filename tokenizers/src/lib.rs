@@ -30,7 +30,7 @@ use tantivy::tokenizer::{
     RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager,
     WhitespaceTokenizer,
 };
-use tracing::info;
+use tracing::debug;
 
 #[cfg(feature = "icu")]
 use icu::ICUTokenizer;
@@ -140,7 +140,7 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
         };
 
         if let Some(text_analyzer) = tokenizer_option {
-            info!(
+            debug!(
                 tokenizer_name = &search_tokenizer.name(),
                 "registering tokenizer",
             );

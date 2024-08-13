@@ -51,6 +51,8 @@ pub extern "C" fn ambuild(
     indexrel: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
+    shared::trace::init_ereport_logger();
+
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();

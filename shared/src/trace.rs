@@ -1,10 +1,6 @@
-use rusqlite::{params, Connection};
-use std::collections::HashMap;
-use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
 use tracing::{Level, Subscriber};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -57,7 +53,35 @@ impl<'a> tracing::field::Visit for JsonVisitor<'a> {
     }
 }
 
-struct EreportLogger;
+struct EreportLogger {
+    buffer: Arc<Mutex<VecDeque<(Level, String)>>>,
+}
+
+impl EreportLogger {
+    fn new() -> Self {
+        EreportLogger {
+            buffer: Arc::new(Mutex::new(VecDeque::new())),
+        }
+    }
+
+    fn flush_logs(&self) {
+        let mut buffer = self.buffer.lock().unwrap();
+        while let Some((level, log)) = buffer.pop_front() {
+            match level {
+                Level::TRACE => pgrx::debug1!("{log}"),
+                Level::DEBUG => pgrx::log!("{log}"),
+                Level::INFO => pgrx::info!("{log}"),
+                Level::WARN => pgrx::warning!("{log}"),
+                Level::ERROR => pgrx::error!("{log}"),
+            }
+        }
+    }
+
+    fn buffer_log(&self, level: Level, log: String) {
+        let mut buffer = self.buffer.lock().unwrap();
+        buffer.push_back((level, log));
+    }
+}
 
 impl<S: Subscriber> Layer<S> for EreportLogger {
     fn on_event(
@@ -98,138 +122,22 @@ impl<S: Subscriber> Layer<S> for EreportLogger {
 
         let log = format!("{target}: {name}:{message}{fields_string}");
 
-        match *metadata.level() {
-            Level::TRACE => pgrx::debug1!("{log}"),
-            Level::DEBUG => pgrx::log!("{log}"),
-            Level::INFO => pgrx::info!("{log}"),
-            Level::WARN => pgrx::warning!("{log}"),
-            Level::ERROR => pgrx::error!("{log}"),
+        // It's important to remember that, based on the tracing filter, we could be
+        // processing logging calls from our dependencies here... which may be running
+        // code in a non-main thread. Because this Layer is calling pgrx::* functions...
+        // we cannot run any non-main thread code.
+        //
+        // Because of this, we build a buffer of log items, and we'll only "flush" (call
+        // pgrx functions) if we are sure we are in the main thread.
+
+        self.buffer_log(*metadata.level(), log);
+
+        if is_os_main_thread().unwrap_or(false) {
+            self.flush_logs();
         }
     }
 }
 
-struct SqliteLogger {
-    conn: Mutex<Connection>,
-}
-
-impl<S: Subscriber> Layer<S> for SqliteLogger {
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        // Covert the values into JSON.
-        // The tracing library requires you to use a visitor
-        // pattern to access the values of the fields.
-        let mut fields = HashMap::new();
-        let mut visitor = JsonVisitor(&mut fields);
-        event.record(&mut visitor);
-
-        let metadata = event.metadata();
-        let message = fields
-            // We will be displaying the message separately from other fields, so
-            // we implement special handling here.
-            .get("message")
-            // We serialized everything into JSON above, so we have to un-serialize
-            // the message field so that it can be displayed un-quoted.
-            .and_then(|m| serde_json::from_value::<String>(m.clone()).ok())
-            // Ensure there's only one whitespace on each side of the string.
-            .map(|m| format!(" {} ", m.trim()))
-            // Default to only a single whitespace.
-            .unwrap_or_else(|| " ".into());
-
-        // Remove the message field, as we've extracted it separately.
-        fields.remove("message");
-
-        let target = metadata.target();
-        let millistamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|s| s.as_millis() as i64)
-            .ok();
-        let level = metadata.level().to_string();
-        let module = metadata.module_path();
-        let file = metadata.file();
-        let line = metadata.line();
-        let json = serde_json::to_string(&fields).ok();
-        let pid = std::process::id();
-        let backtrace = String::default();
-
-        let guard = match self.conn.lock() {
-            Ok(guard) => guard,
-            Err(err) => return pgrx::warning!("error locking db logger connection: {err}"),
-        };
-        let result = guard.execute(
-            "
-                INSERT INTO logs
-                (millistamp, target, level, module, file, line, message, json, pid, backtrace)
-                VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            params![millistamp, target, level, module, file, line, message, json, pid, backtrace],
-        );
-
-        if let Err(err) = result {
-            pgrx::warning!("Error writing logs to logs db: {err}");
-        }
-    }
-}
-
-fn sqlite_logger_connection(path: &Path) -> Result<Connection, Box<dyn Error>> {
-    let conn = Connection::open(path)?;
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            millistamp INTEGER,
-            target TEXT,
-            level TEXT,
-            module TEXT,
-            file TEXT,
-            line INTEGER,
-            message TEXT,
-            json JSON,
-            pid INTEGER,
-            backtrace TEXT
-        )",
-        [],
-    )?;
-    Ok(conn)
-}
-
-#[allow(unused)]
-pub fn init_sqlite_logger() {
-    if INITIALIZED.load(Ordering::SeqCst) {
-        return;
-    }
-
-    INITIALIZED.store(true, Ordering::SeqCst);
-
-    let path = match std::env::var("PGDATA") {
-        Ok(dir) => PathBuf::from(dir).join("paradedb").join("logs.db"),
-        Err(err) => {
-            pgrx::log!("error reading data path to initialize sqlite logger: {err}");
-            return;
-        }
-    };
-
-    let conn = match sqlite_logger_connection(&path) {
-        Ok(conn) => Some(conn),
-        Err(err) => {
-            pgrx::warning!("error initializing logging db: {err}");
-            None
-        }
-    };
-    if let Some(conn) = conn {
-        tracing_subscriber::registry()
-            .with(SqliteLogger {
-                conn: Mutex::new(conn),
-            })
-            .with(EnvFilter::from_default_env())
-            .init();
-    }
-}
-
-#[allow(unused)]
 pub fn init_ereport_logger() {
     if INITIALIZED.load(Ordering::SeqCst) {
         return;
@@ -238,7 +146,36 @@ pub fn init_ereport_logger() {
     INITIALIZED.store(true, Ordering::SeqCst);
 
     tracing_subscriber::registry()
-        .with(EreportLogger)
+        .with(EreportLogger::new())
         .with(EnvFilter::from_default_env())
         .init();
+}
+
+// Used in PGRX to detect non-main-thread FFI use.
+// Returns None if "unsure" about main thread.
+pub fn is_os_main_thread() -> Option<bool> {
+    #[cfg(any(target_os = "macos", target_os = "openbsd", target_os = "freebsd"))]
+    return unsafe {
+        match libc::pthread_main_np() {
+            1 => Some(true),
+            0 => Some(false),
+            // Note that this returns `-1` in some error conditions.
+            //
+            // In these cases we are almost certainly not the main thread, but
+            // we don't know -- it's better for this function to return `None`
+            // in cases of uncertainty.
+            _ => None,
+        }
+    };
+    #[cfg(target_os = "linux")]
+    return unsafe {
+        // Use the raw syscall, which is available in all versions of linux that Rust supports.
+        let tid = libc::syscall(libc::SYS_gettid) as core::ffi::c_long;
+        let pid = libc::getpid() as core::ffi::c_long;
+        Some(tid == pid)
+    };
+    #[allow(unreachable_code)]
+    {
+        None
+    }
 }

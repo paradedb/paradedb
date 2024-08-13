@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::{cell::RefCell, io::Cursor};
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::{debug, error};
 
 /// A generic server for receiving requests and transfers from a client.
 pub struct Server<'a, T, H>
@@ -93,7 +93,7 @@ where
     }
 
     fn listen_request(&mut self) -> Result<(), ServerError> {
-        info!("listening to incoming requests at {:?}", self.addr);
+        debug!(address = %self.addr, "listening to incoming requests");
         for mut incoming in self.http.incoming_requests() {
             let reader = incoming.as_reader();
             let request: Result<ServerRequest<T>, ServerError> = bincode::deserialize_from(reader)

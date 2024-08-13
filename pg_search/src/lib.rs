@@ -35,6 +35,7 @@ use shared::gucs::PostgresGlobalGucSettings;
 use shared::telemetry::setup_telemetry_background_worker;
 use std::process;
 use std::time::Duration;
+use tracing::debug;
 
 // A static variable is required to host grand unified configuration settings.
 pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
@@ -98,7 +99,11 @@ pub fn setup_background_workers() {
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn pg_search_insert_worker(_arg: pg_sys::Datum) {
-    pgrx::log!("starting pg_search insert worker at PID {}", process::id());
+    // This function runs in the spawned background worker process. That means
+    // that we need to re-initialize logging.
+    shared::trace::init_ereport_logger();
+
+    debug!("starting pg_search insert worker at PID {}", process::id());
     let writer = writer::Writer::new();
     let mut server = writer::Server::new(writer).expect("error starting writer server");
 
@@ -127,7 +132,11 @@ pub extern "C" fn pg_search_insert_worker(_arg: pg_sys::Datum) {
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn pg_search_shutdown_worker(_arg: pg_sys::Datum) {
-    pgrx::log!(
+    // This function runs in the spawned background worker process. That means
+    // that we need to re-initialize logging.
+    shared::trace::init_ereport_logger();
+
+    debug!(
         "starting pg_search shutdown worker at PID {}",
         process::id()
     );

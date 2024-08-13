@@ -106,7 +106,6 @@ impl<S: Subscriber> Layer<S> for EreportLogger {
             .join(", ");
 
         let metadata = event.metadata();
-        let target = metadata.target();
         let name = metadata.name();
         let message = fields
             // We will be displaying the message separately from other fields, so
@@ -120,7 +119,7 @@ impl<S: Subscriber> Layer<S> for EreportLogger {
             // Default to only a single whitespace.
             .unwrap_or_else(|| " ".into());
 
-        let log = format!("{target}: {name}:{message}{fields_string}");
+        let log = format!("{name}:{message}{fields_string}");
 
         // It's important to remember that, based on the tracing filter, we could be
         // processing logging calls from our dependencies here... which may be running
@@ -138,6 +137,10 @@ impl<S: Subscriber> Layer<S> for EreportLogger {
     }
 }
 
+/// Intialize the tracing subscriber for pgrx/Postgres logging.
+/// This function needs to be called in every process for logging to work.
+/// It should be called explicitly in background workers, and also in a hook
+/// that will automatically intialize it for connection processes.
 pub fn init_ereport_logger() {
     if INITIALIZED.load(Ordering::SeqCst) {
         return;
@@ -177,5 +180,31 @@ pub fn is_os_main_thread() -> Option<bool> {
     #[allow(unreachable_code)]
     {
         None
+    }
+}
+
+/// Connection processes don't have an explicit "entry point", so it's difficult
+/// to choose a place where the tracing subscriber should be initialized.
+/// We're taking an aggressive approach and registering an executor start hook
+/// to ensure it's initialized before any query.
+///
+/// This should have a negligeable cost, as after initialization the only work
+/// being performed is checking our atomic boolean flag.
+///
+/// Background processes will still need to initialize the subscriber explicitly.
+pub struct TraceHook;
+
+impl pgrx::PgHooks for TraceHook {
+    fn executor_start(
+        &mut self,
+        query_desc: pgrx::PgBox<pgrx::prelude::pg_sys::QueryDesc>,
+        eflags: i32,
+        prev_hook: fn(
+            query_desc: pgrx::PgBox<pgrx::prelude::pg_sys::QueryDesc>,
+            eflags: i32,
+        ) -> pgrx::HookResult<()>,
+    ) -> pgrx::HookResult<()> {
+        init_ereport_logger();
+        prev_hook(query_desc, eflags)
     }
 }

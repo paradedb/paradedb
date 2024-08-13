@@ -44,6 +44,8 @@ pgrx::pg_module_magic!();
 
 extension_sql!("GRANT ALL ON SCHEMA paradedb TO PUBLIC;" name = "paradedb_grant_all");
 
+static mut TRACE_HOOK: shared::trace::TraceHook = shared::trace::TraceHook;
+
 /// Initializes option parsing and telemetry
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
@@ -60,6 +62,11 @@ pub unsafe extern "C" fn _PG_init() {
     setup_background_workers();
 
     setup_telemetry_background_worker(shared::telemetry::ParadeExtension::PgSearch);
+
+    // Register our tracing / logging hook, so that we can ensure that the logger
+    // is initialized for all connections.
+    #[allow(static_mut_refs)]
+    pgrx::hooks::register_hook(&mut TRACE_HOOK);
 }
 
 #[pg_guard]

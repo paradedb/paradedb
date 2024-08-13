@@ -16,8 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::env::needs_commit;
-use crate::index::state::{SearchAlias, SearchStateManager};
-use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use crate::{globals::WriterGlobal, index::SearchIndex};
@@ -28,112 +26,29 @@ const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
 #[pg_extern(name = "rank_bm25")]
-pub fn rank_bm25(key: AnyElement, alias: default!(Option<String>, "NULL")) -> f32 {
-    warning!("This function has been deprecated in favor of `score_bm25` since version 0.8.5");
-
-    let key = unsafe { TantivyValue::try_from_anyelement(key).unwrap() };
-
-    SearchStateManager::get_score(key, alias.map(SearchAlias::from))
-        .expect("could not lookup doc address for search query")
+pub fn rank_bm25(_key: AnyElement, _alias: default!(Option<String>, "NULL")) -> f32 {
+    panic!("This function has been deprecated in favor of `score_bm25`");
 }
 
 #[pg_extern]
 pub fn highlight(
-    key: AnyElement,
-    field: &str,
-    prefix: default!(Option<String>, "NULL"),
-    postfix: default!(Option<String>, "NULL"),
-    max_num_chars: default!(Option<i32>, "NULL"),
-    alias: default!(Option<String>, "NULL"),
+    _key: AnyElement,
+    _field: &str,
+    _prefix: default!(Option<String>, "NULL"),
+    _postfix: default!(Option<String>, "NULL"),
+    _max_num_chars: default!(Option<i32>, "NULL"),
+    _alias: default!(Option<String>, "NULL"),
 ) -> String {
-    warning!("This function has been deprecated in favor of `snippet` since version 0.8.5");
-
-    let key = unsafe {
-        TantivyValue::try_from_anyelement(key)
-            .expect("failed to convert key_field to Tantivy value")
-    };
-
-    let mut snippet = SearchStateManager::get_snippet(
-        key,
-        field,
-        max_num_chars.map(|n| n as usize),
-        alias.map(SearchAlias::from),
-    )
-    .expect("could not create snippet for highlighting");
-
-    match (prefix, postfix) {
-        (Some(prefix), Some(postfix)) => snippet.set_snippet_prefix_postfix(&prefix, &postfix),
-        (None, Some(postfix)) => {
-            snippet.set_snippet_prefix_postfix(DEFAULT_SNIPPET_PREFIX, &postfix)
-        }
-        (Some(prefix), None) => {
-            snippet.set_snippet_prefix_postfix(&prefix, DEFAULT_SNIPPET_POSTFIX)
-        }
-        _ => snippet.set_snippet_prefix_postfix(DEFAULT_SNIPPET_PREFIX, DEFAULT_SNIPPET_POSTFIX),
-    }
-
-    snippet.to_html()
+    panic!("This function has been deprecated in favor of `snippet`");
 }
 
 #[pg_extern]
 pub fn minmax_bm25(
-    config_json: JsonB,
+    _config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
-    key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
+    _key_oid: pgrx::pg_sys::Oid, // Have to pass oid as well because the dummy above will always by None
 ) -> TableIterator<'static, (name!(id, AnyElement), name!(rank_bm25, f32))> {
-    warning!("`rank_hybrid` has been deprecated in favor of `score_hybrid` since version 0.8.5");
-
-    let JsonB(search_config_json) = config_json;
-    let search_config: SearchConfig =
-        serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
-    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
-    let writer_client = WriterGlobal::client();
-    let mut scan_state = search_index
-        .search_state(
-            &writer_client,
-            &search_config,
-            needs_commit(search_config.index_oid),
-        )
-        .unwrap();
-
-    // Collect into a Vec to allow multiple iterations
-    let top_docs: Vec<_> = scan_state.search_dedup(SearchIndex::executor()).collect();
-
-    // Calculate min and max scores
-    let (min_score, max_score) = top_docs
-        .iter()
-        .map(|(score, _)| score)
-        .fold((f32::MAX, f32::MIN), |(min, max), bm25| {
-            (min.min(*bm25), max.max(*bm25))
-        });
-    let score_range = max_score - min_score;
-
-    // Now that we have min and max, iterate over the collected results
-    let mut field_rows = Vec::new();
-    for (score, doc_address) in top_docs {
-        let key = unsafe {
-            datum::AnyElement::from_polymorphic_datum(
-                scan_state
-                    .key_value(doc_address)
-                    .try_into_datum(PgOid::from_untagged(key_oid))
-                    .unwrap(),
-                false,
-                key_oid,
-            )
-            .unwrap()
-        };
-        let normalized_score = if score_range == 0.0 {
-            1.0 // Avoid division by zero
-        } else {
-            (score - min_score) / score_range
-        };
-
-        field_rows.push((key, normalized_score));
-    }
-    TableIterator::new(field_rows)
+    panic!("`minmax_bm25` has been deprecated");
 }
 
 #[pg_extern]

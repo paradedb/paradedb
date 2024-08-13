@@ -17,7 +17,6 @@
 
 use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
-use crate::index::state::SearchStateManager;
 use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
@@ -54,7 +53,6 @@ fn search_tantivy(
             hs.insert(key);
         }
 
-        SearchStateManager::set_state(scan_state).expect("could not store search state in manager");
         (search_config, hs)
     };
 

@@ -6,7 +6,7 @@ repos:
     rev: v4.4.0
     hooks:
       - id: no-commit-to-branch
-        args: ["--branch", "main", "--branch", "staging", "--branch", "dev"]
+        args: ["--branch", "main", "--branch", "dev"]
       - id: mixed-line-ending
       - id: end-of-file-fixer
         exclude: '(\.sql|\.out|\.rs)$'

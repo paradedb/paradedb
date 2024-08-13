@@ -1,0 +1,30 @@
+---
+title: 0.9.1
+---
+
+## pg_search
+
+### New Features
+
+- Added support for `more_like_this` clause, which returns documents similar to a given document.
+- Added support for querying the size, in bytes, of a BM25 index.
+
+## pg_analytics
+
+pg_lakehouse has been combined with pg_analytics and the joint extension was renamed to pg_analytics. This was done to
+facilitate user adoption by providing a single extension for analytics.
+
+### Bug Fixes
+
+- Fixed a bug where specifying the schema name in `CREATE FOREIGN TABLE` would fail.
+
+## ParadeDB
+
+### Bug Fixes
+
+- Fix an issue where the ParadeDB Docker image would fail to start inside a CloudNativePG Kubernetes cluster.
+- Fixed a bug where pg_analytics would fail to create DuckDB extensions in the ParadeDB Docker image due to missing permissions.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.9.1).

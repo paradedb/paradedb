@@ -208,6 +208,7 @@ pub extern "C" fn ambuild(
 
     let writer_client = WriterGlobal::client();
     let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+
     SearchIndex::create_index(
         &writer_client,
         directory,

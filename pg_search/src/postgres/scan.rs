@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::globals::WriterGlobal;
-use crate::index::state::SearchStateManager;
 use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
@@ -68,21 +67,16 @@ pub extern "C" fn amrescan(
         SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
 
     // Create the index and scan state
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+    let index_oid = unsafe { (*scan.indexRelation).rd_id.as_u32() };
+    let directory = WriterDirectory::from_index_oid(index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(
-            &writer_client,
-            &search_config,
-            needs_commit(search_config.index_oid),
-        )
+        .search_state(&writer_client, &search_config, needs_commit(index_oid))
         .unwrap();
 
     let top_docs = state.search(SearchIndex::executor());
-
-    SearchStateManager::set_state(state.clone()).expect("could not store search state in manager");
 
     // Save the iterator onto the current memory context.
     scan.opaque = PgMemoryContexts::CurrentMemoryContext

@@ -19,211 +19,12 @@ use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
-use derive_more::{AsRef, Display, From};
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-use shared::postgres::transaction::{Transaction, TransactionError};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use tantivy::collector::TopDocs;
 use tantivy::schema::{FieldType, Value};
 use tantivy::{query::Query, DocAddress, Score, Searcher};
-use tantivy::{Executor, Snippet, SnippetGenerator, TantivyDocument};
-use thiserror::Error;
-
-static SEARCH_STATE_MANAGER: Lazy<Arc<Mutex<SearchStateManager>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(SearchStateManager {
-        state_map: HashMap::new(),
-        result_map: HashMap::new(),
-    }))
-});
-
-pub struct SearchStateManager {
-    state_map: HashMap<SearchAlias, SearchState>,
-    result_map: HashMap<SearchAlias, HashMap<TantivyValue, (Score, DocAddress)>>,
-}
-
-impl SearchStateManager {
-    fn register_callback(index_oid: u32) -> Result<(), TransactionError> {
-        // Commit and abort are mutually exclusive. One of the two is guaranteed
-        // to be called on any transaction. We'll use that opportunity to clean
-        // up the cache.
-        Transaction::call_once_on_commit(index_oid, move || {
-            let mut current_search = SEARCH_STATE_MANAGER
-                .lock()
-                .expect("could not lock current search lookup in commit callback");
-            current_search.state_map.drain();
-        })?;
-        Transaction::call_once_on_abort(index_oid, move || {
-            let mut current_search = SEARCH_STATE_MANAGER
-                .lock()
-                .expect("could not lock current search lookup in abort callback");
-            current_search.state_map.drain();
-        })?;
-        Ok(())
-    }
-
-    fn get_state_default(&self) -> Result<&SearchState, SearchStateError> {
-        self.state_map
-            .get(&SearchAlias::default())
-            .ok_or(SearchStateError::NoQuery)
-    }
-
-    fn get_state_alias(&self, alias: SearchAlias) -> Result<&SearchState, SearchStateError> {
-        self.state_map
-            .get(&alias)
-            .ok_or(SearchStateError::AliasLookup(alias))
-    }
-
-    pub fn get_score(
-        key: TantivyValue,
-        alias: Option<SearchAlias>,
-    ) -> Result<Score, SearchStateError> {
-        let manager = SEARCH_STATE_MANAGER
-            .lock()
-            .map_err(SearchStateError::from)?;
-        let result_map = &manager.result_map;
-        let (score, _) = result_map
-            .get(&alias.unwrap_or_default())
-            .and_then(|inner_map| inner_map.get(&key))
-            .ok_or(SearchStateError::DocLookup(key))?;
-
-        Ok(*score)
-    }
-
-    pub fn get_snippet(
-        key: TantivyValue,
-        field_name: &str,
-        max_num_chars: Option<usize>,
-        alias: Option<SearchAlias>,
-    ) -> Result<Snippet, SearchStateError> {
-        let manager = SEARCH_STATE_MANAGER
-            .lock()
-            .map_err(SearchStateError::from)?;
-        let state = manager.get_state(alias.clone())?;
-        let mut snippet_generator = state.snippet_generator(field_name);
-        if let Some(max_num_chars) = max_num_chars {
-            snippet_generator.set_max_num_chars(max_num_chars)
-        }
-
-        let alias = alias.unwrap_or_default();
-
-        let (_, doc_address) = manager
-            .result_map
-            .get(&alias)
-            .and_then(|inner_map| inner_map.get(&key))
-            .ok_or(SearchStateError::DocLookup(key))?;
-        let doc: TantivyDocument = state
-            .searcher
-            .doc(*doc_address)
-            .expect("could not find document in searcher");
-        Ok(snippet_generator.snippet_from_doc(&doc))
-    }
-
-    pub fn get_state(&self, alias: Option<SearchAlias>) -> Result<&SearchState, SearchStateError> {
-        if let Some(alias) = alias {
-            self.get_state_alias(alias)
-        } else {
-            self.get_state_default()
-        }
-    }
-
-    fn set_state_default(&mut self, state: SearchState) -> Result<(), SearchStateError> {
-        match self.state_map.insert(SearchAlias::default(), state) {
-            None => Ok(()),
-            Some(_) => Err(SearchStateError::AliasRequired),
-        }
-    }
-
-    fn set_state_alias(
-        &mut self,
-        state: SearchState,
-        alias: SearchAlias,
-    ) -> Result<(), SearchStateError> {
-        if alias == SearchAlias::default() {
-            Err(SearchStateError::EmptyAlias)
-        } else {
-            if self.state_map.insert(alias.clone(), state).is_some() {
-                return Err(SearchStateError::DuplicateAlias(alias));
-            }
-            Ok(())
-        }
-    }
-
-    pub fn set_state(state: SearchState) -> Result<(), SearchStateError> {
-        Self::register_callback(state.config.index_oid).map_err(SearchStateError::from)?;
-
-        let mut manager = SEARCH_STATE_MANAGER
-            .lock()
-            .map_err(SearchStateError::from)?;
-        if let Some(ref alias) = state.config.alias {
-            let alias = alias.clone();
-            manager.set_state_alias(state, alias)
-        } else {
-            manager.set_state_default(state)
-        }
-    }
-
-    pub fn set_result(
-        key: TantivyValue,
-        score: Score,
-        doc_address: DocAddress,
-        alias: Option<SearchAlias>,
-    ) -> Result<(), SearchStateError> {
-        let mut manager = SEARCH_STATE_MANAGER
-            .lock()
-            .map_err(SearchStateError::from)?;
-
-        manager
-            .result_map
-            .entry(alias.unwrap_or_default())
-            .or_insert_with(HashMap::new)
-            .insert(key, (score, doc_address));
-        Ok(())
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum SearchStateError {
-    #[error("to use multiple pg_search queries, pass a query alias with the 'as' parameter")]
-    AliasRequired,
-    #[error("no pg_search query in current transaction")]
-    NoQuery,
-    #[error("a pg_search alias string cannot be empty")]
-    EmptyAlias,
-    #[error("a pg_search alias must be unique, found duplicate: '{0}'")]
-    DuplicateAlias(SearchAlias),
-    #[error("error looking up result data for document with id: '{0}'")]
-    DocLookup(TantivyValue),
-    #[error("no query found with alias: '{0}'")]
-    AliasLookup(SearchAlias),
-    #[error("could not lock the current search config lookup: {0}")]
-    Lock(String),
-    #[error("could not register callback for search state manager: {0}")]
-    CallbackError(#[from] TransactionError),
-}
-
-impl<T> From<PoisonError<T>> for SearchStateError {
-    fn from(err: PoisonError<T>) -> Self {
-        SearchStateError::Lock(format!("{err}"))
-    }
-}
-
-#[derive(Clone, Debug, Display, AsRef, Eq, PartialEq, Hash, From, Deserialize, Serialize)]
-#[as_ref(forward)]
-pub struct SearchAlias(String);
-
-impl From<&str> for SearchAlias {
-    fn from(value: &str) -> Self {
-        SearchAlias(value.to_string())
-    }
-}
-
-impl Default for SearchAlias {
-    fn default() -> Self {
-        SearchAlias("".into())
-    }
-}
+use tantivy::{Executor, SnippetGenerator, TantivyDocument};
 
 #[derive(Clone)]
 pub struct SearchState {
@@ -401,13 +202,6 @@ impl SearchState {
                 .map(|(score, doc_address)| {
                     // This iterator contains the results after limit + offset are applied.
                     let ctid = self.ctid_value(doc_address);
-                    SearchStateManager::set_result(
-                        score.key.clone(),
-                        score.bm25,
-                        doc_address,
-                        self.config.alias.clone(),
-                    )
-                    .expect("could not store search result in state manager");
                     (score.bm25, doc_address, score.key, ctid)
                 })
                 .collect()
@@ -428,13 +222,6 @@ impl SearchState {
                 .map(|(score, doc_address)| {
                     // This iterator contains the results after limit + offset are applied.
                     let (key, ctid) = self.key_and_ctid_value(doc_address);
-                    SearchStateManager::set_result(
-                        key.clone(),
-                        score,
-                        doc_address,
-                        self.config.alias.clone(),
-                    )
-                    .expect("could not store search result in state manager");
                     (score, doc_address, key, ctid)
                 })
                 .collect()

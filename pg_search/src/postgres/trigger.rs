@@ -45,7 +45,13 @@ fn delete_trigger_row_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
     let item_pointer = unsafe { (*deleted_tuple.into_pg()).t_self };
     let ctid = item_pointer_to_u64(item_pointer);
 
-    append_ctids(index_oid, vec![ctid]);
+    let mut deleted_ctids_memory = DELETED_CTIDS_MEMORY.lock().expect("failed to acquire lock");
+    if let Some(pending) = deleted_ctids_memory.get_mut(&index_oid) {
+        pending.extend(vec![ctid]);
+    } else {
+        deleted_ctids_memory.insert(index_oid, vec![ctid]);
+    }
+
     Ok(())
 }
 
@@ -66,22 +72,13 @@ fn delete_trigger_stmt_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
     register_commit_callback(&writer_client, search_index.directory.clone())
         .expect("could not register commit callbacks for delete operation");
 
-    let ctids = DELETED_CTIDS_MEMORY
+    if let Some(ctids) = DELETED_CTIDS_MEMORY
         .lock()
-        .unwrap()
+        .expect("failed to acquire lock")
         .remove(&index_oid)
-        .unwrap_or_default();
-    search_index.delete(&writer_client, ctids)?;
+    {
+        search_index.delete(&writer_client, ctids)?;
+    }
 
     Ok(())
-}
-
-fn append_ctids(index_oid: u32, ctids: Vec<u64>) {
-    let mut deleted_ctids_memory = DELETED_CTIDS_MEMORY.lock().unwrap();
-
-    if let Some(pending) = deleted_ctids_memory.get_mut(&index_oid) {
-        pending.extend(ctids);
-    } else {
-        deleted_ctids_memory.insert(index_oid, ctids);
-    }
 }

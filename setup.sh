@@ -6,8 +6,8 @@ LATEST_RELEASE_VERSION="0.9.1"
 
 installDocker() {
   # Set default values
-  pguser="postgres"
-  pgpass="postgres"
+  pguser="myuser"
+  pgpass="mypassword"
   dbname="paradedb"
 
   # Prompt for user input

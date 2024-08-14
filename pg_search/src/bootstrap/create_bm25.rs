@@ -385,9 +385,9 @@ fn create_bm25_impl(
         spi::quote_literal(original_client_min_messages)
     ))?;
 
-    let trigger_name = format!("{}_trigger", index_name);
+    let trigger_name = format!("{}_delete_trigger", index_name);
     Spi::run(&format!(
-        "CREATE TRIGGER {} AFTER DELETE ON {}.{} FOR EACH ROW EXECUTE FUNCTION paradedb.trigger_example({})", 
+        "CREATE TRIGGER {} AFTER DELETE ON {}.{} FOR EACH ROW EXECUTE FUNCTION paradedb.delete_trigger({})", 
         spi::quote_identifier(trigger_name),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
@@ -406,16 +406,16 @@ LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
 fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
     let schema_name = schema_name.unwrap_or("current_schema()");
-    let trigger_name = format!("{}_trigger", index_name);
+    let trigger_name = format!("{}_delete_trigger", index_name);
 
-    if let (Some(schema_name), Some(table_name)) = Spi::get_two::<String, String>(&format!(
+    if let Ok((Some(schema_name), Some(table_name))) = Spi::get_two::<String, String>(&format!(
         "SELECT n.nspname::TEXT, c.relname::TEXT
         FROM pg_trigger t
         JOIN pg_class c ON t.tgrelid = c.oid
         JOIN pg_namespace n ON c.relnamespace = n.oid
         WHERE t.tgname = {}",
         spi::quote_literal(trigger_name.clone())
-    ))? {
+    )) {
         Spi::run(&format!(
             "DROP TRIGGER IF EXISTS {} ON {}.{} CASCADE",
             spi::quote_identifier(trigger_name),

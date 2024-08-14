@@ -130,9 +130,16 @@ extern "C" fn validate_uuid(value: *const std::os::raw::c_char) {
 extern "C" fn validate_memory_budget(value: *const std::os::raw::c_char) {
     let memory_budget_str = cstr_to_rust_str(value);
     if !memory_budget_str.is_empty() {
-        memory_budget_str
-            .parse::<i32>()
-            .expect("Invalid memory budget value");
+        match memory_budget_str.parse::<i32>() {
+            Ok(parsed_value) => {
+                if parsed_value < 0 {
+                    panic!("Memory budget value must be a positive integer.");
+                }
+            }
+            Err(_) => {
+                panic!("Invalid memory budget value. Please provide a valid integer.");
+            }
+        }
     }
 }
 

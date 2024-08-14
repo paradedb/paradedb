@@ -18,7 +18,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - paradedb_data:/var/lib/postgresql/
+      - paradedb_data:/var/lib/postgresql/data/
 
 volumes:
   paradedb_data:

@@ -82,3 +82,14 @@ LEFT JOIN mock_items ON snippets.id = mock_items.id;
 (2 rows)
 ```
 </Accordion>
+
+## Removing Stale Rows
+
+Unlike `search`, `snippet` bypasses the Postgres index access method and queries the index directly to obtain the BM25 score. As a result, dead tuples
+that have been deleted may be factored into the results.
+
+Running `VACUUM` on the underlying table will remove all dead rows from the index.
+
+```sql
+VACUUM mock_items;
+```

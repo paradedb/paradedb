@@ -17,9 +17,10 @@ unsafe fn delete_trigger(fcinfo: pg_sys::FunctionCallInfo) {
 }
 
 #[inline]
-unsafe fn delete_trigger_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
-    let trigger =
-        PgTrigger::from_fcinfo(fcinfo.as_ref().ok_or_else(|| anyhow!("fcinfo is null"))?)?;
+fn delete_trigger_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
+    let trigger = unsafe {
+        PgTrigger::from_fcinfo(fcinfo.as_ref().ok_or_else(|| anyhow!("fcinfo is null"))?)?
+    };
 
     let extra_args = trigger.extra_args()?;
     let index_oid = extra_args[0].parse::<u32>()?;

@@ -190,7 +190,14 @@ impl Handler<WriterRequest> for Writer {
                 // create an index. This can happen after a VACUUM FULL, where the index needs
                 // to be rebuilt and this method is called again.
                 self.drop_index(directory.clone())?;
-                self.create_index(directory, fields, uuid, key_field_index, memory_budget, reader_cache_num_blocks)?;
+                self.create_index(
+                    directory,
+                    fields,
+                    uuid,
+                    key_field_index,
+                    memory_budget,
+                    reader_cache_num_blocks,
+                )?;
                 Ok(())
             }
             WriterRequest::DropIndex { directory } => Ok(self.drop_index(directory)?),

@@ -323,10 +323,13 @@ impl<'de> Deserialize<'de> for SearchIndex {
     where
         D: Deserializer<'de>,
     {
+        // A helper struct that lets us use the default serialization for most fields.
         #[derive(Deserialize)]
         struct SearchIndexHelper {
             schema: SearchIndexSchema,
             directory: WriterDirectory,
+            // An index created in an older version of pg_search may not have serialized a uuid
+            // to disk. Just use an empty string for backwards compatibility.
             #[serde(default)]
             uuid: String,
             #[serde(default = "default_memory_budget")]

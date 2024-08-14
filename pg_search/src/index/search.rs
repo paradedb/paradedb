@@ -218,7 +218,7 @@ impl SearchIndex {
     pub fn writer(directory: &WriterDirectory) -> Result<IndexWriter, SearchIndexError> {
         let search_index: Self = directory.load_index()?;
 
-        let memory_budget = if search_index.memory_budget < 15_000_000 {
+        let memory_budget = if search_index.memory_budget < INDEX_TANTIVY_MEMORY_BUDGET_MIN {
             INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT
         } else {
             search_index.memory_budget

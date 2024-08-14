@@ -385,14 +385,14 @@ fn create_bm25_impl(
         spi::quote_literal(original_client_min_messages)
     ))?;
 
-    // let trigger_name = format!("{}_trigger", index_name);
-    // Spi::run(&format!(
-    //     "CREATE TRIGGER {}_trigger AFTER DELETE ON {}.{} FOR EACH ROW EXECUTE FUNCTION paradedb.trigger_example({})", 
-    //     spi::quote_identifier(trigger_name),
-    //     spi::quote_identifier(schema_name),
-    //     spi::quote_identifier(table_name),
-    //     index_oid
-    // ))?;
+    let trigger_name = format!("{}_trigger", index_name);
+    Spi::run(&format!(
+        "CREATE TRIGGER {} AFTER DELETE ON {}.{} FOR EACH ROW EXECUTE FUNCTION paradedb.trigger_example({})", 
+        spi::quote_identifier(trigger_name),
+        spi::quote_identifier(schema_name),
+        spi::quote_identifier(table_name),
+        index_oid
+    ))?;
 
     Ok(())
 }
@@ -406,6 +406,43 @@ LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
 fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
     let schema_name = schema_name.unwrap_or("current_schema()");
+    let trigger_name = format!("{}_trigger", index_name);
+
+    if let (Some(schema_name), Some(table_name)) = Spi::get_two::<String, String>(&format!(
+        "SELECT n.nspname::TEXT, c.relname::TEXT
+        FROM pg_trigger t
+        JOIN pg_class c ON t.tgrelid = c.oid
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE t.tgname = {}",
+        spi::quote_literal(trigger_name.clone())
+    ))? {
+        Spi::run(&format!(
+            "DROP TRIGGER IF EXISTS {} ON {}.{} CASCADE",
+            spi::quote_identifier(trigger_name),
+            spi::quote_identifier(schema_name),
+            spi::quote_identifier(table_name)
+        ))?;
+    }
+
+    Spi::run(&format!(
+        r#"
+        DO $$
+        DECLARE 
+            original_client_min_messages TEXT;
+        BEGIN
+            SELECT INTO original_client_min_messages current_setting('client_min_messages');
+            SET client_min_messages TO WARNING;
+
+            EXECUTE 'DROP INDEX IF EXISTS {}.{}'; 
+            EXECUTE 'DROP SCHEMA IF EXISTS {} CASCADE';
+            EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
+        END;
+        $$;
+        "#,
+        spi::quote_identifier(schema_name),
+        spi::quote_identifier(format!("{}_bm25_index", index_name)),
+        spi::quote_identifier(index_name)
+    ))?;
 
     let oid_query = format!(
         "SELECT oid FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
@@ -429,26 +466,6 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
             .0
             .expect("oid in drop_bm25 is unexpectedly NULL")
     };
-
-    Spi::run(&format!(
-        r#"
-        DO $$
-        DECLARE 
-            original_client_min_messages TEXT;
-        BEGIN
-            SELECT INTO original_client_min_messages current_setting('client_min_messages');
-            SET client_min_messages TO WARNING;
-
-            EXECUTE 'DROP INDEX IF EXISTS {}.{}'; 
-            EXECUTE 'DROP SCHEMA IF EXISTS {} CASCADE';
-            EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
-        END;
-        $$;
-        "#,
-        spi::quote_identifier(schema_name),
-        spi::quote_identifier(format!("{}_bm25_index", index_name)),
-        spi::quote_identifier(index_name),
-    ))?;
 
     crate::api::search::drop_bm25_internal(index_oid);
 

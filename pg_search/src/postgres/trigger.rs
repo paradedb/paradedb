@@ -12,14 +12,18 @@ use crate::{
     LANGUAGE c 
     AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
-unsafe fn trigger_example(oid: u32, fcinfo: pg_sys::FunctionCallInfo) {
-    trigger_impl(oid, fcinfo).unwrap_or_else(|err| panic!("{err}"));
+unsafe fn trigger_example(fcinfo: pg_sys::FunctionCallInfo) {
+    trigger_impl(fcinfo).unwrap_or_else(|err| panic!("{err}"));
 }
 
 #[inline]
-unsafe fn trigger_impl(index_oid: u32, fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
+unsafe fn trigger_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
     let trigger =
         PgTrigger::from_fcinfo(fcinfo.as_ref().ok_or_else(|| anyhow!("fcinfo is null"))?)?;
+
+    let extra_args = trigger.extra_args()?;
+    let index_oid = extra_args[0].parse::<u32>()?;
+
     let deleted_tuple = trigger.old().ok_or_else(|| anyhow!("old tuple is null"))?;
     let item_pointer = unsafe { (*deleted_tuple.into_pg()).t_self };
     let ctid = item_pointer_to_u64(item_pointer);

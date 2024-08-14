@@ -42,11 +42,20 @@ Coming soon.
 
 ### Heap Size
 
-Coming soon.
+The memory_budget setting defines the maximum heap size in bytes allocated to a search index. Proper configuration ensures efficient memory use, preventing excessive disk I/O during searches.
+
+Default: 500 MB (500_000_000 bytes)
+Minimum: 15 MB (15_000_000 bytes)
+
+Adjust the memory_budget based on your system's available memory and the size of your indexes to optimize performance.
 
 ### Reader Cache
 
-Coming soon.
+The reader_cache_num_blocks setting controls the number of blocks reserved for caching index data in memory. A well-sized reader cache minimizes disk access, leading to faster query responses.
+
+Default: 100 blocks
+
+Increasing the reader_cache_num_blocks can significantly improve performance, especially for frequently accessed data, by reducing the need to read from disk repeatedly.
 
 ### Number of Documents per Segment
 

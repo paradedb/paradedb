@@ -19,6 +19,7 @@ pub mod github;
 pub mod gucs;
 pub mod postgres;
 pub mod telemetry;
+pub mod trace;
 
 #[cfg(feature = "fixtures")]
 pub mod fixtures;
@@ -27,3 +28,6 @@ pub mod fixtures;
 // This lets consumers of the macros use them without needing to also install these dependencies.
 pub use pgrx;
 pub use serde_json;
+pub use trace::init_ereport_logger;
+pub use tracing;
+pub use tracing_subscriber;

@@ -9,7 +9,7 @@ set -Eeuo pipefail
 # Perform all actions as $POSTGRES_USER
 export PGUSER="$POSTGRES_USER"
 
-# Create the `template_paradedb`` template db
+# Create the `template_paradedb` template db
 psql -d postgres -c "CREATE DATABASE template_paradedb IS_TEMPLATE true;"
 
 # The `pg_cron` extension can only be installed in the `postgres` database, as per

@@ -6,7 +6,7 @@ use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 /// We only want to initialize the logger once per process. This atomic boolean will be
-/// our flag to make sure we initializing only once.
+/// our flag to make sure we are initializing only once.
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 struct JsonVisitor<'a>(&'a mut HashMap<String, serde_json::Value>);

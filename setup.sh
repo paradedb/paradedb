@@ -10,6 +10,9 @@ installDocker() {
   pgpass="mypassword"
   dbname="paradedb"
 
+  echo "Installing docker..."
+  sudo apt-get install docker -y
+
   # Prompt for user input
   read -p "Username for Database (default: postgres): " tmp_pguser
   if [[ ! -z "$tmp_pguser" ]]; then
@@ -40,13 +43,14 @@ installDocker() {
     -e POSTGRES_PASSWORD="$pgpass" \
     -e POSTGRES_DB="$dbname" \
     -v paradedb_data:/var/lib/postgresql/ \
+    -v paradedb_data:/var/lib/postgresql/ \
     -p 5432:5432 \
     -d \
     paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
   echo "Docker Container started ✅"
 
   # Provide usage information
-  echo "To use paradedb use the command: docker exec -it paradedb psql $dbname -U $pguser"
+  echo "To use paradedb execute the command: docker exec -it paradedb psql $dbname -U $pguser"
 }
 
 # Please update the debian file with the lastest version here
@@ -96,7 +100,6 @@ installRPM(){
 
     sudo rpm -i $filename
     echo "ParadeDB installed successfully!"
-    exit
 }
 
 installStable(){
@@ -140,11 +143,11 @@ installStable(){
 }
 
 
-echo -e "============================================================="
+echo -e "Hi there!
 
-echo -e "\t\tWelcome to ParadeDB Setup!"
+Welcome to ParadeDB, an open-source alternative to Elasticsearch built on Postgres. This script will guide you through installing ParadeDB.
 
-echo -e "=============================================================\n\n"
+ParadeDB is available as a Kubernetes Helm chart, a Docker image, and as prebuilt binaries for Debian-based and Red Hat-based Linux distributions. How would you like to install ParadeDB?"
 
 
 
@@ -156,7 +159,7 @@ do
     case $opt in
         "🐳Latest Docker Image")
             installDocker
-            ;;
+            break;;
         "⬇️ Stable Binary")
             echo "Stable"
             installStable
@@ -167,3 +170,5 @@ do
     esac
 done
 
+
+echo -e "Installation Sucessfull! If you'd like to stay upto date with everything about paradedb\nJoin our slack channel: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ \nGitHub: https://github.com/paradedb/paradedb"

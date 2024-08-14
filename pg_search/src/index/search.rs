@@ -353,7 +353,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
         let reader = Self::reader(&underlying_index)
             .unwrap_or_else(|_| panic!("failed to create index reader while retrieving index"));
 
-        let memory_budget = if memory_budget < 15_000_000 {
+        let memory_budget = if memory_budget < INDEX_TANTIVY_MEMORY_BUDGET_MIN {
             INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT
         } else {
             memory_budget

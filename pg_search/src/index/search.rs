@@ -241,11 +241,11 @@ impl SearchIndex {
     pub fn delete<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
         writer: &Arc<Mutex<W>>,
-        ctid: u64,
+        ctids: Vec<u64>,
     ) -> Result<(), SearchIndexError> {
         let request = WriterRequest::Delete {
             field: self.schema.ctid_field().id.0,
-            ctids: vec![ctid],
+            ctids,
             directory: self.directory.clone(),
         };
         writer.lock()?.request(request)?;
@@ -253,7 +253,7 @@ impl SearchIndex {
         Ok(())
     }
 
-    pub fn bulk_delete<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
+    pub fn should_delete<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
         writer: &Arc<Mutex<W>>,
         should_delete: impl Fn(u64) -> bool,

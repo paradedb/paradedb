@@ -70,7 +70,7 @@ WITH snippets AS (
 )
 SELECT snippets.id, description, snippet, score_bm25
 FROM snippets
-LEFT JOIN mock_items ON snippets.id = mock_items.id;
+JOIN mock_items ON snippets.id = mock_items.id;
 ```
 
 <Accordion title="Expected Output">

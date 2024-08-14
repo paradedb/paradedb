@@ -167,7 +167,7 @@ WITH snippet AS (
 )
 SELECT description, snippet, score_bm25
 FROM snippet
-LEFT JOIN mock_items ON snippet.id = mock_items.id;
+JOIN mock_items ON snippet.id = mock_items.id;
 ```
 
 <Accordion title="Expected Response">
@@ -276,7 +276,7 @@ Let's join this result with our `mock_items` table to see the full results of ou
 ```sql
 SELECT m.description, m.category, m.embedding, s.score_hybrid
 FROM mock_items m
-LEFT JOIN (
+JOIN (
     SELECT * FROM search_idx.score_hybrid(
         bm25_query => 'description:keyboard OR category:electronics',
         similarity_query => '''[1,2,3]'' <-> embedding',

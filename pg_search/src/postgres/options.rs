@@ -144,6 +144,23 @@ extern "C" fn validate_memory_budget(value: *const std::os::raw::c_char) {
     }
 }
 
+#[pg_guard]
+extern "C" fn validate_reader_cache_num_blocks(value: *const std::os::raw::c_char) {
+    let reader_cache_num_blocks_str = cstr_to_rust_str(value);
+    if !reader_cache_num_blocks_str.is_empty() {
+        match reader_cache_num_blocks_str.parse::<i32>() {
+            Ok(parsed_value) => {
+                if parsed_value < 0 {
+                    panic!("Reader cache num blocks value must be a positive integer.");
+                }
+            }
+            Err(_) => {
+                panic!("Invalid reader cache num blocks value. Please provide a valid integer.");
+            }
+        }
+    }
+}
+
 #[inline]
 fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
     if value.is_null() {
@@ -460,6 +477,17 @@ pub unsafe fn init() {
         "Memory budget in bytes for search index operations".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_memory_budget),
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        {
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
+        },
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "reader_cache_num_blocks".as_pg_cstr(),
+        "Number of blocks to cache in the index reader".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_reader_cache_num_blocks),
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE

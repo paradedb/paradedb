@@ -51,6 +51,7 @@ pub enum WriterRequest {
         uuid: String,
         key_field_index: usize,
         memory_budget: usize,
+        reader_cache_num_blocks: usize,
     },
     DropIndex {
         directory: WriterDirectory,

@@ -39,7 +39,8 @@ use crate::writer::{
 // Must be at least 15,000,000 or Tantivy will panic.
 pub const INDEX_TANTIVY_MEMORY_BUDGET_DEFAULT: usize = 500_000_000;
 pub const INDEX_TANTIVY_MEMORY_BUDGET_MIN: usize = 15_000_000;
-const CACHE_NUM_BLOCKS: usize = 10;
+pub const STORE_READER_CACHE_NUM_BLOCKS: usize = 10;
+pub const DOC_STORE_CACHE_NUM_BLOCKS: usize = 100;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -84,6 +85,7 @@ impl SearchIndex {
         uuid: String,
         key_field_index: usize,
         memory_budget: usize,
+        reader_cache_num_blocks: usize,
     ) -> Result<&'static mut Self, SearchIndexError> {
         writer.lock()?.request(WriterRequest::CreateIndex {
             directory: directory.clone(),
@@ -91,6 +93,7 @@ impl SearchIndex {
             uuid: uuid.clone(),
             key_field_index,
             memory_budget,
+            reader_cache_num_blocks,
         })?;
 
         // As the new index instance was created in a background process, we need
@@ -126,10 +129,18 @@ impl SearchIndex {
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 
-    pub fn reader(index: &Index) -> Result<IndexReader, TantivyError> {
+    pub fn reader(index: &Index, cache_num_blocks: usize) -> Result<IndexReader, TantivyError> {
+        // To ensure that the cache is large enough to hold the doc store, we set the cache size
+        let doc_store_cache_num_blocks = if cache_num_blocks < DOC_STORE_CACHE_NUM_BLOCKS {
+            DOC_STORE_CACHE_NUM_BLOCKS
+        } else {
+            cache_num_blocks
+        };
+
         index
             .reader_builder()
             .reload_policy(tantivy::ReloadPolicy::Manual)
+            .doc_store_cache_num_blocks(doc_store_cache_num_blocks)
             .try_into()
     }
 
@@ -258,7 +269,7 @@ impl SearchIndex {
 
         for segment_reader in self.searcher().segment_readers() {
             let store_reader = segment_reader
-                .get_store_reader(CACHE_NUM_BLOCKS)
+                .get_store_reader(STORE_READER_CACHE_NUM_BLOCKS)
                 .expect("Failed to get store reader");
 
             for (delete, ctid) in (0..segment_reader.num_docs())
@@ -334,6 +345,9 @@ impl<'de> Deserialize<'de> for SearchIndex {
             uuid: String,
             #[serde(default = "default_memory_budget")]
             memory_budget: usize,
+            // IndexReader DocStore cache size
+            #[serde(default)]
+            doc_store_cache_num_blocks: usize,
         }
 
         let SearchIndexHelper {
@@ -341,6 +355,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             directory,
             uuid,
             memory_budget,
+            doc_store_cache_num_blocks,
         } = SearchIndexHelper::deserialize(deserializer)?;
 
         let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path(true).unwrap();
@@ -350,7 +365,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
 
         Self::setup_tokenizers(&mut underlying_index, &schema);
 
-        let reader = Self::reader(&underlying_index)
+        let reader = Self::reader(&underlying_index, doc_store_cache_num_blocks)
             .unwrap_or_else(|_| panic!("failed to create index reader while retrieving index"));
 
         let memory_budget = if memory_budget < INDEX_TANTIVY_MEMORY_BUDGET_MIN {

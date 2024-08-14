@@ -123,6 +123,7 @@ impl Writer {
         uuid: String,
         key_field_index: usize,
         memory_budget: usize,
+        doc_store_cache_num_blocks: usize,
     ) -> Result<()> {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
 
@@ -142,7 +143,7 @@ impl Writer {
         };
 
         let new_self = SearchIndex {
-            reader: SearchIndex::reader(&underlying_index)?,
+            reader: SearchIndex::reader(&underlying_index, doc_store_cache_num_blocks)?,
             underlying_index,
             directory: directory.clone(),
             schema,
@@ -183,12 +184,13 @@ impl Handler<WriterRequest> for Writer {
                 uuid,
                 key_field_index,
                 memory_budget,
+                reader_cache_num_blocks,
             } => {
                 // If the writer directory exists, remove it. We need a fresh directory to
                 // create an index. This can happen after a VACUUM FULL, where the index needs
                 // to be rebuilt and this method is called again.
                 self.drop_index(directory.clone())?;
-                self.create_index(directory, fields, uuid, key_field_index, memory_budget)?;
+                self.create_index(directory, fields, uuid, key_field_index, memory_budget, reader_cache_num_blocks)?;
                 Ok(())
             }
             WriterRequest::DropIndex { directory } => Ok(self.drop_index(directory)?),

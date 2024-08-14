@@ -48,6 +48,7 @@ impl MockSearchIndex {
                 uuid,
                 key_field_index,
                 500_000_000,
+                100,
             )
             .expect("error creating index instance");
 

@@ -220,6 +220,8 @@ pub extern "C" fn ambuild(
         }
     };
 
+    let reader_cache_num_blocks = rdopts.get_reader_cache_num_blocks();
+
     SearchIndex::create_index(
         &writer_client,
         directory,
@@ -227,6 +229,7 @@ pub extern "C" fn ambuild(
         uuid.clone(),
         key_field_index,
         index_memory_budget,
+        reader_cache_num_blocks,
     )
     .expect("error creating new index instance");
 

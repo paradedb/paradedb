@@ -54,6 +54,7 @@ pub struct SearchIndexCreateOptions {
     key_field_offset: i32,
     uuid_offset: i32,
     memory_budget: i32,
+    reader_cache_num_blocks: i32,
 }
 
 #[pg_guard]
@@ -155,7 +156,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 8;
+const NUM_REL_OPTS: usize = 9;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -201,6 +202,11 @@ pub unsafe extern "C" fn amoptions(
             optname: "memory_budget".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, memory_budget) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "reader_cache_num_blocks".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_INT,
+            offset: offset_of!(SearchIndexCreateOptions, reader_cache_num_blocks) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -348,6 +354,10 @@ impl SearchIndexCreateOptions {
 
     pub fn get_memory_budget(&self) -> i32 {
         self.memory_budget
+    }
+
+    pub fn get_reader_cache_num_blocks(&self) -> usize {
+        self.reader_cache_num_blocks as usize
     }
 
     fn get_str(&self, offset: i32, default: String) -> String {

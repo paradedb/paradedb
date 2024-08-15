@@ -84,8 +84,6 @@ pub fn score_bm25(
             let mut item_pointer = pg_sys::ItemPointerData::default();
             pgrx::u64_to_item_pointer(ctid, &mut item_pointer);
 
-            info!("ctid: {:?}", item_pointer);
-
             let blockno = item_pointer_get_block_number(&item_pointer);
             let offsetno = item_pointer_get_offset_number(&item_pointer);
             buffer = pg_sys::ReadBuffer(relation, blockno);
@@ -100,8 +98,15 @@ pub fn score_bm25(
                 t_self: item_pointer,
             };
 
-            let visible = pg_sys::HeapTupleSatisfiesVisibility(&mut heap_tuple, snapshot, buffer);
-            info!("visible: {:?}", visible);
+            let visible = pg_sys::heap_hot_search_buffer(
+                &mut item_pointer,
+                relation,
+                buffer,
+                snapshot,
+                &mut heap_tuple,
+                std::ptr::null_mut(),
+                true,
+            );
             pg_sys::UnlockReleaseBuffer(buffer);
 
             visible

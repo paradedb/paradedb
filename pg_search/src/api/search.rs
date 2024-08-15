@@ -98,6 +98,7 @@ pub fn score_bm25(
                 t_self: item_pointer,
             };
 
+            // `amgettuple` calls `heapam_index_fetch_tuple`, which calls `heap_hot_search_buffer` for its visibility check
             let visible = pg_sys::heap_hot_search_buffer(
                 &mut item_pointer,
                 relation,

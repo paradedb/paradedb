@@ -96,11 +96,10 @@ pub unsafe fn ctid_satisfies_snapshot(
     relation: pg_sys::Relation,
     snapshot: pg_sys::Snapshot,
 ) -> bool {
-    // Convert u64 ctid to ItemPointer
+    // Using ctid, get itempointer => buffer => page => heaptuple
     let mut item_pointer = pg_sys::ItemPointerData::default();
     pgrx::u64_to_item_pointer(ctid, &mut item_pointer);
 
-    // Using ItemPointer, get retrieve buffer > page > tuple
     let blockno = item_pointer_get_block_number(&item_pointer);
     let offsetno = item_pointer_get_offset_number(&item_pointer);
     let buffer = pg_sys::ReadBuffer(relation, blockno);
@@ -115,8 +114,8 @@ pub unsafe fn ctid_satisfies_snapshot(
         t_self: item_pointer,
     };
 
-    // Check if tuple is visible
-    // `amgettuple` calls `heapam_index_fetch_tuple`, which calls `heap_hot_search_buffer` for its visibility check
+    // Check if heaptuple is visible
+    // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
     let visible = pg_sys::heap_hot_search_buffer(
         &mut item_pointer,
         relation,

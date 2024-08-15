@@ -77,7 +77,6 @@ pub fn score_bm25(
 
     let relation = unsafe { pg_sys::RelationIdGetRelation(search_config.table_oid.into()) };
     let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
-
     let top_docs = scan_state
         .search_dedup(SearchIndex::executor())
         .filter(|(_, doc_address)| unsafe {
@@ -142,8 +141,14 @@ pub fn snippet(
         snippet_generator.set_max_num_chars(max_num_chars)
     }
 
+    let relation = unsafe { pg_sys::RelationIdGetRelation(search_config.table_oid.into()) };
+    let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
     let top_docs = scan_state
         .search_dedup(SearchIndex::executor())
+        .filter(|(_, doc_address)| unsafe {
+            let ctid = scan_state.ctid_value(*doc_address);
+            ctid_satisfies_snapshot(ctid, relation, snapshot)
+        })
         .map(|(score, doc_address)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
@@ -178,6 +183,7 @@ pub fn snippet(
         })
         .collect::<Vec<_>>();
 
+    unsafe { pg_sys::RelationClose(relation) };
     TableIterator::new(top_docs)
 }
 

@@ -9,7 +9,8 @@ title: pg_search
   for access.
 </Note>
 
-In this guide, we'll walk through setting up streaming replication for `pg_search`. This setup allows you to replicate data from a primary server to one or more standby server for high availability and data redundancy.
+In this guide, we'll walk through setting up streaming replication for `pg_search`. This setup allows you to replicate data from a primary server to one or more standby servers.
+Replication is useful for high availability or for ParadeDB to run as a search replica over your primary Postgres.
 
 ### Environment Setup
 
@@ -40,12 +41,18 @@ Ensure that your `postgresql.conf` has the following settings applied:
 ```ini
 listen_addresses = 'localhost,192.168.0.30'
 max_wal_senders = 10
-shared_preload_libraries = 'pg_search'
 ```
 
 - `listen_addresses` specifies the IP addresses on which PostgreSQL listens for connections. By default, PostgreSQL only listens on `localhost`. To allow other servers (like your standby servers) to connect for replication, you need to include their IP addresses.
 - `max_wal_senders` determines the maximum number of concurrent connections that can send WAL (Write-Ahead Log) data.
-- `shared_preload_libraries` is necessary for `pg_search` to run
+
+If you are running `pg_search` on the primary server, make sure to add it to `shared_preload_libraries`. If you are installing it only on the standby server as a search replica,
+you should skip this step.
+
+```ini
+# Include this only if pg_search is installed on the primary
+shared_preload_libraries = 'pg_search'
+```
 
 ### Edit `pg_hba.conf`
 
@@ -74,7 +81,7 @@ sudo -u postgres createuser --pwprompt --replication replicator
 
 `--replication` grants the replication privilege to the new user, allowing it to handle replication tasks.
 
-### Create BM25 Index on Primary
+### Create Mock Table on Primary
 
 Create a database:
 
@@ -102,9 +109,10 @@ INSERT INTO mock_items (description, category, in_stock, latest_available_time, 
 VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1);
 ```
 
-Build a `pg_search` index:
+If you have installed `pg_search` on the primary, you can build a BM25 index over the table.
 
 ```sql
+-- Skip this if pg_search is not installed on the primary
 CALL paradedb.create_bm25(
   table_name => 'mock_items',
   index_name => 'mock_items',

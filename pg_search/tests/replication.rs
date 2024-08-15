@@ -378,3 +378,73 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 
     Ok(())
 }
+
+#[rstest]
+async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
+    let source_postgres = EphemeralPostgres::new();
+    let target_postgres = EphemeralPostgres::new();
+
+    let mut source_conn = source_postgres.connection().await?;
+    let mut target_conn = target_postgres.connection().await?;
+
+    // Do not install pg_search on the source database
+
+    // Create the mock_items table schema on the source
+    let schema = "
+        CREATE TABLE mock_items (
+          id SERIAL PRIMARY KEY,
+          description TEXT,
+          rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+          category VARCHAR(255),
+          in_stock BOOLEAN,
+          metadata JSONB,
+          created_at TIMESTAMP,
+          last_updated_date DATE,
+          latest_available_time TIME
+        )
+    ";
+    schema.execute(&mut source_conn);
+
+    // Create publication for replication
+    "CREATE PUBLICATION mock_items_pub FOR TABLE mock_items".execute(&mut source_conn);
+
+    // Install pg_search on the replica and create the same table schema
+    "CREATE EXTENSION pg_search".execute(&mut target_conn);
+    schema.execute(&mut target_conn);
+
+    // Create the bm25 index on the description field on the replica
+    "CALL paradedb.create_bm25(
+        table_name => 'mock_items',
+        index_name => 'mock_items',
+        schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut target_conn);
+
+    // Create subscription on the replica
+    format!(
+        "CREATE SUBSCRIPTION mock_items_sub
+         CONNECTION 'host={} port={} dbname={}'
+         PUBLICATION mock_items_pub;",
+        source_postgres.host, source_postgres.port, source_postgres.dbname
+    )
+    .execute(&mut target_conn);
+
+    // Insert a new item into the source database
+    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+    VALUES ('Green hiking shoes', 'Footwear', true, '16:00:00', '2024-07-11', '{}', '2024-07-11 16:00:00', 3)"
+    .execute(&mut source_conn);
+
+    // Wait for the replication to complete
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    // Verify the insert is replicated to the target database and can be searched using pg_search
+    let target_results: Vec<(String,)> =
+        "SELECT description FROM mock_items.search('description:shoes')".fetch(&mut target_conn);
+
+    assert_eq!(target_results.len(), 1);
+    assert_eq!(target_results[0].0, "Green hiking shoes");
+
+    Ok(())
+}

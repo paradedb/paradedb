@@ -52,7 +52,7 @@ SELECT bm25_search.aggregate('<aggregation_query>');
 
 ### Example Usage
 
-Below are examples demonstrating the use of the `bm25_search.aggregate` function with different aggregation queries.
+The following code blocks demonstrate the use of the `bm25_search.aggregate` function with different aggregation queries.
 
 ```sql
 -- Average rating for all documents
@@ -61,7 +61,18 @@ SELECT bm25_search.aggregate('{
     "avg": {"field": "rating"}
   }
 }');
+```
 
+<Accordion title="Expected Response">
+```csv
+                   aggregate
+-----------------------------------------------
+ {"avg_rating": {"value": 3.8536585365853657}}
+(1 row)
+```
+</Accordion>
+
+```sql
 -- Average rating for documents containing "keyboard"
 SELECT bm25_search.aggregate(
   '{
@@ -72,6 +83,15 @@ SELECT bm25_search.aggregate(
   query => paradedb.parse('description:keyboard')
 );
 ```
+
+<Accordion title="Expected Response">
+```csv
+           aggregate
+--------------------------------
+ {"avg_rating": {"value": 4.0}}
+(1 row)
+```
+</Accordion>
 
 ### User-Defined Aggregation Names
 
@@ -103,7 +123,7 @@ A sum aggregation computes the total sum of the specified numeric field values a
 
 ### Count
 
-A count aggregation tallies the number of values for the specified numeric field across all documents.
+A count aggregation tallies the number of values for the specified field across all documents.
 
 <ParamField body="field">The field name to compute the count on.</ParamField>
 <ParamField body="missing">
@@ -275,5 +295,5 @@ that have been deleted may be factored into the results.
 Running `VACUUM` on the underlying table will remove all dead rows from the index.
 
 ```sql
-VACUUM mock_items;
+VACUUM paradedb.bm25_search;
 ```

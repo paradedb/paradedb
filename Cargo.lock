@@ -2932,12 +2932,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "is_ci"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7655c9839580ee829dfacba1d1278c2b7883e50a277ff7541299489d6bdfdc45"
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3847,9 +3841,6 @@ name = "owo-colors"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
-dependencies = [
- "supports-color",
-]
 
 [[package]]
 name = "parking"
@@ -4098,9 +4089,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d4af45e16c27d0c7c12665f0cc5a714258c581a39901ee1488edd79a3c4c5a5"
+version = "0.11.3"
 dependencies = [
  "atomic-traits",
  "bitflags 2.6.0",
@@ -4123,9 +4112,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a8e65ea4e93a273f42bc2ca024d2c65379541f223157f136db4b7d436088027"
+version = "0.11.3"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -4135,9 +4122,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93074d31fc2f47c74ab46920fffa9ed9fb704fc8ffc07f8331c1e3b38e7ef88b"
+version = "0.11.3"
 dependencies = [
  "cargo_toml",
  "dirs",
@@ -4153,9 +4138,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a3f58b876cd9745609217c891978dd19023c9ccbfaa011c1a5af7f720e1c3fb"
+version = "0.11.3"
 dependencies = [
  "bindgen 0.69.4",
  "clang-sys",
@@ -4177,9 +4160,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3db12a1066a0ebecb8bae7aacf5b41f8e1c27c18ed914ee2a35fc2a974cd08e3"
+version = "0.11.3"
 dependencies = [
  "convert_case 0.6.0",
  "eyre",
@@ -4192,9 +4173,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e28115c05db260b63e3cde7e02de861b954dae19124261650f9c60b4667e8d4"
+version = "0.11.3"
 dependencies = [
  "clap-cargo",
  "eyre",
@@ -5753,16 +5732,6 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
-name = "supports-color"
-version = "1.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ba6faf2ca7ee42fdd458f4347ae0a9bd6bcc445ad7cb57ad82b383f18870d6f"
-dependencies = [
- "atty",
- "is_ci",
-]
 
 [[package]]
 name = "syn"

@@ -73,8 +73,39 @@ pub fn score_bm25(
         )
         .expect("could not get scan state");
 
+    let relation = unsafe { pg_sys::RelationIdGetRelation(search_config.table_oid.into()) };
+    let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
+    let mut buffer = pg_sys::InvalidBuffer as i32;
+
     let top_docs = scan_state
         .search_dedup(SearchIndex::executor())
+        .filter(|(_, doc_address)| unsafe {
+            let ctid = scan_state.ctid_value(*doc_address);
+            let mut item_pointer = pg_sys::ItemPointerData::default();
+            pgrx::u64_to_item_pointer(ctid, &mut item_pointer);
+
+            info!("ctid: {:?}", item_pointer);
+
+            let blockno = item_pointer_get_block_number(&item_pointer);
+            let offsetno = item_pointer_get_offset_number(&item_pointer);
+            buffer = pg_sys::ReadBuffer(relation, blockno);
+            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+
+            let page = pg_sys::BufferGetPage(buffer);
+            let item_id = pg_sys::PageGetItemId(page, offsetno);
+            let mut heap_tuple = pg_sys::HeapTupleData {
+                t_data: pg_sys::PageGetItem(page, item_id) as pg_sys::HeapTupleHeader,
+                t_len: item_id.as_ref().unwrap().lp_len(),
+                t_tableOid: search_config.table_oid.into(),
+                t_self: item_pointer,
+            };
+
+            let visible = pg_sys::HeapTupleSatisfiesVisibility(&mut heap_tuple, snapshot, buffer);
+            info!("visible: {:?}", visible);
+            pg_sys::UnlockReleaseBuffer(buffer);
+
+            visible
+        })
         .map(|(score, doc_address)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
@@ -87,9 +118,14 @@ pub fn score_bm25(
                 )
                 .expect("null found in key_field")
             };
+
             (key, score)
         })
         .collect::<Vec<_>>();
+
+    unsafe {
+        pg_sys::RelationClose(relation);
+    }
 
     TableIterator::new(top_docs)
 }

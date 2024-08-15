@@ -85,6 +85,9 @@ unsafe fn aminsert_internal(
     let directory = WriterDirectory::from_index_oid(index_relation_ref.oid().as_u32());
     let search_index = SearchIndex::from_cache(&directory, uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+
+    info!("inserting {:?}", ctid);
+
     let search_document =
         row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
             .unwrap_or_else(|err| {

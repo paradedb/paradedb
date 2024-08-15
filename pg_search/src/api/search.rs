@@ -22,6 +22,8 @@ use crate::{globals::WriterGlobal, index::SearchIndex};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::TantivyDocument;
 
+use crate::postgres::utils::ctid_satisfies_snapshot;
+
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
@@ -75,42 +77,12 @@ pub fn score_bm25(
 
     let relation = unsafe { pg_sys::RelationIdGetRelation(search_config.table_oid.into()) };
     let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
-    let mut buffer = pg_sys::InvalidBuffer as i32;
 
     let top_docs = scan_state
         .search_dedup(SearchIndex::executor())
         .filter(|(_, doc_address)| unsafe {
             let ctid = scan_state.ctid_value(*doc_address);
-            let mut item_pointer = pg_sys::ItemPointerData::default();
-            pgrx::u64_to_item_pointer(ctid, &mut item_pointer);
-
-            let blockno = item_pointer_get_block_number(&item_pointer);
-            let offsetno = item_pointer_get_offset_number(&item_pointer);
-            buffer = pg_sys::ReadBuffer(relation, blockno);
-            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
-
-            let page = pg_sys::BufferGetPage(buffer);
-            let item_id = pg_sys::PageGetItemId(page, offsetno);
-            let mut heap_tuple = pg_sys::HeapTupleData {
-                t_data: pg_sys::PageGetItem(page, item_id) as pg_sys::HeapTupleHeader,
-                t_len: item_id.as_ref().unwrap().lp_len(),
-                t_tableOid: search_config.table_oid.into(),
-                t_self: item_pointer,
-            };
-
-            // `amgettuple` calls `heapam_index_fetch_tuple`, which calls `heap_hot_search_buffer` for its visibility check
-            let visible = pg_sys::heap_hot_search_buffer(
-                &mut item_pointer,
-                relation,
-                buffer,
-                snapshot,
-                &mut heap_tuple,
-                std::ptr::null_mut(),
-                true,
-            );
-            pg_sys::UnlockReleaseBuffer(buffer);
-
-            visible
+            ctid_satisfies_snapshot(ctid, relation, snapshot)
         })
         .map(|(score, doc_address)| {
             let key = unsafe {
@@ -129,10 +101,7 @@ pub fn score_bm25(
         })
         .collect::<Vec<_>>();
 
-    unsafe {
-        pg_sys::RelationClose(relation);
-    }
-
+    unsafe { pg_sys::RelationClose(relation) };
     TableIterator::new(top_docs)
 }
 

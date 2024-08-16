@@ -19,19 +19,19 @@ installDocker() {
 
   select opt in "${OPTIONS[@]}"
   do
-      case $opt in
-          "Debian Base")
-              sudo apt-get install docker -y
-              break;;
-          "RHEL Based")
-              sudo dnf install docker
-              break;;
-          "Arch Based")
-              sudo pacman -Syyu docker
-              break;;
-          *)
-              break;;
-      esac
+    case $opt in
+      "Debian Base")
+        sudo apt-get install docker -y
+        break ;;
+      "RHEL Based")
+        sudo dnf install docker
+        break ;;
+      "Arch Based")
+        sudo pacman -Syyu docker
+        break ;;
+      *)
+        break ;;
+esac
   done
 
   echo "Successfully Installed Docker✅"
@@ -40,17 +40,17 @@ installDocker() {
   # Prompt for user input
   read -p "Username for Database (default: myuser): " tmp_pguser
   if [[ ! -z "$tmp_pguser" ]]; then
-      pguser="$tmp_pguser"
+    pguser="$tmp_pguser"
   fi
 
   read -p "Password for Database (default: mypassword): " tmp_pgpass
   if [[ ! -z "$tmp_pgpass" ]]; then
-      pgpass="$tmp_pgpass"
+    pgpass="$tmp_pgpass"
   fi
 
   read -p "Name for your database (default: paradedb): " tmp_dbname
   if [[ ! -z "$tmp_dbname" ]]; then
-      dbname="$tmp_dbname"
+    dbname="$tmp_dbname"
   fi
 
 
@@ -62,15 +62,15 @@ installDocker() {
   # Create Docker container
   echo "Processing..."
   docker run \
-      --name paradedb \
-      -e POSTGRES_USER="$pguser" \
-      -e POSTGRES_PASSWORD="$pgpass" \
-      -e POSTGRES_DB="$dbname" \
-      -v paradedb_data:/var/lib/postgresql/data/ \
-      -p 5432:5432 \
-      -d \
-      paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
-        echo "Docker Container started ✅"
+    --name paradedb \
+    -e POSTGRES_USER="$pguser" \
+    -e POSTGRES_PASSWORD="$pgpass" \
+    -e POSTGRES_DB="$dbname" \
+    -v paradedb_data:/var/lib/postgresql/data/ \
+    -p 5432:5432 \
+    -d \
+    paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
+  echo "Docker Container started ✅"
 
   # Provide usage information
   echo "To use paradedb execute the command: docker exec -it paradedb psql $dbname -U $pguser"
@@ -92,15 +92,15 @@ installDeb(){
   select op in ${distros[@]}
   do
     case $op in
-        "bookworm")
-            distro="bookworm"
-            break;;
-        "jammy")
-            distro="jammy"
-            break;;
-        "noble")
-            distro="noble"
-            break;;
+      "bookworm")
+          distro="bookworm"
+          break ;;
+      "jammy")
+          distro="jammy"
+          break ;;
+      "noble")
+          distro="noble"
+          break ;;
     esac
   done
 
@@ -143,16 +143,16 @@ installStable(){
   select vers in "${versions[@]}"
   do
     case $vers in
-        "14")
-          echo $vers
-          pg_version="14"
-          break;;
-        "15")
-          pg_version="15"
-          break;;
-        "16")
-          pg_version="16"
-          break;;
+      "14")
+        echo $vers
+        pg_version="14"
+        break ;;
+      "15")
+        pg_version="15"
+        break ;;
+      "16")
+        pg_version="16"
+        break ;;
     esac
   done
 
@@ -163,12 +163,12 @@ installStable(){
   select opt in "${opts[@]}"
   do
     case $opt in
-        ".deb")
-            installDeb $pg_version
-            break;;
-        ".rpm")
-            installRPM $pg_version
-            break;;
+      ".deb")
+        installDeb $pg_version
+        break ;;
+      ".rpm")
+        installRPM $pg_version
+        break ;;
     esac
   done
 }
@@ -193,18 +193,18 @@ OPTIONS=("🐳Latest Docker Image" "⬇️ Stable Binary")
 select opt in "${OPTIONS[@]}"
 do
   case $opt in
-      "🐳Latest Docker Image")
-        installDocker
-        echo -e "Installation Successfull!\n"
-        break;;
-      "⬇️ Stable Binary")
-        echo "Stable"
-        installStable
-        echo -e "Installation Successfull!\n"
-        break;;
-      *)
-        echo -e "No option selected, exiting setup.\n"
-        break;;
+    "🐳Latest Docker Image")
+      installDocker
+      echo -e "Installation Successfull!\n"
+      break ;;
+    "⬇️ Stable Binary")
+      echo "Stable"
+      installStable
+      echo -e "Installation Successfull!\n"
+      break ;;
+    *)
+      echo -e "No option selected, exiting setup.\n"
+      break ;;
   esac
 done
 

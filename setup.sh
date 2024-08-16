@@ -6,33 +6,35 @@ LATEST_RELEASE_VERSION="0.9.1"
 
 
 installDocker() {
-    # Set default values
-    pguser="myuser"
-    pgpass="mypassword"
-    dbname="paradedb"
+  # Set default values
+  pguser="myuser"
+  pgpass="mypassword"
+  dbname="paradedb"
 
-    echo "Installing docker..."
-
-
-    OPTIONS=("Debian Base" "RHEL Based" "Arch Based")
+  echo "Installing docker..."
 
 
-    select opt in "${OPTIONS[@]}" 
-    do
-        case $opt in
-            "Debian Base")
-                sudo apt-get install docker -y
-                break;;
-            "RHEL Based")
-                sudo dnf install docker
-                break;;
-            "Arch Based")
-                sudo pacman -Syyu docker
-                break;;
-            *)
-                break;;
-        esac
-    done
+  OPTIONS=("Debian Base" "RHEL Based" "Arch Based")
+
+
+  select opt in "${OPTIONS[@]}" 
+  do
+      case $opt in
+          "Debian Base")
+              sudo apt-get install docker -y
+              break;;
+          "RHEL Based")
+              sudo dnf install docker
+              break;;
+          "Arch Based")
+              sudo pacman -Syyu docker
+              break;;
+          *)
+              break;;
+      esac
+  done
+
+  echo "Successfully Installed Docker✅"
 
 
   # Prompt for user input

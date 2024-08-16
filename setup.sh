@@ -84,13 +84,14 @@ installDeb(){
   echo "Installing dependencies...."
   echo "Installing cURL"
 
-  sudo apt-get update && sudo apt-get install curl || false
+  sudo apt-get update || false
+  sudo apt-get install curl || false
 
   echo "Successfully Installed cURL✅"
 
   distros=("bookworm" "jammy" "noble")
   distro=
-  select op in ${distros[@]}
+  select op in "${distros[@]}"
   do
     case $op in
       "bookworm")
@@ -128,9 +129,9 @@ installRPM(){
   echo "Successfully Installed cURL✅"
 
   echo "Downloading ${filename}"
-  curl -l $url > $filename || false
+  curl -l "$url" > "$filename" || false
 
-  sudo rpm -i $filename || false
+  sudo rpm -i "$filename" || false
   echo "ParadeDB installed successfully!"
 }
 

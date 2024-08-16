@@ -294,6 +294,16 @@ CREATE EXTENSION pg_search;
 
 We use `cargo test` as our runner for `pg_search` tests.
 
+The tests require a `DATABASE_URL` envirobnment variable to be set. The easiest way to do this is to create a `.env` file with the following contents.
+
+```env
+DATABASE_URL=postgres://USER_NAME@localhost:PORT/pg_search
+```
+
+USER_NAME should be replaced with your system user name. (eg: output of `whoami`)
+
+PORT should be replaced with 28800 + your postgres version. (eg: 28816 for postgres 16)
+
 ## License
 
 `pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE) and as commercial software. For commercial licensing, please contact us at [sales@paradedb.com](mailto:sales@paradedb.com).

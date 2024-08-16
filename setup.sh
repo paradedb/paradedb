@@ -31,7 +31,7 @@ installDocker() {
         break ;;
       *)
         break ;;
-esac
+    esac
   done
 
   echo "Successfully Installed Docker✅"
@@ -93,14 +93,14 @@ installDeb(){
   do
     case $op in
       "bookworm")
-          distro="bookworm"
-          break ;;
+        distro="bookworm"
+        break ;;
       "jammy")
-          distro="jammy"
-          break ;;
+        distro="jammy"
+        break ;;
       "noble")
-          distro="noble"
-          break ;;
+        distro="noble"
+        break ;;
     esac
   done
 

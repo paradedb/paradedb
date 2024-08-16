@@ -1,6 +1,5 @@
 #!/bin/bash
 
-OS=$(uname -s)
 ARCH=$(uname -m)
 LATEST_RELEASE_VERSION="0.9.1"
 
@@ -39,18 +38,18 @@ installDocker() {
 
 
   # Prompt for user input
-  read -p "Username for Database (default: myuser): " tmp_pguser
-  if [[ ! -z "$tmp_pguser" ]]; then
+  read -r -p "Username for Database (default: myuser): " tmp_pguser
+  if [[ -n -z "$tmp_pguser" ]]; then
     pguser="$tmp_pguser"
   fi
 
-  read -p "Password for Database (default: mypassword): " tmp_pgpass
-  if [[ ! -z "$tmp_pgpass" ]]; then
+  read -r -p "Password for Database (default: mypassword): " tmp_pgpass
+  if [[ -n "$tmp_pgpass" ]]; then
     pgpass="$tmp_pgpass"
   fi
 
-  read -p "Name for your database (default: paradedb): " tmp_dbname
-  if [[ ! -z "$tmp_dbname" ]]; then
+  read -r -p "Name for your database (default: paradedb): " tmp_dbname
+  if [[ -n "$tmp_dbname" ]]; then
     dbname="$tmp_dbname"
   fi
 
@@ -114,9 +113,9 @@ installDeb(){
 
   echo "Downloading ${filename}"
 
-  curl -L $url > $filename
+  curl -L "$url" > "$filename"
 
-  sudo apt install ./$filename
+  sudo apt install ./"$filename"
 }
 
 # Please update the RPM file with the latest version here
@@ -145,7 +144,6 @@ installStable(){
   do
     case $vers in
       "14")
-        echo $vers
         pg_version="14"
         break ;;
       "15")

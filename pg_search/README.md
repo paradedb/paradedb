@@ -225,6 +225,32 @@ sudo apt install libclang-dev
 sudo pacman -S extra/clang
 ```
 
+#### pgvector
+
+`pgvector` needed for hybrid search unit tests.
+
+```bash
+# Note: Replace 16 with your version of Postgres
+git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git
+cd pgvector/
+
+# macOS arm64
+PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config make
+sudo PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config make install # may need sudo
+
+# macOS amd64
+PG_CONFIG=/usr/local/opt/postgresql@16/bin/pg_config make
+sudo PG_CONFIG=/usr/local/opt/postgresql@16/bin/pg_config make install # may need sudo
+
+# Ubuntu
+PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config make
+sudo PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config make install # may need sudo
+
+# Arch Linux
+PG_CONFIG=/usr/bin/pg_config make
+sudo PG_CONFIG=/usr/bin/pg_config make install # may need sudo
+```
+
 #### ICU Tokenizer
 
 `pg_search` comes with multiple tokenizers for different languages. The ICU tokenizer, which enables tokenization for Arabic, Amharic, Czech and Greek, is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:

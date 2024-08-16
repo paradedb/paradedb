@@ -74,13 +74,13 @@ JOIN mock_items ON scores.id = mock_items.id;
 ```
 </Accordion>
 
-## Removing Stale Rows
+## Score Refresh
 
-Unlike `search`, `score_bm25` bypasses the Postgres index access method and queries the index directly to obtain the BM25 score. As a result, dead tuples
-that have been deleted may be factored into the results.
+Unlike `search`, `score_bm25` bypasses the Postgres index access method and queries the index directly to obtain the BM25 score. As a result, previously-deleted rows may influence the BM25 score.
 
-Running `VACUUM` on the underlying table will remove all dead rows from the index.
+Running `VACUUM` on the underlying table will remove all dead rows from the index and ensures that only rows visible to the current
+transaction are factored into the BM25 score.
 
 ```sql
-VACUUM mock_items;
+VACUUM <table_name>;
 ```

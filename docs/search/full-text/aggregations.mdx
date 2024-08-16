@@ -287,13 +287,13 @@ SELECT bm25_search.aggregate('{
 }');
 ```
 
-## Removing Stale Rows
+## Aggregate Refresh
 
-Unlike `search`, `aggregate` bypasses the Postgres index access method and queries the index directly to obtain the BM25 score. As a result, dead tuples
-that have been deleted may be factored into the results.
+Unlike `search`, `aggregate` bypasses the Postgres index access method and queries the index directly to obtain the BM25 score. As a result, previously deleted rows may influence the aggregate.
 
-Running `VACUUM` on the underlying table will remove all dead rows from the index.
+Running `VACUUM` on the underlying table will remove all dead rows from the index and ensures that only rows visible to the current
+transaction are factored into the aggregate.
 
 ```sql
-VACUUM paradedb.bm25_search;
+VACUUM <table_name>;
 ```

@@ -3,7 +3,7 @@
 OS=$(uname -s)
 ARCH=$(uname -m)
 LATEST_RELEASE_VERSION="0.9.1"
-CURRENT_DISTRO=$(ps -ef | awk -F= '/^NAME/{print $2}' /etc/os-release)
+
 
 installDocker() {
     # Set default values
@@ -78,6 +78,13 @@ installDocker() {
 installDeb(){
     echo "Select your distribution"
 
+    echo "Installing dependencies...."
+    echo "Installing cURL"
+
+    sudo apt-get update && sudo apt-get install curl
+
+    echo "Successfully Installed cURL✅"
+
     distros=("bookworm" "jammy" "noble")
     distro=
     select op in ${distros[@]}
@@ -113,6 +120,10 @@ installDeb(){
 installRPM(){
     filename="pg_search_$1-$LATEST_RELEASE_VERSION-1PARADEDB.el9.${ARCH}.rpm"
     url="https://github.com/paradedb/paradedb/releases/download/v${LATEST_RELEASE_VERSION}/$filename"
+
+    echo -e "Insatlling cURL"
+    sudo dnf install curl
+    echo "Successfully Installed cURL✅"
 
     echo "Downloading ${filename}"
     curl -l $url > $filename
@@ -162,11 +173,16 @@ installStable(){
 }
 
 
+echo -e "=========================================================\n"
+
 echo -e "Hi there!
 
-Welcome to ParadeDB, an open-source alternative to Elasticsearch built on Postgres. This script will guide you through installing ParadeDB.
+Welcome to ParadeDB, an open-source alternative to Elasticsearch built on Postgres.\nThis script will guide you through installing ParadeDB.
 
-ParadeDB is available as a Kubernetes Helm chart, a Docker image, and as prebuilt binaries for Debian-based and Red Hat-based Linux distributions. How would you like to install ParadeDB?"
+ParadeDB is available as a Kubernetes Helm chart, a Docker image, and as prebuilt binaries for Debian-based and Red Hat-based Linux distributions.\nHow would you like to install ParadeDB?"
+
+
+echo -e "=========================================================\n"
 
 
 

@@ -67,3 +67,9 @@ jobs:
             echo "Error: Container failed to start properly"
             exit 1
           fi
+
+          # Fail the run if there are any Postgres ERRORs in the logs
+          if docker logs $CONTAINER_ID | grep -q ERROR; then
+            echo "Error: ParadeDB Docker container logs contain an error"
+            exit 1
+          fi

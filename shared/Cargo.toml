@@ -41,6 +41,8 @@ humansize = "2.1.3"
 anyhow = "1.0.83"
 datafusion = "38.0.0"
 tempfile = "3.10.1"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+libc = "0.2.155"
 
 [dev-dependencies]
 mockall = "0.12.1"

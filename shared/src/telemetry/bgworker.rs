@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::Mutex;
 use std::time::Duration;
+use tracing::debug;
 
 /// Enumerating our extensions. It's important that these can be enumerated as integers
 /// so that this enum can be passed as an i32 datum to a background worker.
@@ -100,6 +101,10 @@ pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
+    // This function runs in the spawned background worker process. That means
+    // that we need to re-initialize logging.
+    crate::trace::init_ereport_logger("pg_search");
+
     let extension_i32 = unsafe { i32::from_datum(extension_name_datum, false) }
         .expect("extension enum i32 not passed to bgworker");
     let extension = ParadeExtension::from_i32(extension_i32)
@@ -108,11 +113,11 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
 
     // If telemetry is not enabled at compile time, return early.
     if option_env!("PARADEDB_TELEMETRY") != Some("true") {
-        pgrx::log!("PARADEDB_TELEMETRY var not set at compile time for {extension_name}");
+        debug!("PARADEDB_TELEMETRY var not set at compile time for {extension_name}");
         return;
     }
 
-    pgrx::log!(
+    debug!(
         "starting {extension_name} telemetry worker at PID {}",
         process::id()
     );
@@ -146,9 +151,9 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
         term_poll: Box::new(sigterm_handler),
     };
 
-    pgrx::log!("starting {extension_name} telemetry event loop");
+    debug!("starting {extension_name} telemetry event loop");
     controller.run().expect("error in telemetry server");
-    pgrx::log!("exiting {extension_name} telemetry event loop");
+    debug!("exiting {extension_name} telemetry event loop");
 }
 
 // The bgworker must only connect once to SPI, or it will segfault. We'll
@@ -210,7 +215,7 @@ impl BgWorkerTelemetryConfig {
             Ok(Some("on")) => Ok(true),
             Err(err) => Err(anyhow!("error checking telemetry guc setting: {err}")),
             other => {
-                pgrx::log!("{guc_setting_query} = {other:?}");
+                debug!("{guc_setting_query} = {other:?}");
                 Ok(false)
             }
         })

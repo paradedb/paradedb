@@ -8,7 +8,7 @@ ARG PG_VERSION_MAJOR=16
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR=16
-ARG RUST_VERSION=1.79.0
+ARG RUST_VERSION=1.80.0
 ARG PGRX_VERSION=0.11.3
 
 # Declare buildtime environment variables
@@ -117,7 +117,7 @@ ARG TARGETARCH
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch 0.2.0 https://github.com/timescale/pgvectorscale.git
+RUN git clone --branch 0.3.0 https://github.com/timescale/pgvectorscale.git
 WORKDIR /tmp/pgvectorscale/pgvectorscale
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         # Required for pgvectorscale to compile on x86_64/amd64
@@ -134,7 +134,7 @@ FROM builder AS builder-pg_cron
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.6.2 https://github.com/citusdata/pg_cron.git
+RUN git clone --branch v1.6.4 https://github.com/citusdata/pg_cron.git
 WORKDIR /tmp/pg_cron
 RUN echo "trusted = true" >> pg_cron.control && \
     make clean -j && \
@@ -148,7 +148,7 @@ FROM builder AS builder-pg_ivm
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.8 https://github.com/sraoss/pg_ivm.git
+RUN git clone --branch v1.9 https://github.com/sraoss/pg_ivm.git
 WORKDIR /tmp/pg_ivm
 RUN echo "trusted = true" >> pg_ivm.control && \
     make clean -j && \
@@ -178,7 +178,7 @@ COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/releas
 COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/

@@ -61,7 +61,7 @@ WITH scores AS (
 )
 SELECT scores.id, description, score_bm25
 FROM scores
-JOIN mock_items ON scores.id = mock_items.id;
+LEFT JOIN mock_items ON scores.id = mock_items.id;
 ```
 
 <Accordion title="Expected Output">

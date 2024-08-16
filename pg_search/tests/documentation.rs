@@ -117,7 +117,7 @@ fn quickstart(mut conn: PgConnection) {
     )
     SELECT description, snippet, score_bm25
     FROM snippet
-    JOIN mock_items ON snippet.id = mock_items.id
+    LEFT JOIN mock_items ON snippet.id = mock_items.id
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -195,7 +195,7 @@ fn quickstart(mut conn: PgConnection) {
     let rows: Vec<(String, String, Vector, f32)> = r#"
     SELECT m.description, m.category, m.embedding, s.score_hybrid
     FROM mock_items m
-    JOIN (
+    LEFT JOIN (
         SELECT * FROM search_idx.score_hybrid(
             bm25_query => 'description:keyboard OR category:electronics',
             similarity_query => '''[1,2,3]'' <-> embedding',
@@ -306,7 +306,7 @@ fn score_bm25(mut conn: PgConnection) {
     )
     SELECT scores.id, description, score_bm25
     FROM scores
-    JOIN mock_items ON scores.id = mock_items.id;
+    LEFT JOIN mock_items ON scores.id = mock_items.id;
     "
     .fetch(&mut conn);
 
@@ -370,7 +370,7 @@ fn snippet(mut conn: PgConnection) {
     )
     SELECT snippets.id, description, snippet, score_bm25
     FROM snippets
-    JOIN mock_items ON snippets.id = mock_items.id;
+    LEFT JOIN mock_items ON snippets.id = mock_items.id;
     "
     .fetch(&mut conn);
 

@@ -3,23 +3,39 @@
 OS=$(uname -s)
 ARCH=$(uname -m)
 LATEST_RELEASE_VERSION="0.9.1"
+CURRENT_DISTRO=$(ps -ef | awk -F= '/^NAME/{print $2}' /etc/os-release)
 
 installDocker() {
-  # Set default values
-  pguser="myuser"
-  pgpass="mypassword"
-  dbname="paradedb"
+    # Set default values
+    pguser="myuser"
+    pgpass="mypassword"
+    dbname="paradedb"
 
-  echo "Installing docker..."
-  sudo apt-get install docker -y
+    echo "Installing docker..."
+
+    case "$CURRENT_DISTRO" in
+        Ubuntu|Debian)
+            sudo apt-get update && sudo apt-get install docker.io -y
+            ;;
+        "Arch Linux")
+            sudo pacman -Syyu docker
+            ;;
+        Fedora|CentOS|RHEL)
+            sudo dnf install docker
+            ;;
+        *)
+            echo "Unsupported distro: $CURRENT_DISTRO"
+            exit 1
+            ;;
+    esac 
 
   # Prompt for user input
-  read -p "Username for Database (default: postgres): " tmp_pguser
+  read -p "Username for Database (default: myuser): " tmp_pguser
   if [[ ! -z "$tmp_pguser" ]]; then
     pguser="$tmp_pguser"
   fi
 
-  read -p "Password for Database (default: postgres): " tmp_pgpass
+  read -p "Password for Database (default: mypassword): " tmp_pgpass
   if [[ ! -z "$tmp_pgpass" ]]; then
     pgpass="$tmp_pgpass"
   fi
@@ -42,8 +58,7 @@ installDocker() {
     -e POSTGRES_USER="$pguser" \
     -e POSTGRES_PASSWORD="$pgpass" \
     -e POSTGRES_DB="$dbname" \
-    -v paradedb_data:/var/lib/postgresql/ \
-    -v paradedb_data:/var/lib/postgresql/ \
+    -v paradedb_data:/var/lib/postgresql/data/ \
     -p 5432:5432 \
     -d \
     paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
@@ -86,8 +101,6 @@ installDeb(){
     curl -L $url > $filename 
 
     sudo apt install ./$filename
-    echo "ParadeDB installed successfully!"
-    exit
 }
 
 # Please update the RPM file with the latest version here
@@ -159,16 +172,18 @@ do
     case $opt in
         "🐳Latest Docker Image")
             installDocker
+            echo -e "Installation Successfull!\n"
             break;;
         "⬇️ Stable Binary")
             echo "Stable"
             installStable
+            echo -e "Installation Successfull!\n"
             break;;
         *)
-            exit
-
+            echo -e "No option selected, exiting setup.\n"
+            break;;
     esac
 done
 
 
-echo -e "Installation Sucessfull! If you'd like to stay upto date with everything about paradedb\nJoin our slack channel: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ \nGitHub: https://github.com/paradedb/paradedb"
+echo -e "If you'd like to stay upto date with everything about paradedb\nJoin our slack channel: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ \nGitHub: https://github.com/paradedb/paradedb"

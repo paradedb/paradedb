@@ -4,6 +4,7 @@ ARCH=$(uname -m)
 LATEST_RELEASE_VERSION="0.9.1"
 
 set -Eeuo pipefail
+set -e
 
 installDocker() {
   # Set default values
@@ -21,13 +22,13 @@ installDocker() {
   do
     case $opt in
       "Debian Base")
-        sudo apt-get install docker -y
+        sudo apt-get install docker -y || false
         break ;;
       "RHEL Based")
-        sudo dnf install docker
+        sudo dnf install docker || false
         break ;;
       "Arch Based")
-        sudo pacman -Syyu docker
+        sudo pacman -Syyu docker || false
         break ;;
       *)
         break ;;
@@ -39,7 +40,7 @@ installDocker() {
 
   # Prompt for user input
   read -r -p "Username for Database (default: myuser): " tmp_pguser
-  if [[ -n -z "$tmp_pguser" ]]; then
+  if [[ -n "$tmp_pguser" ]]; then
     pguser="$tmp_pguser"
   fi
 
@@ -83,7 +84,7 @@ installDeb(){
   echo "Installing dependencies...."
   echo "Installing cURL"
 
-  sudo apt-get update && sudo apt-get install curl
+  sudo apt-get update && sudo apt-get install curl || false
 
   echo "Successfully Installed cURL✅"
 
@@ -113,9 +114,9 @@ installDeb(){
 
   echo "Downloading ${filename}"
 
-  curl -L "$url" > "$filename"
+  curl -L "$url" > "$filename" || false
 
-  sudo apt install ./"$filename"
+  sudo apt install ./"$filename" || false
 }
 
 # Please update the RPM file with the latest version here
@@ -123,13 +124,13 @@ installRPM(){
   filename="pg_search_$1-$LATEST_RELEASE_VERSION-1PARADEDB.el9.${ARCH}.rpm"
   url="https://github.com/paradedb/paradedb/releases/download/v${LATEST_RELEASE_VERSION}/$filename"
   echo -e "Insatlling cURL"
-  sudo dnf install curl
+  sudo dnf install curl || false
   echo "Successfully Installed cURL✅"
 
   echo "Downloading ${filename}"
-  curl -l $url > $filename
+  curl -l $url > $filename || false
 
-  sudo rpm -i $filename
+  sudo rpm -i $filename || false
   echo "ParadeDB installed successfully!"
 }
 

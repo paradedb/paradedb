@@ -4,6 +4,7 @@ OS=$(uname -s)
 ARCH=$(uname -m)
 LATEST_RELEASE_VERSION="0.9.1"
 
+set -Eeuo pipefail
 
 installDocker() {
   # Set default values
@@ -209,4 +210,4 @@ do
 done
 
 
-echo -e "If you'd like to stay upto date with everything about paradedb\nJoin our slack channel: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ \nGitHub: https://github.com/paradedb/paradedb"
+echo -e "If you'd like to stay upto date with everything about ParadeDB\nJoin our slack channel: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ \nGitHub: https://github.com/paradedb/paradedb"

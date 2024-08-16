@@ -49,11 +49,15 @@ Minimum: 15 MB (15_000_000 bytes)
 
 Adjust the memory_budget based on your system's available memory and the size of your indexes to optimize performance.
 
+For most systems, 10-20MB per indexer thread is maximum. We get limited improvement after this.
+
 ### Reader Cache
 
 The reader_cache_num_blocks setting controls the number of blocks reserved for caching index data in memory. A well-sized reader cache minimizes disk access, leading to faster query responses.
 
 Default: 100 blocks
+
+Typically works best between 512-1024 documents.
 
 Increasing the reader_cache_num_blocks can significantly improve performance, especially for frequently accessed data, by reducing the need to read from disk repeatedly.
 

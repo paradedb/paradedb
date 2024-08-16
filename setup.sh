@@ -17,7 +17,7 @@ installDocker() {
   OPTIONS=("Debian Base" "RHEL Based" "Arch Based")
 
 
-  select opt in "${OPTIONS[@]}" 
+  select opt in "${OPTIONS[@]}"
   do
       case $opt in
           "Debian Base")
@@ -78,100 +78,99 @@ installDocker() {
 
 # Please update the debian file with the lastest version here
 installDeb(){
-    echo "Select your distribution"
+  echo "Select your distribution"
 
-    echo "Installing dependencies...."
-    echo "Installing cURL"
+  echo "Installing dependencies...."
+  echo "Installing cURL"
 
-    sudo apt-get update && sudo apt-get install curl
+  sudo apt-get update && sudo apt-get install curl
 
-    echo "Successfully Installed cURL✅"
+  echo "Successfully Installed cURL✅"
 
-    distros=("bookworm" "jammy" "noble")
-    distro=
-    select op in ${distros[@]}
-    do
-        case $op in 
-            "bookworm")
-                distro="bookworm"
-                break;;
-            "jammy")
-                distro="jammy"
-                break;;
-            "noble")
-                distro="noble"
-                break;;
-        esac
-    done
+  distros=("bookworm" "jammy" "noble")
+  distro=
+  select op in ${distros[@]}
+  do
+    case $op in
+        "bookworm")
+            distro="bookworm"
+            break;;
+        "jammy")
+            distro="jammy"
+            break;;
+        "noble")
+            distro="noble"
+            break;;
+    esac
+  done
 
-    if [ "$ARCH" = "x86_64" ]; then
-        ARCH="amd64"
-    fi
+  if [ "$ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+  fi
 
-    filename="postgresql-$1-pg-search_${LATEST_RELEASE_VERSION}-1PARADEDB-${distro}_${ARCH}.deb"
-    url="https://github.com/paradedb/paradedb/releases/download/v${LATEST_RELEASE_VERSION}/${filename}"
+  filename="postgresql-$1-pg-search_${LATEST_RELEASE_VERSION}-1PARADEDB-${distro}_${ARCH}.deb"
+  url="https://github.com/paradedb/paradedb/releases/download/v${LATEST_RELEASE_VERSION}/${filename}"
 
-    echo "Downloading ${filename}"
+  echo "Downloading ${filename}"
 
-    curl -L $url > $filename 
+  curl -L $url > $filename
 
-    sudo apt install ./$filename
+  sudo apt install ./$filename
 }
 
 # Please update the RPM file with the latest version here
 installRPM(){
-    filename="pg_search_$1-$LATEST_RELEASE_VERSION-1PARADEDB.el9.${ARCH}.rpm"
-    url="https://github.com/paradedb/paradedb/releases/download/v${LATEST_RELEASE_VERSION}/$filename"
+  filename="pg_search_$1-$LATEST_RELEASE_VERSION-1PARADEDB.el9.${ARCH}.rpm"
+  url="https://github.com/paradedb/paradedb/releases/download/v${LATEST_RELEASE_VERSION}/$filename"
+  echo -e "Insatlling cURL"
+  sudo dnf install curl
+  echo "Successfully Installed cURL✅"
 
-    echo -e "Insatlling cURL"
-    sudo dnf install curl
-    echo "Successfully Installed cURL✅"
+  echo "Downloading ${filename}"
+  curl -l $url > $filename
 
-    echo "Downloading ${filename}"
-    curl -l $url > $filename
-
-    sudo rpm -i $filename
-    echo "ParadeDB installed successfully!"
+  sudo rpm -i $filename
+  echo "ParadeDB installed successfully!"
 }
 
 installStable(){
 
-    # Select postgres version
-    pg_version=
-    echo "Select postgres version"
-    versions=("14" "15" "16")
+  # Select postgres version
+  pg_version=
+  echo "Select postgres version"
+  versions=("14" "15" "16")
 
-    select vers in "${versions[@]}"
-    do
-        case $vers in
-            "14")
-                echo $vers
-                pg_version="14"
-                break;;
-            "15")
-                pg_version="15"
-                break;;
-            "16")
-                pg_version="16"
-                break;;
-        esac
-    done
+  select vers in "${versions[@]}"
+  do
+    case $vers in
+        "14")
+          echo $vers
+          pg_version="14"
+          break;;
+        "15")
+          pg_version="15"
+          break;;
+        "16")
+          pg_version="16"
+          break;;
+    esac
+  done
 
-    # Select Base type
-    echo "Select supported file type: "
-    opts=(".deb" ".rpm")
+  # Select Base type
+  echo "Select supported file type: "
+  opts=(".deb" ".rpm")
 
-    select opt in "${opts[@]}"
-    do
-        case $opt in 
-            ".deb")
-                installDeb $pg_version
-                break;;
-            ".rpm")
-                installRPM $pg_version
-                break;;
-        esac
-    done
+  select opt in "${opts[@]}"
+  do
+    case $opt in
+        ".deb")
+            installDeb $pg_version
+            break;;
+        ".rpm")
+            installRPM $pg_version
+            break;;
+    esac
+  done
 }
 
 
@@ -191,22 +190,22 @@ echo -e "=========================================================\n"
 OPTIONS=("🐳Latest Docker Image" "⬇️ Stable Binary")
 
 
-select opt in "${OPTIONS[@]}" 
+select opt in "${OPTIONS[@]}"
 do
-    case $opt in
-        "🐳Latest Docker Image")
-            installDocker
-            echo -e "Installation Successfull!\n"
-            break;;
-        "⬇️ Stable Binary")
-            echo "Stable"
-            installStable
-            echo -e "Installation Successfull!\n"
-            break;;
-        *)
-            echo -e "No option selected, exiting setup.\n"
-            break;;
-    esac
+  case $opt in
+      "🐳Latest Docker Image")
+        installDocker
+        echo -e "Installation Successfull!\n"
+        break;;
+      "⬇️ Stable Binary")
+        echo "Stable"
+        installStable
+        echo -e "Installation Successfull!\n"
+        break;;
+      *)
+        echo -e "No option selected, exiting setup.\n"
+        break;;
+  esac
 done
 
 

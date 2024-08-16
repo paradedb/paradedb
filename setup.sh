@@ -13,36 +13,42 @@ installDocker() {
 
     echo "Installing docker..."
 
-    case "$CURRENT_DISTRO" in
-        Ubuntu|Debian)
-            sudo apt-get update && sudo apt-get install docker.io -y
-            ;;
-        "Arch Linux")
-            sudo pacman -Syyu docker
-            ;;
-        Fedora|CentOS|RHEL)
-            sudo dnf install docker
-            ;;
-        *)
-            echo "Unsupported distro: $CURRENT_DISTRO"
-            exit 1
-            ;;
-    esac 
+
+    OPTIONS=("Debian Base" "RHEL Based" "Arch Based")
+
+
+    select opt in "${OPTIONS[@]}" 
+    do
+        case $opt in
+            "Debian Base")
+                sudo apt-get install docker -y
+                break;;
+            "RHEL Based")
+                sudo dnf install docker
+                break;;
+            "Arch Based")
+                sudo pacman -Syyu docker
+                break;;
+            *)
+                break;;
+        esac
+    done
+
 
   # Prompt for user input
   read -p "Username for Database (default: myuser): " tmp_pguser
   if [[ ! -z "$tmp_pguser" ]]; then
-    pguser="$tmp_pguser"
+      pguser="$tmp_pguser"
   fi
 
   read -p "Password for Database (default: mypassword): " tmp_pgpass
   if [[ ! -z "$tmp_pgpass" ]]; then
-    pgpass="$tmp_pgpass"
+      pgpass="$tmp_pgpass"
   fi
 
   read -p "Name for your database (default: paradedb): " tmp_dbname
   if [[ ! -z "$tmp_dbname" ]]; then
-    dbname="$tmp_dbname"
+      dbname="$tmp_dbname"
   fi
 
 
@@ -54,15 +60,15 @@ installDocker() {
   # Create Docker container
   echo "Processing..."
   docker run \
-    --name paradedb \
-    -e POSTGRES_USER="$pguser" \
-    -e POSTGRES_PASSWORD="$pgpass" \
-    -e POSTGRES_DB="$dbname" \
-    -v paradedb_data:/var/lib/postgresql/data/ \
-    -p 5432:5432 \
-    -d \
-    paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
-  echo "Docker Container started ✅"
+      --name paradedb \
+      -e POSTGRES_USER="$pguser" \
+      -e POSTGRES_PASSWORD="$pgpass" \
+      -e POSTGRES_DB="$dbname" \
+      -v paradedb_data:/var/lib/postgresql/data/ \
+      -p 5432:5432 \
+      -d \
+      paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
+        echo "Docker Container started ✅"
 
   # Provide usage information
   echo "To use paradedb execute the command: docker exec -it paradedb psql $dbname -U $pguser"
@@ -88,7 +94,7 @@ installDeb(){
                 break;;
         esac
     done
-    
+
     if [ "$ARCH" = "x86_64" ]; then
         ARCH="amd64"
     fi

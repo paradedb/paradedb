@@ -24,7 +24,10 @@ use std::sync::Arc;
 use tantivy::collector::TopDocs;
 use tantivy::schema::{FieldType, Value};
 use tantivy::{query::Query, DocAddress, Score, Searcher};
-use tantivy::{Executor, SnippetGenerator, TantivyDocument};
+use tantivy::{Executor, Order, SnippetGenerator, TantivyDocument};
+
+static DEFAULT_ORDER_BY_DIRECTION: &'static str = "asc";
+static DEFAULT_BM25_SCORE_FOR_ORDER_BY: f32 = 1.0;
 
 #[derive(Clone)]
 pub struct SearchState {
@@ -86,6 +89,51 @@ impl SearchState {
         });
 
         let offset = self.config.offset_rows.unwrap_or(0);
+
+        if let Some(order_by_field) = self.config.order_by_field.clone() {
+            // Lowercase the input and use default order direction
+            let lowercase_direction = self
+                .config
+                .order_by_direction
+                .clone()
+                .unwrap_or(DEFAULT_ORDER_BY_DIRECTION.to_owned())
+                .to_lowercase();
+
+            // Convert to tantivy Order
+            let direction = match lowercase_direction.as_str() {
+                "asc" => Order::Asc,
+                "desc" => Order::Desc,
+                _ => panic!("Invalid order_by_direction {}", lowercase_direction),
+            };
+
+            let collector = TopDocs::with_limit(limit)
+                .and_offset(offset)
+                // Type is specified as u64 to skip figuring out which type the field actually is
+                // We can do this because we don't actually use the field value returned by Tantivy
+                .order_by_fast_field::<u64>(order_by_field, direction);
+
+            return self
+                .searcher
+                .search_with_executor(
+                    self.query.as_ref(),
+                    &collector,
+                    executor,
+                    tantivy::query::EnableScoring::Enabled {
+                        searcher: &self.searcher,
+                        statistics_provider: &self.searcher,
+                    },
+                )
+                .expect("failed to search")
+                .into_iter()
+                .map(|(_fast_field_value, doc_address)| {
+                    // This iterator contains the results after limit + offset are applied.
+                    let (key, ctid) = self.key_and_ctid_value(doc_address);
+
+                    // Return default score because Tantivy does not return score when using order_by_fast_field
+                    (DEFAULT_BM25_SCORE_FOR_ORDER_BY, doc_address, key, ctid)
+                })
+                .collect();
+        }
 
         if self.config.stable_sort.is_some_and(|stable| stable) {
             // If the user requires a stable sort, we'll use tweak_score. This allows us to retrieve

@@ -124,6 +124,11 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
             .fetch_one::<(i32,)>(&mut conn)
             .0;
 
+    let table_oid =
+        "SELECT oid::int4 FROM pg_class WHERE relname = 'bm25_search' AND relkind = 'r'"
+            .fetch_one::<(i32,)>(&mut conn)
+            .0;
+
     let columns: SimpleProductsTableVec = format!(
         "SELECT * FROM paradedb.bm25_search
         WHERE paradedb.search_tantivy(
@@ -131,7 +136,8 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
             jsonb_build_object(
                 'index_name', 'bm25_search_bm25_index',
                 'index_oid', {index_oid},
-                'table_name', 'bm25_test_table',
+                'table_oid', {table_oid},
+                'table_name', 'bm25_search',
                 'schema_name', 'paradedb',
                 'key_field', 'id',
                 'query', paradedb.parse('category:electronics')::text::jsonb,

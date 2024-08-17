@@ -301,7 +301,7 @@ fn score_bm25(mut conn: PgConnection) {
     WITH scores AS (
         SELECT * FROM search_idx.score_bm25(
         'description:keyboard',
-        highlight_field => 'description'
+        limit_rows => 10
         )
     )
     SELECT scores.id, description, score_bm25

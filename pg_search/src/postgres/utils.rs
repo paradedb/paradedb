@@ -90,3 +90,42 @@ pub unsafe fn row_to_search_document(
 
     Ok(document)
 }
+
+pub unsafe fn ctid_satisfies_snapshot(
+    ctid: u64,
+    relation: pg_sys::Relation,
+    snapshot: pg_sys::Snapshot,
+) -> bool {
+    // Using ctid, get itempointer => buffer => page => heaptuple
+    let mut item_pointer = pg_sys::ItemPointerData::default();
+    pgrx::u64_to_item_pointer(ctid, &mut item_pointer);
+
+    let blockno = item_pointer_get_block_number(&item_pointer);
+    let offsetno = item_pointer_get_offset_number(&item_pointer);
+    let buffer = pg_sys::ReadBuffer(relation, blockno);
+    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+
+    let page = pg_sys::BufferGetPage(buffer);
+    let item_id = pg_sys::PageGetItemId(page, offsetno);
+    let mut heap_tuple = pg_sys::HeapTupleData {
+        t_data: pg_sys::PageGetItem(page, item_id) as pg_sys::HeapTupleHeader,
+        t_len: item_id.as_ref().unwrap().lp_len(),
+        t_tableOid: (*relation).rd_id,
+        t_self: item_pointer,
+    };
+
+    // Check if heaptuple is visible
+    // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
+    let visible = pg_sys::heap_hot_search_buffer(
+        &mut item_pointer,
+        relation,
+        buffer,
+        snapshot,
+        &mut heap_tuple,
+        std::ptr::null_mut(),
+        true,
+    );
+    pg_sys::UnlockReleaseBuffer(buffer);
+
+    visible
+}

@@ -56,7 +56,7 @@ To map the columns of the original table to the output of `score_bm25`, perform 
 WITH scores AS (
     SELECT * FROM search_idx.score_bm25(
       'description:keyboard',
-      highlight_field => 'description'
+      limit_rows => 10
     )
 )
 SELECT scores.id, description, score_bm25
@@ -73,3 +73,14 @@ LEFT JOIN mock_items ON scores.id = mock_items.id;
 (2 rows)
 ```
 </Accordion>
+
+## Score Refresh
+
+Unlike `search`, `score_bm25` bypasses the Postgres index access method and queries the index directly to obtain the BM25 score. As a result, previously-deleted rows may influence the BM25 score.
+
+Running `VACUUM` on the underlying table will remove all dead rows from the index and ensures that only rows visible to the current
+transaction are factored into the BM25 score.
+
+```sql
+VACUUM <table_name>;
+```

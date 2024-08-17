@@ -19,7 +19,6 @@ use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tantivy::collector::TopDocs;
 use tantivy::schema::{FieldType, Value};
@@ -272,33 +271,5 @@ impl SearchState {
             .as_u64()
             .expect("could not access ctid field on document");
         (key, ctid)
-    }
-
-    /// A search method that deduplicates results based on key field. This is important for
-    /// searches into the Tantivy index outside of Postgres index access methods. Postgres will
-    /// filter out stale rows when using the index scan, but when scanning Tantivy directly,
-    /// we risk returning deleted documents if a VACUUM hasn't been performed yet.
-    pub fn search_dedup(
-        &mut self,
-        executor: &Executor,
-    ) -> impl Iterator<Item = (Score, DocAddress)> {
-        let search_results = self.search(executor);
-        let mut dedup_map: HashMap<TantivyValue, (Score, DocAddress)> = HashMap::new();
-        let mut order_vec: Vec<TantivyValue> = Vec::new();
-
-        for (score, doc_addr, key, _) in search_results {
-            let is_new_or_higher = match dedup_map.get(&key) {
-                Some((_, existing_doc_addr)) => doc_addr > *existing_doc_addr,
-                None => true,
-            };
-            if is_new_or_higher && dedup_map.insert(key.clone(), (score, doc_addr)).is_none() {
-                // Key was not already present, remember the order of this key
-                order_vec.push(key.clone());
-            }
-        }
-
-        order_vec
-            .into_iter()
-            .filter_map(move |key| dedup_map.remove(&key))
     }
 }

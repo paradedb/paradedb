@@ -47,4 +47,4 @@ If you have any questions about the CLA, please reach out to us in the [ParadeDB
 
 ### License
 
-By contributing to ParadeDB, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).
+By contributing to ParadeDB, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE) and as commercial software.

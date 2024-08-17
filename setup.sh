@@ -1,7 +1,8 @@
 #!/bin/bash
 
 ARCH=$(uname -m)
-LATEST_RELEASE_VERSION="0.9.1"
+LATEST_RELEASE_VERSION=$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r .tag_name)
+LATEST_RELEASE_VERSION="${LATEST_RELEASE_VERSION#v}"
 
 set -Eeuo pipefail
 set -e
@@ -82,12 +83,12 @@ installDeb(){
   echo "Select your distribution"
 
   echo "Installing dependencies...."
-  echo "Installing cURL"
-
-  sudo apt-get update || false
-  sudo apt-get install curl || false
-
-  echo "Successfully Installed cURL✅"
+  # echo "Installing cURL"
+  #
+  # sudo apt-get update || false
+  # sudo apt-get install curl || false
+  #
+  # echo "Successfully Installed cURL✅"
 
   distros=("bookworm" "jammy" "noble")
   distro=
@@ -111,9 +112,9 @@ installDeb(){
   fi
 
   filename="postgresql-$1-pg-search_${LATEST_RELEASE_VERSION}-1PARADEDB-${distro}_${ARCH}.deb"
-  url="https://github.com/paradedb/paradedb/releases/download/v${LATEST_RELEASE_VERSION}/${filename}"
+  url="https://github.com/paradedb/paradedb/releases/latest/download/${filename}"
 
-  echo "Downloading ${filename}"
+  echo "Downloading ${url}"
 
   curl -L "$url" > "$filename" || false
 
@@ -123,12 +124,12 @@ installDeb(){
 # Please update the RPM file with the latest version here
 installRPM(){
   filename="pg_search_$1-$LATEST_RELEASE_VERSION-1PARADEDB.el9.${ARCH}.rpm"
-  url="https://github.com/paradedb/paradedb/releases/download/v${LATEST_RELEASE_VERSION}/$filename"
+  url="https://github.com/paradedb/paradedb/releases/latest/download/${filename}"
   echo -e "Insatlling cURL"
   sudo dnf install curl || false
   echo "Successfully Installed cURL✅"
 
-  echo "Downloading ${filename}"
+  echo "Downloading ${url}"
   curl -l "$url" > "$filename" || false
 
   sudo rpm -i "$filename" || false

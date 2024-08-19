@@ -17,7 +17,7 @@
 
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
-use pgrx::{JsonB, Spi};
+use pgrx::{JsonB, PgRelation, Spi};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -229,18 +229,29 @@ fn create_bm25_impl(
         "".to_string()
     };
 
-    let oid_query = format!(
+    let index_oid_query = format!(
         "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
         &index_name_suffixed
     );
-    let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)
+    let index_oid = Spi::get_one::<pg_sys::Oid>(&index_oid_query)
         .expect("error looking up index in create_bm25")
         .expect("no oid for index created in create_bm25")
         .as_u32();
 
+    let pg_relation = unsafe {
+        PgRelation::open_with_name(&format!(
+            "{}.{}",
+            spi::quote_identifier(schema_name),
+            spi::quote_identifier(table_name)
+        ))
+        .expect("could not open relation")
+    };
+    let table_oid = pg_relation.oid().as_u32();
+
     let index_json = json!({
         "index_name": index_name_suffixed,
         "index_oid": index_oid,
+        "table_oid": table_oid,
         "table_name": table_name,
         "key_field": key_field,
         "schema_name": schema_name,

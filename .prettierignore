@@ -14,5 +14,6 @@
 /docs/search/full-text/scoring.mdx
 /docs/search/full-text/highlighting.mdx
 /docs/search/full-text/joins.mdx
+/docs/search/full-text/aggregations.mdx
 /docs/upgrading.mdx
 /pg_search/benchmarks/out/

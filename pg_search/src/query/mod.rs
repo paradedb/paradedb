@@ -400,9 +400,14 @@ impl SearchQueryInput {
                 Ok(Box::new(query))
             }
             Self::Parse { query_string } => {
-                Ok(Box::new(parser.parse_query(&query_string).map_err(
-                    |err| QueryError::ParseError(err, query_string),
-                )?))
+                if config.lenient_parsing.unwrap_or(false) {
+                    let (parsed_query, _) = parser.parse_query_lenient(&query_string);
+                    Ok(Box::new(parsed_query))
+                } else {
+                    Ok(Box::new(parser.parse_query(&query_string).map_err(
+                        |err| QueryError::ParseError(err, query_string.clone()),
+                    )?))
+                }
             }
             Self::Phrase {
                 field,

@@ -36,7 +36,7 @@ pub struct SearchState {
 impl SearchState {
     pub fn new(search_index: &SearchIndex, config: &SearchConfig) -> Self {
         let schema = search_index.schema.clone();
-        let mut parser = search_index.query_parser();
+        let mut parser = search_index.query_parser(config);
         let searcher = search_index.searcher();
         let query = config
             .query

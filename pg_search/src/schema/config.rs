@@ -36,6 +36,8 @@ pub struct SearchConfig {
     pub postfix: Option<String>,
     pub stable_sort: Option<bool>,
     pub uuid: String,
+    pub lenient_parsing: Option<bool>,
+    pub conjunction_by_default: Option<bool>,
 }
 
 impl SearchConfig {

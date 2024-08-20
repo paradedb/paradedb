@@ -182,9 +182,9 @@ impl SearchIndex {
                 .collect::<Vec<_>>(),
         );
 
-if let Some(true) = config.conjunction_by_default {
-    query_parser.set_conjunction_by_default();
-}
+        if let Some(true) = config.conjunction_by_default {
+            query_parser.set_conjunction_by_default();
+        }
 
         query_parser
     }

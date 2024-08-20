@@ -399,8 +399,7 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(query))
             }
-            Self::Parse { query_string } => {
-	match config.lenient_parsing {
+            Self::Parse { query_string } => match config.lenient_parsing {
                 Some(true) => {
                     let (parsed_query, _) = parser.parse_query_lenient(&query_string);
                     Ok(Box::new(parsed_query))
@@ -411,7 +410,6 @@ impl SearchQueryInput {
                     )?))
                 }
             },
-            }
             Self::Phrase {
                 field,
                 phrases,

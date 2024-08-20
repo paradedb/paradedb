@@ -28,12 +28,18 @@ concurrency:
 
 jobs:
   test-paradedb:
-    name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-latest-8
+    name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        pg_version: [16]
+        include:
+          - runner: depot-ubuntu-latest-8
+            pg_version: 16
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-8
+            pg_version: 16
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository

@@ -1032,7 +1032,7 @@ fn lenient_config_search(mut conn: PgConnection) {
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
         query => paradedb.term(field => 'description', value => 'laptap'),
-        lenient => true,
+        lenient_parsing => true,
         stable_sort => true
     )"#
     .fetch_collect(&mut conn);
@@ -1046,7 +1046,7 @@ fn lenient_config_search(mut conn: PgConnection) {
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
         query => paradedb.term(field => 'description', value => 'laptap'),
-        lenient => false,
+        lenient_parsing => false,
         stable_sort => true
     )"#
     .fetch_collect(&mut conn);

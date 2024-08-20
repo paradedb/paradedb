@@ -38,6 +38,8 @@ pub struct SearchConfig {
     pub uuid: String,
     pub order_by_field: Option<String>,
     pub order_by_direction: Option<String>,
+    pub lenient_parsing: Option<bool>,
+    pub conjunction_by_default: Option<bool>,
 }
 
 impl SearchConfig {

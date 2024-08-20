@@ -37,6 +37,7 @@ fn boolean_tree(mut conn: PgConnection) {
 			    paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1)
             ]
         ),
+        lenient_parsing => false,
         stable_sort => true
     );
     "#

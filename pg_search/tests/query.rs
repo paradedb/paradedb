@@ -1024,3 +1024,31 @@ fn fuzzy_phrase(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.id.len(), 0);
 }
+
+fn lenient_config_search(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Test lenient configuration: lenient flag enabled, should allow for minor errors like typos
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.term(field => 'description', value => 'laptap'),
+        lenient => true,
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        columns.id,
+        vec![12, 15, 18],
+        "lenient search should tolerate minor typo"
+    );
+
+    // Test strict configuration for comparison: lenient flag disabled, should not allow typos
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.term(field => 'description', value => 'laptap'),
+        lenient => false,
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert!(columns.is_empty(), "strict search should not tolerate typo");
+}

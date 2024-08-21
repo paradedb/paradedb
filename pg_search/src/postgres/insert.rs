@@ -58,7 +58,7 @@ pub unsafe extern "C" fn aminsert(
     isnull: *mut bool,
     heap_tid: pg_sys::ItemPointer,
     _heap_relation: pg_sys::Relation,
-    _check_unique: pg_sys::IndexUniqueCheck,
+    _check_unique: pg_sys::IndexUniqueCheck::Type,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
     let rdopts = (*index_relation).rd_options as *mut SearchIndexCreateOptions;

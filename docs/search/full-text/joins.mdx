@@ -1,11 +1,13 @@
 ---
-title: Joined Tables
+title: Joined Search
 ---
 
 ## Overview
 
-Postgres [materialized views](https://www.postgresql.org/docs/current/rules-materializedviews.html) can be used to create a single index
-over multiple tables. This is useful for joining and searching over normalized data.
+Joined search refers to a single search query that can search across multiple tables. For instance, you have two tables: `mock_products`
+and `mock_reviews`, and want to find reviews about certain products that match specific keywords.
+
+To achieve joined search, we introduce the concept of a **materialized column**. A materialized column is a column that can be added to any table, stores precomputed data from related tables, and refreshes in real time. This approach enables efficient search across normalized data without the need to perform expensive joins at query time.
 
 ## Basic Usage
 
@@ -14,24 +16,27 @@ In this example, we will create two tables: `mock_products` and `mock_reviews`.
 ```sql
 CREATE TABLE mock_products (
     id SERIAL PRIMARY KEY,
-    product_name TEXT
+    product_name TEXT,
+    category TEXT
 );
 
-INSERT INTO mock_products (product_name)
-VALUES ('Flat Screen TV'), ('MP3 Player');
+INSERT INTO mock_products (product_name, category)
+VALUES ('Flat Screen TV', 'Electronics'), ('MP3 Player', 'Electronics');
 
 SELECT * FROM mock_products;
 ```
 
 <Accordion title="Expected Response">
 ```csv
- id |  product_name
-----+----------------
-  1 | Flat Screen TV
-  2 | MP3 Player
+ id |  product_name  |  category
+----+----------------+-------------
+  1 | Flat Screen TV | Electronics
+  2 | MP3 Player     | Electronics
 (2 rows)
 ```
 </Accordion>
+
+Reviews are tied to products by the `product_id` foreign key.
 
 ```sql
 CREATE TABLE mock_reviews (
@@ -57,118 +62,179 @@ SELECT * FROM mock_reviews;
 ```
 </Accordion>
 
-The materialized view `product_reviews` joins data from both tables and produces a single view of product names and their
-corresponding reviews.
+Let's add a materialized column called `product_name` to `mock_reviews`, which associates every review
+with a product name.
 
 ```sql
-CREATE MATERIALIZED VIEW product_reviews
-AS SELECT r.review_id, p.product_name, r.review
-FROM mock_reviews r
-LEFT JOIN mock_products p ON p.id = r.product_id;
+ALTER TABLE mock_reviews ADD COLUMN product_name TEXT;
 
-SELECT * FROM product_reviews;
+UPDATE mock_reviews
+SET product_name = mock_products.product_name
+FROM mock_products
+WHERE mock_reviews.product_id = mock_products.id;
 ```
 
-<Accordion title="Expected Response">
-```csv
- review_id |  product_name  |       review
------------+----------------+--------------------
-         1 | Flat Screen TV | Amazing resolution
-         2 | MP3 Player     | Amazing sound
-         3 | MP3 Player     | Would recommend
-(3 rows)
-```
-</Accordion>
+Postgres triggers can be used to keep `product_name` up to date whenever a new row is inserted into `mock_reviews`.
 
-To search over `product_reviews`, it must first be indexed.
+```sql
+CREATE OR REPLACE FUNCTION update_product_name()
+RETURNS TRIGGER AS $$
+BEGIN
+    SELECT product_name INTO NEW.product_name
+    FROM mock_products
+    WHERE id = NEW.product_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_product_name_trigger
+BEFORE INSERT OR UPDATE ON mock_reviews
+FOR EACH ROW EXECUTE FUNCTION update_product_name();
+```
+
+Now, we can index and search `mock_reviews`:
 
 ```sql
 CALL paradedb.create_bm25(
-  index_name => 'product_reviews',
-  table_name => 'product_reviews',
+  index_name => 'reviews',
+  table_name => 'mock_reviews',
   key_field => 'review_id',
   text_fields => paradedb.field('review') || paradedb.field('product_name')
 );
-```
 
-Now, the materialized view can be searched:
-
-```sql
-SELECT * FROM product_reviews.search('review:amazing OR product_name:tv');
+SELECT review, product_name
+FROM reviews.search('review:amazing OR product_name:tv', limit_rows => 2);
 ```
 
 <Accordion title="Expected Response">
 ```csv
- review_id |  product_name  |       review
------------+----------------+--------------------
-         1 | Flat Screen TV | Amazing resolution
-         2 | MP3 Player     | Amazing sound
+       review       |  product_name
+--------------------+----------------
+ Amazing resolution | Flat Screen TV
+ Amazing sound      | MP3 Player
 (2 rows)
 ```
 </Accordion>
 
-## Materialized View Refresh
-
-One caveat of Postgres materialized views is that they do not update in real time. Any inserts/updates/deletes to the underlying
-joined tables will not be reflected in a materialized view until the view is refreshed.
+Whenever a new row is added to `mock_reviews`, the associated `product_name` is automatically computed.
 
 ```sql
-REFRESH MATERIALIZED VIEW product_reviews;
-```
+INSERT INTO mock_reviews (product_id, review)
+VALUES (2, 'Excellent quality');
 
-Refreshing a materialized view reconstructs both the materialized view and BM25 index, which may take some time for large views.
-There are several strategies that can help reduce the size of a materialized view. For instance, if there is a one-to-many mapping
-between two tables, `array_agg` can be used to group related rows into arrays.
-
-```sql
-CREATE MATERIALIZED VIEW product_reviews_agg
-AS SELECT p.id, p.product_name, array_agg(r.review) AS reviews
-FROM mock_reviews r
-LEFT JOIN mock_products p
-ON p.id = r.product_id
-GROUP BY p.product_name, p.id;
-
-SELECT * FROM product_reviews_agg;
+SELECT review, product_name
+FROM reviews.search('review:quality', limit_rows => 1);
 ```
 
 <Accordion title="Expected Response">
 ```csv
- id |  product_name  |               reviews
-----+----------------+-------------------------------------
-  1 | Flat Screen TV | {"Amazing resolution"}
-  2 | MP3 Player     | {"Amazing sound","Would recommend"}
-(2 rows)
-```
-</Accordion>
-
-Arrays can be indexed and searched over in the same way as non-array types.
-
-```sql
-CALL paradedb.create_bm25(
-  index_name => 'product_reviews_agg',
-  table_name => 'product_reviews_agg',
-  key_field => 'id',
-  text_fields => paradedb.field('reviews') || paradedb.field('product_name')
-);
-
-SELECT * FROM product_reviews_agg.search('reviews:sound');
-```
-
-<Accordion title="Expected Response">
-```csv
- id | product_name |               reviews
-----+--------------+-------------------------------------
-  2 | MP3 Player   | {"Amazing sound","Would recommend"}
+      review       | product_name
+-------------------+--------------
+ Excellent quality | MP3 Player
 (1 row)
 ```
 </Accordion>
 
-## Incremental Materialized Views
+## Multiple Joined Columns
 
-Incremental materialized views automatically stay up to date with the underlying data in real time.
-While Postgres itself does not support incremental materialized views, we recommend trying [pg_ivm](https://github.com/sraoss/pg_ivm),
-which adds support for incremental materialized views. It is important to note the limitations of `pg_ivm`, which include
-lack of support for outer joins, partitioned tables, and certain aggregates.
+If a search query needs to reference multiple columns from another table, these columns can be combined
+into a single `JSONB` materialized column. For instance, let's say we wish to join every review with
+`product_name` and `category`, which are columns in `mock_products`.
+
+```sql
+ALTER TABLE mock_reviews ADD COLUMN product_details JSONB;
+
+UPDATE mock_reviews
+SET product_details = jsonb_build_object(
+    'product_name', mock_products.product_name,
+    'category', mock_products.category
+)
+FROM mock_products
+WHERE mock_reviews.product_id = mock_products.id;
+
+SELECT review, product_details from mock_reviews;
+```
+
+<Accordion title="Expected Response">
+```csv
+       review       |                        product_details
+--------------------+---------------------------------------------------------------
+ Amazing resolution | {"category": "Electronics", "product_name": "Flat Screen TV"}
+ Amazing sound      | {"category": "Electronics", "product_name": "MP3 Player"}
+ Would recommend    | {"category": "Electronics", "product_name": "MP3 Player"}
+ Excellent quality  | {"category": "Electronics", "product_name": "MP3 Player"}
+(4 rows)
+```
+</Accordion>
+
+We can search over the `product_details` column using ParadeDB's JSON full text search.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'detailed_reviews',
+  table_name => 'mock_reviews',
+  key_field => 'review_id',
+  text_fields => paradedb.field('review'),
+  json_fields => paradedb.field('product_details')
+);
+
+SELECT review, product_details
+FROM detailed_reviews.search(
+  'product_details.product_name:tv AND review:amazing',
+  limit_rows => 1
+);
+```
+
+<Accordion title="Expected Response">
+```csv
+       review       |                        product_details
+--------------------+---------------------------------------------------------------
+ Amazing resolution | {"category": "Electronics", "product_name": "Flat Screen TV"}
+(1 row)
+```
+</Accordion>
+
+Finally, let's create a trigger that updates `product_details` whenever a review is inserted or updated.
+
+```sql
+CREATE OR REPLACE FUNCTION update_product_details()
+RETURNS TRIGGER AS $$
+BEGIN
+    SELECT jsonb_build_object(
+        'product_name', product_name,
+        'category', category
+    ) INTO NEW.product_details
+    FROM mock_products
+    WHERE mock_products.id = NEW.product_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_product_details_trigger
+BEFORE INSERT OR UPDATE ON mock_reviews
+FOR EACH ROW
+EXECUTE FUNCTION update_product_details();
+```
+
+Let's insert a new review into `mock_reviews` and verify that the trigger is working.
+
+```sql
+INSERT INTO mock_reviews (product_id, review) VALUES (2, 'would buy again');
+
+SELECT review, product_details
+FROM detailed_reviews.search('product_details.product_name:player AND review:buy');
+```
+
+<Accordion title="Expected Response">
+```csv
+     review      |                      product_details
+-----------------+-----------------------------------------------------------
+ would buy again | {"category": "Electronics", "product_name": "MP3 Player"}
+(1 row)
+```
+</Accordion>
 
 ## For Further Assistance
 

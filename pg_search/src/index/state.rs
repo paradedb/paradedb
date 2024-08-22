@@ -19,7 +19,6 @@ use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tantivy::collector::TopDocs;
 use tantivy::schema::{FieldType, Value};
@@ -139,18 +138,15 @@ impl SearchState {
                 .collect();
         }
 
-        if self.config.stable_sort.is_some_and(|stable| stable) {
-            // If the user requires a stable sort, we'll use tweak_score. This allows us to retrieve
-            // the value of a fast field and use that as a secondary sort key. In the case of a
-            // bm25 score tie, results will be ordered based on the value of their 'key_field'.
-            // This has a big performance impact, so the user needs to opt-in.
-            let key_field_name = self.config.key_field.clone();
-            let schema = self.schema.clone();
-            let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
+        let key_field_name = self.config.key_field.clone();
+        let schema = self.schema.clone();
+        let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
                 move |segment_reader: &tantivy::SegmentReader| -> Box<dyn FnMut(tantivy::DocId, Score) -> SearchIndexScore> {
                     let fast_fields = segment_reader
                         .fast_fields();
 
+                    let ctid_field_reader = fast_fields.u64("ctid")
+                                .unwrap_or_else(|err| panic!("no u64 ctid field in tweak_score: {err:?}" )).first_or_default_col(0);
                     // Check the type of the field from the schema
                     match schema.get_search_field(&key_field_name.clone().into()).unwrap_or_else(|| panic!("key field {} not found", key_field_name)).type_ {
                         SearchFieldType::I64 => {
@@ -164,6 +160,7 @@ impl SearchState {
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: TantivyValue(val.into()),
+                                    ctid: ctid_field_reader.get_val(doc)
                                 }
                             })
                         }
@@ -177,6 +174,7 @@ impl SearchState {
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    ctid: ctid_field_reader.get_val(doc)
                                 }
                             })
                         }
@@ -190,6 +188,7 @@ impl SearchState {
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    ctid: ctid_field_reader.get_val(doc)
                                 }
                             })
                         }
@@ -206,6 +205,7 @@ impl SearchState {
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: TantivyValue(tok_str.clone().into()),
+                                    ctid: ctid_field_reader.get_val(doc)
                                 }
                             })
                         }
@@ -219,6 +219,7 @@ impl SearchState {
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    ctid: ctid_field_reader.get_val(doc)
                                 }
                             })
                         }
@@ -232,6 +233,7 @@ impl SearchState {
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    ctid: ctid_field_reader.get_val(doc)
                                 }
                             })
                         }
@@ -239,71 +241,21 @@ impl SearchState {
                     }
                 },
             );
-            self.searcher
-                .search_with_executor(
-                    self.query.as_ref(),
-                    &collector,
-                    executor,
-                    tantivy::query::EnableScoring::Enabled {
-                        searcher: &self.searcher,
-                        statistics_provider: &self.searcher,
-                    },
-                )
-                .expect("failed to search")
-                .into_iter()
-                .map(|(score, doc_address)| {
-                    // This iterator contains the results after limit + offset are applied.
-                    let ctid = self.ctid_value(doc_address);
-                    (score.bm25, doc_address, score.key, ctid)
-                })
-                .collect()
-        } else {
-            let collector = TopDocs::with_limit(limit).and_offset(offset);
-            self.searcher
-                .search_with_executor(
-                    self.query.as_ref(),
-                    &collector,
-                    executor,
-                    tantivy::query::EnableScoring::Enabled {
-                        searcher: &self.searcher,
-                        statistics_provider: &self.searcher,
-                    },
-                )
-                .expect("failed to search")
-                .into_iter()
-                .map(|(score, doc_address)| {
-                    // This iterator contains the results after limit + offset are applied.
-                    let (key, ctid) = self.key_and_ctid_value(doc_address);
-                    (score, doc_address, key, ctid)
-                })
-                .collect()
-        }
-    }
 
-    pub fn key_value(&self, doc_address: DocAddress) -> TantivyValue {
-        let retrieved_doc: TantivyDocument = self
-            .searcher
-            .doc(doc_address)
-            .expect("could not retrieve document by address");
-
-        let value = retrieved_doc
-            .get_first(self.schema.key_field().id.0)
-            .unwrap();
-
-        TantivyValue(value.clone())
-    }
-
-    pub fn ctid_value(&self, doc_address: DocAddress) -> u64 {
-        let retrieved_doc: TantivyDocument = self
-            .searcher
-            .doc(doc_address)
-            .expect("could not retrieve document by address");
-
-        retrieved_doc
-            .get_first(self.schema.ctid_field().id.0)
-            .unwrap()
-            .as_u64()
-            .expect("could not access ctid field on document")
+        self.searcher
+            .search_with_executor(
+                self.query.as_ref(),
+                &collector,
+                executor,
+                tantivy::query::EnableScoring::Enabled {
+                    searcher: &self.searcher,
+                    statistics_provider: &self.searcher,
+                },
+            )
+            .expect("failed to search")
+            .into_iter()
+            .map(|(score, doc_address)| (score.bm25, doc_address, score.key, score.ctid))
+            .collect()
     }
 
     pub fn key_and_ctid_value(&self, doc_address: DocAddress) -> (TantivyValue, u64) {
@@ -324,33 +276,5 @@ impl SearchState {
             .as_u64()
             .expect("could not access ctid field on document");
         (key, ctid)
-    }
-
-    /// A search method that deduplicates results based on key field. This is important for
-    /// searches into the Tantivy index outside of Postgres index access methods. Postgres will
-    /// filter out stale rows when using the index scan, but when scanning Tantivy directly,
-    /// we risk returning deleted documents if a VACUUM hasn't been performed yet.
-    pub fn search_dedup(
-        &mut self,
-        executor: &Executor,
-    ) -> impl Iterator<Item = (Score, DocAddress)> {
-        let search_results = self.search(executor);
-        let mut dedup_map: HashMap<TantivyValue, (Score, DocAddress)> = HashMap::new();
-        let mut order_vec: Vec<TantivyValue> = Vec::new();
-
-        for (score, doc_addr, key, _) in search_results {
-            let is_new_or_higher = match dedup_map.get(&key) {
-                Some((_, existing_doc_addr)) => doc_addr > *existing_doc_addr,
-                None => true,
-            };
-            if is_new_or_higher && dedup_map.insert(key.clone(), (score, doc_addr)).is_none() {
-                // Key was not already present, remember the order of this key
-                order_vec.push(key.clone());
-            }
-        }
-
-        order_vec
-            .into_iter()
-            .filter_map(move |key| dedup_map.remove(&key))
     }
 }

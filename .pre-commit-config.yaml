@@ -80,3 +80,8 @@ repos:
     hooks:
       - id: mintlify-validate
         args: [docs]
+
+  - repo: https://github.com/ComPWA/mirrors-taplo
+    rev: "v0.9.3"
+    hooks:
+      - id: taplo-format

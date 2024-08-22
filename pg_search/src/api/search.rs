@@ -22,6 +22,8 @@ use crate::{globals::WriterGlobal, index::SearchIndex};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::TantivyDocument;
 
+use crate::postgres::utils::ctid_satisfies_snapshot;
+
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
@@ -65,7 +67,7 @@ pub fn score_bm25(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
-    let mut scan_state = search_index
+    let scan_state = search_index
         .search_state(
             &writer_client,
             &search_config,
@@ -73,24 +75,28 @@ pub fn score_bm25(
         )
         .expect("could not get scan state");
 
+    let relation = unsafe { pg_sys::RelationIdGetRelation(search_config.table_oid.into()) };
+    let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
     let top_docs = scan_state
-        .search_dedup(SearchIndex::executor())
-        .map(|(score, doc_address)| {
+        .search(SearchIndex::executor())
+        .into_iter()
+        .filter(|(_, _, _, ctid)| unsafe { ctid_satisfies_snapshot(*ctid, relation, snapshot) })
+        .map(|(score, _, key, _)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
-                    scan_state
-                        .key_value(doc_address)
-                        .try_into_datum(PgOid::from_untagged(key_oid))
+                    key.try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
                     key_oid,
                 )
                 .expect("null found in key_field")
             };
+
             (key, score)
         })
         .collect::<Vec<_>>();
 
+    unsafe { pg_sys::RelationClose(relation) };
     TableIterator::new(top_docs)
 }
 
@@ -115,7 +121,7 @@ pub fn snippet(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
-    let mut scan_state = search_index
+    let scan_state = search_index
         .search_state(
             &writer_client,
             &search_config,
@@ -131,14 +137,16 @@ pub fn snippet(
         snippet_generator.set_max_num_chars(max_num_chars)
     }
 
+    let relation = unsafe { pg_sys::RelationIdGetRelation(search_config.table_oid.into()) };
+    let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
     let top_docs = scan_state
-        .search_dedup(SearchIndex::executor())
-        .map(|(score, doc_address)| {
+        .search(SearchIndex::executor())
+        .into_iter()
+        .filter(|(_, _, _, ctid)| unsafe { ctid_satisfies_snapshot(*ctid, relation, snapshot) })
+        .map(|(score, doc_address, key, _)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
-                    scan_state
-                        .key_value(doc_address)
-                        .try_into_datum(PgOid::from_untagged(key_oid))
+                    key.try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
                     key_oid,
@@ -167,6 +175,7 @@ pub fn snippet(
         })
         .collect::<Vec<_>>();
 
+    unsafe { pg_sys::RelationClose(relation) };
     TableIterator::new(top_docs)
 }
 

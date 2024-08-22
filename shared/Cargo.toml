@@ -9,7 +9,6 @@ license = "AGPL-3.0"
 fixtures = ["async-std", "rstest", "soa_derive", "sqlx", "bigdecimal"]
 
 [dependencies]
-envy = "0.4.2"
 pgrx = { git = "https://github.com/paradedb/pgrx.git", rev = "2737a13" }
 reqwest = { version = "0.11.22", features = ["blocking"] }
 serde = "1.0.189"

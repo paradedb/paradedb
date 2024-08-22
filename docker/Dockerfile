@@ -211,6 +211,12 @@ RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
 RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_analytics,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
 
+# Barman is required for backups in CloudNativePG
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    barman \
+    barman-cli-cloud \
+    && rm -rf /var/lib/apt/lists/*
+
 # Change the uid of the postgres user to 26, for CloudNativePG compatibility
 RUN usermod -u 26 postgres \
     && chown -R 26:999 /var/lib/postgresql \

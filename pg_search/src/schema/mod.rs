@@ -28,7 +28,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use tantivy::schema::{
     DateOptions, Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema,
-    TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
+    TextFieldIndexing, TextOptions, FAST, INDEXED,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -577,9 +577,7 @@ impl SearchIndexSchema {
             }
 
             let id: SearchFieldId = match &config {
-                SearchFieldConfig::Ctid => {
-                    builder.add_u64_field(name.as_ref(), INDEXED | STORED | FAST)
-                }
+                SearchFieldConfig::Ctid => builder.add_u64_field(name.as_ref(), INDEXED | FAST),
                 _ => match field_type {
                     SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
                     SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),

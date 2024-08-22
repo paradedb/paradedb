@@ -39,6 +39,10 @@ pub struct SearchState {
 
 impl SearchState {
     pub fn new(search_index: &SearchIndex, config: &SearchConfig) -> Self {
+        if config.stable_sort.is_some_and(|stable| stable) && config.order_by_field.is_some() {
+            panic!("can't use stable_sort while using order_by_field")
+        }
+
         let schema = search_index.schema.clone();
         let mut parser = search_index.query_parser();
         let searcher = search_index.searcher();

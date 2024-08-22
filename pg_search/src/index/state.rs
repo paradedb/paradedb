@@ -112,9 +112,9 @@ impl SearchState {
 
             let collector = TopDocs::with_limit(limit)
                 .and_offset(offset)
-                // Type is specified as u64 to skip figuring out which type the field actually is
-                // We can do this because we don't actually use the field value returned by Tantivy
-                .order_by_fast_field::<u64>(order_by_field, direction);
+                // This will return u64 no matter what the actual type of the field is
+                // This is fine because we do not use the value returned from Tantivy
+                .order_by_u64_field(order_by_field, direction);
 
             return self
                 .searcher

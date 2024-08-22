@@ -17,6 +17,7 @@
 
 mod fixtures;
 
+use chrono::NaiveDateTime;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -219,6 +220,96 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
     let count: (i64,) = r#"SELECT COUNT(*) FROM bm25_search.search('description:"Generic shoes"')"#
         .fetch_one(&mut conn);
     assert_eq!(count.0, 1);
+}
+
+#[rstest]
+fn order_by(mut conn: PgConnection) {
+    "CREATE TABLE pets (id INT PRIMARY KEY, name TEXT, rating INT, birthdate TIMESTAMP);"
+        .execute(&mut conn);
+
+    "INSERT INTO pets (id, name, rating, birthdate) VALUES 
+        (1, 'dog', 5, '2005-01-01'::TIMESTAMP),
+        (2, 'dog dog', 2, '2004-01-01'::TIMESTAMP),
+        (3, 'dog dog dog', 3, '2003-01-01'::TIMESTAMP),
+        (4, 'cat', 10, '2002-01-01'::TIMESTAMP),
+        (5, 'cat cat', 10, '2001-01-01'::TIMESTAMP);
+    "
+    .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'pets',
+        table_name => 'pets',
+        key_field => 'id',
+        text_fields => paradedb.field('name'),
+        numeric_fields => paradedb.field('rating'),
+        datetime_fields => paradedb.field('birthdate')
+    );"
+    .execute(&mut conn);
+
+    // Helper function
+    fn verify_order(conn: &mut PgConnection, query: &str, ids_ordered: Vec<i32>) {
+        let rows: Vec<(i32, String, i32, NaiveDateTime)> = query.fetch_result(conn).unwrap();
+
+        for i in 0..ids_ordered.len() {
+            assert_eq!(rows[i].0, ids_ordered[i]);
+        }
+    }
+
+    // Order by numeric field
+    // Default order direction
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating')",
+        vec![2, 3, 1],
+    );
+
+    // Explicit asc
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating', order_by_direction => 'asc')",
+        vec![2, 3, 1],
+    );
+
+    // Capital ASC
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating', order_by_direction => 'ASC')",
+        vec![2, 3, 1],
+    );
+
+    // desc
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating', order_by_direction => 'desc')",
+        vec![1, 3, 2],
+    );
+
+    // Capital DESC
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating', order_by_direction => 'DESC')",
+        vec![1, 3, 2],
+    );
+
+    // Order by date field
+    // ASC
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'birthdate', order_by_direction => 'ASC')",
+        vec![3, 2, 1],
+    );
+
+    // DESC
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'birthdate', order_by_direction => 'DESC')",
+        vec![1, 2, 3],
+    );
+
+    match "SELECT * FROM pets.search('name:dog', order_by_field => 'birthdate', stable_sort => true)".fetch_result::<(i32, String, i32, NaiveDateTime)>(&mut conn) {
+        Err(e) => assert!(e.to_string().contains("can't use stable_sort while using order_by_field")),
+        _ => panic!("Didn't panic when using order_by_field and stable_sort at the same time")
+    }
 }
 
 #[rstest]

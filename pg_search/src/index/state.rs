@@ -26,7 +26,7 @@ use tantivy::schema::{FieldType, Value};
 use tantivy::{query::Query, DocAddress, Score, Searcher};
 use tantivy::{Executor, Order, SnippetGenerator, TantivyDocument};
 
-static DEFAULT_ORDER_BY_DIRECTION: &'static str = "asc";
+static DEFAULT_ORDER_BY_DIRECTION: &str = "asc";
 static DEFAULT_BM25_SCORE_FOR_ORDER_BY: f32 = 1.0;
 
 #[derive(Clone)]

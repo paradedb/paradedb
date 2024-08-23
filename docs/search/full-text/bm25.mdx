@@ -215,3 +215,26 @@ FROM <index_name>.search(
   A boolean specifying whether ParadeDB should stabilize the order of
   equally-scored results, at the cost of performance.
 </ParamField>
+
+## Custom Ordering
+
+By default the rows are ordered by their bm25 score but we can order them by any fast field by specifying `order_by_field`.
+
+The sort order can be changed by specifying `order_by_direction`, default is ascending.
+
+```sql
+SELECT
+  *
+FROM <index_name>.search(
+  '<query>',
+  order_by_field => '<field_name>',
+  order_by_direction => 'asc' | 'desc'
+)
+```
+
+<ParamField body="order_by_field">
+  The name of the field to order by.
+</ParamField>
+<ParamField body="order_by_direction" default={"asc"}>
+  The sort order to use.
+</ParamField>

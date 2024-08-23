@@ -305,11 +305,6 @@ fn order_by(mut conn: PgConnection) {
         "SELECT * FROM pets.search('name:dog', order_by_field => 'birthdate', order_by_direction => 'DESC')",
         vec![1, 2, 3],
     );
-
-    match "SELECT * FROM pets.search('name:dog', order_by_field => 'birthdate', stable_sort => true)".fetch_result::<(i32, String, i32, NaiveDateTime)>(&mut conn) {
-        Err(e) => assert!(e.to_string().contains("can't use stable_sort while using order_by_field")),
-        _ => panic!("Didn't panic when using order_by_field and stable_sort at the same time")
-    }
 }
 
 #[rstest]

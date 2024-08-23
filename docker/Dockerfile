@@ -9,12 +9,16 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.80.0
-ARG PGRX_VERSION=0.12.0
+ARG PGRX_VERSION_PG_SEARCH=0.12.0
+ARG PGRX_VERSION_PG_ANALYTICS=0.11.3
+ARG PGRX_VERSION_PG_VECTOR=0.11.4
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     RUST_VERSION=${RUST_VERSION} \
-    PGRX_VERSION=${PGRX_VERSION}
+    PGRX_VERSION_PG_SEARCH=${PGRX_VERSION_PG_SEARCH} \
+    PGRX_VERSION_PG_ANALYTICS=${PGRX_VERSION_PG_ANALYTICS} \
+    PGRX_VERSION_PG_VECTOR=${PGRX_VERSION_PG_VECTOR}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
@@ -39,12 +43,13 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 ######################
 # pg_search
 ######################
+# Intall the pgrx version of pg_search
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_SEARCH}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
 
 FROM builder AS builder-pg_search
 
@@ -70,6 +75,9 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 ######################
 # pg_analytics
 ######################
+# Intall the pgrx version of pg_analytics
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_ANALYTICS}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 FROM builder AS builder-pg_analytics
 
@@ -95,6 +103,9 @@ RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/
 ######################
 # pgvector
 ######################
+# Intall the pgrx version of pgvector
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_VECTOR}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 FROM builder AS builder-pgvector
 

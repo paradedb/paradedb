@@ -96,7 +96,6 @@ installDocker() {
         break ;;
     esac
   done
- 
   echo "Docker Container started ✅"
 
   # Provide usage information
@@ -108,10 +107,10 @@ installDeb(){
 
   echo "Installing dependencies...."
   echo "Installing cURL"
-  
+
   sudo apt-get update -y || false
   sudo apt-get install curl -y || false
-  
+
   echo "Successfully Installed cURL✅"
 
   distros=("bookworm(Debian 12.0)" "jammy(Ubuntu 22.04)" "noble(Ubuntu 24.04)")
@@ -149,7 +148,7 @@ installDeb(){
 installRPM(){
   filename="pg_search_$1-$LATEST_RELEASE_VERSION-1PARADEDB.el9.${ARCH}.rpm"
   url="https://github.com/paradedb/paradedb/releases/latest/download/${filename}"
-  echo -e "Insatlling cURL"
+  echo -e "Installing cURL"
   sudo dnf install curl || false
   echo "Successfully Installed cURL✅"
 

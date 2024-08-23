@@ -19,6 +19,7 @@ use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::{query::QueryParser, Executor, Index, Searcher};
 use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};

@@ -16,12 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::globals::WriterGlobal;
+use crate::index::state::SearchHitIter;
 use crate::index::SearchIndex;
-use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::*;
-use tantivy::{DocAddress, Score};
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -76,11 +75,20 @@ pub extern "C" fn amrescan(
         .search_state(&writer_client, &search_config, needs_commit(index_oid))
         .unwrap();
 
+    // leak the `SearchState` for the lifetime of the current memory context
+    let state = unsafe {
+        let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
+
+        // SAFETY:  we were given a valid pointer for `state`
+        state.as_mut().unwrap()
+    };
+
     let top_docs = state.search(SearchIndex::executor());
 
     // Save the iterator onto the current memory context.
-    scan.opaque = PgMemoryContexts::CurrentMemoryContext
-        .leak_and_drop_on_delete(top_docs.into_iter()) as void_mut_ptr;
+    // let iter:HitsIterator = Box::new(top_docs);
+    scan.opaque =
+        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(top_docs) as void_mut_ptr;
 
     // Return scan state back management to Postgres.
     scan.into_pg();
@@ -96,23 +104,18 @@ pub extern "C" fn amgettuple(
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter = unsafe {
-        (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, TantivyValue, u64)>).as_mut()
+        // SAFETY:  `amrescan()` leaked an instance of `HitsIterator` into the current Postgres MemoryContext
+        //          and set `scan.opaque` to point to it.
+        (scan.opaque as *mut SearchHitIter).as_mut()
     }
     .expect("no scandesc state");
 
     scan.xs_recheck = false;
 
     match iter.next() {
-        Some((_, _, _, ctid)) => {
-            #[cfg(any(
-                feature = "pg12",
-                feature = "pg13",
-                feature = "pg14",
-                feature = "pg15",
-                feature = "pg16"
-            ))]
+        Some(hit) => {
             let tid = &mut scan.xs_heaptid;
-            u64_to_item_pointer(ctid, tid);
+            u64_to_item_pointer(hit.ctid, tid);
 
             true
         }

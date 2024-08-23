@@ -67,7 +67,7 @@ pub fn score_bm25(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
-    let scan_state = search_index
+    let mut scan_state = search_index
         .search_state(
             &writer_client,
             &search_config,
@@ -80,11 +80,13 @@ pub fn score_bm25(
     let top_docs = scan_state
         .search(SearchIndex::executor())
         .into_iter()
-        .filter(|(_, _, _, ctid)| unsafe { ctid_satisfies_snapshot(*ctid, relation, snapshot) })
-        .map(|(score, _, key, _)| {
+        .filter(|hit| unsafe { ctid_satisfies_snapshot(hit.ctid, relation, snapshot) })
+        .map(|hit| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
-                    key.try_into_datum(PgOid::from_untagged(key_oid))
+                    hit.key
+                        .expect("key value was not retrieved")
+                        .try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
                     key_oid,
@@ -92,7 +94,7 @@ pub fn score_bm25(
                 .expect("null found in key_field")
             };
 
-            (key, score)
+            (key, hit.score)
         })
         .collect::<Vec<_>>();
 
@@ -121,13 +123,14 @@ pub fn snippet(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
-    let scan_state = search_index
+    let mut scan_state = search_index
         .search_state(
             &writer_client,
             &search_config,
             needs_commit(search_config.index_oid),
         )
         .expect("could not get scan state");
+    let searcher = scan_state.searcher();
 
     let highlight_field = search_config
         .highlight_field
@@ -142,11 +145,13 @@ pub fn snippet(
     let top_docs = scan_state
         .search(SearchIndex::executor())
         .into_iter()
-        .filter(|(_, _, _, ctid)| unsafe { ctid_satisfies_snapshot(*ctid, relation, snapshot) })
-        .map(|(score, doc_address, key, _)| {
+        .filter(|hit| unsafe { ctid_satisfies_snapshot(hit.ctid, relation, snapshot) })
+        .map(move |hit| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
-                    key.try_into_datum(PgOid::from_untagged(key_oid))
+                    hit.key
+                        .expect("key was not retrieved")
+                        .try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
                     key_oid,
@@ -154,9 +159,8 @@ pub fn snippet(
                 .expect("null found in key_field")
             };
 
-            let doc: TantivyDocument = scan_state
-                .searcher
-                .doc(doc_address)
+            let doc: TantivyDocument = searcher
+                .doc(hit.doc_address)
                 .expect("could not find document in searcher");
 
             let mut snippet = snippet_generator.snippet_from_doc(&doc);
@@ -171,7 +175,7 @@ pub fn snippet(
                     .unwrap_or(DEFAULT_SNIPPET_POSTFIX.to_string()),
             );
 
-            (key, snippet.to_html(), score)
+            (key, snippet.to_html(), hit.score)
         })
         .collect::<Vec<_>>();
 

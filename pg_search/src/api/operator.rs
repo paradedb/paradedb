@@ -39,7 +39,7 @@ fn search_tantivy(
         let directory = WriterDirectory::from_index_oid(search_config.index_oid);
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-        let scan_state = search_index
+        let mut scan_state = search_index
             .search_state(
                 &writer_client,
                 &search_config,
@@ -49,8 +49,8 @@ fn search_tantivy(
         let top_docs = scan_state.search(SearchIndex::executor());
         let mut hs = FxHashSet::default();
 
-        for (_score, _doc_address, key, _ctid) in top_docs {
-            hs.insert(key);
+        for hit in top_docs {
+            hs.insert(hit.key.expect("key was not retrieved"));
         }
 
         (search_config, hs)

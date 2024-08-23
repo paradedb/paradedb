@@ -18,7 +18,6 @@
 use anyhow::Result;
 use async_std::sync::Mutex;
 use async_std::task::block_on;
-use criterion::async_executor::AsyncStdExecutor;
 use criterion::Criterion;
 use sqlx::Executor;
 use sqlx::{postgres::PgConnectOptions, Connection, PgConnection};
@@ -68,13 +67,10 @@ impl Benchmark {
                 self.setup_query(&mut conn).await.unwrap();
             });
 
-            runner.to_async(AsyncStdExecutor).iter(|| {
+            let mut conn = block_on(conn.lock());
+            runner.iter(|| {
                 // Measured code goes here.
-                async {
-                    let local_conn = conn.clone();
-                    let mut conn = local_conn.lock().await; // Acquire the lock asynchronously.
-                    sqlx::query(&self.query).execute(&mut *conn).await.unwrap();
-                }
+                block_on(sqlx::query(&self.query).execute(&mut *conn)).unwrap();
             });
         });
 

@@ -62,18 +62,19 @@ installDocker() {
   echo -e "Pulled Successfully ✅\n"
 
   echo -e "Removing any existing containers\n"
-  docker stop paradedb || true
-  docker rm paradedb || true
+  docker stop paradedb > /dev/null || true
+  docker rm paradedb > /dev/null || true
   echo -e "\n"
 
   echo -e "Would you like to add a Docker volume to your database?\nA docker volume will ensure that your ParadeDB Postgres database is stored across Docker restarts.\nNote that you will need to manually update ParadeDB versions on your volume via: https://docs.paradedb.com/upgrading.\nIf you're only testing, we do not recommend adding a volume."
 
-  volume_opts=("Yes" "No")
+  volume_opts=("Yes" "No(Default)")
 
   select vopt in "${volume_opts[@]}"
   do
     case $vopt in
       "Yes")
+        echo "Adding volume at: /var/lib/postgresql/data"
         docker run \
           --name paradedb \
           -e POSTGRES_USER="$pguser" \
@@ -84,7 +85,7 @@ installDocker() {
           -d \
           paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
         break ;;
-      "No")
+      *)
         docker run \
           --name paradedb \
           -e POSTGRES_USER="$pguser" \

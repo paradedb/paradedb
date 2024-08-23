@@ -2,7 +2,7 @@
 
 ARCH=$(uname -m)
 LATEST_RELEASE_TAG=$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r .tag_name)
-LATEST_RELEASE_TAG="${LATEST_RELEASE_VERSION#v}"
+LATEST_RELEASE_VERSION="${LATEST_RELEASE_TAG#v}"
 
 set -Eeuo pipefail
 

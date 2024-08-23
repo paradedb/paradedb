@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::score::SearchIndexScore;
+use super::score::{OrderByScore, SearchIndexScore};
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
@@ -93,27 +93,159 @@ impl SearchState {
 
         let offset = self.config.offset_rows.unwrap_or(0);
 
+        let key_field_name = self.config.key_field.clone();
+        let schema = self.schema.clone();
+
         if let Some(order_by_field) = self.config.order_by_field.clone() {
             // Lowercase the input and use default order direction
-            let lowercase_direction = self
+            let lowercase_direction_input = self
                 .config
                 .order_by_direction
                 .clone()
                 .unwrap_or(DEFAULT_ORDER_BY_DIRECTION.to_owned())
                 .to_lowercase();
 
-            // Convert to tantivy Order
-            let direction = match lowercase_direction.as_str() {
-                "asc" => Order::Asc,
-                "desc" => Order::Desc,
-                _ => panic!("Invalid order_by_direction {}", lowercase_direction),
-            };
+            let collector = TopDocs::with_limit(limit).and_offset(offset).custom_score(
+                move |segment_reader: &tantivy::SegmentReader| -> Box<dyn FnMut(tantivy::DocId) -> OrderByScore> {
+                    // Convert to tantivy Order
+                    let direction = match lowercase_direction_input.as_str() {
+                        "asc" => Order::Asc,
+                        "desc" => Order::Desc,
+                        _ => panic!("Invalid order_by_direction {}", lowercase_direction_input),
+                    };
 
-            let collector = TopDocs::with_limit(limit)
-                .and_offset(offset)
-                // This will return u64 no matter what the actual type of the field is
-                // This is fine because we do not use the value returned from Tantivy
-                .order_by_u64_field(order_by_field, direction);
+                    let fast_fields = segment_reader
+                            .fast_fields();
+
+                    let ctid_field_reader = fast_fields.u64("ctid").unwrap_or_else(|err| panic!("no u64 ctid field: {err:?}" )).first_or_default_col(0);
+                    let order_field_reader = fast_fields.u64_lenient(&order_by_field).unwrap_or_else(|err| panic!("can't read field {}: {:?} ", order_by_field, err)).unwrap().0.first_or_default_col(0);
+
+                    // Check the type of the field from the schema
+                    match schema.get_search_field(&key_field_name.clone().into()).unwrap_or_else(|| panic!("key field {} not found", key_field_name)).type_ {
+                        SearchFieldType::I64 => {
+                            let key_field_reader = fast_fields
+                                .i64(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", key_field_name))
+                                .first_or_default_col(0);
+
+                            Box::new(move |doc: tantivy::DocId| {
+                                let val = key_field_reader.get_val(doc);
+
+                                let score = match direction {
+                                    Order::Asc => u64::MAX - order_field_reader.get_val(doc),
+                                    Order::Desc => order_field_reader.get_val(doc),
+                                };
+
+                                OrderByScore {
+                                    score,
+                                    key: TantivyValue(val.into()),
+                                    ctid: ctid_field_reader.get_val(doc)
+                                }
+                            })
+                        }
+                        SearchFieldType::U64 => {
+                            let key_field_reader = fast_fields
+                                .u64(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a u64: {err:?}", key_field_name))
+                                .first_or_default_col(0);
+
+                            Box::new(move |doc: tantivy::DocId| {
+                                let score = match direction {
+                                    Order::Asc => order_field_reader.get_val(doc),
+                                    Order::Desc => u64::MAX - order_field_reader.get_val(doc),
+                                };
+
+                                OrderByScore {
+                                    score,
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    ctid: ctid_field_reader.get_val(doc)
+                                }
+                            })
+                        }
+                        SearchFieldType::F64 => {
+                            let key_field_reader = fast_fields
+                                .f64(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a f64: {err:?}", key_field_name))
+                                .first_or_default_col(0.0);
+
+                            Box::new(move |doc: tantivy::DocId| {
+                                let score = match direction {
+                                    Order::Asc => order_field_reader.get_val(doc),
+                                    Order::Desc => u64::MAX - order_field_reader.get_val(doc),
+                                };
+
+                                OrderByScore {
+                                    score,
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    ctid: ctid_field_reader.get_val(doc)
+                                }
+                            })
+                        }
+                        SearchFieldType::Text => {
+                            let key_field_reader = fast_fields
+                                .str(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a string: {err:?}", key_field_name))
+                                .unwrap();
+
+                            Box::new(move |doc: tantivy::DocId| {
+                                let mut tok_str: String = Default::default();
+                                let ord = key_field_reader.term_ords(doc).nth(0).unwrap();
+                                key_field_reader.ord_to_str(ord, &mut tok_str).expect("no string!!");
+
+                                let score = match direction {
+                                    Order::Asc => order_field_reader.get_val(doc),
+                                    Order::Desc => u64::MAX - order_field_reader.get_val(doc),
+                                };
+
+                                OrderByScore {
+                                    score,
+                                    key: TantivyValue(tok_str.clone().into()),
+                                    ctid: ctid_field_reader.get_val(doc)
+                                }
+                            })
+                        }
+                        SearchFieldType::Bool => {
+                            let key_field_reader = fast_fields
+                                .bool(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a bool: {err:?}", key_field_name))
+                                .first_or_default_col(false);
+
+                            Box::new(move |doc: tantivy::DocId| {
+                                let score = match direction {
+                                    Order::Asc => order_field_reader.get_val(doc),
+                                    Order::Desc => u64::MAX - order_field_reader.get_val(doc),
+                                };
+
+                                OrderByScore {
+                                    score,
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    ctid: ctid_field_reader.get_val(doc)
+                                }
+                            })
+                        }
+                        SearchFieldType::Date => {
+                            let key_field_reader = fast_fields
+                                .date(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a date: {err:?}", key_field_name))
+                                .first_or_default_col(tantivy::DateTime::MIN);
+
+                            Box::new(move |doc: tantivy::DocId| {
+                                let score = match direction {
+                                    Order::Asc => order_field_reader.get_val(doc),
+                                    Order::Desc => u64::MAX - order_field_reader.get_val(doc),
+                                };
+
+                                OrderByScore {
+                                    score,
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
+                                    ctid: ctid_field_reader.get_val(doc)
+                                }
+                            })
+                        }
+                        _ => panic!("key field {} is not a supported field type", key_field_name)
+                    }
+                }
+            );
 
             return self
                 .searcher
@@ -121,25 +253,25 @@ impl SearchState {
                     self.query.as_ref(),
                     &collector,
                     executor,
-                    tantivy::query::EnableScoring::Enabled {
-                        searcher: &self.searcher,
-                        statistics_provider: &self.searcher,
+                    // Disable scoring for performance
+                    tantivy::query::EnableScoring::Disabled {
+                        searcher_opt: Some(&self.searcher),
+                        schema: &self.schema.schema,
                     },
                 )
                 .expect("failed to search")
                 .into_iter()
-                .map(|(_fast_field_value, doc_address)| {
-                    // This iterator contains the results after limit + offset are applied.
-                    let (key, ctid) = self.key_and_ctid_value(doc_address);
-
-                    // Return default score because Tantivy does not return score when using order_by_fast_field
-                    (DEFAULT_BM25_SCORE_FOR_ORDER_BY, doc_address, key, ctid)
+                .map(|(score, doc_address)| {
+                    (
+                        DEFAULT_BM25_SCORE_FOR_ORDER_BY,
+                        doc_address,
+                        score.key,
+                        score.ctid,
+                    )
                 })
                 .collect();
         }
 
-        let key_field_name = self.config.key_field.clone();
-        let schema = self.schema.clone();
         let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
                 move |segment_reader: &tantivy::SegmentReader| -> Box<dyn FnMut(tantivy::DocId, Score) -> SearchIndexScore> {
                     let fast_fields = segment_reader
@@ -256,25 +388,5 @@ impl SearchState {
             .into_iter()
             .map(|(score, doc_address)| (score.bm25, doc_address, score.key, score.ctid))
             .collect()
-    }
-
-    pub fn key_and_ctid_value(&self, doc_address: DocAddress) -> (TantivyValue, u64) {
-        let retrieved_doc: TantivyDocument = self
-            .searcher
-            .doc(doc_address)
-            .expect("could not retrieve document by address");
-
-        let value = retrieved_doc
-            .get_first(self.schema.key_field().id.0)
-            .unwrap();
-
-        let key = TantivyValue(value.clone());
-
-        let ctid = retrieved_doc
-            .get_first(self.schema.ctid_field().id.0)
-            .unwrap()
-            .as_u64()
-            .expect("could not access ctid field on document");
-        (key, ctid)
     }
 }

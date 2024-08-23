@@ -1,11 +1,10 @@
 #!/bin/bash
 
 ARCH=$(uname -m)
-LATEST_RELEASE_VERSION=$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r .tag_name)
-LATEST_RELEASE_VERSION="${LATEST_RELEASE_VERSION#v}"
+LATEST_RELEASE_TAG=$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r .tag_name)
+LATEST_RELEASE_TAG="${LATEST_RELEASE_VERSION#v}"
 
 set -Eeuo pipefail
-set -e
 
 installDocker() {
   # Set default values
@@ -16,7 +15,8 @@ installDocker() {
   echo "Installing docker..."
 
 
-  OPTIONS=("Debian Base" "RHEL Based" "Arch Based")
+  echo "Which type of distro are you using?(Required to install dependecies)"
+  OPTIONS=("Debian Based" "RHEL Based" "Arch Based")
 
 
   select opt in "${OPTIONS[@]}"
@@ -26,10 +26,10 @@ installDocker() {
         sudo apt-get install docker -y || false
         break ;;
       "RHEL Based")
-        sudo dnf install docker || false
+        sudo dnf install docker -y || false
         break ;;
       "Arch Based")
-        sudo pacman -Syyu docker || false
+        sudo pacman -Su docker || false
         break ;;
       *)
         break ;;
@@ -59,49 +59,73 @@ installDocker() {
   # Pull Docker image
   echo "Pulling Docker Image for Parade DB: docker pull paradedb/paradedb"
   docker pull paradedb/paradedb || { echo "Failed to pull Docker image"; exit 1; }
-  echo "Pulled Successfully ✅"
+  echo -e "Pulled Successfully ✅\n"
 
-  # Create Docker container
-  echo "Processing..."
-  docker run \
-    --name paradedb \
-    -e POSTGRES_USER="$pguser" \
-    -e POSTGRES_PASSWORD="$pgpass" \
-    -e POSTGRES_DB="$dbname" \
-    -v paradedb_data:/var/lib/postgresql/data/ \
-    -p 5432:5432 \
-    -d \
-    paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
+  echo -e "Removing any existing containers\n"
+  docker stop paradedb || true
+  docker rm paradedb || true
+  echo -e "\n"
+
+  echo -e "Would you like to add a Docker volume to your database?\nA docker volume will ensure that your ParadeDB Postgres database is stored across Docker restarts.\nNote that you will need to manually update ParadeDB versions on your volume via: https://docs.paradedb.com/upgrading.\nIf you're only testing, we do not recommend adding a volume."
+
+  volume_opts=("Yes" "No")
+
+  select vopt in "${volume_opts[@]}"
+  do
+    case $vopt in
+      "Yes")
+        docker run \
+          --name paradedb \
+          -e POSTGRES_USER="$pguser" \
+          -e POSTGRES_PASSWORD="$pgpass" \
+          -e POSTGRES_DB="$dbname" \
+          -v paradedb_data:/var/lib/postgresql/data/ \
+          -p 5432:5432 \
+          -d \
+          paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
+        break ;;
+      "No")
+        docker run \
+          --name paradedb \
+          -e POSTGRES_USER="$pguser" \
+          -e POSTGRES_PASSWORD="$pgpass" \
+          -e POSTGRES_DB="$dbname" \
+          -p 5432:5432 \
+          -d \
+          paradedb/paradedb:latest || { echo "Failed to start Docker container. Please check if an existing container is active or not."; exit 1; }
+        break ;;
+    esac
+  done
+ 
   echo "Docker Container started ✅"
 
   # Provide usage information
-  echo "To use paradedb execute the command: docker exec -it paradedb psql $dbname -U $pguser"
+  echo -e "\n\nTo use paradedb execute the command: docker exec -it paradedb psql $dbname -U $pguser"
 }
 
-# Please update the debian file with the lastest version here
 installDeb(){
   echo "Select your distribution"
 
   echo "Installing dependencies...."
-  # echo "Installing cURL"
-  #
-  # sudo apt-get update || false
-  # sudo apt-get install curl || false
-  #
-  # echo "Successfully Installed cURL✅"
+  echo "Installing cURL"
+  
+  sudo apt-get update -y || false
+  sudo apt-get install curl -y || false
+  
+  echo "Successfully Installed cURL✅"
 
-  distros=("bookworm" "jammy" "noble")
+  distros=("bookworm(Debian 12.0)" "jammy(Ubuntu 22.04)" "noble(Ubuntu 24.04)")
   distro=
   select op in "${distros[@]}"
   do
     case $op in
-      "bookworm")
+      "bookworm(Debian 12.0)")
         distro="bookworm"
         break ;;
-      "jammy")
+      "jammy(Ubuntu 22.04)")
         distro="jammy"
         break ;;
-      "noble")
+      "noble(Ubuntu 24.04)")
         distro="noble"
         break ;;
     esac
@@ -118,10 +142,10 @@ installDeb(){
 
   curl -L "$url" > "$filename" || false
 
-  sudo apt install ./"$filename" || false
+  sudo apt install ./"$filename" -y || false
 }
 
-# Please update the RPM file with the latest version here
+# Installs latest RPM package
 installRPM(){
   filename="pg_search_$1-$LATEST_RELEASE_VERSION-1PARADEDB.el9.${ARCH}.rpm"
   url="https://github.com/paradedb/paradedb/releases/latest/download/${filename}"
@@ -136,7 +160,8 @@ installRPM(){
   echo "ParadeDB installed successfully!"
 }
 
-installStable(){
+# Installs latest binary for ParadeDB
+installBinary(){
 
   # Select postgres version
   pg_version=

@@ -2,7 +2,7 @@
 title: Quickstart
 ---
 
-This guide will walk you through the following steps to get started with ParadeDB Search:
+This guide will walk you through the following steps to get started with ParadeDB:
 
 1. Full text search
 2. Similarity (i.e. vector) search
@@ -86,7 +86,7 @@ Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal pe
 `limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
 
 Similarly, the `rating` column was indexed and the `rating:>2` filter was used instead of the SQL `WHERE` clause
-for [efficient filtering](/search/full-text/bm25#efficient-filtering).
+for [efficient filtering](/api/full-text/bm25#efficient-filtering).
 </Note>
 
 Next, let's see how ParadeDB handles a phrase query like `bluetooth speaker`. Let's also surface results even
@@ -179,7 +179,7 @@ LEFT JOIN mock_items ON snippet.id = mock_items.id;
 ```
 </Accordion>
 
-Please refer to our [advanced search queries](/search/full-text/complex) guide for all available
+Please refer to our [advanced search queries](/api/full-text/complex) guide for all available
 query types.
 
 ## Similarity Search

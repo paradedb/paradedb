@@ -16,14 +16,11 @@ received by updating one or more of the following extensions:
 To inspect the current version of an extension, run the following command.
 
 ```sql
-SELECT extversion FROM pg_extension WHERE extname = '<extension_name>';
+-- Get the version of pg_search
+SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
+-- Get the version of pg_analytics
+SELECT extversion FROM pg_extension WHERE extname = 'pg_analytics';
 ```
-
-<Accordion title="Example Usage">
-  ```sql
-  SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
-  ```
-</Accordion>
 
 ## Getting the Latest Version
 
@@ -31,7 +28,7 @@ Because `pg_search`, `pg_analytics`, and `pgvector` are independent extensions, 
 For the latest available version, please refer to the respective Github repos:
 
 1. [`pg_search`](https://github.com/paradedb/paradedb/releases) is on version `0.9.1`
-2. [`pg_analytics`](https://github.com/paradedb/pg_analytics/blob/main/pg_analytics.control) is on version `0.1.0`
+2. [`pg_analytics`](https://github.com/paradedb/pg_ingest/blob/main/pg_analytics.control) is on version `0.1.0`
 3. [`pgvector`](https://github.com/pgvector/pgvector/tags) is on version `0.7.4`
 
 ## Updating ParadeDB Docker Image

@@ -47,3 +47,6 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
+
+      - name: Dependency Check
+        run: cargo install cargo-machete && cargo machete

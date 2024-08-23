@@ -11,14 +11,14 @@ ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.80.0
 ARG PGRX_VERSION_PG_SEARCH=0.12.0
 ARG PGRX_VERSION_PG_ANALYTICS=0.11.3
-ARG PGRX_VERSION_PG_VECTOR=0.11.4
+ARG PGRX_VERSION_PG_VECTOR_SCALE=0.11.4
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     RUST_VERSION=${RUST_VERSION} \
     PGRX_VERSION_PG_SEARCH=${PGRX_VERSION_PG_SEARCH} \
     PGRX_VERSION_PG_ANALYTICS=${PGRX_VERSION_PG_ANALYTICS} \
-    PGRX_VERSION_PG_VECTOR=${PGRX_VERSION_PG_VECTOR}
+    PGRX_VERSION_PG_VECTOR_SCALE=${PGRX_VERSION_PG_VECTOR_SCALE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
@@ -46,12 +46,13 @@ ENV PATH="/root/.cargo/bin:$PATH" \
 ######################
 # pg_search
 ######################
+
+FROM builder AS builder-pg_search
+
 # Intall the pgrx version of pg_search
 RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_SEARCH}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
-
-FROM builder AS builder-pg_search
 
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
@@ -75,11 +76,12 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 ######################
 # pg_analytics
 ######################
+
+FROM builder AS builder-pg_analytics
+
 # Intall the pgrx version of pg_analytics
 RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_ANALYTICS}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
-FROM builder AS builder-pg_analytics
 
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
@@ -103,9 +105,6 @@ RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/
 ######################
 # pgvector
 ######################
-# Intall the pgrx version of pgvector
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_VECTOR}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 FROM builder AS builder-pgvector
 
@@ -123,6 +122,10 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 ######################
 
 FROM builder AS builder-pgvectorscale
+
+# Intall the pgrx version of pgvectorscale
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_VECTOR_SCALE}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ARG TARGETARCH
 

@@ -1,0 +1,34 @@
+# workflows/lint-cargo-toml.yml
+#
+# Lint Cargo.toml
+# Lint Cargo.toml files using taplo
+
+name: Lint Cargo.toml
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "**/*.toml"
+      - ".github/workflows/lint-cargo-toml.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-cargo-toml-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-toml:
+    name: Lint Cargo.toml Files
+    runs-on: depot-ubuntu-latest-2
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Install taplo
+        run: cargo +stable install taplo-cli --version ^0.9 --locked
+      # if you encounter an error, try running 'taplo format' to fix the formatting automatically.
+      - name: Check Cargo.toml formatting
+        run: taplo format --check

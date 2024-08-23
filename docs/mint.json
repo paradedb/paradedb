@@ -37,7 +37,7 @@
   "topbarLinks": [
     {
       "name": "Community",
-      "url": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ"
+      "url": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ"
     },
     {
       "name": "Blog",
@@ -205,7 +205,7 @@
   ],
   "footerSocials": {
     "github": "https://github.com/paradedb/paradedb",
-    "slack": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ",
+    "slack": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ",
     "twitter": "https://twitter.com/paradedb"
   },
   "analytics": {

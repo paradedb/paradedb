@@ -80,16 +80,11 @@ pub fn score_bm25(
     let top_docs = scan_state
         .search(SearchIndex::executor())
         .into_iter()
-        .filter(|(_, doc_address, _, _)| unsafe {
-            let ctid = scan_state.ctid_value(*doc_address);
-            ctid_satisfies_snapshot(ctid, relation, snapshot)
-        })
-        .map(|(score, doc_address, _, _)| {
+        .filter(|(_, _, _, ctid)| unsafe { ctid_satisfies_snapshot(*ctid, relation, snapshot) })
+        .map(|(score, _, key, _)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
-                    scan_state
-                        .key_value(doc_address)
-                        .try_into_datum(PgOid::from_untagged(key_oid))
+                    key.try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
                     key_oid,
@@ -147,16 +142,11 @@ pub fn snippet(
     let top_docs = scan_state
         .search(SearchIndex::executor())
         .into_iter()
-        .filter(|(_, doc_address, _, _)| unsafe {
-            let ctid = scan_state.ctid_value(*doc_address);
-            ctid_satisfies_snapshot(ctid, relation, snapshot)
-        })
-        .map(|(score, doc_address, _, _)| {
+        .filter(|(_, _, _, ctid)| unsafe { ctid_satisfies_snapshot(*ctid, relation, snapshot) })
+        .map(|(score, doc_address, key, _)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
-                    scan_state
-                        .key_value(doc_address)
-                        .try_into_datum(PgOid::from_untagged(key_oid))
+                    key.try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
                     key_oid,

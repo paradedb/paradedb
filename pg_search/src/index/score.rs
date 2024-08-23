@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 pub struct SearchIndexScore {
     pub bm25: f32,
     pub key: TantivyValue,
+    pub ctid: u64,
 }
 
 // We do these custom trait impls, because we want these to be sortable so:

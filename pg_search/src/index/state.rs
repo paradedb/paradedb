@@ -21,9 +21,9 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
 use std::sync::Arc;
 use tantivy::collector::TopDocs;
-use tantivy::schema::{FieldType, Value};
+use tantivy::schema::FieldType;
 use tantivy::{query::Query, DocAddress, Score, Searcher};
-use tantivy::{Executor, Order, SnippetGenerator, TantivyDocument};
+use tantivy::{Executor, Order, SnippetGenerator};
 
 static DEFAULT_ORDER_BY_DIRECTION: &str = "asc";
 static DEFAULT_BM25_SCORE_FOR_ORDER_BY: f32 = 1.0;

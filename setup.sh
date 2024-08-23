@@ -165,7 +165,7 @@ installBinary(){
 
   # Select postgres version
   pg_version=
-  echo "Select postgres version"
+  echo "Select postgres version(Note: ParadeDB is supported on PG12-16. For other postgres versions, you will need to compile from source.)"
   versions=("14" "15" "16")
 
   select vers in "${versions[@]}"
@@ -226,7 +226,7 @@ do
       break ;;
     "⬇️ Stable Binary")
       echo "Stable"
-      installStable
+      installBinary
       echo -e "Installation Successfull!\n"
       break ;;
     *)

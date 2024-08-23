@@ -4,7 +4,7 @@ title: Google Cloud Storage
 
 ## Overview
 
-This code block demonstrates how to create a foreign table over a Parquet file stored in Google Cloud Storage (GCS).
+This code block demonstrates how to query Parquet file(s) stored in Google Cloud Storage (GCS).
 The file path must start with `gs://`.
 
 ```sql
@@ -47,4 +47,4 @@ OPTIONS (
 ```
 
 Because GCS is accessed with the S3 API, GCS accepts the same user mapping options as S3.
-Please see the [S3 documentation](/analytics/object_stores/s3#credentials-options) for other available options.
+Please see the [S3 documentation](/ingest/object_stores/s3#credentials-options) for other available options.

@@ -54,14 +54,19 @@
   },
   "anchors": [
     {
-      "name": "Search",
-      "icon": "magnifying-glass",
-      "url": "search"
+      "name": "API",
+      "icon": "code",
+      "url": "api"
     },
     {
-      "name": "Analytics",
-      "icon": "chart-column",
-      "url": "analytics"
+      "name": "Ingest",
+      "icon": "merge",
+      "url": "ingest"
+    },
+    {
+      "name": "Deploy",
+      "icon": "server",
+      "url": "deploy"
     },
     {
       "name": "Changelog",
@@ -72,94 +77,95 @@
   "versions": ["v0.9.1"],
   "navigation": [
     {
-      "group": "Documentation",
+      "group": "Welcome",
       "pages": [
-        "introduction",
-        {
-          "group": "Deploying ParadeDB",
-          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
-        },
-        {
-          "group": "Deploying Extensions",
-          "pages": ["deploy/pg_search", "deploy/pg_analytics"]
-        },
-        {
-          "group": "Replication",
-          "pages": ["replication/pg_search", "replication/pg_analytics"]
-        },
-        "upgrading",
-        "support"
+        "welcome/introduction",
+        "welcome/support"
       ]
     },
     {
       "group": "Search",
       "pages": [
-        "search/quickstart",
+        "api/quickstart",
         {
           "group": "Full Text Search",
           "pages": [
-            "search/full-text/overview",
-            "search/full-text/index",
-            "search/full-text/bm25",
-            "search/full-text/complex",
-            "search/full-text/aggregations",
-            "search/full-text/scoring",
-            "search/full-text/highlighting",
-            "search/full-text/joins"
+            "api/full-text/overview",
+            "api/full-text/index",
+            "api/full-text/bm25",
+            "api/full-text/complex",
+            "api/full-text/scoring",
+            "api/full-text/highlighting",
+            "api/full-text/joins"
           ]
         },
+        "api/aggregations",
         {
           "group": "Dense Vector Search",
           "pages": [
-            "search/dense/overview",
-            "search/dense/index",
-            "search/dense/search"
+            "api/dense/overview",
+            "api/dense/index",
+            "api/dense/search"
           ]
         },
         {
           "group": "Sparse Vector Search",
           "pages": [
-            "search/sparse/overview",
-            "search/sparse/index",
-            "search/sparse/search"
+            "api/sparse/overview",
+            "api/sparse/index",
+            "api/sparse/search"
           ]
         },
         {
           "group": "Hybrid Search",
-          "pages": ["search/hybrid/basic"]
+          "pages": ["api/hybrid/basic"]
         }
       ]
     },
     {
-      "group": "Analytics",
+      "group": "Ingest",
       "pages": [
-        "analytics/quickstart",
+        "ingest/quickstart",
         {
           "group": "Table/File Formats",
           "pages": [
-            "analytics/import/overview",
-            "analytics/import/csv",
-            "analytics/import/delta",
-            "analytics/import/iceberg",
-            "analytics/import/parquet"
+            "ingest/import/csv",
+            "ingest/import/delta",
+            "ingest/import/iceberg",
+            "ingest/import/parquet"
           ]
         },
         {
           "group": "Object Stores",
           "pages": [
-            "analytics/object_stores/overview",
-            "analytics/object_stores/azure",
-            "analytics/object_stores/gcs",
-            "analytics/object_stores/s3"
+            "ingest/object_stores/overview",
+            "ingest/object_stores/azure",
+            "ingest/object_stores/gcs",
+            "ingest/object_stores/s3"
           ]
         },
         {
           "group": "Configuration",
           "pages": [
-            "analytics/configuration/schema",
-            "analytics/configuration/settings"
+            "ingest/configuration/schema",
+            "ingest/configuration/settings"
           ]
         }
+      ]
+    },
+    {
+      "group": "Deploy",
+      "pages": [
+        {
+          "group": "Deploy ParadeDB",
+          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
+        },
+        "deploy/replication",
+        {
+          "group": "Deploy Extensions",
+          "pages": ["deploy/pg_search", "deploy/pg_analytics"]
+        },
+        "deploy/upgrading"
       ]
     },
     {

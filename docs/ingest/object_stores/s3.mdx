@@ -7,7 +7,7 @@ title: S3
 S3 foreign tables have been tested against the following object stores that implement the S3 API: Amazon S3, MinIO, Cloudflare R2, and
 Google Cloud.
 
-This code block demonstrates how to create a foreign table over a Parquet file stored in Google Cloud Storage (GCS).
+This code block demonstrates how to query Parquet file(s) stored in Google Cloud Storage (GCS).
 The file path must start with `s3`, `r2`, or `gs`.
 
 ```sql
@@ -59,7 +59,7 @@ OPTIONS (
 
 ## Credentials Options
 
-Below is a complete list of options for `CREATE USER MAPPING`.
+The following options can be passed into `CREATE USER MAPPING`:
 
 <ParamField body="type" required>
   Must be one of `S3`, `GCS`, or `R2`.
@@ -84,3 +84,20 @@ Below is a complete list of options for `CREATE USER MAPPING`.
 <ParamField body="account_id">
   The R2 account ID to use for generating the endpoint URL.
 </ParamField>
+
+## Credential Chain Provider
+
+The `CREDENTIAL_CHAIN` provider can automatically fetch credentials using mechanisms provided by the AWS SDK.
+This is useful for reading credentials stored in your environment.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'S3',
+  provider 'CREDENTIAL_CHAIN',
+  CHAIN 'env;config;instance'
+);
+```
+
+The following values can be passed into `CHAIN`: `config`, `sts`, `sso`, `env`, `instance`, `process`.

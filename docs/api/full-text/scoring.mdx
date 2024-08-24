@@ -13,7 +13,7 @@ BM25 scores measure how relevant a score is for a given query. Higher scores ind
 ## Basic Usage
 
 The `score_bm25` function takes a query and returns a table with two columns: the `key_field` of each result and its BM25 score. `score_bm25` accepts the same
-parameters as [`search`](/search/full-text/bm25).
+parameters as [`search`](/api/full-text/bm25).
 
 ```sql
 SELECT * FROM <index_name>.score_bm25('<query>');

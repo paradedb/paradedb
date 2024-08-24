@@ -16,14 +16,11 @@ received by updating one or more of the following extensions:
 To inspect the current version of an extension, run the following command.
 
 ```sql
-SELECT extversion FROM pg_extension WHERE extname = '<extension_name>';
+-- Get the version of pg_search
+SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
+-- Get the version of pg_analytics
+SELECT extversion FROM pg_extension WHERE extname = 'pg_analytics';
 ```
-
-<Accordion title="Example Usage">
-  ```sql
-  SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
-  ```
-</Accordion>
 
 ## Getting the Latest Version
 

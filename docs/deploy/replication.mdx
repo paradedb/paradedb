@@ -1,5 +1,5 @@
 ---
-title: pg_search
+title: Configure Replication
 ---
 
 <Note>
@@ -9,7 +9,11 @@ title: pg_search
   for access.
 </Note>
 
-In this guide, we'll walk through setting up streaming replication for `pg_search`. This setup allows you to replicate data from a primary server to one or more standby servers.
+In production settings, we recommend deploying ParadeDB as a replica of your primary Postgres. This allows ParadeDB to
+integrate with managed Postgres providers like RDS. It also isolates search and analytical workloads from your primary Postgres,
+which can prevent downtime caused by long-running queries.
+
+In this guide, we'll walk through setting up logical replication for ParadeDB. This setup allows you to replicate data from a primary server to one or more standby servers.
 Replication is useful for high availability or for ParadeDB to run as a search replica over your primary Postgres.
 
 ### Environment Setup

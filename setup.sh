@@ -3,21 +3,15 @@
 ARCH=$(uname -m)
 LATEST_RELEASE_TAG=$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r .tag_name)
 LATEST_RELEASE_VERSION="${LATEST_RELEASE_TAG#v}"
+OSTYPE="darwin"
+
+EXIT_MSG="\n\nIf you'd like to stay upto date with everything about ParadeDB\nJoin our slack channel: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ \nGitHub: https://github.com/paradedb/paradedb"
 
 set -Eeuo pipefail
 
-installDocker() {
-  # Set default values
-  pguser="myuser"
-  pgpass="mypassword"
-  dbname="paradedb"
-
-  echo "Installing docker..."
-
-
-  echo "Which type of distro are you using?(Required to install dependecies)"
+installDockerDepsLinux(){
+  echo "Which type of distro are you using?(Required to install dependencies)"
   OPTIONS=("Debian Based" "RHEL Based" "Arch Based")
-
 
   select opt in "${OPTIONS[@]}"
   do
@@ -36,6 +30,30 @@ installDocker() {
     esac
   done
 
+}
+
+installDocker() {
+  # Set default values
+  pguser="myuser"
+  pgpass="mypassword"
+  dbname="paradedb"
+
+  echo "Installing docker..."
+
+  if [[ "$OSTYPE" =  "darwin" ]]; then
+    brew install docker
+  elif [[ "$OSTYPE" = "linux-gnu" ]]; then
+    installDockerDepsLinux
+  elif [[ "$OSTYPE" = "msys" ]] || [[ "$OSTYPE" = "cygwin" ]]; then # Detects Git bash/ cygwin environments
+    read -p "Do you have docker installed(y/n)? " -n 1 -r
+    if [[ $REPLY =~ ^[Nn]$ ]]
+    then
+        echo -e "\nPlease install docker first and get back to the setup!"
+        echo -e "$EXIT_MSG"
+        exit 1
+    fi
+  fi
+  
   echo "Successfully Installed Docker✅"
 
 
@@ -163,6 +181,16 @@ installRPM(){
 # Installs latest binary for ParadeDB
 installBinary(){
 
+  if [[ "$OSTYPE" = "msys" ]] || [[ "$OSTYPE" = "cygwin" ]]; then
+    echo "Sorry but we do not support windows yet!"
+    echo -e "$EXIT_MSG"
+    exit 1
+  elif [[ "$OSTYPE" = "darwin" ]]; then
+    echo -e "\nOops! We don't have any prebuilt binaries for MacOS right now.\nYou can follow our comprehensive guide to compile ParadeDB from source at: https://github.com/paradedb/paradedb/blob/dev/README.md!"
+    echo -e "$EXIT_MSG"
+    exit 1
+  fi
+
   # Select postgres version
   pg_version=
   echo "Select postgres version(Note: ParadeDB is supported on PG12-16. For other postgres versions, you will need to compile from source.)"
@@ -214,6 +242,7 @@ echo -e "=========================================================\n"
 
 
 
+
 OPTIONS=("🐳Latest Docker Image" "⬇️ Stable Binary")
 
 
@@ -236,4 +265,4 @@ do
 done
 
 
-echo -e "If you'd like to stay upto date with everything about ParadeDB\nJoin our slack channel: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ \nGitHub: https://github.com/paradedb/paradedb"
+echo -e "$EXIT_MSG"

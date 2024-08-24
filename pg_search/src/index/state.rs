@@ -20,7 +20,6 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use rustc_hash::FxHashMap;
 use std::cmp::Ordering;
-use std::hash::Hash;
 use std::sync::Arc;
 use tantivy::collector::{DocSetCollector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};

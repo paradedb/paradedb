@@ -67,7 +67,7 @@ pub fn score_bm25(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
-    let mut scan_state = search_index
+    let scan_state = search_index
         .search_state(
             &writer_client,
             &search_config,
@@ -79,7 +79,6 @@ pub fn score_bm25(
     let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
     let top_docs = scan_state
         .search_with_scores(SearchIndex::executor())
-        .into_iter()
         .filter(|hit| unsafe { ctid_satisfies_snapshot(hit.ctid, relation, snapshot) })
         .map(|hit| {
             let key = unsafe {
@@ -123,7 +122,7 @@ pub fn snippet(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
-    let mut scan_state = search_index
+    let scan_state = search_index
         .search_state(
             &writer_client,
             &search_config,
@@ -144,7 +143,6 @@ pub fn snippet(
     let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
     let top_docs = scan_state
         .search_with_scores(SearchIndex::executor())
-        .into_iter()
         .filter(|hit| unsafe { ctid_satisfies_snapshot(hit.ctid, relation, snapshot) })
         .map(move |hit| {
             let key = unsafe {

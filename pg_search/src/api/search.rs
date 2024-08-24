@@ -84,7 +84,7 @@ pub fn score_bm25(
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
                     hit.key
-                        .expect("key value was not retrieved")
+                        .expect("key was retrieved")
                         .try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
@@ -145,6 +145,9 @@ pub fn snippet(
         .search_with_scores(SearchIndex::executor())
         .filter(|hit| unsafe { ctid_satisfies_snapshot(hit.ctid, relation, snapshot) })
         .map(move |hit| {
+            let doc: TantivyDocument = searcher
+                .doc(hit.doc_address())
+                .expect("could not find document in searcher");
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
                     hit.key
@@ -156,10 +159,6 @@ pub fn snippet(
                 )
                 .expect("null found in key_field")
             };
-
-            let doc: TantivyDocument = searcher
-                .doc(hit.doc_address.expect("doc_address was not set"))
-                .expect("could not find document in searcher");
 
             let mut snippet = snippet_generator.snippet_from_doc(&doc);
             snippet.set_snippet_prefix_postfix(

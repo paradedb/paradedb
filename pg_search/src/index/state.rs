@@ -35,11 +35,23 @@ pub struct SearchState {
     pub schema: SearchIndexSchema,
 }
 
+/// [`SearchHit`] represents a single matching document from a Tantivy search.
 #[derive(Debug, Clone)]
 pub struct SearchHit {
+    /// The Tantivy-calculated BM25 score.  If this hit is from a search that did not perform
+    /// scoring, then value will be `0.0`.
     pub score: f32,
+
+    /// A 64bit representation of Postgres' "ctid" value for the hit.  This is extracted from the
+    /// Tantivy index at search time
     pub ctid: u64,
-    pub doc_address: Option<DocAddress>,
+
+    /// The internal Tantivy [`DocAddress`] of this hit
+    doc_address: Option<DocAddress>,
+
+    /// If requested by the caller of the various search operations, this is the "primary key" of
+    /// the matching document.  This value is extracted from the Tantivy index at search time and
+    /// will internally be used to tie-break scores.
     pub key: Option<TantivyValue>,
 }
 
@@ -59,6 +71,15 @@ impl PartialOrd for SearchHit {
             Some(Ordering::Equal) => self.key.partial_cmp(&other.key),
             ne => ne,
         }
+    }
+}
+
+impl SearchHit {
+    #[inline(always)]
+    pub fn doc_address(&self) -> DocAddress {
+        // NB:  By the time a SearchHit is returned back to the user, the doc_address will have
+        // always been set to Some(value), so we shouldn't ever panic here
+        self.doc_address.expect("doc_addres was set")
     }
 }
 
@@ -82,6 +103,7 @@ impl SearchState {
         }
     }
 
+    /// Returns a clone of the underlying [`Searcher`].
     pub fn searcher(&self) -> Searcher {
         self.searcher.clone()
     }
@@ -126,12 +148,12 @@ impl SearchState {
         match (self.config.offset_rows, self.config.limit_rows) {
             (None, None) if do_tiebreak == false => Box::new(self.search_fast(executor)),
             (None, None) if do_tiebreak == true => {
-                self.search_with_offset_limit(executor, 0, None, true)
+                self.search_with_offset_limit(executor, 0, None, true, false)
             }
             (Some(offset), limit) => {
-                self.search_with_offset_limit(executor, offset, limit, do_tiebreak)
+                self.search_with_offset_limit(executor, offset, limit, do_tiebreak, false)
             }
-            (None, limit) => self.search_with_offset_limit(executor, 0, limit, do_tiebreak),
+            (None, limit) => self.search_with_offset_limit(executor, 0, limit, do_tiebreak, false),
         }
     }
 
@@ -157,6 +179,7 @@ impl SearchState {
             self.config.offset_rows.unwrap_or(0),
             self.config.limit_rows,
             true,
+            true,
         )
     }
 
@@ -166,6 +189,7 @@ impl SearchState {
         offset: usize,
         limit: Option<usize>,
         do_tiebreak: bool,
+        full_key: bool,
     ) -> Box<dyn Iterator<Item = SearchHit> + 'a> {
         let have_limit = limit.is_some();
         let limit = limit
@@ -207,8 +231,13 @@ impl SearchState {
                     let ctid = FFType::lookup(&mut ff_ctid, searcher, doc_address, "ctid")
                         .as_u64(doc_address.doc_id);
                     let key = do_tiebreak.then(|| {
-                        FFType::lookup(&mut ff_key, searcher, doc_address, &key_field_name)
-                            .value(doc_address.doc_id)
+                        let ff =
+                            FFType::lookup(&mut ff_key, searcher, doc_address, &key_field_name);
+                        if full_key {
+                            ff.value(doc_address.doc_id)
+                        } else {
+                            ff.value_fast(doc_address.doc_id)
+                        }
                     });
 
                     SearchHit {
@@ -232,7 +261,13 @@ impl SearchState {
 
                     move |doc: DocId, score: Score| {
                         let ctid = ff_ctid.as_u64(doc);
-                        let key = do_tiebreak.then(|| ff_key.value(doc));
+                        let key = do_tiebreak.then(|| {
+                            if full_key {
+                                ff_key.value(doc)
+                            } else {
+                                ff_key.value_fast(doc)
+                            }
+                        });
 
                         SearchHit {
                             score,
@@ -358,6 +393,22 @@ impl FFType {
             FFType::U64(ff) => TantivyValue(ff.get_val(doc).into()),
             FFType::Bool(ff) => TantivyValue(ff.get_val(doc).into()),
             FFType::Date(ff) => TantivyValue(ff.get_val(doc).into()),
+        };
+
+        value
+    }
+
+    /// Given a [`DocId`], what is its "fast field" value?  In the case of a String field, we
+    /// don't reconstruct the full string, and instead return the term ord as a u64
+    #[inline(always)]
+    fn value_fast(&self, doc: DocId) -> TantivyValue {
+        let value = match self {
+            FFType::Text(ff) => {
+                // just use the first term ord here.  that's enough to do a tie-break quickly
+                let ord = ff.term_ords(doc).next().unwrap();
+                TantivyValue(ord.into())
+            }
+            other => other.value(doc),
         };
 
         value

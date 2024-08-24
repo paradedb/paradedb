@@ -48,12 +48,12 @@ installDocker() {
     read -p "Do you have docker installed(y/n)? " -n 1 -r
     if [[ $REPLY =~ ^[Nn]$ ]]
     then
-        echo -e "\nPlease install docker first and get back to the setup!"
-        echo -e "$EXIT_MSG"
-        exit 1
+      echo -e "\nPlease install docker first and get back to the setup!"
+      echo -e "$EXIT_MSG"
+      exit 1
     fi
   fi
-  
+
   echo "Successfully Installed Docker✅"
 
 

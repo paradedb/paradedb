@@ -103,12 +103,18 @@ impl SearchState {
 
     /// Search the Tantivy index for matching documents.
     ///
-    /// If there's no `offset` or `limit` applied to the query, this function will return
-    /// documents in tantivy's [`DocId`] order.  This is a "fast path" where scores are not
-    /// calculated.
+    /// If there's no `offset` or `limit` applied to the query and `stable_sort` is not `true`, this
+    /// function will return documents in tantivy's [`DocId`] order, performing no scoring.  This is
+    /// a "fast path" for when scores are not required by the caller.
     ///
     /// If there are either (or both), the documents are then returned in order of their BM25 score,
-    /// descending, without any tie-breaks for docs with the same score.
+    /// descending.
+    ///
+    /// If the backing [`SearchConfig`] has `stable_sort` set, then key values will be retrieved,
+    /// used for tie-breaking scores, and included in each [`SearchHit`] of the returned Iterator.
+    ///
+    /// If not, then key value lookups are elided, no tie-breaking occurs, and the resulting
+    /// [`SearchHit`] emitted by the returned Iterator will **not** have its `key` field set.
     ///
     /// # Note
     ///
@@ -116,10 +122,16 @@ impl SearchState {
     /// returned may not actually exist in the backing Postgres table anymore.  It is the caller's
     /// responsibility to perform visibility checks where required.
     pub fn search<'a>(&'a self, executor: &'a Executor) -> SearchHitIter<'a> {
+        let do_tiebreak = self.config.stable_sort.unwrap_or(false);
         match (self.config.offset_rows, self.config.limit_rows) {
-            (None, None) => Box::new(self.search_fast(executor)),
-            (Some(offset), limit) => self.search_with_offset_limit(executor, offset, limit, false),
-            (None, limit) => self.search_with_offset_limit(executor, 0, limit, false),
+            (None, None) if do_tiebreak == false => Box::new(self.search_fast(executor)),
+            (None, None) if do_tiebreak == true => {
+                self.search_with_offset_limit(executor, 0, None, true)
+            }
+            (Some(offset), limit) => {
+                self.search_with_offset_limit(executor, offset, limit, do_tiebreak)
+            }
+            (None, limit) => self.search_with_offset_limit(executor, 0, limit, do_tiebreak),
         }
     }
 
@@ -131,6 +143,9 @@ impl SearchState {
     /// Unlike [`SearchState::search`], this function has no fast path as it assumes scored documents
     /// are always wanted.
     ///
+    /// Additionally, the resulting [`SearchHit`] emitted by the returned Iterator **will** have its
+    /// `key` field set.
+    ///
     /// # Note
     ///
     /// This function has no understanding of Postgres MVCC visibility rules.  As such, any document
@@ -139,7 +154,7 @@ impl SearchState {
     pub fn search_with_scores<'a>(&'a self, executor: &'a Executor) -> SearchHitIter<'a> {
         self.search_with_offset_limit(
             executor,
-            self.config.offset_rows.unwrap_or_default(),
+            self.config.offset_rows.unwrap_or(0),
             self.config.limit_rows,
             true,
         )
@@ -191,12 +206,10 @@ impl SearchState {
                     let searcher = &self.searcher;
                     let ctid = FFType::lookup(&mut ff_ctid, searcher, doc_address, "ctid")
                         .as_u64(doc_address.doc_id);
-                    let key = if do_tiebreak {
+                    let key = do_tiebreak.then(|| {
                         FFType::lookup(&mut ff_key, searcher, doc_address, &key_field_name)
                             .value(doc_address.doc_id)
-                    } else {
-                        None
-                    };
+                    });
 
                     SearchHit {
                         score,
@@ -219,7 +232,7 @@ impl SearchState {
 
                     move |doc: DocId, score: Score| {
                         let ctid = ff_ctid.as_u64(doc);
-                        let key = if do_tiebreak { ff_key.value(doc) } else { None };
+                        let key = do_tiebreak.then(|| ff_key.value(doc));
 
                         SearchHit {
                             score,
@@ -332,7 +345,7 @@ impl FFType {
 
     /// Given a [`DocId`], what is its "fast field" value?
     #[inline(always)]
-    fn value(&self, doc: DocId) -> Option<TantivyValue> {
+    fn value(&self, doc: DocId) -> TantivyValue {
         let value = match self {
             FFType::Text(ff) => {
                 let mut s = String::new();
@@ -347,7 +360,7 @@ impl FFType {
             FFType::Date(ff) => TantivyValue(ff.get_val(doc).into()),
         };
 
-        Some(value)
+        value
     }
 
     /// Given a [`DocId`], what is its u64 "fast field" value?

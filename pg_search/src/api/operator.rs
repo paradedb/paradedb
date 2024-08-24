@@ -24,7 +24,7 @@ use crate::writer::WriterDirectory;
 use pgrx::*;
 use rustc_hash::FxHashSet;
 
-#[pg_extern]
+#[pg_extern(stable, parallel_safe)]
 fn search_tantivy(
     element: AnyElement,
     config_json: JsonB,

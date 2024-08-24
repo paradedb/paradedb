@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::ops::Bound;
 
 #[allow(clippy::type_complexity)]
-#[pg_extern]
+#[pg_extern(stable, parallel_safe)]
 pub fn schema_bm25(
     index_name: &str,
 ) -> TableIterator<(

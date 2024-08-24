@@ -27,12 +27,12 @@ use crate::postgres::utils::ctid_satisfies_snapshot;
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
-#[pg_extern(name = "rank_bm25")]
+#[pg_extern(name = "rank_bm25", stable, parallel_safe)]
 pub fn rank_bm25(_key: AnyElement, _alias: default!(Option<String>, "NULL")) -> f32 {
     panic!("This function has been deprecated in favor of `score_bm25`");
 }
 
-#[pg_extern]
+#[pg_extern(stable, parallel_safe)]
 pub fn highlight(
     _key: AnyElement,
     _field: &str,
@@ -44,7 +44,7 @@ pub fn highlight(
     panic!("This function has been deprecated in favor of `snippet`");
 }
 
-#[pg_extern]
+#[pg_extern(stable, parallel_safe)]
 pub fn minmax_bm25(
     _config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
@@ -53,7 +53,7 @@ pub fn minmax_bm25(
     panic!("`minmax_bm25` has been deprecated");
 }
 
-#[pg_extern]
+#[pg_extern(stable, parallel_safe)]
 pub fn score_bm25(
     config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is
@@ -100,7 +100,7 @@ pub fn score_bm25(
     TableIterator::new(top_docs)
 }
 
-#[pg_extern]
+#[pg_extern(stable, parallel_safe)]
 pub fn snippet(
     config_json: JsonB,
     _key_type_dummy: Option<AnyElement>, // This ensures that postgres knows what the return type is

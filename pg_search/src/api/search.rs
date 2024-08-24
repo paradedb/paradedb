@@ -78,7 +78,7 @@ pub fn score_bm25(
     let relation = unsafe { pg_sys::RelationIdGetRelation(search_config.table_oid.into()) };
     let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
     let top_docs = scan_state
-        .search(SearchIndex::executor())
+        .search_with_scores(SearchIndex::executor())
         .into_iter()
         .filter(|hit| unsafe { ctid_satisfies_snapshot(hit.ctid, relation, snapshot) })
         .map(|hit| {
@@ -143,7 +143,7 @@ pub fn snippet(
     let relation = unsafe { pg_sys::RelationIdGetRelation(search_config.table_oid.into()) };
     let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
     let top_docs = scan_state
-        .search(SearchIndex::executor())
+        .search_with_scores(SearchIndex::executor())
         .into_iter()
         .filter(|hit| unsafe { ctid_satisfies_snapshot(hit.ctid, relation, snapshot) })
         .map(move |hit| {
@@ -160,7 +160,7 @@ pub fn snippet(
             };
 
             let doc: TantivyDocument = searcher
-                .doc(hit.doc_address)
+                .doc(hit.doc_address.expect("doc_address was not set"))
                 .expect("could not find document in searcher");
 
             let mut snippet = snippet_generator.snippet_from_doc(&doc);

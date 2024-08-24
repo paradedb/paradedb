@@ -68,7 +68,7 @@ impl PartialOrd for SearchHit {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.score.partial_cmp(&other.score) {
-            Some(Ordering::Equal) => self.key.partial_cmp(&other.key),
+            Some(Ordering::Equal) => self.key.partial_cmp(&other.key).map(|o| o.reverse()),
             ne => ne,
         }
     }
@@ -303,7 +303,6 @@ impl SearchState {
 
     fn search_fast<'a>(&'a self, executor: &'a Executor) -> impl Iterator<Item = SearchHit> + 'a {
         let mut ff_ctid = Default::default();
-
         self.searcher
             .search_with_executor(
                 self.query.as_ref(),

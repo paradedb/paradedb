@@ -203,12 +203,16 @@ fn text_arrays(mut conn: PgConnection) {
 
     assert_eq!(row, (3,));
 
-    let rows: Vec<(i32,)> =
+    // we don't set `stable_sort = true` here, so the order of results could vary
+    let rows: std::collections::HashSet<i32> =
         r#"SELECT * FROM example_table.search('varchar_array:varchar OR text_array:array')"#
-            .fetch(&mut conn);
+            .fetch(&mut conn)
+            .into_iter()
+            .map(|(row,)| row)
+            .collect();
 
-    assert_eq!(rows[0], (3,));
-    assert_eq!(rows[1], (2,));
+    let expected = std::collections::HashSet::from_iter(vec![2, 3]);
+    assert_eq!(rows, expected);
 }
 
 #[rstest]

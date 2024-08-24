@@ -146,8 +146,8 @@ impl SearchState {
     pub fn search<'a>(&'a self, executor: &'a Executor) -> SearchHitIter<'a> {
         let do_tiebreak = self.config.stable_sort.unwrap_or(false);
         match (self.config.offset_rows, self.config.limit_rows) {
-            (None, None) if do_tiebreak == false => Box::new(self.search_fast(executor)),
-            (None, None) if do_tiebreak == true => {
+            (None, None) if !do_tiebreak => Box::new(self.search_fast(executor)),
+            (None, None) if do_tiebreak => {
                 self.search_with_offset_limit(executor, 0, None, true, false)
             }
             (Some(offset), limit) => {

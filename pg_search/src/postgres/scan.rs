@@ -75,15 +75,17 @@ pub extern "C" fn amrescan(
         .search_state(&writer_client, &search_config, needs_commit(index_oid))
         .unwrap();
 
-    // leak the `SearchState` for the lifetime of the current memory context
-    let state = unsafe {
+    let top_docs = unsafe {
+        // leak the `SearchState` for the lifetime of the current memory context
+        //
+        // it's necessary to leak this as the iterator returned from `SearchState::search()` borrows
+        // from `&self`, so it needs to be in a known memory address before we perform the search
         let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
 
         // SAFETY:  we were given a valid pointer for `state`
-        state.as_mut().unwrap()
+        let state = state.as_mut().unwrap();
+        state.search(SearchIndex::executor())
     };
-
-    let top_docs = state.search(SearchIndex::executor());
 
     // Save the iterator onto the current memory context.
     // let iter:HitsIterator = Box::new(top_docs);

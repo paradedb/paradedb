@@ -18,6 +18,7 @@
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
+use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_offset_number};
 use pgrx::pg_sys::{BuiltinOid, ItemPointerData};
 use pgrx::*;
 
@@ -85,7 +86,7 @@ pub unsafe fn row_to_search_document(
     }
 
     // Insert the ctid value into the entries.
-    let ctid_index_value = pgrx::item_pointer_to_u64(ctid);
+    let ctid_index_value = pgrx::itemptr::item_pointer_to_u64(ctid);
     document.insert(schema.ctid_field().id, ctid_index_value.into());
 
     Ok(document)
@@ -98,7 +99,7 @@ pub unsafe fn ctid_satisfies_snapshot(
 ) -> bool {
     // Using ctid, get itempointer => buffer => page => heaptuple
     let mut item_pointer = pg_sys::ItemPointerData::default();
-    pgrx::u64_to_item_pointer(ctid, &mut item_pointer);
+    pgrx::itemptr::u64_to_item_pointer(ctid, &mut item_pointer);
 
     let blockno = item_pointer_get_block_number(&item_pointer);
     let offsetno = item_pointer_get_offset_number(&item_pointer);

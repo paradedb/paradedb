@@ -38,7 +38,7 @@ use crate::schema::{SearchFieldConfig, SearchFieldName};
  * (because SearchIndexCreateOptions is a postgres-allocated object) and use getters and setters
 */
 
-static mut RELOPT_KIND_PDB: pg_sys::relopt_kind = 0;
+static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 
 // Postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
@@ -146,37 +146,37 @@ pub unsafe extern "C" fn amoptions(
     let options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS] = [
         pg_sys::relopt_parse_elt {
             optname: "text_fields".as_pg_cstr(),
-            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, text_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "numeric_fields".as_pg_cstr(),
-            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, numeric_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "boolean_fields".as_pg_cstr(),
-            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, boolean_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "json_fields".as_pg_cstr(),
-            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, json_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "datetime_fields".as_pg_cstr(),
-            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, datetime_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
-            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, key_field_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "uuid".as_pg_cstr(),
-            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, uuid_offset) as i32,
         },
     ];

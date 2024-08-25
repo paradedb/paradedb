@@ -48,7 +48,9 @@ impl TantivyValue {
                 PgBuiltInOids::INT2OID => i16::try_from(self).unwrap().into_datum().unwrap(),
                 PgBuiltInOids::INT4OID => i32::try_from(self).unwrap().into_datum().unwrap(),
                 PgBuiltInOids::INT8OID => i64::try_from(self).unwrap().into_datum().unwrap(),
-                PgBuiltInOids::OIDOID => u32::try_from(self).unwrap().into_datum().unwrap(),
+                PgBuiltInOids::OIDOID => Oid::from(u32::try_from(self).unwrap())
+                    .into_datum()
+                    .unwrap(),
                 PgBuiltInOids::FLOAT4OID => f32::try_from(self).unwrap().into_datum().unwrap(),
                 PgBuiltInOids::FLOAT8OID => f64::try_from(self).unwrap().into_datum().unwrap(),
                 PgBuiltInOids::NUMERICOID => pgrx::AnyNumeric::try_from(self)
@@ -58,7 +60,7 @@ impl TantivyValue {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
                     String::try_from(self).unwrap().into_datum().unwrap()
                 }
-                PgBuiltInOids::JSONOID => pgrx::JsonString::try_from(self)
+                PgBuiltInOids::JSONOID => pgrx::datum::JsonString::try_from(self)
                     .unwrap()
                     .into_datum()
                     .unwrap(),
@@ -630,21 +632,21 @@ impl TryFrom<TantivyValue> for bool {
     }
 }
 
-impl TryFrom<pgrx::JsonString> for TantivyValue {
+impl TryFrom<pgrx::datum::JsonString> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::JsonString) -> Result<Self, Self::Error> {
+    fn try_from(val: pgrx::datum::JsonString) -> Result<Self, Self::Error> {
         let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
         Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
     }
 }
 
-impl TryFrom<TantivyValue> for pgrx::JsonString {
+impl TryFrom<TantivyValue> for pgrx::datum::JsonString {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Object(val) = value.0 {
-            Ok(pgrx::JsonString(serde_json::to_string(&val)?))
+            Ok(pgrx::datum::JsonString(serde_json::to_string(&val)?))
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "json".to_string(),
@@ -676,10 +678,10 @@ impl TryFrom<TantivyValue> for pgrx::JsonB {
     }
 }
 
-impl TryFrom<pgrx::Date> for TantivyValue {
+impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Date) -> Result<Self, Self::Error> {
+    fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
         Ok(TantivyValue(datetime_components_to_tantivy_date(
             Some((val.year(), val.month(), val.day())),
             (0, 0, 0, 0),
@@ -687,13 +689,13 @@ impl TryFrom<pgrx::Date> for TantivyValue {
     }
 }
 
-impl TryFrom<TantivyValue> for pgrx::Date {
+impl TryFrom<TantivyValue> for pgrx::datum::Date {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
-            Ok(pgrx::Date::new(
+            Ok(pgrx::datum::Date::new(
                 prim_dt.year(),
                 prim_dt.month().into(),
                 prim_dt.day(),
@@ -706,10 +708,10 @@ impl TryFrom<TantivyValue> for pgrx::Date {
     }
 }
 
-impl TryFrom<pgrx::Time> for TantivyValue {
+impl TryFrom<pgrx::datum::Time> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Time) -> Result<Self, Self::Error> {
+    fn try_from(val: pgrx::datum::Time) -> Result<Self, Self::Error> {
         let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
         Ok(TantivyValue(datetime_components_to_tantivy_date(
             None,
@@ -718,14 +720,14 @@ impl TryFrom<pgrx::Time> for TantivyValue {
     }
 }
 
-impl TryFrom<TantivyValue> for pgrx::Time {
+impl TryFrom<TantivyValue> for pgrx::datum::Time {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             let (h, m, s, micro) = prim_dt.as_hms_micro();
-            Ok(pgrx::Time::new(
+            Ok(pgrx::datum::Time::new(
                 h,
                 m,
                 s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
@@ -738,10 +740,10 @@ impl TryFrom<TantivyValue> for pgrx::Time {
     }
 }
 
-impl TryFrom<pgrx::Timestamp> for TantivyValue {
+impl TryFrom<pgrx::datum::Timestamp> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Timestamp) -> Result<Self, Self::Error> {
+    fn try_from(val: pgrx::datum::Timestamp) -> Result<Self, Self::Error> {
         let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
         Ok(TantivyValue(datetime_components_to_tantivy_date(
             Some((val.year(), val.month(), val.day())),
@@ -750,14 +752,14 @@ impl TryFrom<pgrx::Timestamp> for TantivyValue {
     }
 }
 
-impl TryFrom<TantivyValue> for pgrx::Timestamp {
+impl TryFrom<TantivyValue> for pgrx::datum::Timestamp {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             let (h, m, s, micro) = prim_dt.as_hms_micro();
-            Ok(pgrx::Timestamp::new(
+            Ok(pgrx::datum::Timestamp::new(
                 prim_dt.year(),
                 prim_dt.month().into(),
                 prim_dt.day(),
@@ -773,10 +775,10 @@ impl TryFrom<TantivyValue> for pgrx::Timestamp {
     }
 }
 
-impl TryFrom<pgrx::TimeWithTimeZone> for TantivyValue {
+impl TryFrom<pgrx::datum::TimeWithTimeZone> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::TimeWithTimeZone) -> Result<Self, Self::Error> {
+    fn try_from(val: pgrx::datum::TimeWithTimeZone) -> Result<Self, Self::Error> {
         let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
         Ok(TantivyValue(datetime_components_to_tantivy_date(
             None,
@@ -785,14 +787,14 @@ impl TryFrom<pgrx::TimeWithTimeZone> for TantivyValue {
     }
 }
 
-impl TryFrom<TantivyValue> for pgrx::TimeWithTimeZone {
+impl TryFrom<TantivyValue> for pgrx::datum::TimeWithTimeZone {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             let (h, m, s, micro) = prim_dt.as_hms_micro();
-            Ok(pgrx::TimeWithTimeZone::with_timezone(
+            Ok(pgrx::datum::TimeWithTimeZone::with_timezone(
                 h,
                 m,
                 s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
@@ -806,10 +808,10 @@ impl TryFrom<TantivyValue> for pgrx::TimeWithTimeZone {
     }
 }
 
-impl TryFrom<pgrx::TimestampWithTimeZone> for TantivyValue {
+impl TryFrom<pgrx::datum::TimestampWithTimeZone> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::TimestampWithTimeZone) -> Result<Self, Self::Error> {
+    fn try_from(val: pgrx::datum::TimestampWithTimeZone) -> Result<Self, Self::Error> {
         let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
         Ok(TantivyValue(datetime_components_to_tantivy_date(
             Some((val.year(), val.month(), val.day())),
@@ -818,14 +820,14 @@ impl TryFrom<pgrx::TimestampWithTimeZone> for TantivyValue {
     }
 }
 
-impl TryFrom<TantivyValue> for pgrx::TimestampWithTimeZone {
+impl TryFrom<TantivyValue> for pgrx::datum::TimestampWithTimeZone {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             let (h, m, s, micro) = prim_dt.as_hms_micro();
-            Ok(pgrx::TimestampWithTimeZone::with_timezone(
+            Ok(pgrx::datum::TimestampWithTimeZone::with_timezone(
                 prim_dt.year(),
                 prim_dt.month().into(),
                 prim_dt.day(),
@@ -948,30 +950,32 @@ impl TryFrom<pgrx::Range<pgrx::AnyNumeric>> for TantivyValue {
     }
 }
 
-impl TryFrom<pgrx::Range<pgrx::Date>> for TantivyValue {
+impl TryFrom<pgrx::Range<pgrx::datum::Date>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<pgrx::Date>) -> Result<Self, Self::Error> {
+    fn try_from(_val: pgrx::Range<pgrx::datum::Date>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "date range".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Range<pgrx::Timestamp>> for TantivyValue {
+impl TryFrom<pgrx::Range<pgrx::datum::Timestamp>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<pgrx::Timestamp>) -> Result<Self, Self::Error> {
+    fn try_from(_val: pgrx::Range<pgrx::datum::Timestamp>) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "timestamp range".to_string(),
         ))
     }
 }
 
-impl TryFrom<pgrx::Range<pgrx::TimestampWithTimeZone>> for TantivyValue {
+impl TryFrom<pgrx::Range<pgrx::datum::TimestampWithTimeZone>> for TantivyValue {
     type Error = TantivyValueError;
 
-    fn try_from(_val: pgrx::Range<pgrx::TimestampWithTimeZone>) -> Result<Self, Self::Error> {
+    fn try_from(
+        _val: pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
+    ) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "timestamp with time zone range".to_string(),
         ))
@@ -1007,13 +1011,13 @@ pub enum TantivyValueError {
     #[error("Cannot convert oid of InvalidOid to TantivyValue")]
     InvalidOid,
 
-    #[error("Type {0} is not yet supported")]
+    #[error("Type {0:?} is not yet supported")]
     UnsupportedOid(Oid),
 
-    #[error("Arrays of type {0} are not yet supported")]
+    #[error("Arrays of type {0:?} are not yet supported")]
     UnsupportedArrayOid(Oid),
 
-    #[error("Cannot convert builtin json oid of {0} to TantivyValue")]
+    #[error("Cannot convert builtin json oid of {0:?} to TantivyValue")]
     UnsupportedJsonOid(Oid),
 
     #[error("Cannot convert type {0} to a TantivyValue")]

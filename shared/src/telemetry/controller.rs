@@ -65,12 +65,8 @@ impl TelemetrySender {
             os_type: os_info.os_type().to_string(),
             os_version: os_info.version().to_string(),
             replication_mode: std::env::var("POSTGRESQL_REPLICATION_MODE").ok(),
-            postgres_version: std::str::from_utf8(PG_VERSION)?
-                .trim_end_matches('\0')
-                .to_owned(),
-            postgres_version_details: std::str::from_utf8(PG_VERSION_STR)?
-                .trim_end_matches('\0')
-                .to_owned(),
+            postgres_version: PG_VERSION.to_str()?.trim_end_matches('\0').to_owned(),
+            postgres_version_details: PG_VERSION_STR.to_str()?.trim_end_matches('\0').to_owned(),
         };
 
         self.send(&uuid, &event)

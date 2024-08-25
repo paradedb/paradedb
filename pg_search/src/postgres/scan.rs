@@ -20,6 +20,7 @@ use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
+use pgrx::itemptr::u64_to_item_pointer;
 use pgrx::*;
 use tantivy::{DocAddress, Score};
 
@@ -92,7 +93,7 @@ pub extern "C" fn amendscan(_scan: pg_sys::IndexScanDesc) {}
 #[pg_guard]
 pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
-    _direction: pg_sys::ScanDirection,
+    _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter = unsafe {

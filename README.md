@@ -57,7 +57,8 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 ParadeDB and its extensions are available as commercial software for installation on self-hosted Postgres deployment and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
 
 ### Using the Setup Script
-For an interactive setup run the following in your terminal. 
+
+For an interactive setup run the following in your terminal.
 
 ```bash
 curl https://raw.githubusercontent.com/paradedb/paradedb/dev/setup.sh > setup.sh

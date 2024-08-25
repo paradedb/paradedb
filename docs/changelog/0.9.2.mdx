@@ -1,0 +1,32 @@
+---
+title: 0.9.2
+---
+
+## pg_search
+
+### Bug Fixes
+
+- Fixed a bug where `score_bm25` and `snippet` could return rows that are not visible to the current transaction snapshot.
+
+### New Features
+
+- Improved query times with large results sets by up to 4x.
+- Revamped our documentation to improve developer experience.
+
+## pg_analytics
+
+### New Features
+
+- Added support for spatial data in `pg_analytics` via the DuckDB spatial extension.
+- Added support for DuckDB's `time_bucket` function, which enables basic time-series workloads in `pg_analytics`.
+- Improved performance in scenarios where queries fall back to the Foreign Data Wrapper.
+
+## ParadeDB
+
+### Bug Fixes
+
+- Fixed a permission issue when installing DuckDB extensions inside ParadeDB.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.9.2).

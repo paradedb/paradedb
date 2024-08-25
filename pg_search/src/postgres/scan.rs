@@ -88,7 +88,6 @@ pub extern "C" fn amrescan(
     };
 
     // Save the iterator onto the current memory context.
-    // let iter:HitsIterator = Box::new(top_docs);
     scan.opaque =
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(top_docs) as void_mut_ptr;
 

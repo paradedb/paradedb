@@ -56,6 +56,17 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 
 ParadeDB and its extensions are available as commercial software for installation on self-hosted Postgres deployment and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
 
+### Using the Setup Script
+For an interactive setup run the following in your terminal. 
+
+```bash
+curl https://raw.githubusercontent.com/paradedb/paradedb/dev/setup.sh > setup.sh
+sudo chmod +x setup.sh
+./setup.sh
+```
+
+**Note**: Currently we only support stable binaries for Debian and RHEL based linux distributions. For other Linux/Unix Operating systems you'll need to build ParadeDB from source.
+
 ### Extensions
 
 You can find prebuilt binaries for all ParadeDB extensions on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15 and 16 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). We officially support Postgres 12 and above, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.

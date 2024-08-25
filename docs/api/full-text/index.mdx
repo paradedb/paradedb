@@ -369,6 +369,8 @@ A field that is indexed as `fast` is stored in a column-oriented fashion. Fast f
 [aggregations/faceting](/api/aggregations). They can also improve the query times of [filters](/api/full-text/bm25#efficient-filtering)
 and BM25 scoring.
 
+ParadeDB defaults numeric_fields to `fast => true`, but defaults text_fields to `fast => false`.
+
 The following code block demonstrates how to specify a fast field.
 
 ```sql

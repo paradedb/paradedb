@@ -22,9 +22,9 @@ performance of a dedicated search and analytical database.
 ParadeDB is a good fit for:
 
 - Developers who trust Postgres and don't want to operate a non-Postgres database/query engine
-- Full-text, similarity, or hybrid search over large volumes of operational data
-- Backends that are bottlenecked by Postgres' analytical performance over hundreds of millions or billions of rows
-- Latency-sensitive analytical queries over external object stores like S3 and table formats like Delta Lake
+- Elasticsearch users who want to consolidate their data stack on Postgres
+- Full-text, similarity, or hybrid search over large volumes of operational data with zero ETL
+- Building rich search experiences with analytical queries and facets
 
 ## Get Started
 
@@ -53,13 +53,13 @@ psql -h <hostname> -U <user> -d <dbname> -p <port> -W
 
 ## Next Steps
 
-You're now ready to jump into our search or analytics quickstart guides.
+You're now ready to jump into our guides.
 
 <CardGroup cols={2}>
-  <Card title="Search" icon="magnifying-glass" href="/search/quickstart">
+  <Card title="API" icon="code" href="/api/quickstart">
     Quickstart for full text and hybrid search.
   </Card>
-  <Card title="Analytics" icon="chart-column" href="/analytics/quickstart">
-    Quickstart for accelerated analytical queries.
+  <Card title="Ingest" icon="merge" href="/ingest/quickstart">
+    Ingest data from object stores with zero ETL.
   </Card>
 </CardGroup>

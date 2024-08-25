@@ -154,9 +154,9 @@ This will return:
 Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal performance, we recommend always using
 `limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
 
-Similarly, the `rating:>2` filter was used instead of the SQL `WHERE` clause for [efficient filtering](https://docs.paradedb.com/search/full-text/bm25#efficient-filtering).
+Similarly, the `rating:>2` filter was used instead of the SQL `WHERE` clause for [efficient filtering](https://docs.paradedb.com/api/full-text/bm25#efficient-filtering).
 
-Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](https://docs.paradedb.com) and [quickstart](https://docs.paradedb.com/search/quickstart) for a more thorough overview of `pg_search`'s query support.
+Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](https://docs.paradedb.com) and [quickstart](https://docs.paradedb.com/api/quickstart) for a more thorough overview of `pg_search`'s query support.
 
 ## Development
 

@@ -57,13 +57,13 @@ fn quickstart(mut conn: PgConnection) {
             text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category')
     );
     "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM search_idx.search('description:keyboard OR category:electronics', stable_sort => true, limit_rows => 5);
     "#
-    .fetch(&mut conn);
+        .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].0, "Plastic Keyboard".to_string());
     assert_eq!(rows[1].0, "Ergonomic metal keyboard".to_string());
@@ -75,7 +75,7 @@ fn quickstart(mut conn: PgConnection) {
     SELECT description, rating, category
     FROM search_idx.search('description:"bluetooth speaker"~1', stable_sort => true, limit_rows => 5);
     "#
-    .fetch(&mut conn);
+        .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
@@ -280,7 +280,7 @@ fn score_bm25(mut conn: PgConnection) {
         numeric_fields => paradedb.field('rating')
     );
     "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(i32, f32)> = "
     SELECT * FROM search_idx.score_bm25(
@@ -339,7 +339,7 @@ fn snippet(mut conn: PgConnection) {
         numeric_fields => paradedb.field('rating')
     );
     "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(i32, String, f32)> = "
     SELECT * FROM search_idx.snippet(
@@ -426,7 +426,7 @@ fn joined_tables(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, String, String)> =
-        "SELECT * FROM product_reviews.search('review:amazing OR product_name:tv')"
+        "SELECT * FROM product_reviews.search(query => 'review:amazing OR product_name:tv', stable_sort => true)"
             .fetch(&mut conn);
     assert_eq!(
         rows,

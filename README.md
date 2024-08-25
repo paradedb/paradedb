@@ -51,7 +51,8 @@ ParadeDB and its extensions can be deployed in one of two ways:
 For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
 
 ### Using the Setup Script
-For an interactive setup run the following in your terminal. 
+
+For an interactive setup run the following in your terminal.
 
 ```bash
 curl https://raw.githubusercontent.com/paradedb/paradedb/dev/setup.sh > setup.sh

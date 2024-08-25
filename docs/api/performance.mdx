@@ -8,7 +8,7 @@ your search queries.
 
 ## Implement Pagination
 
-If you do not specify any `limit_rows` and `offset_rows`, ParadeDB will rank results on your entire
+If you do not specify any `limit_rows` and `offset_rows` ParadeDB will rank results on your entire
 index, which can meaningfully slow down search queries. We suggest that you use limits and offsets to
 scope each search query to the number of results that you want to display at any given time on your application.
 
@@ -36,24 +36,33 @@ Higher amounts of RAM and a faster storage driver are the two most important har
 to extracting the best performance from ParadeDB. We recommend that you select memory-optimized instances
 with SSD storage when deploying.
 
+In terms of memory, ParadeDB requires at least 500 MB of RAM at any given time for the writer process. Higher
+amounts of memory will allow storing a larger result set without needing to read from disk, which will speed
+up search queries.
+
+In terms of storage, faster I/O storage devices like `gp3` will provide better performance. You can expect a
+search index over a table to be at least 50% of the size of the indexed table. The exact index size will vary
+based on indexing parameters like tokenization scheme.
+
 ## Optimize the Tantivy Settings
 
 Coming soon.
 
 ### Heap Size
 
-The memory_budget setting defines the maximum heap size in bytes allocated to a search index. Proper configuration ensures efficient memory use, preventing excessive disk I/O during searches.
+The memory_budget setting defines the maximum heap size in bytes allocated to a search index. Proper configuration
+ensures efficient memory use, preventing excessive disk I/O during searches.
 
 Default: 500 MB (500_000_000 bytes)
 Minimum: 15 MB (15_000_000 bytes)
 
 Adjust the memory_budget based on your system's available memory and the size of your indexes to optimize performance.
-
 For most systems, 10-20MB per indexer thread is maximum. We get limited improvement after this.
 
 ### Reader Cache
 
-The reader_cache_num_blocks setting controls the number of blocks reserved for caching index data in memory. A well-sized reader cache minimizes disk access, leading to faster query responses.
+The reader_cache_num_blocks setting controls the number of blocks reserved for caching index data in memory. A well-sized
+reader cache minimizes disk access, leading to faster query responses.
 
 Default: 100 blocks
 

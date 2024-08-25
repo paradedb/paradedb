@@ -31,9 +31,16 @@ fn search_tantivy(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> bool {
     let default_hash_set = || {
-        let JsonB(search_config_json) = &config_json;
-        let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
-            .expect("could not parse search config");
+        let search_config = {
+            let JsonB(search_config_json) = &config_json;
+            let mut search_config: SearchConfig =
+                serde_json::from_value(search_config_json.clone())
+                    .expect("could not parse search config");
+
+            // we do not require stable sorting
+            search_config.stable_sort = Some(false);
+            search_config
+        };
 
         let writer_client = WriterGlobal::client();
         let directory = WriterDirectory::from_index_oid(search_config.index_oid);
@@ -46,7 +53,10 @@ fn search_tantivy(
                 needs_commit(search_config.index_oid),
             )
             .unwrap();
-        let top_docs = scan_state.search(SearchIndex::executor());
+
+        // although we don't use the scores returned from `search_with_scores()`, this is the method
+        // by which the key value is retrieved, which we do need below
+        let top_docs = scan_state.search_with_scores(SearchIndex::executor());
         let mut hs = FxHashSet::default();
 
         for hit in top_docs {
@@ -57,14 +67,14 @@ fn search_tantivy(
     };
 
     let cached = unsafe { pg_func_extra(fcinfo, default_hash_set) };
-    let search_config = &cached.0;
     let hash_set = &cached.1;
-    let key_field_name = &search_config.key_field;
 
     let key_field_value = match unsafe {
         TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
     } {
-        Err(err) => panic!("no value present in key_field {key_field_name} in tuple: {err}"),
+        Err(err) => panic!("no value present in key_field {} in tuple: {err}", {
+            &cached.0.key_field
+        }),
         Ok(value) => value,
     };
 

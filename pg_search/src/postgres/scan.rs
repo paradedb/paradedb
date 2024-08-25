@@ -105,7 +105,7 @@ pub extern "C" fn amgettuple(
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter = unsafe {
-        // SAFETY:  `amrescan()` leaked an instance of `HitsIterator` into the current Postgres MemoryContext
+        // SAFETY:  `amrescan()` leaked an instance of `SearchHitIter` into the current Postgres MemoryContext
         //          and set `scan.opaque` to point to it.
         (scan.opaque as *mut SearchHitIter).as_mut()
     }

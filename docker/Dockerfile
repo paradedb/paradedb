@@ -41,7 +41,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-# Intall the pgrx version of pg_search
+# Intall the pgrx version of pg_search and pg_analytics
 RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 

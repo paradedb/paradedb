@@ -9,15 +9,13 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.80.0
-ARG PGRX_VERSION_PG_SEARCH=0.12.1
-ARG PGRX_VERSION_PG_ANALYTICS=0.12.1
+ARG PGRX_VERSION=0.12.1
 ARG PGRX_VERSION_PG_VECTOR_SCALE=0.11.4
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     RUST_VERSION=${RUST_VERSION} \
-    PGRX_VERSION_PG_SEARCH=${PGRX_VERSION_PG_SEARCH} \
-    PGRX_VERSION_PG_ANALYTICS=${PGRX_VERSION_PG_ANALYTICS} \
+    PGRX_VERSION=${PGRX_VERSION} \
     PGRX_VERSION_PG_VECTOR_SCALE=${PGRX_VERSION_PG_VECTOR_SCALE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
@@ -43,16 +41,15 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
+# Intall the pgrx version of pg_search
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
 ######################
 # pg_search
 ######################
 
 FROM builder AS builder-pg_search
-
-# Intall the pgrx version of pg_search
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_SEARCH}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
@@ -79,10 +76,6 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 
 FROM builder AS builder-pg_analytics
 
-# Intall the pgrx version of pg_analytics
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_ANALYTICS}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
@@ -94,9 +87,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-# TODO: Once we start publishing releases for `paradedb/pg_analytics`, switch to a specific version tag
-RUN git clone --branch main https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
-COPY shared/ /tmp/shared
+RUN git clone --branch 0.1.1 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 
 # Build the extension
 WORKDIR /tmp/pg_analytics
@@ -176,8 +167,8 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
-      org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
-      org.opencontainers.image.source="https://github.com/paradedb/paradedb"
+    org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
+    org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 ARG PG_VERSION_MAJOR=16
 

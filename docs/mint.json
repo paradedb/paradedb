@@ -232,7 +232,8 @@
           "group": "Configuration",
           "pages": [
             "ingest/configuration/schema",
-            "ingest/configuration/settings"
+            "ingest/configuration/settings",
+            "ingest/configuration/multi-level-partitioned-tables"
           ]
         }
       ]

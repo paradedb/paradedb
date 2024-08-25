@@ -90,9 +90,7 @@ pub extern "C" fn amrescan(
         let results_iter: SearchResultIter =
             Box::new(state.as_ref().unwrap().search(SearchIndex::executor()));
 
-        let leaked_results_iter =
-            PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter);
-        leaked_results_iter
+        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
     };
 
     // Save the iterator onto the current memory context.

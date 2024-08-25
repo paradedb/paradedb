@@ -211,8 +211,8 @@ unsafe fn create_and_leak_scan_state(
     // of `top_docs` down below
     let scan_state = search_index
         .search_state(
-            &writer_client,
-            &search_config,
+            writer_client,
+            search_config,
             needs_commit(search_config.index_oid),
         )
         .expect("could not get scan state");

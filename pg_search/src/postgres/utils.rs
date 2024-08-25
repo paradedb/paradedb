@@ -178,7 +178,7 @@ impl VisibilityChecker {
 
             // Check if heaptuple is visible
             // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
-            let visible = pg_sys::heap_hot_search_buffer(
+            pg_sys::heap_hot_search_buffer(
                 &mut item_pointer,
                 self.relation,
                 buffer,
@@ -186,8 +186,7 @@ impl VisibilityChecker {
                 &mut heap_tuple,
                 std::ptr::null_mut(),
                 true,
-            );
-            visible
+            )
         }
     }
 }

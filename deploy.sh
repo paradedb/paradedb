@@ -10,7 +10,7 @@ EXIT_MSG="\n\nIf you'd like to stay upto date with everything about ParadeDB\nJo
 set -Eeuo pipefail
 
 function commandExists() {
-    command -v "$1" >/dev/null 2>&1
+  command -v "$1" >/dev/null 2>&1
 }
 
 installDockerDepsLinux(){

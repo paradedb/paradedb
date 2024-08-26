@@ -15,22 +15,98 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Write;
+
 #[cfg(feature = "icu")]
 use crate::icu::ICUTokenizer;
-use crate::{
-    cjk::ChineseTokenizer,
-    code::CodeTokenizer,
-    lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
-    DEFAULT_REMOVE_TOKEN_LENGTH,
-};
+use crate::DEFAULT_REMOVE_TOKEN_LENGTH;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use strum::AsRefStr;
-use tantivy::tokenizer::{
-    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
-    RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
-};
+use tantivy::tokenizer::{Language, LowerCaser, RemoveLongFilter};
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
+pub struct SearchTokenizerFilters {
+    remove_long: Option<usize>,
+    lowercase: Option<bool>,
+}
+
+impl SearchTokenizerFilters {
+    fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
+        let mut filters = SearchTokenizerFilters::default();
+
+        if let Some(remove_long) = value.get("remove_long") {
+            filters.remove_long = Some(remove_long.as_u64().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "a 'remove_long' value passed to the pg_search tokenizer configuration \
+                     must be of type u64, found: {remove_long:#?}"
+                )
+            })? as usize);
+        }
+        if let Some(lowercase) = value.get("lowercase") {
+            filters.lowercase = Some(lowercase.as_bool().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "a 'lowercase' value passed to the pg_search tokenizer configuration \
+                     must be of type bool, found: {lowercase:#?}"
+                )
+            })?);
+        };
+
+        Ok(filters)
+    }
+
+    fn to_json_value(&self, enclosing: &mut serde_json::Value) {
+        let enclosing = enclosing.as_object_mut().expect("object value");
+        if let Some(value) = self.remove_long {
+            let v = serde_json::Value::Number(value.into());
+            enclosing.insert("remove_long".to_string(), v);
+        }
+        if let Some(value) = self.lowercase {
+            let v = serde_json::Value::Bool(value);
+            enclosing.insert("lowercase".to_string(), v);
+        }
+    }
+
+    fn name_suffix(&self) -> String {
+        let mut buffer = String::new();
+        let mut is_empty = true;
+
+        fn sep(is_empty: bool) -> &'static str {
+            if is_empty {
+                ""
+            } else {
+                ","
+            }
+        }
+
+        if let Some(value) = self.remove_long {
+            write!(buffer, "{}remove_long={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
+        if let Some(value) = self.lowercase {
+            write!(buffer, "{}lowercase={value}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
+
+        if is_empty {
+            "".into()
+        } else {
+            format!("[{buffer}]")
+        }
+    }
+
+    pub(crate) fn remove_long_filter(&self) -> RemoveLongFilter {
+        let limit = self.remove_long.unwrap_or(DEFAULT_REMOVE_TOKEN_LENGTH);
+        RemoveLongFilter::limit(limit)
+    }
+
+    pub(crate) fn lowercase(&self) -> Option<LowerCaser> {
+        match self.lowercase {
+            Some(false) => None, // Only disable if explicitly requested.
+            _ => Some(LowerCaser),
+        }
+    }
+}
 
 // Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
@@ -40,21 +116,9 @@ use tantivy::tokenizer::{
 // `from_json_value` methods. We don't use serde_json to ser/de the
 // SearchTokenizer, because our bincode serialization format is incompatible
 // with the "tagged" format we use in our public API.
-#[derive(
-    Serialize,
-    Deserialize,
-    Default,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    strum_macros::VariantNames,
-    AsRefStr,
-)]
-#[strum(serialize_all = "snake_case")]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum SearchTokenizer {
-    #[default]
-    Default,
+    Default(SearchTokenizerFilters),
     Raw,
     EnStem,
     Stem {
@@ -80,10 +144,16 @@ pub enum SearchTokenizer {
     ICUTokenizer,
 }
 
+impl Default for SearchTokenizer {
+    fn default() -> Self {
+        Self::Default(SearchTokenizerFilters::default())
+    }
+}
+
 impl SearchTokenizer {
     pub fn to_json_value(&self) -> serde_json::Value {
-        match self {
-            SearchTokenizer::Default => json!({ "type": "default" }),
+        let mut json = match self {
+            SearchTokenizer::Default(_filters) => json!({ "type": "default" }),
             SearchTokenizer::Raw => json!({ "type": "raw" }),
             SearchTokenizer::EnStem => json!({ "type": "en_stem" }),
             SearchTokenizer::Stem { language } => json!({ "type": "stem", "language": language }),
@@ -109,7 +179,11 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera => json!({ "type": "korean_lindera" }),
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer => json!({ "type": "icu" }),
-        }
+        };
+        if let Some(filters) = self.filters() {
+            filters.to_json_value(&mut json);
+        };
+        json
     }
 
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
@@ -121,8 +195,10 @@ impl SearchTokenizer {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("a 'type' must be passed in pg_search tokenizer configuration, not found in: {value:#?}"))?;
 
+        let filters = SearchTokenizerFilters::from_json_value(value)?;
+
         match tokenizer_type {
-            "default" => Ok(SearchTokenizer::Default),
+            "default" => Ok(SearchTokenizer::Default(filters)),
             "raw" => Ok(SearchTokenizer::Raw),
             "en_stem" => Ok(SearchTokenizer::EnStem),
             "stem" => {
@@ -174,101 +250,10 @@ impl SearchTokenizer {
         }
     }
 
-    pub fn to_tantivy_tokenizer(&self) -> Option<tantivy::tokenizer::TextAnalyzer> {
+    fn filters(&self) -> Option<&SearchTokenizerFilters> {
         match self {
-            SearchTokenizer::Default => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::Raw => Some(
-                TextAnalyzer::builder(RawTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .build(),
-            ),
-            SearchTokenizer::Lowercase => Some(
-                TextAnalyzer::builder(RawTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::WhiteSpace => Some(
-                TextAnalyzer::builder(WhitespaceTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::RegexTokenizer { pattern } => Some(
-                TextAnalyzer::builder(RegexTokenizer::new(pattern.as_str()).unwrap())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::ChineseCompatible => Some(
-                TextAnalyzer::builder(ChineseTokenizer)
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::SourceCode => Some(
-                TextAnalyzer::builder(CodeTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .filter(AsciiFoldingFilter)
-                    .build(),
-            ),
-            SearchTokenizer::Ngram {
-                min_gram,
-                max_gram,
-                prefix_only,
-            } => Some(
-                TextAnalyzer::builder(
-                    NgramTokenizer::new(*min_gram, *max_gram, *prefix_only).unwrap(),
-                )
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .filter(LowerCaser)
-                .build(),
-            ),
-            SearchTokenizer::ChineseLindera => Some(
-                TextAnalyzer::builder(LinderaChineseTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::JapaneseLindera => Some(
-                TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::KoreanLindera => Some(
-                TextAnalyzer::builder(LinderaKoreanTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::EnStem => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .filter(Stemmer::new(Language::English))
-                    .build(),
-            ),
-            SearchTokenizer::Stem { language } => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .filter(Stemmer::new(*language))
-                    .build(),
-            ),
-            #[cfg(feature = "icu")]
-            SearchTokenizer::ICUTokenizer => Some(
-                TextAnalyzer::builder(ICUTokenizer)
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
+            SearchTokenizer::Default(filters) => Some(filters),
+            _ => None, // TODO
         }
     }
 }
@@ -298,8 +283,12 @@ pub fn language_to_str(lang: &Language) -> &str {
 
 impl SearchTokenizer {
     pub fn name(&self) -> String {
+        let filters_suffix = match self.filters() {
+            Some(filters) => filters.name_suffix(),
+            None => "".to_string(),
+        };
         match self {
-            SearchTokenizer::Default => "default".into(),
+            SearchTokenizer::Default(_filters) => format!("default{filters_suffix}"),
             SearchTokenizer::Raw => "raw".into(),
             SearchTokenizer::EnStem => "en_stem".into(),
             SearchTokenizer::Stem { language } => format!("stem_{}", language_to_str(language)),
@@ -348,7 +337,7 @@ mod tests {
 
     #[rstest]
     fn test_search_tokenizer() {
-        let tokenizer = SearchTokenizer::Default;
+        let tokenizer = SearchTokenizer::default();
         assert_eq!(tokenizer.name(), "default".to_string());
 
         let tokenizer = SearchTokenizer::EnStem;

@@ -42,6 +42,6 @@ jobs:
           if [[ "$output" == *"No broken links found."* ]]; then
             echo "No broken links found."
           else
-            >&2 echo "$output"
+            echo "$output"
             exit 1
           fi

@@ -10,3 +10,9 @@ lto = "fat"
 panic = "unwind"
 opt-level = 3
 codegen-units = 1
+
+[profile.prof]
+inherits = "release"
+debug = true
+lto = "thin"
+codegen-units = 32

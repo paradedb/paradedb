@@ -11,7 +11,7 @@ Once an index is created, it automatically stays in sync with the underlying tab
 ## Basic Usage
 
 The following code block creates an index called `search_idx` over the `description` and `rating` columns of the `mock_items`
-table, which was created in the [quickstart](/api/quickstart#full-text-search).
+table, which was created in the [quickstart](/api-reference/quickstart#full-text-search).
 
 ```sql
 CALL paradedb.create_bm25(
@@ -366,7 +366,7 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
 ### Fast Fields
 
 A field that is indexed as `fast` is stored in a column-oriented fashion. Fast fields are necessary for
-[aggregations/faceting](/api/aggregations). They can also improve the query times of [filters](/api/full-text/bm25#efficient-filtering)
+[aggregations/faceting](/api-reference/aggregations). They can also improve the query times of [filters](/api-reference/full-text/bm25#efficient-filtering)
 and BM25 scoring.
 
 The following code block demonstrates how to specify a fast field.

@@ -56,7 +56,7 @@
     {
       "name": "API",
       "icon": "code",
-      "url": "api-reference"
+      "url": "api"
     },
     {
       "name": "Ingest",
@@ -78,10 +78,7 @@
   "navigation": [
     {
       "group": "Welcome",
-      "pages": [
-        "welcome/introduction",
-        "welcome/support"
-      ]
+      "pages": ["welcome/introduction", "welcome/support"]
     },
     {
       "group": "API",

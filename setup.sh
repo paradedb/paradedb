@@ -22,12 +22,15 @@ installDockerDepsLinux(){
     case $opt in
       "Debian Base")
         sudo apt-get install docker -y || false
+        sudo systemctl enable --now docker
         break ;;
       "RHEL Based")
         sudo dnf install docker -y || false
+        sudo systemctl enable --now docker
         break ;;
       "Arch Based")
         sudo pacman -Su docker || false
+        sudo systemctl enable --now docker
         break ;;
       *)
         break ;;
@@ -61,6 +64,16 @@ installDocker() {
         exit 1
       fi
     fi
+  fi
+
+  docker_version=$(docker --version)
+  echo "Docker version: $docker_version ..."
+  # Check if Docker daemon is running
+  if docker info >/dev/null 2>&1; then
+    echo "Docker daemon is running. Pulling image..."
+  else
+    echo "Docker daemon is not running. Please run it to pull the ParadeDB image."
+    exit 1
   fi
 
   # Prompt for user input

@@ -3,7 +3,6 @@
 ARCH=$(uname -m)
 LATEST_RELEASE_TAG=$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r .tag_name)
 LATEST_RELEASE_VERSION="${LATEST_RELEASE_TAG#v}"
-OSTYPE="darwin"
 
 EXIT_MSG="\n\nIf you'd like to stay upto date with everything about ParadeDB\nJoin our slack channel: https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ \nGitHub: https://github.com/paradedb/paradedb"
 
@@ -54,8 +53,9 @@ installDocker() {
     if ! commandExists docker; then
       echo "Docker not found. Starting installation..."
       if [[ "$OSTYPE" == "darwin"* ]]; then
-        brew install --cask docker
-        echo "Successfully Installed Docker ✅"
+        echo -e "Please install docker from: https://docs.docker.com/desktop/install/mac-install/ before proceeding with the installation."
+        echo -e "$EXIT_MSG"
+        exit 0
       elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
         installDockerDepsLinux
         echo "Successfully Installed Docker ✅"

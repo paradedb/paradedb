@@ -169,6 +169,9 @@ impl VisibilityChecker {
         unsafe {
             let page = pg_sys::BufferGetPage(buffer);
             let item_id = pg_sys::PageGetItemId(page, offsetno);
+            if (*item_id).lp_len() == 0 {
+                return false;
+            }
             let mut heap_tuple = pg_sys::HeapTupleData {
                 t_data: pg_sys::PageGetItem(page, item_id) as pg_sys::HeapTupleHeader,
                 t_len: item_id.as_ref().unwrap().lp_len(),

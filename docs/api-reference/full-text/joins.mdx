@@ -24,8 +24,13 @@ SELECT * FROM mock_products;
 ```
 
 <Accordion title="Expected Response">
-  ```csv id | product_name ----+---------------- 1 | Flat Screen TV 2 | MP3
-  Player (2 rows) ```
+```csv
+ id |  product_name
+----+----------------
+  1 | Flat Screen TV
+  2 | MP3 Player
+(2 rows)
+```
 </Accordion>
 
 ```sql
@@ -42,9 +47,14 @@ SELECT * FROM mock_reviews;
 ```
 
 <Accordion title="Expected Response">
-  ```csv review_id | product_id | review
-  -----------+------------+-------------------- 1 | 1 | Amazing resolution 2 | 2
-  | Amazing sound 3 | 2 | Would recommend (3 rows) ```
+```csv
+ review_id | product_id |       review
+-----------+------------+--------------------
+         1 |          1 | Amazing resolution
+         2 |          2 | Amazing sound
+         3 |          2 | Would recommend
+(3 rows)
+```
 </Accordion>
 
 The materialized view `product_reviews` joins data from both tables and produces a single view of product names and their
@@ -60,10 +70,14 @@ SELECT * FROM product_reviews;
 ```
 
 <Accordion title="Expected Response">
-  ```csv review_id | product_name | review
-  -----------+----------------+-------------------- 1 | Flat Screen TV | Amazing
-  resolution 2 | MP3 Player | Amazing sound 3 | MP3 Player | Would recommend (3
-  rows) ```
+```csv
+ review_id |  product_name  |       review
+-----------+----------------+--------------------
+         1 | Flat Screen TV | Amazing resolution
+         2 | MP3 Player     | Amazing sound
+         3 | MP3 Player     | Would recommend
+(3 rows)
+```
 </Accordion>
 
 To search over `product_reviews`, it must first be indexed.
@@ -84,9 +98,13 @@ SELECT * FROM product_reviews.search('review:amazing OR product_name:tv');
 ```
 
 <Accordion title="Expected Response">
-  ```csv review_id | product_name | review
-  -----------+----------------+-------------------- 1 | Flat Screen TV | Amazing
-  resolution 2 | MP3 Player | Amazing sound (2 rows) ```
+```csv
+ review_id |  product_name  |       review
+-----------+----------------+--------------------
+         1 | Flat Screen TV | Amazing resolution
+         2 | MP3 Player     | Amazing sound
+(2 rows)
+```
 </Accordion>
 
 ## Materialized View Refresh
@@ -114,11 +132,13 @@ SELECT * FROM product_reviews_agg;
 ```
 
 <Accordion title="Expected Response">
-  ```csv id | product_name | reviews
-  ----+----------------+------------------------------------- 1 | Flat Screen TV
-  | {"Amazing resolution"}2 | MP3 Player |{" "}
-  {("Amazing sound", "Would recommend")}
-  (2 rows) ```
+```csv
+ id |  product_name  |               reviews
+----+----------------+-------------------------------------
+  1 | Flat Screen TV | {"Amazing resolution"}
+  2 | MP3 Player     | {"Amazing sound","Would recommend"}
+(2 rows)
+```
 </Accordion>
 
 Arrays can be indexed and searched over in the same way as non-array types.
@@ -135,10 +155,12 @@ SELECT * FROM product_reviews_agg.search('reviews:sound');
 ```
 
 <Accordion title="Expected Response">
-  ```csv id | product_name | reviews
-  ----+--------------+------------------------------------- 2 | MP3 Player |{" "}
-  {("Amazing sound", "Would recommend")}
-  (1 row) ```
+```csv
+ id | product_name |               reviews
+----+--------------+-------------------------------------
+  2 | MP3 Player   | {"Amazing sound","Would recommend"}
+(1 row)
+```
 </Accordion>
 
 ## Incremental Materialized Views

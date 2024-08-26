@@ -6,7 +6,7 @@ title: Basic Full Text Search
 
 <Note>
   **Prerequisite** Before performing full text search over a table, it must
-  first be [indexed](/api-reference/full-text/index).
+  first be [indexed](/api/full-text/index).
 </Note>
 
 The `search` function returns rows of a table that match a search query. By default, rows are sorted by relevance.
@@ -67,8 +67,8 @@ Filters can be applied over numeric fields, which improves query times compared 
 
 <Note>
   Filters only work over Postgres columns that have been indexed as
-  [`numeric_fields`](/api-reference/full-text/index#creating-a-bm25-index) or
-  [`boolean_fields`](/api-reference/full-text/index#creating-a-bm25-index).
+  [`numeric_fields`](/api/full-text/index#creating-a-bm25-index) or
+  [`boolean_fields`](/api/full-text/index#creating-a-bm25-index).
 </Note>
 
 ### JSON Fields
@@ -151,8 +151,7 @@ are separated by one word, the following query would find this row.
 
 <Note>
   The slop operator is distinct from [fuzzy
-  search](/api-reference/full-text/complex#fuzzy-term), which is used for typo
-  tolerance.
+  search](/api/full-text/complex#fuzzy-term), which is used for typo tolerance.
 </Note>
 
 ### Set Operator

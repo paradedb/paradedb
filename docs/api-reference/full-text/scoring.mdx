@@ -3,9 +3,7 @@ title: BM25 Scoring
 ---
 
 <Note>
-  The `rank_bm25` function has been deprecated as of 0.8.5 and has been replaced
-  with `score_bm25`, which follows new query syntax and has a different return
-  type.
+The `rank_bm25` function has been deprecated as of 0.8.5 and has been replaced with `score_bm25`, which follows new query syntax and has a different return type.
 </Note>
 
 ## Overview
@@ -15,7 +13,7 @@ BM25 scores measure how relevant a score is for a given query. Higher scores ind
 ## Basic Usage
 
 The `score_bm25` function takes a query and returns a table with two columns: the `key_field` of each result and its BM25 score. `score_bm25` accepts the same
-parameters as [`search`](/api-reference/full-text/bm25).
+parameters as [`search`](/api/full-text/bm25).
 
 ```sql
 SELECT * FROM <index_name>.score_bm25('<query>');
@@ -47,6 +45,7 @@ SELECT * FROM search_idx.score_bm25(
   equally-scored results, at the cost of performance.
 </ParamField>
 
+
 ## Joining BM25 Scores
 
 Because `score_bm25` generates a new `score_bm25` column, the function does not return all the columns of the original table.
@@ -66,9 +65,13 @@ LEFT JOIN mock_items ON scores.id = mock_items.id;
 ```
 
 <Accordion title="Expected Output">
-  ```csv id | description | score_bm25
-  ----+--------------------------+------------ 2 | Plastic Keyboard | 3.2668595
-  1 | Ergonomic metal keyboard | 2.8213787 (2 rows) ```
+```csv
+ id |       description        | score_bm25
+----+--------------------------+------------
+  2 | Plastic Keyboard         |  3.2668595
+  1 | Ergonomic metal keyboard |  2.8213787
+(2 rows)
+```
 </Accordion>
 
 ## Score Refresh

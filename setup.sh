@@ -9,6 +9,10 @@ EXIT_MSG="\n\nIf you'd like to stay upto date with everything about ParadeDB\nJo
 
 set -Eeuo pipefail
 
+function commandExists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
 installDockerDepsLinux(){
   echo "Which type of distro are you using?(Required to install dependencies)"
   OPTIONS=("Debian Based" "RHEL Based" "Arch Based")
@@ -38,24 +42,26 @@ installDocker() {
   pgpass="mypassword"
   dbname="paradedb"
 
-  echo "Installing docker..."
-
-  if [[ "$OSTYPE" =  "darwin" ]]; then
-    brew install docker
-  elif [[ "$OSTYPE" = "linux-gnu" ]]; then
-    installDockerDepsLinux
-  elif [[ "$OSTYPE" = "msys" ]] || [[ "$OSTYPE" = "cygwin" ]]; then # Detects Git bash/ cygwin environments
-    read -p "Do you have docker installed(y/n)? " -n 1 -r
-    if [[ $REPLY =~ ^[Nn]$ ]]
-    then
-      echo -e "\nPlease install docker first and get back to the setup!"
-      echo -e "$EXIT_MSG"
+  if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    if ! commandExists docker; then
+      echo -e "\nPlease install Docker first and get back to the setup!"
       exit 1
     fi
+  else
+    if ! commandExists docker; then
+      echo "Docker not found. Starting installation..."
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        brew install --cask docker
+        echo "Successfully Installed Docker ✅"
+      elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        installDockerDepsLinux
+        echo "Successfully Installed Docker ✅"
+      else
+        echo "Unsupported OS type: $OSTYPE"
+        exit 1
+      fi
+    fi
   fi
-
-  echo "Successfully Installed Docker✅"
-
 
   # Prompt for user input
   read -r -p "Username for Database (default: myuser): " tmp_pguser

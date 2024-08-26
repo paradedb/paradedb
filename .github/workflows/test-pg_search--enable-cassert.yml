@@ -28,7 +28,7 @@ on:
         default: ""
 
 concurrency:
-  group: test-pg_search-${{ github.head_ref || github.ref }}
+  group: test-pg_search--enable-cassert-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -130,6 +130,6 @@ jobs:
           PARADEDB_TELEMETRY=false
 
           cargo pgrx stop && \
-            cargo pgrx install --pg-config ~/.pgrx/16.3/pgrx-install/bin/pg_config && \
+            cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config && \
             cargo pgrx start && \
             DATABASE_URL=postgresql://localhost:28816/pg_search cargo test --features=pg${{ matrix.pg_version }},icu

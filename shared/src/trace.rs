@@ -205,6 +205,7 @@ pub fn is_os_main_thread() -> Option<bool> {
 /// Background processes will still need to initialize the subscriber explicitly.
 pub struct TraceHook;
 
+#[allow(deprecated)]
 impl pgrx::PgHooks for TraceHook {
     fn executor_start(
         &mut self,

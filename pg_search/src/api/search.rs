@@ -188,5 +188,5 @@ pub fn drop_bm25_internal(index_oid: pg_sys::Oid) {
 
     // Drop the Tantivy data directory.
     SearchIndex::drop_index(&writer_client, index_oid.as_u32())
-        .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid}: {err:?}"));
+        .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
 }

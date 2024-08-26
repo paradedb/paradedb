@@ -18,37 +18,9 @@
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
-use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
+use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys::{Buffer, BuiltinOid, ItemPointerData};
 use pgrx::*;
-
-/// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2
-/// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
-/// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
-/// bitpacking or compressing these values.
-#[inline(always)]
-pub fn item_pointer_to_u64(ctid: ItemPointerData) -> u64 {
-    let (blockno, offno) = item_pointer_get_both(ctid);
-    let blockno = blockno as u64;
-    let offno = offno as u64;
-
-    // shift the BlockNumber left 16 bits -- the length of the OffsetNumber we OR onto the end
-    // pgrx's version shifts left 32, which is wasteful
-    (blockno << 16) | offno
-}
-
-/// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2
-/// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
-/// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
-/// bitpacking or compressing these values.
-#[inline(always)]
-pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
-    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
-    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
-    let blockno = (value >> 16) as pg_sys::BlockNumber;
-    let offno = value as pg_sys::OffsetNumber;
-    item_pointer_set_all(tid, blockno, offno);
-}
 
 pub unsafe fn row_to_search_document(
     ctid: ItemPointerData,
@@ -114,7 +86,7 @@ pub unsafe fn row_to_search_document(
     }
 
     // Insert the ctid value into the entries.
-    let ctid_index_value = crate::postgres::utils::item_pointer_to_u64(ctid);
+    let ctid_index_value = pgrx::itemptr::item_pointer_to_u64(ctid);
     document.insert(schema.ctid_field().id, ctid_index_value.into());
 
     Ok(document)
@@ -166,7 +138,7 @@ impl VisibilityChecker {
     pub fn ctid_satisfies_snapshot(&mut self, ctid: u64) -> bool {
         unsafe {
             // Using ctid, get itempointer => buffer => page => heaptuple
-            crate::postgres::utils::u64_to_item_pointer(ctid, &mut self.ipd);
+            pgrx::itemptr::u64_to_item_pointer(ctid, &mut self.ipd);
 
             let blockno = item_pointer_get_block_number(&self.ipd);
 

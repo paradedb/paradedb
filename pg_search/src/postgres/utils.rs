@@ -18,8 +18,8 @@
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
-use pgrx::itemptr::item_pointer_get_block_number;
-use pgrx::pg_sys::{Buffer, BuiltinOid, ItemPointerData};
+use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_offset_number};
+use pgrx::pg_sys::{Buffer, BuiltinOid, ItemPointerData, OffsetNumber};
 use pgrx::*;
 
 pub unsafe fn row_to_search_document(
@@ -141,10 +141,11 @@ impl VisibilityChecker {
             pgrx::itemptr::u64_to_item_pointer(ctid, &mut self.ipd);
 
             let blockno = item_pointer_get_block_number(&self.ipd);
+            let offsetno = item_pointer_get_offset_number(&self.ipd);
 
             if blockno == self.last_blockno {
                 // this ctid is on the buffer we already have locked
-                return self.check_page_vis(self.last_buffer);
+                return self.check_page_vis(self.ipd, offsetno, self.last_buffer);
             } else if self.last_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 // this ctid is on a different buffer, so release the one we've got locked
                 pg_sys::UnlockReleaseBuffer(self.last_buffer);
@@ -155,18 +156,30 @@ impl VisibilityChecker {
 
             pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
 
-            self.check_page_vis(self.last_buffer)
+            self.check_page_vis(self.ipd, offsetno, self.last_buffer)
         }
     }
 
-    unsafe fn check_page_vis(&mut self, buffer: Buffer) -> bool {
+    unsafe fn check_page_vis(
+        &mut self,
+        mut item_pointer: ItemPointerData,
+        offsetno: OffsetNumber,
+        buffer: Buffer,
+    ) -> bool {
         unsafe {
-            let mut heap_tuple = pg_sys::HeapTupleData::default();
+            let page = pg_sys::BufferGetPage(buffer);
+            let item_id = pg_sys::PageGetItemId(page, offsetno);
+            let mut heap_tuple = pg_sys::HeapTupleData {
+                t_data: pg_sys::PageGetItem(page, item_id) as pg_sys::HeapTupleHeader,
+                t_len: item_id.as_ref().unwrap().lp_len(),
+                t_tableOid: (*self.relation).rd_id,
+                t_self: item_pointer,
+            };
 
             // Check if heaptuple is visible
             // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
             pg_sys::heap_hot_search_buffer(
-                &mut self.ipd,
+                &mut item_pointer,
                 self.relation,
                 buffer,
                 self.snapshot,

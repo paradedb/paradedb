@@ -23,6 +23,7 @@ use core::panic;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use shared::fixtures::utils::database_oid;
 use sqlx::PgConnection;
 use std::path::PathBuf;
 use tantivy::Index;
@@ -628,6 +629,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
     let index_dir_path = PathBuf::from(data_directory)
         .join("pg_search")
+        .join(database_oid(&mut conn))
         .join(index_oid.to_string())
         .join("tantivy");
 
@@ -1138,6 +1140,7 @@ fn index_size(mut conn: PgConnection) {
 
     let index_dir = PathBuf::from(data_directory)
         .join("pg_search")
+        .join(database_oid(&mut conn))
         .join(index_oid.to_string())
         .join("tantivy");
 

@@ -36,7 +36,8 @@ fn search_tantivy(
             .expect("could not parse search config");
 
         let writer_client = WriterGlobal::client();
-        let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+        let directory =
+            WriterDirectory::from_index_oid(crate::MyDatabaseId(), search_config.index_oid);
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
         let scan_state = search_index

@@ -21,12 +21,9 @@ use sqlx::PgConnection;
 use std::path::PathBuf;
 
 pub fn database_oid(conn: &mut PgConnection) -> String {
-    let db_name = "SELECT current_database()".fetch_one::<(String,)>(conn).0;
-
-    format!("SELECT oid FROM pg_database WHERE datname='{db_name}'")
-        .fetch_one::<(sqlx::postgres::types::Oid,)>(conn)
+    "select oid::int4 from pg_database where datname = current_database()"
+        .fetch_one::<(i32,)>(conn)
         .0
-         .0
         .to_string()
 }
 

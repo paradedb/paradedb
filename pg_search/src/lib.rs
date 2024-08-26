@@ -46,6 +46,17 @@ extension_sql!("GRANT ALL ON SCHEMA paradedb TO PUBLIC;" name = "paradedb_grant_
 
 static mut TRACE_HOOK: shared::trace::TraceHook = shared::trace::TraceHook;
 
+/// Convenience method for [`pgrx::pg_sys::MyDatabaseId`]
+#[allow(non_snake_case)]
+#[inline(always)]
+pub fn MyDatabaseId() -> u32 {
+    unsafe {
+        // SAFETY:  this static is set by Postgres when the backend first connects and is
+        // never changed afterwards.  As such, it'll always be set whenever this code runs
+        pg_sys::MyDatabaseId.as_u32()
+    }
+}
+
 /// Initializes option parsing and telemetry
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]

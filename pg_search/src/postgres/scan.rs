@@ -71,7 +71,7 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let index_oid = unsafe { (*scan.indexRelation).rd_id.as_u32() };
-    let directory = WriterDirectory::from_index_oid(index_oid);
+    let directory = WriterDirectory::from_index_oid(crate::MyDatabaseId(), index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();

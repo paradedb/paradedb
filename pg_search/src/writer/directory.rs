@@ -83,14 +83,19 @@ pub trait SearchFs {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct WriterDirectory {
+    pub database_oid: u32,
     pub index_oid: u32,
     pub postgres_data_dir_path: PathBuf,
 }
 
 impl WriterDirectory {
     /// Useful in a connection process, where the database oid is available in the environment.
-    pub fn from_index_oid(index_oid: u32) -> Self {
+    pub fn from_index_oid(database_oid: u32, index_oid: u32) -> Self {
+        // NB:  I'd have preferred for this function to just directly use [`pg_sys::MyDatabaseOid`]
+        // rather than requiring the caller to specify it, but that would cause the tests for
+        // this type to fail to link.
         Self {
+            database_oid,
             index_oid,
             postgres_data_dir_path: env::postgres_data_dir_path(),
         }
@@ -106,6 +111,7 @@ impl WriterDirectory {
         let search_index_dir_path = &self
             .postgres_data_dir_path
             .join(SEARCH_DIR_NAME)
+            .join(self.database_oid.to_string())
             .join(self.index_oid.to_string());
 
         if ensure_exists {

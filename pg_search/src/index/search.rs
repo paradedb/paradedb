@@ -283,7 +283,7 @@ impl SearchIndex {
         writer: &Arc<Mutex<W>>,
         index_oid: u32,
     ) -> Result<(), SearchIndexError> {
-        let directory = WriterDirectory::from_index_oid(index_oid);
+        let directory = WriterDirectory::from_index_oid(crate::MyDatabaseId(), index_oid);
         let request = WriterRequest::DropIndex {
             directory: directory.clone(),
         };

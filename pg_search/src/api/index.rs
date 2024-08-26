@@ -53,7 +53,7 @@ pub fn schema_bm25(
         .expect("error looking up index in schema_bm25")
         .expect("no oid for index passed to schema_bm25");
 
-    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+    let directory = WriterDirectory::from_index_oid(crate::MyDatabaseId(), index_oid.as_u32());
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

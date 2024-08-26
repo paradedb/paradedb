@@ -71,7 +71,7 @@ unsafe fn score_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+    let directory = WriterDirectory::from_index_oid(crate::MyDatabaseId(), search_config.index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -125,7 +125,7 @@ unsafe fn snippet(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+    let directory = WriterDirectory::from_index_oid(crate::MyDatabaseId(), search_config.index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

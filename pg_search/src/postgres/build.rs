@@ -207,7 +207,7 @@ pub extern "C" fn ambuild(
     }
 
     let writer_client = WriterGlobal::client();
-    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+    let directory = WriterDirectory::from_index_oid(crate::MyDatabaseId(), index_oid.as_u32());
 
     SearchIndex::create_index(
         &writer_client,
@@ -302,7 +302,8 @@ unsafe fn build_callback_internal(
             let tupdesc = index_relation_ref.tuple_desc();
             let index_name = index_relation_ref.name();
             let index_oid = index_relation_ref.oid();
-            let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+            let directory =
+                WriterDirectory::from_index_oid(crate::MyDatabaseId(), index_oid.as_u32());
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
                 .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
             let search_document =

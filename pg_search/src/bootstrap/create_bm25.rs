@@ -482,7 +482,7 @@ fn index_size(index_name: &str) -> Result<i64> {
         .as_u32();
 
     // Create a WriterDirectory with the obtained index_oid
-    let writer_directory = WriterDirectory::from_index_oid(index_oid);
+    let writer_directory = WriterDirectory::from_index_oid(crate::MyDatabaseId(), index_oid);
 
     // Call the total_size method to get the size in bytes
     let total_size = writer_directory.total_size()?;

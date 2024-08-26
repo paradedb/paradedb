@@ -33,7 +33,8 @@ pub extern "C" fn ambulkdelete(
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
-    let directory = WriterDirectory::from_index_oid(index_relation.oid().as_u32());
+    let directory =
+        WriterDirectory::from_index_oid(crate::MyDatabaseId(), index_relation.oid().as_u32());
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

@@ -24,6 +24,8 @@ use pgrx::itemptr::u64_to_item_pointer;
 use pgrx::*;
 use tantivy::{DocAddress, Score};
 
+type SearchResultIter<'a> = Box<dyn Iterator<Item = (Score, DocAddress, TantivyValue, u64)> + 'a>;
+
 #[pg_guard]
 pub extern "C" fn ambeginscan(
     indexrel: pg_sys::Relation,
@@ -73,15 +75,26 @@ pub extern "C" fn amrescan(
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
-    let state = search_index
-        .search_state(&writer_client, &search_config, needs_commit(index_oid))
-        .unwrap();
 
-    let top_docs = state.search(SearchIndex::executor());
+    let leaked_results_iter = unsafe {
+        // we need to leak both the `SearchState` we're about to create and the result iterator from
+        // the search function.  The result iterator needs to be leaked so we can use it across the
+        // IAM API calls, and the SearchState needs to be leaked because that iterator borrows from it
+        // so it needs to be in a known memory address prior to performing a search.
+        let state = search_index
+            .search_state(&writer_client, &search_config, needs_commit(index_oid))
+            .unwrap();
+        let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
+
+        // SAFETY:  `leak_and_drop_on_delete()` gave us a non-null, aligned pointer to the SearchState
+        let results_iter: SearchResultIter =
+            Box::new(state.as_ref().unwrap().search(SearchIndex::executor()));
+
+        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
+    };
 
     // Save the iterator onto the current memory context.
-    scan.opaque = PgMemoryContexts::CurrentMemoryContext
-        .leak_and_drop_on_delete(top_docs.into_iter()) as void_mut_ptr;
+    scan.opaque = leaked_results_iter.cast();
 
     // Return scan state back management to Postgres.
     scan.into_pg();
@@ -97,7 +110,9 @@ pub extern "C" fn amgettuple(
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter = unsafe {
-        (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, TantivyValue, u64)>).as_mut()
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
+        // amrescan, which is always called prior to this function
+        scan.opaque.cast::<SearchResultIter>().as_mut()
     }
     .expect("no scandesc state");
 
@@ -105,13 +120,6 @@ pub extern "C" fn amgettuple(
 
     match iter.next() {
         Some((_, _, _, ctid)) => {
-            #[cfg(any(
-                feature = "pg12",
-                feature = "pg13",
-                feature = "pg14",
-                feature = "pg15",
-                feature = "pg16"
-            ))]
             let tid = &mut scan.xs_heaptid;
             u64_to_item_pointer(ctid, tid);
 

@@ -132,4 +132,5 @@ jobs:
           cargo pgrx stop && \
             cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config && \
             cargo pgrx start && \
+            ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 28816 -h localhost pg_search && \
             DATABASE_URL=postgresql://localhost:28816/pg_search cargo test --features=pg${{ matrix.pg_version }},icu

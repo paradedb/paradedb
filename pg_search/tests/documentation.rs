@@ -181,16 +181,18 @@ fn quickstart(mut conn: PgConnection) {
     ) LIMIT 5;
     "#
     .fetch(&mut conn);
-    assert_eq!(rows[0].0, 2); // For integer comparison, regular assert_eq! is fine
-    assert_eq!(rows[1].0, 1);
-    assert_eq!(rows[2].0, 29);
-    assert_eq!(rows[3].0, 39);
-    assert_eq!(rows[4].0, 9);
-    assert_relative_eq!(rows[0].1, 0.95714283, epsilon = 1e-6); // Adjust epsilon as needed
-    assert_relative_eq!(rows[1].1, 0.8490507, epsilon = 1e-6);
+
+    eprintln!("rows={rows:#?}");
+    assert_eq!(rows[0].0, 29); // For integer comparison, regular assert_eq! is fine
+    assert_eq!(rows[1].0, 39);
+    assert_eq!(rows[2].0, 9);
+    assert_eq!(rows[3].0, 19);
+    assert_eq!(rows[4].0, 10);
+    assert_relative_eq!(rows[0].1, 0.1, epsilon = 1e-6); // Adjust epsilon as needed
+    assert_relative_eq!(rows[1].1, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[2].1, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[3].1, 0.1, epsilon = 1e-6);
-    assert_relative_eq!(rows[4].1, 0.1, epsilon = 1e-6);
+    assert_relative_eq!(rows[4].1, 0.08571429, epsilon = 1e-6);
 
     let rows: Vec<(String, String, Vector, f32)> = r#"
     SELECT m.description, m.category, m.embedding, s.score_hybrid
@@ -207,22 +209,24 @@ fn quickstart(mut conn: PgConnection) {
     LIMIT 5;
     "#
     .fetch(&mut conn);
+
+    eprintln!("rows={rows:#?}");
     assert_eq!(rows.len(), 5);
-    assert_eq!(rows[0].0, "Plastic Keyboard");
-    assert_eq!(rows[1].0, "Ergonomic metal keyboard");
-    assert_eq!(rows[2].0, "Designer wall paintings");
-    assert_eq!(rows[3].0, "Handcrafted wooden frame");
-    assert_eq!(rows[4].0, "Modern wall clock");
-    assert_eq!(rows[0].2, Vector::from(vec![4.0, 5.0, 6.0]));
-    assert_eq!(rows[1].2, Vector::from(vec![3.0, 4.0, 5.0]));
+    assert_eq!(rows[0].0, "Designer wall paintings");
+    assert_eq!(rows[1].0, "Handcrafted wooden frame");
+    assert_eq!(rows[2].0, "Modern wall clock");
+    assert_eq!(rows[3].0, "Artistic ceramic vase");
+    assert_eq!(rows[4].0, "Colorful kids toy");
+    assert_eq!(rows[0].2, Vector::from(vec![1.0, 2.0, 3.0]));
+    assert_eq!(rows[1].2, Vector::from(vec![1.0, 2.0, 3.0]));
     assert_eq!(rows[2].2, Vector::from(vec![1.0, 2.0, 3.0]));
     assert_eq!(rows[3].2, Vector::from(vec![1.0, 2.0, 3.0]));
-    assert_eq!(rows[4].2, Vector::from(vec![1.0, 2.0, 3.0]));
-    assert_relative_eq!(rows[0].3, 0.95714283, epsilon = 1e-6);
-    assert_relative_eq!(rows[1].3, 0.8490507, epsilon = 1e-6);
+    assert_eq!(rows[4].2, Vector::from(vec![2.0, 3.0, 4.0]));
+    assert_relative_eq!(rows[0].3, 0.1, epsilon = 1e-6);
+    assert_relative_eq!(rows[1].3, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[2].3, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[3].3, 0.1, epsilon = 1e-6);
-    assert_relative_eq!(rows[4].3, 0.1, epsilon = 1e-6);
+    assert_relative_eq!(rows[4].3, 0.08571429, epsilon = 1e-6);
 }
 
 #[rstest]

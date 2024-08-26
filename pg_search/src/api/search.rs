@@ -76,10 +76,11 @@ unsafe fn score_bm25(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
-    let (scan_state, vischeck) = unsafe {
+    let scan_state = unsafe {
         // SAFETY:  caller has asserted that `fcinfo` is valid for this function
         create_and_leak_scan_state(fcinfo, &search_config, search_index, &writer_client)
     };
+    let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
     let top_docs = scan_state
         .search(SearchIndex::executor())
@@ -129,10 +130,11 @@ unsafe fn snippet(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let writer_client = WriterGlobal::client();
-    let (scan_state, vischeck) = unsafe {
+    let scan_state = unsafe {
         // SAFETY:  caller has asserted that `fcinfo` is valid for this function
         create_and_leak_scan_state(fcinfo, &search_config, search_index, &writer_client)
     };
+    let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
     let highlight_field = search_config
         .highlight_field
@@ -202,7 +204,7 @@ unsafe fn create_and_leak_scan_state(
     search_config: &SearchConfig,
     search_index: &mut SearchIndex,
     writer_client: &Arc<Mutex<Client<WriterRequest>>>,
-) -> (&'static SearchState, &'static mut VisibilityChecker) {
+) -> &'static SearchState {
     // after instantiating the `SearchState`, we leak it to the MemoryContext governing this
     // function call.  This function is a SRF, and all calls to this function will have the
     // same MemoryContext.
@@ -216,7 +218,6 @@ unsafe fn create_and_leak_scan_state(
             needs_commit(search_config.index_oid),
         )
         .expect("could not get scan state");
-    let relid = search_config.table_oid;
 
     unsafe {
         // SAFETY:  `fcinfo` and `fcinfo.flinfo` are provided to us by Postgres and are always valid
@@ -224,11 +225,9 @@ unsafe fn create_and_leak_scan_state(
         // to the caller to pass a proper `pg_sys::FunctionCallInfo`
         let scan_state =
             PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt).leak_and_drop_on_delete(scan_state);
-        let vischeck = PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
-            .leak_and_drop_on_delete(VisibilityChecker::new(relid.into()));
 
-        // SAFETY:  scan_state and vischeck are valid pointers, provided by `leak_and_drop_on_delete()`, and
-        // effectively now live in the `'static` lifetime
-        (&*scan_state, &mut *vischeck)
+        // SAFETY:  scan_state is a valid pointer, provided by `leak_and_drop_on_delete()`, and
+        // effectively now lives in the `'static` lifetime
+        &*scan_state
     }
 }

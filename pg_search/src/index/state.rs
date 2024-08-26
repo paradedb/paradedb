@@ -103,7 +103,7 @@ impl SearchState {
                     key: key_ff.value(doc),
                     ctid: ctid_ff
                         .as_u64(doc)
-                        .expect("expected a the `ctid` field to be a u64"),
+                        .expect("expected the `ctid` field to be a u64"),
                 }
             },
         );

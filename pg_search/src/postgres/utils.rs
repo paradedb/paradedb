@@ -18,9 +18,37 @@
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
-use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_offset_number};
-use pgrx::pg_sys::{Buffer, BuiltinOid, ItemPointerData, OffsetNumber};
+use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
+use pgrx::pg_sys::{Buffer, BuiltinOid, ItemPointerData};
 use pgrx::*;
+
+/// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2
+/// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
+/// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
+/// bitpacking or compressing these values.
+#[inline(always)]
+pub fn item_pointer_to_u64(ctid: ItemPointerData) -> u64 {
+    let (blockno, offno) = item_pointer_get_both(ctid);
+    let blockno = blockno as u64;
+    let offno = offno as u64;
+
+    // shift the BlockNumber left 16 bits -- the length of the OffsetNumber we OR onto the end
+    // pgrx's version shifts left 32, which is wasteful
+    (blockno << 16) | offno
+}
+
+/// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2
+/// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
+/// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
+/// bitpacking or compressing these values.
+#[inline(always)]
+pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
+    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
+    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
+    let blockno = (value >> 16) as pg_sys::BlockNumber;
+    let offno = value as pg_sys::OffsetNumber;
+    item_pointer_set_all(tid, blockno, offno);
+}
 
 pub unsafe fn row_to_search_document(
     ctid: ItemPointerData,
@@ -86,7 +114,7 @@ pub unsafe fn row_to_search_document(
     }
 
     // Insert the ctid value into the entries.
-    let ctid_index_value = pgrx::itemptr::item_pointer_to_u64(ctid);
+    let ctid_index_value = crate::postgres::utils::item_pointer_to_u64(ctid);
     document.insert(schema.ctid_field().id, ctid_index_value.into());
 
     Ok(document)
@@ -138,14 +166,13 @@ impl VisibilityChecker {
     pub fn ctid_satisfies_snapshot(&mut self, ctid: u64) -> bool {
         unsafe {
             // Using ctid, get itempointer => buffer => page => heaptuple
-            pgrx::itemptr::u64_to_item_pointer(ctid, &mut self.ipd);
+            crate::postgres::utils::u64_to_item_pointer(ctid, &mut self.ipd);
 
             let blockno = item_pointer_get_block_number(&self.ipd);
-            let offsetno = item_pointer_get_offset_number(&self.ipd);
 
             if blockno == self.last_blockno {
                 // this ctid is on the buffer we already have locked
-                return self.check_page_vis(self.ipd, offsetno, self.last_buffer);
+                return self.check_page_vis(self.last_buffer);
             } else if self.last_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 // this ctid is on a different buffer, so release the one we've got locked
                 pg_sys::UnlockReleaseBuffer(self.last_buffer);
@@ -156,30 +183,18 @@ impl VisibilityChecker {
 
             pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
 
-            self.check_page_vis(self.ipd, offsetno, self.last_buffer)
+            self.check_page_vis(self.last_buffer)
         }
     }
 
-    unsafe fn check_page_vis(
-        &mut self,
-        mut item_pointer: ItemPointerData,
-        offsetno: OffsetNumber,
-        buffer: Buffer,
-    ) -> bool {
+    unsafe fn check_page_vis(&mut self, buffer: Buffer) -> bool {
         unsafe {
-            let page = pg_sys::BufferGetPage(buffer);
-            let item_id = pg_sys::PageGetItemId(page, offsetno);
-            let mut heap_tuple = pg_sys::HeapTupleData {
-                t_data: pg_sys::PageGetItem(page, item_id) as pg_sys::HeapTupleHeader,
-                t_len: item_id.as_ref().unwrap().lp_len(),
-                t_tableOid: (*self.relation).rd_id,
-                t_self: item_pointer,
-            };
+            let mut heap_tuple = pg_sys::HeapTupleData::default();
 
             // Check if heaptuple is visible
             // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
             pg_sys::heap_hot_search_buffer(
-                &mut item_pointer,
+                &mut self.ipd,
                 self.relation,
                 buffer,
                 self.snapshot,

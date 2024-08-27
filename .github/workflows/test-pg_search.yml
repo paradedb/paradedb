@@ -32,7 +32,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-pg_search:
+  test-pg_search-postgres:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     if: github.event.pull_request.draft == false
@@ -124,7 +124,7 @@ jobs:
       - name: Install pgrx & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
+          cargo install -j $(nproc) --locked cargo-pgrx --version 0.12.1
           rustup component add llvm-tools-preview
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
@@ -228,3 +228,102 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
         working-directory: pg_search/
         run: cargo clean && cargo pgrx package --features icu
+
+  test-pg_search-pgrx-postgres:
+    name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    if: github.event.pull_request.draft == false
+    strategy:
+      matrix:
+        include:
+          - runner: depot-ubuntu-latest-8
+            pg_version: 16
+            arch: amd64
+    env:
+      default_pg_version: 16
+
+    steps:
+      # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
+      # needs to happen once, so we skip the workflow for all but one of the matrix jobs in that case.
+      - name: Check if Skipping
+        id: check_skip
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ matrix.pg_version }}" != "${{ env.default_pg_version }}" ]]; then
+            echo "This is a push event to fill Rust cache. Skipping this job."
+            echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout Git Repository
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      # This checks that the version in Cargo.toml is incremented to the next release. We only run it
+      # on PRs to main, which are our release promotion PRs.
+      - name: Check version in Cargo.toml
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
+        working-directory: pg_search/
+        run: |
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Version in Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($RELEASE_VERSION), did you forget to increment it?"
+            exit 1
+          fi
+          echo "Version check passed!"
+
+      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
+      # save the cache on the 'dev' branch, but load it on all branches.
+      - name: Install Rust Cache
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1"
+          shared-key: ${{ runner.os }}-rust-cache-pg_search--enable-cassert${{ HashFiles('Cargo.lock') }}
+          cache-targets: true
+          cache-on-failure: true
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+
+      - name: Install pgrx & llvm-tools-preview
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
+          cargo install -j $(nproc) --locked cargo-pgrx --version 0.12.1
+          rustup component add llvm-tools-preview
+          cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+
+      # Needed for hybrid search unit tests
+      - name: Install pgvector
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
+          git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git
+          cd pgvector/
+          PG_CONFIG=~/.pgrx/16.*/pgrx-install/bin/pg_config make -j
+          PG_CONFIG=~/.pgrx/16.*/pgrx-install/bin/pg_config make install -j
+
+      - name: Add pg_search to shared_preload_libraries
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+
+      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
+      # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
+      # clean any cached pg_search & dependencies build artifacts before running the tests
+      - name: Clean Cached Build Artifacts
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
+        working-directory: pg_search/
+        run: cargo clean
+
+      - name: Run pg_search Cargo Test Suite Against pgrx Postgres
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: |
+          PARADEDB_TELEMETRY=false
+          cargo pgrx stop
+          cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=icu
+          cargo pgrx start
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 28816 -h localhost pg_search
+          DATABASE_URL=postgresql://localhost:28816/pg_search cargo test --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral

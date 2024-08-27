@@ -163,9 +163,10 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Barman Cloud
 ######################
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS barman-cloud-base
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 RUN apt-get update && apt-get install -y --no-install-recommends python3-pip python3-dev python3-psycopg2 && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \
-    pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]' && \
+    pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]~=3.11' && \
     apt-get remove -y python3-dev python3-pip ca-certificates --purge && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* && \
@@ -223,6 +224,7 @@ RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
     apt-get install -y --no-install-recommends libpq5 && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* && \
+    set -o pipefail && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
 

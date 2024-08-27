@@ -3,10 +3,10 @@ title: Install Third Party Extensions
 ---
 
 Postgres has a rich ecosystem of extensions which enable a variety of specialized workloads. ParadeDB itself is built via two Postgres extensions,
-`pg_search` and `pg_analytics`, which we develop. In order to keep the size of the ParadeDB image small, it only ships with the ParadeDB extensions
-and a limited set of necessary third party extensions.
+`pg_search` and `pg_analytics`. In order to keep the size of the ParadeDB image small, only the ParadeDB extensions and a limited set of necessary
+third party extensions are included in the image.
 
-However, it is possible to install any other third party extension in the ParadeDB image.
+It is, however, possible to install arbitrary third party extensions in the ParadeDB image.
 
 ## Default Extensions
 
@@ -20,31 +20,106 @@ ParadeDB ships with the following Postgres extensions installed by default:
 
 Note that the pg_cron installation is configured on the default `postgres` database and cannot be changed.
 
-You do not need to install any of these extensions or run `CREATE EXTENSION` manually. They will be available by default
-in any new database created in ParadeDB.
+Users do not need to install these extensions manually nor run `CREATE EXTENSION` manually. They will be available by default in any
+new database created in ParadeDB.
 
 ## Installing Third Party Extensions
 
-To install a third party extension, you will need to:
+At a high-level, installing a third party extension requires:
 
-- Locate its source code or prebuilt binaries
-- Retrieve a Bash shell inside the ParadeDB Docker image or Kubernetes cluster via `docker exec -it paradedb bash`
-- Compile or retrieve the binary for Debian 12 and Postgres 16, which are the OS and Postgres versions ParadeDB ships with
-- Download and install the binary inside the ParadeDB Docker image or ParadeDB Kubernetes cluster
-- Downland and install dependencies inside the ParadeDB Docker image or ParadeDB Kubernetes cluster, if any
-- Connect to ParadeDB via `psql` and run `CREATE EXTENSION <extension_name>`
+- Locating its source code or prebuilt binaries
+- Compiling from source or downloading the prebuilt binaries inside the ParadeDB image
+- Installing the extension binary and any dependencies inside the ParadeDB image
+- Adding the extension to `shared_preload_libraries` in `postgresql.conf`, if applicable
+- Creating the extension in a Postgres database inside the ParadeDB image to activate it
 
-Note that the compilation instructions and the availability of prebuilt binaries will differ from extension to extension. Due to
-the nature of third party extensions, ParadeDB is unable to guarantee compatibility with our image. We expect most extensions to be
-be compatible out-of-the-box. You can always [contact us in Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ) with
-questions and we will be happy to help.
+We recommend installing prebuilt binaries from APT whenever available to keep the image size as small as possible. Most popular
+Postgres extensions maintain binaries available via `apt-get install`.
 
-### Popular Third Party Extensions
+The example below will showcase installing PostGIS, a popular extension for geospatial data in Postgres, in the ParadeDB image.
+
+<Accordion title="Installing Third Party Extension Example - PostGIS">
+
+1- Locating its source code or prebuilt binaries
+
+The PostGIS repository can be found [here](https://github.com/postgis/postgis). Fortunately, prebuilt binaries are
+available via `apt-get`. They can be found [here](https://postgis.net/documentation/getting_started/install_ubuntu/).
+
+2- Compiling from source or download the prebuilt binaries inside the ParadeDB image
+
+First, we retrieve a shell with root permissions in the ParadeDB image via:
+
+```bash
+docker exec -it --user root paradedb bash
+```
+
+Note: This command assumes that your ParadeDB container name is `paradedb`.
+
+Then, update the PostgreSQL APT Repository via:
+
+```bash
+# Note: This command is only necessary if downloading the third party extension from APT
+apt-get update
+
+# Install PostGIS
+apt-get install -y --no-install-recommends postgis postgresql-16-postgis-3
+```
+
+3- Installing the extension binary and any dependencies inside the ParadeDB image
+
+Since we downloaded PostGIS via APT this step is not necessary. When downloading a prebuilt binary
+manually via `curl` or `wget`, you will need to install the binary manually via:
+
+```bash
+apt-get install -y --no-install-recommends ./<package_name>.deb
+```
+
+4- Adding the extension to `shared_preload_libraries` in `postgresql.conf`, if applicable
+
+Certain Postgres extension need to be added to `shared_preload_libraries` in the `postgresql.conf` file
+to be loaded at Postgres startup. PostGIS is one of those extensions. This step is not necessary if the
+extension you are installing does not explicitly require being installed in `shared_preload_libraries`.
+
+You can locate the `postgresql.conf` file inside the ParadeDB image at `/var/lib/postgresql/data/postgresql.conf`. To
+add PostGIS to it, simply use sed:
+
+```bash
+sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,postgis'/" /var/lib/postgresql/data/postgresql.conf
+```
+
+Then, restart Postgres for the change to take effect via:
+
+```bash
+pg_ctl restart -D /var/lib/postgresql/data
+```
+
+You can now close the Bash shell inside the ParadeDB image.
+
+5- Creating the extension in a Postgres database inside the ParadeDB image to activate it
+
+Finally, connect to ParadeDB over `psql` with your ParadeDB Postgres credentials:
+
+```bash
+psql -h localhost -U <myuser> -d <mydatabase> -p 5432 -W
+```
+
+You can enable PostGIS inside your ParadeDB Postgres database via:
+
+```bash
+CREATE EXTENSION postgis;
+```
+
+That's it!
+
+</Accordion>
+
+## Popular Third Party Extensions
 
 Here is a shortlist of popular third party extensions which ParadeDB does not ship with by default:
 
 - [PostGIS - Spatial Database Extension for PostgreSQL](https://github.com/postgis/postgis) (Note: We plan to eventually ship with PostGIS by default)
 - [pg_partman - PostgreSQL Partition Manager](https://github.com/pgpartman/pg_partman)
 - [pgaudit - Open Source PostgreSQL Audit Logging](https://github.com/pgaudit/pgaudit)
+- [pgrepack - Reorganize Tables in PostgreSQL Databases with Minimal Locks](https://github.com/reorg/pg_repack)
 
 There are many others. You can find a comprehensive list of extensions in [Pigsty](https://pigsty.io/docs/pgext/list/) or [PGXN](https://pgxn.org/).

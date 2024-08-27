@@ -72,28 +72,3 @@ impl PartialOrd for SearchIndexScore {
         }
     }
 }
-
-// Same as SearchIndexScore but used for queries using order_by_field
-// Order ascending by score and in case of a tie also by key
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrderByScore {
-    pub score: u64,
-    pub key: TantivyValue,
-    pub ctid: u64,
-}
-
-impl PartialEq for OrderByScore {
-    fn eq(&self, other: &Self) -> bool {
-        self.score == other.score && self.key == other.key
-    }
-}
-
-impl PartialOrd for OrderByScore {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.score == other.score {
-            self.key.partial_cmp(&other.key)
-        } else {
-            self.score.partial_cmp(&other.score)
-        }
-    }
-}

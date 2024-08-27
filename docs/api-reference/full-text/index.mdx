@@ -363,9 +363,9 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
   Equivalent to `stem` with language set to `English`.
 </ParamField>
 
-#### Pick a Tokenizer
+#### Picking a Tokenizer
 
-If you're not sure what tokenizer to use, try `paradedb.tokenize` with different tokenizers.
+If you're not sure which tokenizer to use, try `paradedb.tokenize` with a different tokenizers to see how the input text gets tokenized.
 
 ```sql
 SELECT * FROM paradedb.tokenize(paradedb.tokenizer('<tokenizer>'), '<input text>');

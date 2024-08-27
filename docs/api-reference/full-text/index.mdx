@@ -157,7 +157,8 @@ CALL paradedb.create_bm25(
 ### JSON Fields
 
 Columns of type `JSON` and `JSONB` can be indexed as `json_fields`. Once indexed, search can be
-performed on nested text fields within JSON values.
+performed on nested text fields within JSON values. Note that the `JSON` and `JSONB` columns are
+schema-less.
 
 ```sql
 CALL paradedb.create_bm25(

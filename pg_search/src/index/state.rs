@@ -90,13 +90,18 @@ impl SearchState {
         });
 
         let offset = self.config.offset_rows.unwrap_or(0);
-
         let key_field_name = self.config.key_field.clone();
+        let orderby_field = self.config.order_by_field.clone();
+        let sort_asc = self.config.is_sort_ascending();
+
         let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
             move |segment_reader: &tantivy::SegmentReader| {
                 let fast_fields = segment_reader.fast_fields();
                 let ctid_ff = FFType::new(fast_fields, "ctid");
                 let key_ff = FFType::new(fast_fields, key_field_name.as_str());
+                let orderby_ff = orderby_field
+                    .as_ref()
+                    .map(|name| FFType::new(fast_fields, name));
 
                 move |doc: DocId, original_score: Score| SearchIndexScore {
                     bm25: original_score,
@@ -104,6 +109,9 @@ impl SearchState {
                     ctid: ctid_ff
                         .as_u64(doc)
                         .expect("expected the `ctid` field to be a u64"),
+
+                    order_by: orderby_ff.as_ref().map(|fftype| fftype.value(doc)),
+                    sort_asc,
                 }
             },
         );

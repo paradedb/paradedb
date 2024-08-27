@@ -23,6 +23,8 @@ serde = "1.0.188"
 serde_json = "1.0.105"
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "c7f13ef" }
 tracing = "0.1.40"
+strum_macros = "0.26.3"
+strum = { version = "0.26.3", features = ["derive"] }
 
 [dependencies.rust_icu_ubrk]
 version = "5.0.0"

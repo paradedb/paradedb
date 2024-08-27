@@ -39,7 +39,10 @@ use tantivy::tokenizer::{
 // `from_json_value` methods. We don't use serde_json to ser/de the
 // SearchTokenizer, because our bincode serialization format is incompatible
 // with the "tagged" format we use in our public API.
-#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames,
+)]
+#[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
     #[default]
     Default,

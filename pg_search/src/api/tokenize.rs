@@ -16,10 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::{iter::TableIterator, name, pg_extern, JsonB};
+use strum::VariantNames;
 use tokenizers::SearchTokenizer;
 
-#[pg_extern]
-pub fn tokenize(
+/// Tokenize text with a given tokenizer setting
+#[pg_extern(name = "tokenize")]
+pub fn tokenize_with_setting(
     tokenizer_setting: JsonB,
     input_text: &str,
 ) -> TableIterator<(name!(token, String), name!(position, i32))> {
@@ -41,4 +43,15 @@ pub fn tokenize(
     }
 
     TableIterator::new(result)
+}
+
+/// List all available tokenizers names in ParadeDB
+#[pg_extern(name = "tokenize")]
+pub fn tokenize() -> TableIterator<'static, (name!(tokenizer, String),)> {
+    TableIterator::new(
+        SearchTokenizer::VARIANTS
+            .iter()
+            .map(|t| (t.to_string(),))
+            .collect::<Vec<_>>(),
+    )
 }

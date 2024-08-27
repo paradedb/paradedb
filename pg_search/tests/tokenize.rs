@@ -40,3 +40,30 @@ fn defult_tokenizer(mut conn: PgConnection) {
 
     assert!(res.is_err());
 }
+
+#[rstest]
+fn list_tokenizers(mut conn: PgConnection) {
+    let rows: Vec<(String,)> = r#"
+    SELECT * FROM paradedb.tokenize();
+    "#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(
+        rows,
+        vec![
+            ("default".into(),),
+            ("raw".into(),),
+            ("en_stem".into(),),
+            ("stem".into(),),
+            ("lowercase".into(),),
+            ("white_space".into(),),
+            ("regex_tokenizer".into(),),
+            ("chinese_compatible".into(),),
+            ("source_code".into(),),
+            ("ngram".into(),),
+            ("chinese_lindera".into(),),
+            ("japanese_lindera".into(),),
+            ("korean_lindera".into(),),
+        ]
+    );
+}

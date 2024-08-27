@@ -363,6 +363,22 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
   Equivalent to `stem` with language set to `English`.
 </ParamField>
 
+#### Pick a Tokenizer
+
+If you're not sure what tokenizer to use, try `paradedb.tokenize` with different tokenizers.
+
+```sql
+SELECT * FROM paradedb.tokenize(paradedb.tokenizer('<tokenizer>'), '<input text>');
+```
+
+<Accordion title="Example Usage">
+
+```sql
+SELECT * FROM paradedb.tokenize(paradedb.tokenizer('stem', language => 'French'), 'hello world');
+```
+
+</Accordion>
+
 ### Fast Fields
 
 A field that is indexed as `fast` is stored in a column-oriented fashion. Fast fields are necessary for

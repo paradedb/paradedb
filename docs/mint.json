@@ -132,7 +132,8 @@
             "ingest/import/csv",
             "ingest/import/delta",
             "ingest/import/iceberg",
-            "ingest/import/parquet"
+            "ingest/import/parquet",
+            "ingest/import/spatial"
           ]
         },
         {

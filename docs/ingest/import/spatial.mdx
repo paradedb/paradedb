@@ -63,14 +63,14 @@ OPTIONS (
     files 's3://bucket/folder/file.geojson',
     layer 'layer_name'
 );
-````
+```
 
 <ParamField body="files" required>
   The path of a single geospatial file. For instance,
   `s3://bucket/folder/file.geojson` if the file is in Amazon S3 or
   `/path/to/file.geojson` if the file is on the local file system.
 </ParamField>
-<ParamField body="spatial_filter" default="false">
+<ParamField body="sequential_layer_scan" default="false">
   If set to `true`, the table function will scan through all layers sequentially
   and return the first `layer` that matches the given layer name. This is
   required for some drivers to work properly, e.g., the `OSM` driver.
@@ -114,3 +114,4 @@ OPTIONS (
 
 The [object stores](/ingest/object_stores) documentation explains how to provide secrets and other credentials for
 geospatial files stored in object stores like S3.
+````

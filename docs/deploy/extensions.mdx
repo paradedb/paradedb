@@ -1,0 +1,50 @@
+---
+title: Install Third Party Extensions
+---
+
+Postgres has a rich ecosystem of extensions which enable a variety of specialized workloads. ParadeDB itself is built via two Postgres extensions,
+`pg_search` and `pg_analytics`, which we develop. In order to keep the size of the ParadeDB image small, it only ships with the ParadeDB extensions
+and a limited set of necessary third party extensions.
+
+However, it is possible to install any other third party extension in the ParadeDB image.
+
+## Default Extensions
+
+ParadeDB ships with the following Postgres extensions installed by default:
+
+- pg_search
+- pg_analytics
+- pgvector
+- pg_ivm
+- pg_cron
+
+Note that the pg_cron installation is configured on the default `postgres` database and cannot be changed.
+
+You do not need to install any of these extensions or run `CREATE EXTENSION` manually. They will be available by default
+in any new database created in ParadeDB.
+
+## Installing Third Party Extensions
+
+To install a third party extension, you will need to:
+
+- Locate its source code or prebuilt binaries
+- Retrieve a Bash shell inside the ParadeDB Docker image or Kubernetes cluster via `docker exec -it paradedb bash`
+- Compile or retrieve the binary for Debian 12 and Postgres 16, which are the OS and Postgres versions ParadeDB ships with
+- Download and install the binary inside the ParadeDB Docker image or ParadeDB Kubernetes cluster
+- Downland and install dependencies inside the ParadeDB Docker image or ParadeDB Kubernetes cluster, if any
+- Connect to ParadeDB via `psql` and run `CREATE EXTENSION <extension_name>`
+
+Note that the compilation instructions and the availability of prebuilt binaries will differ from extension to extension. Due to
+the nature of third party extensions, ParadeDB is unable to guarantee compatibility with our image. We expect most extensions to be
+be compatible out-of-the-box. You can always [contact us in Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ) with
+questions and we will be happy to help.
+
+### Popular Third Party Extensions
+
+Here is a shortlist of popular third party extensions which ParadeDB does not ship with by default:
+
+- [PostGIS - Spatial Database Extension for PostgreSQL](https://github.com/postgis/postgis) (Note: We plan to eventually ship with PostGIS by default)
+- [pg_partman - PostgreSQL Partition Manager](https://github.com/pgpartman/pg_partman)
+- [pgaudit - Open Source PostgreSQL Audit Logging](https://github.com/pgaudit/pgaudit)
+
+There are many others. You can find a comprehensive list of extensions in [Pigsty](https://pigsty.io/docs/pgext/list/) or [PGXN](https://pgxn.org/).

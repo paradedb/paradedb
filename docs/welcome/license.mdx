@@ -9,41 +9,612 @@ title: License Comparison
   for access.
 </Note>
 
-ParadeDB is dual-licensed under the GNU Affero General Public License 3.0 (AGPLv3) and as commercial license with some. The Community License is the AGPL-3.0 license,
-which permits free use, modification, and distribution of software, provided that distributed, derivative works of the software are released under the same license. This
-provision is called the copyleft provision.
+ParadeDB is dual-licensed under the GNU Affero General Public License 3.0 (AGPLv3) and as commercial license.
+
+The Community License is the AGPL-3.0 license, which permits free use, modification, and distribution of software, provided that distributed, derivative works of the software
+are released under the same license. This provision is called the copyleft provision.
 
 The Enterprise License waives the copyleft requirements of the AGPL-3.0 license and includes the enterprise-only features listed below. It is available under a shelf-hosted
 or BYOC (Bring Your Own Cloud) model. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:sales@paradedb.com).
 
 ## ParadeDB License Comparison
 
-| Feature                     | **Community License** | **Enterprise License** |
-| --------------------------- | :-------------------: | :--------------------: |
-| **Index Configuration**     |                       |                        |
-| Most Postgres types support |          ✅           |           ✅           |
-| Custom tokenizers           |          ✅           |           ✅           |
-| Multi-language stemming     |          ✅           |           ✅           |
-| Partitioned indexes         |                       |           ✅           |
-|                             |                       |                        |
-| **Search API**              |                       |                        |
-| Basic search API            |          ✅           |           ✅           |
-| Advanced search API         |          ✅           |           ✅           |
-| Hybrid search               |          ✅           |           ✅           |
-| BM25 scoring                |          ✅           |           ✅           |
-| Highlighting                |          ✅           |           ✅           |
-| Bucket aggregations         |                       |           ✅           |
-| Metric aggregations         |                       |           ✅           |
-| Result counts               |                       |           ✅           |
-| Lenient query parsing       |                       |           ✅           |
-|                             |                       |                        |
-| **Index Operations**        |                       |                        |
-| Strong index consistency    |          ✅           |           ✅           |
-| Automatic index compaction  |          ✅           |           ✅           |
-| Base backup support         |          ✅           |           ✅           |
-| Logical replication support |          ✅           |           ✅           |
-| Concurrent index writes     |                       |           ✅           |
-| Eventual index consistency  |                       |           ✅           |
+<table
+  id="table"
+  style={{
+    width: "100%",
+    borderRadius: "10px",
+  }}
+>
+  <tr
+    style={{
+      display: "flex",
+      borderBottom: "solid 1px #ddd",
+    }}
+  >
+    <th align="center" style={{ width: "64%", textAlign: "left" }}></th>
+    <th
+      align="center"
+      style={{ width: "36%", textAlign: "center", paddingLeft: 32 }}
+    >
+      Community License
+    </th>
+    <th
+      align="center"
+      style={{ width: "36%", textAlign: "center", paddingLeft: 32 }}
+    >
+      Enterprise License
+    </th>
+  </tr>
+  <tr style={{ display: "flex", borderBottom: "solid 1px #ddd" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+        fontWeight: "bold",
+      }}
+    >
+      Index Configuration
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td style={{ width: "36%" }}></td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Most Postgres types support
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Custom tokenizers
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Multi-language stemming
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Partitioned indexes
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex", borderBottom: "solid 1px #ddd" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+        fontWeight: "bold",
+      }}
+    >
+      Search API
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td style={{ width: "36%" }}></td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Basic search API
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Advanced search API
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Hybrid search
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      BM25 scoring
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Highlighting
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Bucket aggregations
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Metric aggregations
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Result counts
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Lenient query parsing
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex", borderBottom: "solid 1px #ddd" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+        fontWeight: "bold",
+      }}
+    >
+      Index Operations
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td style={{ width: "36%" }}></td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Strong index consistency
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Automatic index compaction
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Base backup support
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Logical replication support
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Concurrent index writes
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Eventual index consistency
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+</table>
 
 For any questions, please don't hesitate to contact us at [hello@paradedb.com](mailto:hello@paradedb.com) or in
 the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ).

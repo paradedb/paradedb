@@ -108,7 +108,7 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
     	key_field => 'id',
 	    text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 8, prefix_only => false))
     )"#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
         "SELECT id FROM tokenizer_config.search('description:boa', stable_sort => true)"
@@ -133,7 +133,7 @@ fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
     );
     INSERT INTO paradedb.tokenizer_config (description, rating, category) VALUES ('电脑', 4, 'Electronics');
     "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
         "SELECT id FROM tokenizer_config.search('description:电脑', stable_sort => true)"
@@ -247,12 +247,17 @@ fn order_by(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // Helper function
+    #[track_caller]
     fn verify_order(conn: &mut PgConnection, query: &str, ids_ordered: Vec<i32>) {
         let rows: Vec<(i32, String, i32, NaiveDateTime)> = query.fetch_result(conn).unwrap();
 
-        for i in 0..ids_ordered.len() {
-            assert_eq!(rows[i].0, ids_ordered[i]);
-        }
+        eprintln!("------");
+        eprintln!("query: {}", query);
+        eprintln!("rows={rows:?}");
+        eprintln!("expected id order={ids_ordered:?}");
+
+        let ids = rows.into_iter().map(|(id, ..)| id).collect::<Vec<_>>();
+        assert_eq!(ids_ordered, ids);
     }
 
     // Order by numeric field
@@ -325,7 +330,7 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
         (11003, 'Regex patterns are powerful'),
         (11004, 'Find the longer words');
     "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let count: (i64,) =
         "SELECT COUNT(*) FROM bm25_search.search('description:simple')".fetch_one(&mut conn);

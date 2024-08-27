@@ -44,6 +44,14 @@ impl SearchConfig {
     pub fn from_jsonb(JsonB(config_json_value): JsonB) -> Result<Self, serde_json::Error> {
         serde_json::from_value(config_json_value)
     }
+
+    /// Returns true if the [`SearchConfig`] instance is configured to sort fields in ascending order
+    pub fn is_sort_ascending(&self) -> bool {
+        match &self.order_by_direction {
+            Some(direction) => direction.eq_ignore_ascii_case("asc"),
+            None => true,
+        }
+    }
 }
 
 impl FromStr for SearchConfig {

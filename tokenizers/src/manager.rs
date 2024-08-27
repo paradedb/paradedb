@@ -17,10 +17,19 @@
 
 #[cfg(feature = "icu")]
 use crate::icu::ICUTokenizer;
+use crate::{
+    cjk::ChineseTokenizer,
+    code::CodeTokenizer,
+    lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
+    DEFAULT_REMOVE_TOKEN_LENGTH,
+};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tantivy::tokenizer::Language;
+use tantivy::tokenizer::{
+    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
+    RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
+};
 
 // Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
@@ -149,6 +158,104 @@ impl SearchTokenizer {
                 "unknown tokenizer type: {}",
                 tokenizer_type
             )),
+        }
+    }
+
+    pub fn to_tantivy_tokenizer(&self) -> Option<tantivy::tokenizer::TextAnalyzer> {
+        match self {
+            SearchTokenizer::Default => Some(
+                TextAnalyzer::builder(SimpleTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::Raw => Some(
+                TextAnalyzer::builder(RawTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .build(),
+            ),
+            SearchTokenizer::Lowercase => Some(
+                TextAnalyzer::builder(RawTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::WhiteSpace => Some(
+                TextAnalyzer::builder(WhitespaceTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::RegexTokenizer { pattern } => Some(
+                TextAnalyzer::builder(RegexTokenizer::new(pattern.as_str()).unwrap())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::ChineseCompatible => Some(
+                TextAnalyzer::builder(ChineseTokenizer)
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::SourceCode => Some(
+                TextAnalyzer::builder(CodeTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .filter(AsciiFoldingFilter)
+                    .build(),
+            ),
+            SearchTokenizer::Ngram {
+                min_gram,
+                max_gram,
+                prefix_only,
+            } => Some(
+                TextAnalyzer::builder(
+                    NgramTokenizer::new(*min_gram, *max_gram, *prefix_only).unwrap(),
+                )
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .filter(LowerCaser)
+                .build(),
+            ),
+            SearchTokenizer::ChineseLindera => Some(
+                TextAnalyzer::builder(LinderaChineseTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::JapaneseLindera => Some(
+                TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::KoreanLindera => Some(
+                TextAnalyzer::builder(LinderaKoreanTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
+            SearchTokenizer::EnStem => Some(
+                TextAnalyzer::builder(SimpleTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .filter(Stemmer::new(Language::English))
+                    .build(),
+            ),
+            SearchTokenizer::Stem { language } => Some(
+                TextAnalyzer::builder(SimpleTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .filter(Stemmer::new(*language))
+                    .build(),
+            ),
+            #[cfg(feature = "icu")]
+            SearchTokenizer::ICUTokenizer => Some(
+                TextAnalyzer::builder(ICUTokenizer)
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
+            ),
         }
     }
 }

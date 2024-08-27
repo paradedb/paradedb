@@ -22,13 +22,8 @@ pub mod icu;
 pub mod lindera;
 pub mod manager;
 
-use cjk::ChineseTokenizer;
-use code::CodeTokenizer;
-use lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
 use tantivy::tokenizer::{
-    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
-    RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager,
-    WhitespaceTokenizer,
+    LowerCaser, RawTokenizer, RemoveLongFilter, TextAnalyzer, TokenizerManager,
 };
 use tracing::debug;
 
@@ -43,101 +38,7 @@ pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> Tok
     let tokenizer_manager = TokenizerManager::default();
 
     for search_tokenizer in search_tokenizers {
-        let tokenizer_option = match search_tokenizer {
-            SearchTokenizer::Default => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::Raw => Some(
-                TextAnalyzer::builder(RawTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .build(),
-            ),
-            SearchTokenizer::Lowercase => Some(
-                TextAnalyzer::builder(RawTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::WhiteSpace => Some(
-                TextAnalyzer::builder(WhitespaceTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::RegexTokenizer { pattern } => Some(
-                TextAnalyzer::builder(RegexTokenizer::new(pattern.as_str()).unwrap())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::ChineseCompatible => Some(
-                TextAnalyzer::builder(ChineseTokenizer)
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::SourceCode => Some(
-                TextAnalyzer::builder(CodeTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .filter(AsciiFoldingFilter)
-                    .build(),
-            ),
-            SearchTokenizer::Ngram {
-                min_gram,
-                max_gram,
-                prefix_only,
-            } => Some(
-                TextAnalyzer::builder(
-                    NgramTokenizer::new(*min_gram, *max_gram, *prefix_only).unwrap(),
-                )
-                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                .filter(LowerCaser)
-                .build(),
-            ),
-            SearchTokenizer::ChineseLindera => Some(
-                TextAnalyzer::builder(LinderaChineseTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::JapaneseLindera => Some(
-                TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::KoreanLindera => Some(
-                TextAnalyzer::builder(LinderaKoreanTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-            SearchTokenizer::EnStem => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .filter(Stemmer::new(Language::English))
-                    .build(),
-            ),
-            SearchTokenizer::Stem { language } => Some(
-                TextAnalyzer::builder(SimpleTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .filter(Stemmer::new(*language))
-                    .build(),
-            ),
-            #[cfg(feature = "icu")]
-            SearchTokenizer::ICUTokenizer => Some(
-                TextAnalyzer::builder(ICUTokenizer)
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-        };
+        let tokenizer_option = search_tokenizer.to_tantivy_tokenizer();
 
         if let Some(text_analyzer) = tokenizer_option {
             debug!(

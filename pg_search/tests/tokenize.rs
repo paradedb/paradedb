@@ -15,8 +15,28 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod config;
-pub mod index;
-pub mod operator;
-pub mod search;
-pub mod tokenize;
+//! Tests for the paradedb.tokenize function
+
+mod fixtures;
+
+use fixtures::*;
+use pretty_assertions::assert_eq;
+use rstest::*;
+use sqlx::PgConnection;
+
+#[rstest]
+fn defult_tokenizer(mut conn: PgConnection) {
+    let rows: Vec<(String, i32)> = r#"
+    SELECT * FROM paradedb.tokenize(paradedb.tokenizer('default'), 'hello world');
+    "#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(rows, vec![("hello".into(), 0), ("world".into(), 1)]);
+
+    let res = r#"
+    SELECT * FROM paradedb.tokenize(paradedb.tokenizer('de'), 'hello world');
+    "#
+    .execute_result(&mut conn);
+
+    assert!(res.is_err());
+}

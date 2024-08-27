@@ -204,7 +204,7 @@ RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
     mkdir /var/lib/postgresql/.duckdb/ && \
     chmod -R a+rwX /var/lib/postgresql/.duckdb/
 
-# Installs Barman Cloud and its dependencies for Azure, Google, and AWS via NPM and cleans up the installation.
+# Installs Barman Cloud and its dependencies for Azure, Google, and AWS via PIP and cleans up the installation.
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \

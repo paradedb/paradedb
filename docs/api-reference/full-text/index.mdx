@@ -365,7 +365,15 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
 
 #### Picking a Tokenizer
 
-If you're not sure which tokenizer to use, try `paradedb.tokenize` with a different tokenizers to see how the input text gets tokenized.
+If you're not sure which tokenizer to use, `paradedb.tokenize` allows the user to evaluate different tokenization strategies.
+
+The following query returns all available tokenizers.
+
+```sql
+SELECT * FROM paradedb.tokenize();
+```
+
+The following query tokenizes the input text with the specified tokenizer.
 
 ```sql
 SELECT * FROM paradedb.tokenize(paradedb.tokenizer('<tokenizer>'), '<input text>');

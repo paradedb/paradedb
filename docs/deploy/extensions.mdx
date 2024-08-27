@@ -3,10 +3,10 @@ title: Install Third Party Extensions
 ---
 
 Postgres has a rich ecosystem of extensions which enable a variety of specialized workloads. ParadeDB itself is built via two Postgres extensions,
-`pg_search` and `pg_analytics`. In order to keep the size of the ParadeDB image small, only the ParadeDB extensions and a limited set of necessary
-third party extensions are included in the image.
+`pg_search` and `pg_analytics`.
 
-It is, however, possible to install arbitrary third party extensions in the ParadeDB image.
+To keep the size of the ParadeDB image small only the ParadeDB extensions and a limited set of necessary third party extensions are included in the
+image. It is, however, possible to install arbitrary third party extensions in the ParadeDB image.
 
 ## Default Extensions
 
@@ -20,25 +20,25 @@ ParadeDB ships with the following Postgres extensions installed by default:
 
 Note that the pg_cron installation is configured on the default `postgres` database and cannot be changed.
 
-Users do not need to install these extensions manually nor run `CREATE EXTENSION` manually. They will be available by default in any
+Users do not need to install these extensions manually nor run `CREATE EXTENSION` manually to enable them. They will be available by default in any
 new database created in ParadeDB.
 
 ## Installing Third Party Extensions
 
 At a high-level, installing a third party extension requires:
 
-- Locating its source code or prebuilt binaries
-- Compiling from source or downloading the prebuilt binaries inside the ParadeDB image
-- Installing the extension binary and any dependencies inside the ParadeDB image
-- Adding the extension to `shared_preload_libraries` in `postgresql.conf`, if applicable
-- Creating the extension in a Postgres database inside the ParadeDB image to activate it
+- Locating its source code or prebuilt binaries.
+- Compiling from source or downloading the prebuilt binaries inside the ParadeDB image.
+- Installing the extension binary and any dependencies inside the ParadeDB image.
+- Adding the extension to `shared_preload_libraries` in `postgresql.conf`, if applicable.
+- Creating the extension in a database inside the ParadeDB image to activate it.
 
-We recommend installing prebuilt binaries from APT whenever available to keep the image size as small as possible. Most popular
+We recommend installing prebuilt binaries whenever available to keep the image size small. Most popular
 Postgres extensions maintain binaries available via `apt-get install`.
 
-The example below will showcase installing PostGIS, a popular extension for geospatial data in Postgres, in the ParadeDB image.
+The example below showcases installing PostGIS, a popular extension for geospatial data in Postgres.
 
-<Accordion title="Installing Third Party Extension Example - PostGIS">
+<Accordion title="Example - Installing PostGIS">
 
 1- Locating its source code or prebuilt binaries
 
@@ -117,9 +117,9 @@ That's it!
 
 Here is a shortlist of popular third party extensions which ParadeDB does not ship with by default:
 
-- [PostGIS - Spatial Database Extension for PostgreSQL](https://github.com/postgis/postgis) (Note: We plan to eventually ship with PostGIS by default)
-- [pg_partman - PostgreSQL Partition Manager](https://github.com/pgpartman/pg_partman)
-- [pgaudit - Open Source PostgreSQL Audit Logging](https://github.com/pgaudit/pgaudit)
-- [pgrepack - Reorganize Tables in PostgreSQL Databases with Minimal Locks](https://github.com/reorg/pg_repack)
+- [PostGIS](https://github.com/postgis/postgis) - Spatial Database Extension for PostgreSQL (Note: We plan to eventually ship with PostGIS by default)
+- [pg_partman](https://github.com/pgpartman/pg_partman) - PostgreSQL Partition Manager
+- [pgaudit](https://github.com/pgaudit/pgaudit) - Open Source PostgreSQL Audit Logging
+- [pgrepack](https://github.com/reorg/pg_repack) - Reorganize Tables in PostgreSQL Databases with Minimal Locks
 
 There are many others. You can find a comprehensive list of extensions in [Pigsty](https://pigsty.io/docs/pgext/list/) or [PGXN](https://pgxn.org/).

@@ -4,7 +4,8 @@ title: Advanced Search Queries
 
 ## Overview
 
-The `search` function that's generated for your index can accept query objects instead of a query string. Nearly all the query types implemented in Tantivy, our underlying search engine, are exposed to Postgres.
+The `search` function that's generated for your index can accept query objects instead of a query string. Nearly all the query types implemented in Tantivy, our
+underlying search engine, are exposed to Postgres. If needed, you can directly refer to the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/) as well.
 
 Query objects are composable, allowing for arbitrarily fine-grained queries. A query string itself is parsed into a query object, and can be used anywhere in a query tree with `paradedb.parse`.
 

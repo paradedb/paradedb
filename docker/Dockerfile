@@ -159,12 +159,27 @@ RUN echo "trusted = true" >> pg_ivm.control && \
     make clean -j && \
     make USE_PGXS=1 -j
 
+######################
+# Barman Cloud
+######################
+FROM postgres:${PG_VERSION_MAJOR}-bookworm AS barman-cloud-base
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pip python3-dev python3-psycopg2 && \
+    rm /usr/lib/python*/EXTERNALLY-MANAGED && \
+    pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]' && \
+    apt-get remove -y python3-dev python3-pip ca-certificates --purge && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* && \
+    find . | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /var/cache -type f -exec truncate --size 0 {} \; && \
+    find /var/log -type f -exec truncate --size 0 {} \;
+
+
 ###############################################
 # Second Stage: PostgreSQL
 ###############################################
 
 # Note: Debian Bookworm = Debian 12
-FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
+FROM barman-cloud-base AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
@@ -204,7 +219,12 @@ USER root
 # chmod both directories to ensure that DuckDB can write to them no matter which user is used to connect to the database.
 RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
     mkdir /var/lib/postgresql/.duckdb/ && chmod -R a+rwX /var/lib/postgresql/.duckdb/ && \
-    apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
+    apt-get update && \
+    apt-get install -y --no-install-recommends libpq5 && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* && \
+    find /var/cache -type f -exec truncate --size 0 {} \; && \
+    find /var/log -type f -exec truncate --size 0 {} \;
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the

@@ -218,7 +218,7 @@ RUN apt-get update && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
 
-RUN apt-get install -y --no-install-recommends ca-certificates && update-ca-certificates
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && update-ca-certificates
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the

@@ -37,11 +37,9 @@ jobs:
           - runner: depot-ubuntu-latest-2
             pg_version: 16
             arch: amd64
-          # TODO: Maybe this
-          # Is this causing the crash?
-          # - runner: depot-ubuntu-latest-arm-2
-          #   pg_version: 16
-          #   arch: arm64
+          - runner: depot-ubuntu-latest-arm-2
+            pg_version: 16
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -50,7 +48,7 @@ jobs:
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 
-      # We keep PARADEDB_TELEMETRY=true to test the telemetry feature, even though this isn't real usage
+      # We keep PARADEDB_TELEMETRY=true to test the telemetry feature, even though this isn't real usage.
       - name: Build the ParadeDB Docker Image via Depot
         uses: depot/build-push-action@v1
         with:
@@ -77,7 +75,7 @@ jobs:
       # TODO: I think telemetry as "true" plus adding the extensions to template1 is what is causing the concurrent access of template1
       # Maybe I just need a brief sleep between each
       # YUP it's that!
-
+      
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
       - name: Check for Errors in the ParadeDB Docker Image
         working-directory: docker/

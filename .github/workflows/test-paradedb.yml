@@ -37,6 +37,7 @@ jobs:
           - runner: depot-ubuntu-latest-2
             pg_version: 16
             arch: amd64
+          # Maybe this
           - runner: depot-ubuntu-latest-arm-2
             pg_version: 16
             arch: arm64
@@ -64,19 +65,6 @@ jobs:
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: paradedb/paradedb:latest # Tag the local image as latest so it gets picked up by Docker Compose
-
-      - name: Logs
-        run: |
-          echo "docker container ls"
-          docker container ls
-          echo "docker image ls"
-          docker image ls
-          echo "docker volume ls"
-          docker volume ls
-          echo "docker network ls"
-          docker network ls
-          echo "docker ps -a"
-          docker ps -a
 
       # Sleep 10 seconds to give time for Postgres to start inside the container. The docker-compose.yml file
       # will use the local ParadeDB image that we just built.

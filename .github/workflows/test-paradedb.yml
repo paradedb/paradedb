@@ -73,9 +73,9 @@ jobs:
       - name: Check for Errors in the ParadeDB Docker Image
         working-directory: docker/
         run: |
-          CONTAINER_ID=$(docker ps -aq --filter "name=paradedb-dev")
+          CONTAINER_ID=$(docker ps -aq --filter "name=paradedb")
           CONTAINER_STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_ID)
-          echo "paradedb-dev container ID: $CONTAINER_ID"
+          echo "paradedb container ID: $CONTAINER_ID"
           echo "Container status: $CONTAINER_STATUS"
 
           echo ""

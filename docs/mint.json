@@ -8,12 +8,11 @@
   },
   "favicon": "/favicon.png",
   "colors": {
-    "primary": "#34d399",
-    "light": "#34d399",
-    "dark": "#34d399"
+    "primary": "#4f46e5",
+    "light": "#4f46e5"
   },
   "modeToggle": {
-    "default": "dark",
+    "default": "light",
     "isHidden": true
   },
   "redirects": [

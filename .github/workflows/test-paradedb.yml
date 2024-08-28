@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-paradedb-docker-compose:
+  test-paradedb:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     if: github.event.pull_request.draft == false

@@ -24,6 +24,7 @@ mod postgres;
 mod query;
 mod schema;
 mod writer;
+mod customscan;
 
 #[cfg(test)]
 pub mod fixtures;

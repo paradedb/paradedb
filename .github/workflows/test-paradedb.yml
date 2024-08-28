@@ -60,7 +60,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           file: docker/Dockerfile
           push: false # Don't push to Docker Hub
-          load: true # Load the image into the Docker daemon of the runner
+          pull: true # Pull the built image from Depot onto the runner, to use in subsequent steps
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: paradedb/paradedb:latest # Tag the local image as latest so it gets picked up by Docker Compose

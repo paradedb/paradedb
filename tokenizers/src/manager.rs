@@ -26,6 +26,7 @@ use crate::{
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use strum::AsRefStr;
 use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
     RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
@@ -40,7 +41,15 @@ use tantivy::tokenizer::{
 // SearchTokenizer, because our bincode serialization format is incompatible
 // with the "tagged" format we use in our public API.
 #[derive(
-    Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames,
+    Serialize,
+    Deserialize,
+    Default,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    strum_macros::VariantNames,
+    AsRefStr,
 )]
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
@@ -66,6 +75,7 @@ pub enum SearchTokenizer {
     ChineseLindera,
     JapaneseLindera,
     KoreanLindera,
+    #[strum(serialize = "icu")]
     #[cfg(feature = "icu")]
     ICUTokenizer,
 }

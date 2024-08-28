@@ -207,7 +207,7 @@ RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
 # Installs Barman Cloud and its dependencies for Azure, Google, and AWS via PIP and cleans up the installation.
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libpq5 ca-certificates python3-pip python3-dev python3-psycopg2 && \
+    apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \
     pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]~=3.11' && \
     apt-get remove -y python3-dev python3-pip --purge && \
@@ -217,6 +217,10 @@ RUN apt-get update && \
     find /usr/local | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
+
+
+
+RUN apt-get install -y --no-install-recommends ca-certificates && update-ca-certificates
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the

@@ -21,6 +21,7 @@ for DB in template_paradedb "$POSTGRES_DB"; do
   echo "Loading ParadeDB extensions into $DB"
   psql -d "$DB" <<-'EOSQL'
     CREATE EXTENSION IF NOT EXISTS pg_search;
+    sleep 5
     CREATE EXTENSION IF NOT EXISTS pg_analytics;
     CREATE EXTENSION IF NOT EXISTS pg_ivm;
     CREATE EXTENSION IF NOT EXISTS vector;

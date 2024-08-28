@@ -49,6 +49,7 @@ jobs:
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 
+      # We keep PARADEDB_TELEMETRY=true to test the telemetry feature, even though this isn't real usage
       - name: Build the ParadeDB Docker Image via Depot
         uses: depot/build-push-action@v1
         with:
@@ -72,18 +73,9 @@ jobs:
         working-directory: docker/
         run: docker compose -f docker-compose.yml up -d && sleep 10
 
-      - name: Logs
-        run: |
-          echo "docker container ls"
-          docker container ls
-          echo "docker image ls"
-          docker image ls
-          echo "docker volume ls"
-          docker volume ls
-          echo "docker network ls"
-          docker network ls
-          echo "docker ps -a"
-          docker ps -a
+      # TODO: I think telemetry as "true" plus adding the extensions to template1 is what is causing the concurrent access of template1
+      # Maybe I just need a brief sleep between each
+      # YUP it's that!
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
       - name: Check for Errors in the ParadeDB Docker Image

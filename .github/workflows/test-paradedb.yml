@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-paradedb:
+  test-paradedb-docker-compose:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     if: github.event.pull_request.draft == false
@@ -79,3 +79,32 @@ jobs:
             echo "Error: ParadeDB Docker container logs contain an error"
             exit 1
           fi
+
+  test-paradedb-depot:
+    name: Test Building ParadeDB on Depot
+    runs-on: depot-ubuntu-latest-2
+    strategy:
+      matrix:
+        pg_version: [16]
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
+
+      - name: Test Building ParadeDB on Depot
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          build-args: |
+            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
+            COMMIT_SHA=testcommitsha
+            PARADEDB_TELEMETRY=false
+          platforms: linux/amd64,linux/arm64
+          file: docker/Dockerfile
+          push: false
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}

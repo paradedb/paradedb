@@ -37,10 +37,11 @@ jobs:
           - runner: depot-ubuntu-latest-2
             pg_version: 16
             arch: amd64
-          # Maybe this
-          - runner: depot-ubuntu-latest-arm-2
-            pg_version: 16
-            arch: arm64
+          # TODO: Maybe this
+          # Is this causing the crash?
+          # - runner: depot-ubuntu-latest-arm-2
+          #   pg_version: 16
+          #   arch: arm64
 
     steps:
       - name: Checkout Git Repository

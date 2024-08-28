@@ -213,7 +213,8 @@ RUN apt-get update && \
     apt-get remove -y python3-dev python3-pip ca-certificates --purge && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* && \
-    find . | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /usr/lib | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /usr/local | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
 

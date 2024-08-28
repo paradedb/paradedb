@@ -63,9 +63,10 @@ jobs:
           load: true # Load the image into the Docker daemon of the runner
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
-          tags: paradedb/paradedb:latest
+          tags: paradedb/paradedb:latest # Tag the local image as latest so it gets picked up by Docker Compose
 
-      # Sleep 10 seconds to give time for Postgres to start inside the container
+      # Sleep 10 seconds to give time for Postgres to start inside the container. The docker-compose.yml file
+      # will use the local ParadeDB image that we just built.
       - name: Start the ParadeDB Docker Image
         working-directory: docker/
         run: docker compose -f docker-compose.yml up -d && sleep 10

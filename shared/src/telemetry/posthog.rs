@@ -31,7 +31,7 @@ impl PosthogConnection {
         Self {
             api_key: api_key.to_string(),
             host: host.to_string(),
-            client: reqwest::blocking::Client::new(),
+            client: reqwest::blocking::Client::new().use_native_tls(),
         }
     }
 

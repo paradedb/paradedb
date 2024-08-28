@@ -27,7 +27,7 @@ use sqlx::PgConnection;
 #[rstest]
 fn defult_tokenizer(mut conn: PgConnection) {
     let rows: Vec<(String, i32)> = r#"
-    SELECT * FROM paradedb.tokenize(paradedb.tokenize('default'), 'hello world');
+    SELECT * FROM paradedb.tokenize(paradedb.tokenizer('default'), 'hello world');
     "#
     .fetch_collect(&mut conn);
 

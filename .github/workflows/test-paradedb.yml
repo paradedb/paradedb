@@ -65,24 +65,11 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: paradedb/paradedb:latest # Tag the local image as latest so it gets picked up by Docker Compose
 
-      - name: Logs
-        run: |
-          echo "docker container ls"
-          docker container ls
-          echo "docker image ls"
-          docker image ls
-          echo "docker volume ls"
-          docker volume ls
-          echo "docker network ls"
-          docker network ls
-          echo "docker ps -a"
-          docker ps -a
-
       # Sleep 10 seconds to give time for Postgres to start inside the container. The docker-compose.yml file
       # will use the local ParadeDB image that we just built.
       - name: Start the ParadeDB Docker Image
         working-directory: docker/
-        run: docker compose -f docker-compose.yml up -d && sleep 10
+        run: docker compose -f docker-compose.yml up -d && sleep 20
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
       - name: Check for Errors in the ParadeDB Docker Image

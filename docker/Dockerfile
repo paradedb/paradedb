@@ -207,7 +207,7 @@ RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
 # Installs Barman Cloud and its dependencies for Azure, Google, and AWS via PIP and cleans up the installation.
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
+    apt-get install -y --no-install-recommends libpq5 ca-certificates python3-pip python3-dev python3-psycopg2 && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \
     pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]~=3.11' && \
     apt-get remove -y python3-dev python3-pip --purge && \

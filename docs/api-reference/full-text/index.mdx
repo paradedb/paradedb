@@ -362,10 +362,12 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
 <ParamField body="en_stem" deprecated={true}>
   Equivalent to `stem` with language set to `English`.
 </ParamField>
-
+<ParamField body="source_code">
+Tokenizes the text by splitting based on casing conventions commonly used in code, such as camelCase or PascalCase. Filters out tokens that exceed 255 bytes, and converts them to lowercase with ASCII folding.
+</ParamField>
 #### Picking a Tokenizer
 
-If you're not sure which tokenizer to use, you can refer to `paradedb.tokenizer` for a list of all available tokenizers. To evaluate and compare different tokenization strategies, use `paradedb.tokenize`.
+The `paradedb.tokenizers()` function returns a list of all available tokenizer names. Evaluation of any named tokenizer is accomplished with the `paradedb.tokenize()` function.
 
 The following query returns all available tokenizers.
 

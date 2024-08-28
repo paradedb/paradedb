@@ -60,6 +60,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           file: docker/Dockerfile
           push: false # Don't push to Docker Hub
+          load: true # Load the image into the Docker daemon of the runner
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: paradedb/paradedb:latest

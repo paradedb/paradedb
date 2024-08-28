@@ -68,6 +68,49 @@ impl SearchState {
         }
     }
 
+    pub fn search_via_channel(
+        &self,
+        executor: &'static Executor,
+    ) -> crossbeam::channel::Receiver<u64> {
+        // Extract limit and offset from the query config or set defaults.
+        // let limit = self.config.limit_rows.unwrap_or_else(|| {
+        //     // We use unwrap_or_else here so this block doesn't run unless
+        //     // we actually need the default value. This is important, because there can
+        //     // be some cost to Tantivy API calls.
+        //     let num_docs = self.searcher.num_docs() as usize;
+        //     if num_docs > 0 {
+        //         num_docs // The collector will panic if it's passed a limit of 0.
+        //     } else {
+        //         1 // Since there's no docs to return anyways, just use 1.
+        //     }
+        // });
+        //
+        // let offset = self.config.offset_rows.unwrap_or(0);
+        // let key_field_name = self.config.key_field.clone();
+        // let orderby_field = self.config.order_by_field.clone();
+        // let sort_asc = self.config.is_sort_ascending();
+
+        let (sender, receiver) = crossbeam::channel::bounded(1000);
+        let collector = collector::ChannelCollector::new(sender);
+        let searcher = self.searcher.clone();
+        let query = self.query.clone();
+        let schema = self.schema.schema.clone();
+        std::thread::spawn(move || {
+            searcher
+                .search_with_executor(
+                    query.as_ref(),
+                    &collector,
+                    executor,
+                    tantivy::query::EnableScoring::Disabled {
+                        schema: &schema,
+                        searcher_opt: Some(&searcher),
+                    },
+                )
+                .expect("failed to search")
+        });
+        receiver
+    }
+
     /// Search the Tantivy index for matching documents. If used outside of Postgres
     /// index access methods, this may return deleted rows until a VACUUM. If you need to scan
     /// the Tantivy index without a Postgres deduplication, you should use the `search_dedup`
@@ -208,6 +251,65 @@ impl FFType {
             Some(ff.get_val(doc))
         } else {
             None
+        }
+    }
+}
+
+mod collector {
+    use crate::index::state::FFType;
+    use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
+
+    pub struct ChannelCollector {
+        sender: crossbeam::channel::Sender<u64>,
+    }
+
+    impl ChannelCollector {
+        pub fn new(sender: crossbeam::channel::Sender<u64>) -> Self {
+            Self { sender }
+        }
+    }
+
+    impl Collector for ChannelCollector {
+        type Fruit = ();
+        type Child = ChannelSegmentCollector;
+
+        fn for_segment(
+            &self,
+            _segment_local_id: SegmentOrdinal,
+            segment_reader: &SegmentReader,
+        ) -> tantivy::Result<Self::Child> {
+            let ff_ctid = FFType::new(segment_reader.fast_fields(), "ctid");
+            Ok(ChannelSegmentCollector {
+                ff_ctid,
+                sender: self.sender.clone(),
+            })
+        }
+
+        fn requires_scoring(&self) -> bool {
+            false
+        }
+
+        fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
+            Ok(())
+        }
+    }
+
+    pub struct ChannelSegmentCollector {
+        ff_ctid: FFType,
+        sender: crossbeam::channel::Sender<u64>,
+    }
+
+    impl SegmentCollector for ChannelSegmentCollector {
+        type Fruit = ();
+
+        fn collect(&mut self, doc: DocId, _score: Score) {
+            if let Some(ctid) = self.ff_ctid.as_u64(doc) {
+                self.sender.send(ctid).expect("channel should be open")
+            }
+        }
+
+        fn harvest(self) { /* noop */
         }
     }
 }

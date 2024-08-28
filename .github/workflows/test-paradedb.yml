@@ -34,10 +34,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-latest-8
+          - runner: depot-ubuntu-latest-2
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-latest-arm-8
+          - runner: depot-ubuntu-latest-arm-2
             pg_version: 16
             arch: arm64
 
@@ -45,15 +45,29 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      # By using the docker-compose.dev.yml file, we also test that the build arguments are correct
-      - name: Build the ParadeDB Docker Image
-        working-directory: docker/
-        run: docker buildx create --use && docker compose -f docker-compose.dev.yml build
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
+
+      - name: Build the ParadeDB Docker Image via Depot
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          build-args: |
+            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
+            COMMIT_SHA=testcommitsha
+            PARADEDB_TELEMETRY=true
+          platforms: linux/${{ matrix.arch }}
+          file: docker/Dockerfile
+          push: false # Don't push to Docker Hub
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}
+          tags: paradedb/paradedb:latest
 
       # Sleep 10 seconds to give time for Postgres to start inside the container
       - name: Start the ParadeDB Docker Image
         working-directory: docker/
-        run: docker compose -f docker-compose.dev.yml up -d && sleep 10
+        run: docker compose -f docker-compose.yml up -d && sleep 10
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
       - name: Check for Errors in the ParadeDB Docker Image
@@ -79,32 +93,3 @@ jobs:
             echo "Error: ParadeDB Docker container logs contain an error"
             exit 1
           fi
-
-  test-paradedb-depot:
-    name: Test Building ParadeDB on Depot
-    runs-on: depot-ubuntu-latest-2
-    strategy:
-      matrix:
-        pg_version: [16]
-
-    steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v4
-
-      - name: Configure Depot CLI
-        uses: depot/setup-action@v1
-
-      - name: Test Building ParadeDB on Depot
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          build-args: |
-            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
-            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
-            COMMIT_SHA=testcommitsha
-            PARADEDB_TELEMETRY=false
-          platforms: linux/amd64,linux/arm64
-          file: docker/Dockerfile
-          push: false
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}

@@ -56,7 +56,7 @@ jobs:
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=testcommitsha
-            PARADEDB_TELEMETRY=false
+            PARADEDB_TELEMETRY=true
           platforms: linux/${{ matrix.arch }}
           file: docker/Dockerfile
           push: false # Don't push to Docker Hub

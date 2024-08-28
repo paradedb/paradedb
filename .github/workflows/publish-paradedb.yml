@@ -52,10 +52,6 @@ jobs:
           fi
           echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Retrieve Current Date
-        id: current_date
-        run: echo "BUILD_DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
-
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 

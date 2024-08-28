@@ -27,9 +27,6 @@ use tantivy::tokenizer::{
 };
 use tracing::debug;
 
-#[cfg(feature = "icu")]
-use icu::ICUTokenizer;
-
 pub use manager::{SearchNormalizer, SearchTokenizer};
 
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;

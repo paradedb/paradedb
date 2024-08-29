@@ -29,6 +29,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tracing::debug;
 
+use pgrx::log;
+
 /// Enumerating our extensions. It's important that these can be enumerated as integers
 /// so that this enum can be passed as an i32 datum to a background worker.
 /// Only primitive integers and booleans can be passed to workers, so we there's no

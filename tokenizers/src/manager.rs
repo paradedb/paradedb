@@ -75,8 +75,8 @@ pub enum SearchTokenizer {
     ChineseLindera,
     JapaneseLindera,
     KoreanLindera,
-    #[strum(serialize = "icu")]
     #[cfg(feature = "icu")]
+    #[strum(serialize = "icu")]
     ICUTokenizer,
 }
 

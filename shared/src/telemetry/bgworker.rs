@@ -191,26 +191,15 @@ impl BgWorkerTelemetryConfig {
     }
 
     pub fn check_telemetry_setting(&self) -> Result<bool> {
-        // This function runs in the spawned background worker process. That means
-        // that we need to re-initialize logging.
-        crate::trace::init_ereport_logger("pg_search");
-
-        log!("1");
-
         // PGRX seems to have a problem with GUC variables in background workers.
         // This means that we can't check if telemetry has been disabled by ALTER SYSTEM.
         // Instead, we need to connect to an existing database to check with an SPI query.
-        // Users aren't supposed to delete the template1 database, so we'll connect to that.
+        // Users aren't supposed to delete the default 'postgres' database, so we'll connect to that.
         // If for some reason it doesn't exist, the telemetry worker will crash,
         // but other extension operations will be unaffected.
         let mut has_connected_to_spi = CONNECTED_TO_SPI.lock().unwrap();
 
-        log!("2");
-
-
         if !(*has_connected_to_spi) {
-            log!("3");
-
             // This must be the only time in the background worker that you call
             // `connect_worker_to_spi`. If it is called again, the worker will segfault.
             // It's possible to pass "None" here for the database argument, but you will
@@ -218,14 +207,9 @@ impl BgWorkerTelemetryConfig {
             // any SPI queries.
             BackgroundWorker::connect_worker_to_spi(Some("postgres"), None);
             *has_connected_to_spi = true;
-            log!("4")
-
         }
 
         let guc_setting_query = format!("SHOW paradedb.{}_telemetry", self.extension_name);
-
-        log!("5");
-
 
         // Check the GUC setting for telemetry.
         BackgroundWorker::transaction(|| match pgrx::Spi::get_one::<&str>(&guc_setting_query) {
@@ -236,10 +220,7 @@ impl BgWorkerTelemetryConfig {
                 debug!("{guc_setting_query} = {other:?}");
                 Ok(false)
             }
-        });
-
-        log!("6");
-        Ok(true)
+        })
     }
 }
 

@@ -13,7 +13,6 @@ use std::str::CharIndices;
 
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
-/// TODO: add docs.
 #[derive(Clone, Default)]
 pub struct CodeTokenizer(Token);
 

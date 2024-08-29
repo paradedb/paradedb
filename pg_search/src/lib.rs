@@ -17,6 +17,7 @@
 
 mod api;
 mod bootstrap;
+mod customscan;
 mod env;
 mod globals;
 mod index;
@@ -24,7 +25,6 @@ mod postgres;
 mod query;
 mod schema;
 mod writer;
-mod customscan;
 
 #[cfg(test)]
 pub mod fixtures;
@@ -96,6 +96,8 @@ pub unsafe extern "C" fn _PG_init() {
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     pgrx::hooks::register_hook(&mut TRACE_HOOK);
+
+    customscan::register_rel_pathlist(customscan::example::Example);
 }
 
 #[pg_guard]

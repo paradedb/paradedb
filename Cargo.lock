@@ -4015,6 +4015,7 @@ dependencies = [
  "pgvector",
  "portpicker",
  "pretty_assertions",
+ "rand",
  "reqwest 0.11.27",
  "rstest",
  "rustc-hash",

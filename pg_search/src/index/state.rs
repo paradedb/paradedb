@@ -27,6 +27,42 @@ use tantivy::schema::FieldType;
 use tantivy::{query::Query, DocAddress, DocId, Score, Searcher};
 use tantivy::{Executor, SnippetGenerator};
 
+pub enum SearchResults {
+    AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+    Channel(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
+}
+
+impl Iterator for SearchResults {
+    type Item = (SearchIndexScore, DocAddress);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            SearchResults::AllFeatures(iter) => iter.next(),
+            SearchResults::Channel(iter) => iter.next(),
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            SearchResults::AllFeatures(iter) => iter.size_hint(),
+            SearchResults::Channel(iter) => iter.size_hint(),
+        }
+    }
+
+    #[inline]
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
+        match self {
+            SearchResults::AllFeatures(iter) => iter.count(),
+            SearchResults::Channel(iter) => iter.count(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct SearchState {
     pub query: Arc<dyn Query>,
@@ -68,30 +104,25 @@ impl SearchState {
         }
     }
 
+    pub fn search(&self, executor: &'static Executor) -> SearchResults {
+        match (
+            self.config.limit_rows,
+            self.config.stable_sort.unwrap_or(true),
+            self.config.order_by_field.clone(),
+        ) {
+            (None, false, None) => {
+                SearchResults::Channel(self.search_via_channel(executor).into_iter())
+            }
+            _ => SearchResults::AllFeatures(self.search_with_all_features(executor)),
+        }
+    }
+
     pub fn search_via_channel(
         &self,
         executor: &'static Executor,
-    ) -> crossbeam::channel::Receiver<u64> {
-        // Extract limit and offset from the query config or set defaults.
-        // let limit = self.config.limit_rows.unwrap_or_else(|| {
-        //     // We use unwrap_or_else here so this block doesn't run unless
-        //     // we actually need the default value. This is important, because there can
-        //     // be some cost to Tantivy API calls.
-        //     let num_docs = self.searcher.num_docs() as usize;
-        //     if num_docs > 0 {
-        //         num_docs // The collector will panic if it's passed a limit of 0.
-        //     } else {
-        //         1 // Since there's no docs to return anyways, just use 1.
-        //     }
-        // });
-        //
-        // let offset = self.config.offset_rows.unwrap_or(0);
-        // let key_field_name = self.config.key_field.clone();
-        // let orderby_field = self.config.order_by_field.clone();
-        // let sort_asc = self.config.is_sort_ascending();
-
-        let (sender, receiver) = crossbeam::channel::bounded(1000);
-        let collector = collector::ChannelCollector::new(sender);
+    ) -> crossbeam::channel::Receiver<(SearchIndexScore, DocAddress)> {
+        let (sender, receiver) = crossbeam::channel::bounded(10_000); // arbitrary bound
+        let collector = collector::ChannelCollector::new(sender, self.config.key_field.clone());
         let searcher = self.searcher.clone();
         let query = self.query.clone();
         let schema = self.schema.schema.clone();
@@ -115,9 +146,9 @@ impl SearchState {
     /// index access methods, this may return deleted rows until a VACUUM. If you need to scan
     /// the Tantivy index without a Postgres deduplication, you should use the `search_dedup`
     /// method instead.
-    pub fn search(
+    fn search_with_all_features(
         &self,
-        executor: &Executor,
+        executor: &'static Executor,
     ) -> std::vec::IntoIter<(SearchIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
@@ -256,17 +287,25 @@ impl FFType {
 }
 
 mod collector {
+    use crate::index::score::SearchIndexScore;
     use crate::index::state::FFType;
     use tantivy::collector::{Collector, SegmentCollector};
-    use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
+    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     pub struct ChannelCollector {
-        sender: crossbeam::channel::Sender<u64>,
+        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+        key_field_name: String,
     }
 
     impl ChannelCollector {
-        pub fn new(sender: crossbeam::channel::Sender<u64>) -> Self {
-            Self { sender }
+        pub fn new(
+            sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+            key_field_name: String,
+        ) -> Self {
+            Self {
+                sender,
+                key_field_name,
+            }
         }
     }
 
@@ -276,12 +315,16 @@ mod collector {
 
         fn for_segment(
             &self,
-            _segment_local_id: SegmentOrdinal,
+            segment_local_id: SegmentOrdinal,
             segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
-            let ff_ctid = FFType::new(segment_reader.fast_fields(), "ctid");
+            let fast_fields = segment_reader.fast_fields();
+            let ff_ctid = FFType::new(fast_fields, "ctid");
+            let ff_key = FFType::new(fast_fields, &self.key_field_name);
             Ok(ChannelSegmentCollector {
+                segment_ord: segment_local_id,
                 ff_ctid,
+                ff_key,
                 sender: self.sender.clone(),
             })
         }
@@ -296,8 +339,10 @@ mod collector {
     }
 
     pub struct ChannelSegmentCollector {
+        segment_ord: SegmentOrdinal,
         ff_ctid: FFType,
-        sender: crossbeam::channel::Sender<u64>,
+        ff_key: FFType,
+        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
     }
 
     impl SegmentCollector for ChannelSegmentCollector {
@@ -305,7 +350,19 @@ mod collector {
 
         fn collect(&mut self, doc: DocId, _score: Score) {
             if let Some(ctid) = self.ff_ctid.as_u64(doc) {
-                self.sender.send(ctid).expect("channel should be open")
+                let key = self.ff_key.value(doc);
+
+                let doc_address = DocAddress::new(self.segment_ord, doc);
+                let scored = SearchIndexScore {
+                    bm25: 0.0,
+                    key,
+                    ctid,
+                    order_by: None,
+                    sort_asc: false,
+                };
+                self.sender
+                    .send((scored, doc_address))
+                    .expect("channel should be open")
             }
         }
 

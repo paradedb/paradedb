@@ -16,14 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::globals::WriterGlobal;
+use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
 use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::itemptr::u64_to_item_pointer;
 use pgrx::*;
 
-// type SearchResultIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
-type SearchResultIter = crossbeam::channel::IntoIter<u64>;
+type SearchResultIter = SearchResults;
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -86,11 +86,8 @@ pub extern "C" fn amrescan(
         let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
 
         // SAFETY:  `leak_and_drop_on_delete()` gave us a non-null, aligned pointer to the SearchState
-        let results_iter: SearchResultIter = state
-            .as_ref()
-            .unwrap()
-            .search_via_channel(SearchIndex::executor())
-            .into_iter();
+        let results_iter: SearchResultIter =
+            state.as_ref().unwrap().search(SearchIndex::executor());
 
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
     };
@@ -121,9 +118,9 @@ pub extern "C" fn amgettuple(
     scan.xs_recheck = false;
 
     match iter.next() {
-        Some(ctid) => {
+        Some((scored, _doc_address)) => {
             let tid = &mut scan.xs_heaptid;
-            u64_to_item_pointer(ctid, tid);
+            u64_to_item_pointer(scored.ctid, tid);
 
             true
         }

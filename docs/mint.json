@@ -18,19 +18,19 @@
   "redirects": [
     {
       "source": "/blog/introducing_analytics",
-      "destination": "https://blog.paradedb.com/pages/introducing_analytics"
+      "destination": "https://paradedb.com/blog/introducing_lakehouse"
     },
     {
       "source": "/blog/introducing_sparse",
-      "destination": "https://blog.paradedb.com/pages/introducing_sparse"
+      "destination": "https://paradedb.com/blog/introducing_sparse"
     },
     {
       "source": "/blog/introducing_bm25",
-      "destination": "https://blog.paradedb.com/pages/introducing_bm25"
+      "destination": "https://paradedb.com/blog/introducing_search"
     },
     {
       "source": "/blog/introducing_paradedb",
-      "destination": "https://blog.paradedb.com/pages/introducing_paradedb"
+      "destination": "https://paradedb.com/blog/introducing_paradedb"
     }
   ],
   "topbarLinks": [
@@ -40,7 +40,7 @@
     },
     {
       "name": "Blog",
-      "url": "https://blog.paradedb.com"
+      "url": "https://paradedb.com/blog"
     }
   ],
   "topbarCtaButton": {

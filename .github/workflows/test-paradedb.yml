@@ -88,7 +88,6 @@ jobs:
       # In this environment, PARADEDB_TELEMETRY is set to false to avoid sending misleading telemetry data to PostHog.
       - name: Build the ParadeDB Docker Image via Docker Compose (dev only)
         if: steps.env.outputs.environment == 'dev'
-        working-directory: docker/
         run: docker build --file ./docker/Dockerfile --tag paradedb/paradedb:latest ..
 
       # Sleep 10 seconds to give time for Postgres to start inside the container. The docker-compose.yml file

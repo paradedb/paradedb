@@ -29,8 +29,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tracing::debug;
 
-use pgrx::log;
-
 /// Enumerating our extensions. It's important that these can be enumerated as integers
 /// so that this enum can be passed as an i32 datum to a background worker.
 /// Only primitive integers and booleans can be passed to workers, so we there's no
@@ -206,7 +204,7 @@ impl BgWorkerTelemetryConfig {
             // only be able to access system catalogs, and not any GUC settings or use
             // any SPI queries.
             BackgroundWorker::connect_worker_to_spi(Some("postgres"), None);
-            *has_connected_to_spi = true;
+            *has_connected_to_spi = true
         }
 
         let guc_setting_query = format!("SHOW paradedb.{}_telemetry", self.extension_name);

@@ -236,7 +236,10 @@ impl BgWorkerTelemetryConfig {
                 debug!("{guc_setting_query} = {other:?}");
                 Ok(false)
             }
-        })
+        });
+
+        log!("6");
+        Ok(true)
     }
 }
 

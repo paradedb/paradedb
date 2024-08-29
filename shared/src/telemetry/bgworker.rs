@@ -216,7 +216,7 @@ impl BgWorkerTelemetryConfig {
             // It's possible to pass "None" here for the database argument, but you will
             // only be able to access system catalogs, and not any GUC settings or use
             // any SPI queries.
-            BackgroundWorker::connect_worker_to_spi(Some("template1"), None);
+            BackgroundWorker::connect_worker_to_spi(Some("postgres"), None);
             *has_connected_to_spi = true;
             log!("4")
 

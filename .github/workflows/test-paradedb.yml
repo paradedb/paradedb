@@ -72,10 +72,6 @@ jobs:
         working-directory: docker/
         run: docker compose -f docker-compose.yml up -d && sleep 10
 
-      # TODO: I think telemetry as "true" plus adding the extensions to template1 is what is causing the concurrent access of template1
-      # Maybe I just need a brief sleep between each
-      # YUP it's that!
-      
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
       - name: Check for Errors in the ParadeDB Docker Image
         working-directory: docker/

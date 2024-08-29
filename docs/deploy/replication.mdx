@@ -28,7 +28,7 @@ We'll use the following environment setup for our demonstration:
 - **Replication User**: `replicator`
 - **Replication Password**: `passw0rd`
 
-**Standby Servers**
+**Standby Server(s)**
 
 - **OS**: Ubuntu 24.04
 - **IP**: `192.168.0.31`, `192.168.0.32`
@@ -126,6 +126,14 @@ CALL paradedb.create_bm25(
 );
 ```
 
+## Standby Server(s) Setup
+
+Standby servers do not have any specific configuration necessary other than the table(s) in which you are ingesting logical replication must start off empty. Configuring
+replication consists of two steps:
+
+- Running pg_basebackup, which will create a snapshot of your primary onto your standy server(s). This makes the initial replication much faster.
+- Subscribing via logical replication, which will create a subscription that continuously propagates changes on the primary server to the standby.
+
 ### Run pg_basebackup
 
 You should run `pg_basebackup` on your standby server to create a physical byte-for-byte replica of your primary cluster. The `--pgdata` directory specifies the where the standby cluster will be created. The directory must exist, and must be empty.
@@ -147,8 +155,7 @@ sudo systemctl start postgresql
 
 ### Verification
 
-Now you can verify the replication. The data inserted on the primary server should appear on the standby servers, confirming that streaming replication with ParadeDB is working correctly. Note
-that the destination table needs to start off empty on the standby server.
+Now you can verify the replication. The data inserted on the primary server should appear on the standby servers, confirming that streaming replication with ParadeDB is working correctly.
 
 ```sql
 SELECT * FROM mock_items.search('description:shoes')

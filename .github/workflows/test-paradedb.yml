@@ -34,10 +34,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-latest-2
+          - runner: depot-ubuntu-latest-8
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-latest-arm-2
+          - runner: depot-ubuntu-latest-arm-8
             pg_version: 16
             arch: arm64
 
@@ -45,11 +45,27 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Set Environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "Using prod configuration..."
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "Using dev configuration..."
+          fi
+
       - name: Configure Depot CLI
+        if: steps.env.outputs.environment == 'prod'
         uses: depot/setup-action@v1
 
+      # We only build with Depot when promoting to `main` as doing so requires access to GitHub Secrets,
+      # which community contributors don't have access to.
+      #
       # We keep PARADEDB_TELEMETRY=true to test the telemetry feature, even though this isn't real usage.
-      - name: Build the ParadeDB Docker Image via Depot
+      - name: Build the ParadeDB Docker Image via Depot (prod only)
+        if: steps.env.outputs.environment == 'prod'
         uses: depot/build-push-action@v1
         with:
           context: .
@@ -65,6 +81,15 @@ jobs:
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: paradedb/paradedb:latest # Tag the local image as latest so it gets picked up by Docker Compose
+
+      # On any branch other than `main`, we build the ParadeDB Docker Image using Docker Compose so that community
+      # contributors can trigger the workflow without needing access to GitHub Secrets.
+      #
+      # In this environment, PARADEDB_TELEMETRY is set to false to avoid sending misleading telemetry data to PostHog.
+      - name: Build the ParadeDB Docker Image via Docker Compose (dev only)
+        if: steps.env.outputs.environment == 'dev'
+        working-directory: docker/
+        run: docker build --file Dockerfile --tag paradedb/paradedb:latest ..
 
       # Sleep 10 seconds to give time for Postgres to start inside the container. The docker-compose.yml file
       # will use the local ParadeDB image that we just built.

@@ -193,7 +193,7 @@ impl BgWorkerTelemetryConfig {
         // that we need to re-initialize logging.
         crate::trace::init_ereport_logger("pg_search");
 
-        debug!("1");
+        log!("1");
 
         // PGRX seems to have a problem with GUC variables in background workers.
         // This means that we can't check if telemetry has been disabled by ALTER SYSTEM.
@@ -203,11 +203,11 @@ impl BgWorkerTelemetryConfig {
         // but other extension operations will be unaffected.
         let mut has_connected_to_spi = CONNECTED_TO_SPI.lock().unwrap();
 
-        debug!("2");
+        log!("2");
 
 
         if !(*has_connected_to_spi) {
-            debug!("3");
+            log!("3");
 
             // This must be the only time in the background worker that you call
             // `connect_worker_to_spi`. If it is called again, the worker will segfault.
@@ -216,13 +216,13 @@ impl BgWorkerTelemetryConfig {
             // any SPI queries.
             BackgroundWorker::connect_worker_to_spi(Some("template1"), None);
             *has_connected_to_spi = true;
-            debug!("4")
+            log!("4")
 
         }
 
         let guc_setting_query = format!("SHOW paradedb.{}_telemetry", self.extension_name);
 
-        debug!("5");
+        log!("5");
 
 
         // Check the GUC setting for telemetry.

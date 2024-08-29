@@ -34,10 +34,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-latest-2
+          - runner: depot-ubuntu-latest-8
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-latest-arm-2
+          - runner: depot-ubuntu-latest-arm-8
             pg_version: 16
             arch: arm64
 

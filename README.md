@@ -61,12 +61,10 @@ ParadeDB and its extensions are available as commercial software for installatio
 For an interactive setup run the following in your terminal.
 
 ```bash
-curl https://raw.githubusercontent.com/paradedb/paradedb/dev/setup.sh > setup.sh
-sudo chmod +x setup.sh
-./setup.sh
+curl -O https://raw.githubusercontent.com/paradedb/paradedb/dev/deploy.sh && bash setup.sh
 ```
 
-**Note**: Currently we only support stable binaries for Debian and RHEL based linux distributions. For other Linux/Unix Operating systems you'll need to build ParadeDB from source.
+**Note**: Currently we only support stable binaries for Debian and RHEL based linux distributions. For other Linux/Unix based Operating systems you'll need to build ParadeDB from source.
 
 ### Extensions
 

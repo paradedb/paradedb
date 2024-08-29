@@ -189,7 +189,10 @@ impl BgWorkerTelemetryConfig {
     }
 
     pub fn check_telemetry_setting(&self) -> Result<bool> {
-
+        // This function runs in the spawned background worker process. That means
+        // that we need to re-initialize logging.
+        crate::trace::init_ereport_logger("pg_search");
+        
         debug!("1");
 
         // PGRX seems to have a problem with GUC variables in background workers.

@@ -2,35 +2,35 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "ParadeDB",
   "logo": {
-    "light": "/logo/docs.svg",
-    "dark": "/logo/docs.svg",
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
     "href": "https://paradedb.com"
   },
   "favicon": "/favicon.png",
   "colors": {
     "primary": "#4f46e5",
-    "light": "#4f46e5"
+    "light": "#4f46e5",
+    "dark": "#818cf8"
   },
   "modeToggle": {
-    "default": "light",
-    "isHidden": true
+    "isHidden": false
   },
   "redirects": [
     {
       "source": "/blog/introducing_analytics",
-      "destination": "https://blog.paradedb.com/pages/introducing_analytics"
+      "destination": "https://paradedb.com/blog/introducing_lakehouse"
     },
     {
       "source": "/blog/introducing_sparse",
-      "destination": "https://blog.paradedb.com/pages/introducing_sparse"
+      "destination": "https://paradedb.com/blog/introducing_sparse"
     },
     {
       "source": "/blog/introducing_bm25",
-      "destination": "https://blog.paradedb.com/pages/introducing_bm25"
+      "destination": "https://paradedb.com/blog/introducing_search"
     },
     {
       "source": "/blog/introducing_paradedb",
-      "destination": "https://blog.paradedb.com/pages/introducing_paradedb"
+      "destination": "https://paradedb.com/blog/introducing_paradedb"
     }
   ],
   "topbarLinks": [
@@ -40,7 +40,7 @@
     },
     {
       "name": "Blog",
-      "url": "https://blog.paradedb.com"
+      "url": "https://paradedb.com/blog"
     }
   ],
   "topbarCtaButton": {

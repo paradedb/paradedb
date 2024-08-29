@@ -173,6 +173,8 @@ ARG PG_VERSION_MAJOR=16
 # Declare runtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
 # Copy third-party extensions from their builder stages
 COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
@@ -205,17 +207,23 @@ RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
     chmod -R a+rwX /var/lib/postgresql/.duckdb/
 
 # Installs Barman Cloud and its dependencies for Azure, Google, and AWS via PIP and cleans up the installation.
-SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \
     pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]~=3.11' && \
-    apt-get remove -y python3-dev python3-pip ca-certificates --purge && \
+    apt-get remove -y python3-dev python3-pip --purge && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* && \
-    find . | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /usr/lib | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /usr/local | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
+
+# This is required for TLS connection to PostHog, which is used for telemetry.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && \
+    update-ca-certificates
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the

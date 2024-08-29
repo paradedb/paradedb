@@ -192,7 +192,7 @@ impl BgWorkerTelemetryConfig {
         // This function runs in the spawned background worker process. That means
         // that we need to re-initialize logging.
         crate::trace::init_ereport_logger("pg_search");
-        
+
         debug!("1");
 
         // PGRX seems to have a problem with GUC variables in background workers.
@@ -215,8 +215,8 @@ impl BgWorkerTelemetryConfig {
             // only be able to access system catalogs, and not any GUC settings or use
             // any SPI queries.
             BackgroundWorker::connect_worker_to_spi(Some("template1"), None);
-            *has_connected_to_spi = true
-            debug!("4");
+            *has_connected_to_spi = true;
+            debug!("4")
 
         }
 
@@ -235,8 +235,6 @@ impl BgWorkerTelemetryConfig {
                 Ok(false)
             }
         })
-        debug!("6");
-
     }
 }
 

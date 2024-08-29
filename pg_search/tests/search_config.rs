@@ -17,6 +17,7 @@
 
 mod fixtures;
 
+use chrono::NaiveDateTime;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -107,7 +108,7 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
     	key_field => 'id',
 	    text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 8, prefix_only => false))
     )"#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
         "SELECT id FROM tokenizer_config.search('description:boa', stable_sort => true)"
@@ -132,7 +133,7 @@ fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
     );
     INSERT INTO paradedb.tokenizer_config (description, rating, category) VALUES ('电脑', 4, 'Electronics');
     "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
         "SELECT id FROM tokenizer_config.search('description:电脑', stable_sort => true)"
@@ -222,6 +223,96 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn order_by(mut conn: PgConnection) {
+    "CREATE TABLE pets (id INT PRIMARY KEY, name TEXT, rating INT, birthdate TIMESTAMP);"
+        .execute(&mut conn);
+
+    "INSERT INTO pets (id, name, rating, birthdate) VALUES 
+        (1, 'dog', 5, '2005-01-01'::TIMESTAMP),
+        (2, 'dog dog', 2, '2004-01-01'::TIMESTAMP),
+        (3, 'dog dog dog', 3, '2003-01-01'::TIMESTAMP),
+        (4, 'cat', 10, '2002-01-01'::TIMESTAMP),
+        (5, 'cat cat', 10, '2001-01-01'::TIMESTAMP);
+    "
+    .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'pets',
+        table_name => 'pets',
+        key_field => 'id',
+        text_fields => paradedb.field('name'),
+        numeric_fields => paradedb.field('rating'),
+        datetime_fields => paradedb.field('birthdate')
+    );"
+    .execute(&mut conn);
+
+    // Helper function
+    #[track_caller]
+    fn verify_order(conn: &mut PgConnection, query: &str, ids_ordered: Vec<i32>) {
+        let rows: Vec<(i32, String, i32, NaiveDateTime)> = query.fetch_result(conn).unwrap();
+
+        eprintln!("------");
+        eprintln!("query: {}", query);
+        eprintln!("rows={rows:?}");
+        eprintln!("expected id order={ids_ordered:?}");
+
+        let ids = rows.into_iter().map(|(id, ..)| id).collect::<Vec<_>>();
+        assert_eq!(ids_ordered, ids);
+    }
+
+    // Order by numeric field
+    // Default order direction
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating')",
+        vec![2, 3, 1],
+    );
+
+    // Explicit asc
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating', order_by_direction => 'asc')",
+        vec![2, 3, 1],
+    );
+
+    // Capital ASC
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating', order_by_direction => 'ASC')",
+        vec![2, 3, 1],
+    );
+
+    // desc
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating', order_by_direction => 'desc')",
+        vec![1, 3, 2],
+    );
+
+    // Capital DESC
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'rating', order_by_direction => 'DESC')",
+        vec![1, 3, 2],
+    );
+
+    // Order by date field
+    // ASC
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'birthdate', order_by_direction => 'ASC')",
+        vec![3, 2, 1],
+    );
+
+    // DESC
+    verify_order(
+        &mut conn,
+        "SELECT * FROM pets.search('name:dog', order_by_field => 'birthdate', order_by_direction => 'DESC')",
+        vec![1, 2, 3],
+    );
+}
+
+#[rstest]
 fn regex_tokenizer_config(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb')"
         .execute(&mut conn);
@@ -239,7 +330,7 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
         (11003, 'Regex patterns are powerful'),
         (11004, 'Find the longer words');
     "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let count: (i64,) =
         "SELECT COUNT(*) FROM bm25_search.search('description:simple')".fetch_one(&mut conn);

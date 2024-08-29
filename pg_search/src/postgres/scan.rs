@@ -16,15 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::globals::WriterGlobal;
+use crate::index::score::SearchIndexScore;
 use crate::index::SearchIndex;
-use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::itemptr::u64_to_item_pointer;
 use pgrx::*;
-use tantivy::{DocAddress, Score};
+use tantivy::DocAddress;
 
-type SearchResultIter<'a> = Box<dyn Iterator<Item = (Score, DocAddress, TantivyValue, u64)> + 'a>;
+type SearchResultIter = std::vec::IntoIter<(SearchIndexScore, DocAddress)>;
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -88,7 +88,7 @@ pub extern "C" fn amrescan(
 
         // SAFETY:  `leak_and_drop_on_delete()` gave us a non-null, aligned pointer to the SearchState
         let results_iter: SearchResultIter =
-            Box::new(state.as_ref().unwrap().search(SearchIndex::executor()));
+            state.as_ref().unwrap().search(SearchIndex::executor());
 
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
     };
@@ -119,9 +119,9 @@ pub extern "C" fn amgettuple(
     scan.xs_recheck = false;
 
     match iter.next() {
-        Some((_, _, _, ctid)) => {
+        Some((scored, _)) => {
             let tid = &mut scan.xs_heaptid;
-            u64_to_item_pointer(ctid, tid);
+            u64_to_item_pointer(scored.ctid, tid);
 
             true
         }

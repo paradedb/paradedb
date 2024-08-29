@@ -192,7 +192,7 @@ impl BgWorkerTelemetryConfig {
         // PGRX seems to have a problem with GUC variables in background workers.
         // This means that we can't check if telemetry has been disabled by ALTER SYSTEM.
         // Instead, we need to connect to an existing database to check with an SPI query.
-        // Users aren't supposed to delete the template1 database, so we'll connect to that.
+        // Users aren't supposed to delete the default 'postgres' database, so we'll connect to that.
         // If for some reason it doesn't exist, the telemetry worker will crash,
         // but other extension operations will be unaffected.
         let mut has_connected_to_spi = CONNECTED_TO_SPI.lock().unwrap();
@@ -203,7 +203,7 @@ impl BgWorkerTelemetryConfig {
             // It's possible to pass "None" here for the database argument, but you will
             // only be able to access system catalogs, and not any GUC settings or use
             // any SPI queries.
-            BackgroundWorker::connect_worker_to_spi(Some("template1"), None);
+            BackgroundWorker::connect_worker_to_spi(Some("postgres"), None);
             *has_connected_to_spi = true
         }
 

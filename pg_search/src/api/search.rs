@@ -84,11 +84,13 @@ unsafe fn score_bm25(
 
     let top_docs = scan_state
         .search(SearchIndex::executor())
-        .filter(move |(_, _, _, ctid)| vischeck.ctid_satisfies_snapshot(*ctid))
-        .map(move |(score, _, key, _)| {
+        .filter(move |(scored, _)| vischeck.ctid_satisfies_snapshot(scored.ctid))
+        .map(move |(scored, _)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
-                    key.try_into_datum(PgOid::from_untagged(key_oid))
+                    scored
+                        .key
+                        .try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
                     key_oid,
@@ -96,7 +98,7 @@ unsafe fn score_bm25(
                 .expect("null found in key_field")
             };
 
-            (key, score)
+            (key, scored.bm25)
         });
 
     TableIterator::new(top_docs)
@@ -146,11 +148,13 @@ unsafe fn snippet(
 
     let top_docs = scan_state
         .search(SearchIndex::executor())
-        .filter(move |(_, _, _, ctid)| vischeck.ctid_satisfies_snapshot(*ctid))
-        .map(move |(score, doc_address, key, _)| {
+        .filter(move |(scored, _)| vischeck.ctid_satisfies_snapshot(scored.ctid))
+        .map(move |(scored, doc_address)| {
             let key = unsafe {
                 datum::AnyElement::from_polymorphic_datum(
-                    key.try_into_datum(PgOid::from_untagged(key_oid))
+                    scored
+                        .key
+                        .try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
                     key_oid,
@@ -175,7 +179,7 @@ unsafe fn snippet(
                     .unwrap_or(DEFAULT_SNIPPET_POSTFIX.to_string()),
             );
 
-            (key, snippet.to_html(), score)
+            (key, snippet.to_html(), scored.bm25)
         });
 
     TableIterator::new(top_docs)

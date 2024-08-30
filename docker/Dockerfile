@@ -236,7 +236,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_analytics,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
 
-# In order for a user to manually install third party Postgres extensions (e.g. PostGIs, pg_partman, etc.) that ParadeDB does not
+# In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
 # ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
 # To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
 # downloading the package lists. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party

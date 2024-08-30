@@ -135,7 +135,7 @@ impl SearchState {
         executor: &'static Executor,
         include_key: bool,
     ) -> crossbeam::channel::Receiver<(SearchIndexScore, DocAddress)> {
-        let (sender, receiver) = crossbeam::channel::bounded(10_000); // arbitrary bound
+        let (sender, receiver) = crossbeam::channel::unbounded();
         let collector =
             collector::ChannelCollector::new(sender, self.config.key_field.clone(), include_key);
         let searcher = self.searcher.clone();

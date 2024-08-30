@@ -117,7 +117,7 @@ impl SearchState {
         }
     }
 
-    pub fn search_no_key(&self, executor: &'static Executor) -> SearchResults {
+    pub fn search_key_if_required(&self, executor: &'static Executor) -> SearchResults {
         match (
             self.config.limit_rows,
             self.config.stable_sort.unwrap_or(true),
@@ -126,7 +126,7 @@ impl SearchState {
             (None, false, None) => {
                 SearchResults::Channel(self.search_via_channel(executor, false).into_iter())
             }
-            _ => SearchResults::AllFeatures(self.search_with_all_features(executor, false)),
+            _ => SearchResults::AllFeatures(self.search_with_all_features(executor, true)),
         }
     }
 

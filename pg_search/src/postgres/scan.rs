@@ -89,7 +89,7 @@ pub extern "C" fn amrescan(
         let results_iter: SearchResultIter = state
             .as_ref()
             .unwrap()
-            .search_no_key(SearchIndex::executor());
+            .search_key_if_required(SearchIndex::executor());
 
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
     };

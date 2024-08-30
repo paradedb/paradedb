@@ -27,6 +27,7 @@ use tantivy::schema::FieldType;
 use tantivy::{query::Query, DocAddress, DocId, Score, Searcher};
 use tantivy::{Executor, SnippetGenerator};
 
+/// An iterator of the different styles of search results we can return
 pub enum SearchResults {
     AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
     FastPath(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
@@ -109,6 +110,9 @@ impl SearchState {
     /// This method honors all of ParadeDB's search features including scoring, limits, orderbys,
     /// and stable sorting.  As such, the returned [`SearchIndexScore`] item will be fully populated.
     ///
+    /// Additionally, the results will always be sorted descending by score and include tie-breaking,
+    /// regardless of the [`SearchConfig`]'s `stable_sort` property.
+    ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
     pub fn search(&self, executor: &'static Executor) -> SearchResults {
@@ -121,6 +125,9 @@ impl SearchState {
     /// for example, it determines that scoring and sorting are not strictly necessary, it will
     /// use a "fast path" for searching where the returned [`SearchIndexScore`] will be minimally
     /// populated with only the "ctid" value for each matching document.
+    ///
+    /// The order of returned docs is unspecified here if there is no limit or orderby and stable_sort
+    /// is false.
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.

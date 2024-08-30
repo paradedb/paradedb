@@ -3995,6 +3995,7 @@ dependencies = [
  "serde_path_to_error",
  "shared",
  "sqlx",
+ "strum",
  "tantivy",
  "tantivy-common",
  "tempfile",
@@ -6095,6 +6096,8 @@ dependencies = [
  "rust_icu_ustring",
  "serde",
  "serde_json",
+ "strum",
+ "strum_macros",
  "tantivy",
  "tracing",
 ]

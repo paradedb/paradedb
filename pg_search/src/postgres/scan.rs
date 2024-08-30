@@ -89,7 +89,7 @@ pub extern "C" fn amrescan(
         let results_iter: SearchResultIter = state
             .as_ref()
             .unwrap()
-            .search_key_if_required(SearchIndex::executor());
+            .search_minimal(SearchIndex::executor());
 
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
     };
@@ -120,7 +120,7 @@ pub extern "C" fn amgettuple(
     scan.xs_recheck = false;
 
     match iter.next() {
-        Some((scored, _doc_address)) => {
+        Some((scored, _)) => {
             let tid = &mut scan.xs_heaptid;
             u64_to_item_pointer(scored.ctid, tid);
 

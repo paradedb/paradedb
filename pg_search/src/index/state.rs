@@ -29,7 +29,7 @@ use tantivy::{Executor, SnippetGenerator};
 
 pub enum SearchResults {
     AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
-    Channel(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
+    FastPath(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
 }
 
 impl Iterator for SearchResults {
@@ -39,7 +39,7 @@ impl Iterator for SearchResults {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             SearchResults::AllFeatures(iter) => iter.next(),
-            SearchResults::Channel(iter) => iter.next(),
+            SearchResults::FastPath(iter) => iter.next(),
         }
     }
 
@@ -47,7 +47,7 @@ impl Iterator for SearchResults {
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
             SearchResults::AllFeatures(iter) => iter.size_hint(),
-            SearchResults::Channel(iter) => iter.size_hint(),
+            SearchResults::FastPath(iter) => iter.size_hint(),
         }
     }
 
@@ -58,7 +58,7 @@ impl Iterator for SearchResults {
     {
         match self {
             SearchResults::AllFeatures(iter) => iter.count(),
-            SearchResults::Channel(iter) => iter.count(),
+            SearchResults::FastPath(iter) => iter.count(),
         }
     }
 }
@@ -104,33 +104,47 @@ impl SearchState {
         }
     }
 
+    /// Search the Tantivy index for matching documents.
+    ///
+    /// This method honors all of ParadeDB's search features including scoring, limits, orderbys,
+    /// and stable sorting.  As such, the returned [`SearchIndexScore`] item will be fully populated.
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
     pub fn search(&self, executor: &'static Executor) -> SearchResults {
+        SearchResults::AllFeatures(self.search_with_top_docs(executor, true))
+    }
+
+    /// Search the Tantivy index for matching documents.
+    ///
+    /// This method will do the minimal amount of work necessary to return [`SearchResults`].  If,
+    /// for example, it determines that scoring and sorting are not strictly necessary, it will
+    /// use a "fast path" for searching where the returned [`SearchIndexScore`] will be minimally
+    /// populated with only the "ctid" value for each matching document.
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    pub fn search_minimal(&self, executor: &'static Executor) -> SearchResults {
         match (
             self.config.limit_rows,
             self.config.stable_sort.unwrap_or(true),
             self.config.order_by_field.clone(),
         ) {
+            // no limit, no stable sorting, and no sort field
+            //
+            // this we can use a channel to stream the results and also elide doing key lookups.
+            // this is our "fast path"
             (None, false, None) => {
-                SearchResults::Channel(self.search_via_channel(executor, true).into_iter())
+                SearchResults::FastPath(self.search_via_channel(executor, false).into_iter())
             }
-            _ => SearchResults::AllFeatures(self.search_with_all_features(executor, true)),
+
+            // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
+            // including retrieving the key field
+            _ => SearchResults::AllFeatures(self.search_with_top_docs(executor, true)),
         }
     }
 
-    pub fn search_key_if_required(&self, executor: &'static Executor) -> SearchResults {
-        match (
-            self.config.limit_rows,
-            self.config.stable_sort.unwrap_or(true),
-            self.config.order_by_field.clone(),
-        ) {
-            (None, false, None) => {
-                SearchResults::Channel(self.search_via_channel(executor, false).into_iter())
-            }
-            _ => SearchResults::AllFeatures(self.search_with_all_features(executor, true)),
-        }
-    }
-
-    pub fn search_via_channel(
+    fn search_via_channel(
         &self,
         executor: &'static Executor,
         include_key: bool,
@@ -157,11 +171,7 @@ impl SearchState {
         receiver
     }
 
-    /// Search the Tantivy index for matching documents. If used outside of Postgres
-    /// index access methods, this may return deleted rows until a VACUUM. If you need to scan
-    /// the Tantivy index without a Postgres deduplication, you should use the `search_dedup`
-    /// method instead.
-    fn search_with_all_features(
+    fn search_with_top_docs(
         &self,
         executor: &'static Executor,
         include_key: bool,
@@ -308,6 +318,8 @@ mod collector {
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
+    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
+    /// each segment, in parallel, as tantivy find each doc.
     pub struct ChannelCollector {
         sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
         key_field_name: String,
@@ -369,13 +381,13 @@ mod collector {
     impl SegmentCollector for ChannelSegmentCollector {
         type Fruit = ();
 
-        fn collect(&mut self, doc: DocId, _score: Score) {
+        fn collect(&mut self, doc: DocId, score: Score) {
             if let Some(ctid) = self.ctid_ff.as_u64(doc) {
                 let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
 
                 let doc_address = DocAddress::new(self.segment_ord, doc);
                 let scored = SearchIndexScore {
-                    bm25: 0.0,
+                    bm25: score,
                     key,
                     ctid,
                     order_by: None,
@@ -387,7 +399,8 @@ mod collector {
             }
         }
 
-        fn harvest(self) { /* noop */
+        fn harvest(self) {
+            // noop
         }
     }
 }

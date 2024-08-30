@@ -276,7 +276,6 @@ do
       break ;;
     "⬇️ Stable Binary")
       echo "Stable"
-      if [[ "$OSTYPE"  ]]
       installBinary
       echo -e "Installation Successfull!\n"
       break ;;

@@ -86,8 +86,10 @@ pub extern "C" fn amrescan(
         let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
 
         // SAFETY:  `leak_and_drop_on_delete()` gave us a non-null, aligned pointer to the SearchState
-        let results_iter: SearchResultIter =
-            state.as_ref().unwrap().search(SearchIndex::executor());
+        let results_iter: SearchResultIter = state
+            .as_ref()
+            .unwrap()
+            .search_no_key(SearchIndex::executor());
 
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
     };

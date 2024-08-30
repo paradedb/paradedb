@@ -111,18 +111,33 @@ impl SearchState {
             self.config.order_by_field.clone(),
         ) {
             (None, false, None) => {
-                SearchResults::Channel(self.search_via_channel(executor).into_iter())
+                SearchResults::Channel(self.search_via_channel(executor, true).into_iter())
             }
-            _ => SearchResults::AllFeatures(self.search_with_all_features(executor)),
+            _ => SearchResults::AllFeatures(self.search_with_all_features(executor, true)),
+        }
+    }
+
+    pub fn search_no_key(&self, executor: &'static Executor) -> SearchResults {
+        match (
+            self.config.limit_rows,
+            self.config.stable_sort.unwrap_or(true),
+            self.config.order_by_field.clone(),
+        ) {
+            (None, false, None) => {
+                SearchResults::Channel(self.search_via_channel(executor, false).into_iter())
+            }
+            _ => SearchResults::AllFeatures(self.search_with_all_features(executor, false)),
         }
     }
 
     pub fn search_via_channel(
         &self,
         executor: &'static Executor,
+        include_key: bool,
     ) -> crossbeam::channel::Receiver<(SearchIndexScore, DocAddress)> {
         let (sender, receiver) = crossbeam::channel::bounded(10_000); // arbitrary bound
-        let collector = collector::ChannelCollector::new(sender, self.config.key_field.clone());
+        let collector =
+            collector::ChannelCollector::new(sender, self.config.key_field.clone(), include_key);
         let searcher = self.searcher.clone();
         let query = self.query.clone();
         let schema = self.schema.schema.clone();
@@ -149,6 +164,7 @@ impl SearchState {
     fn search_with_all_features(
         &self,
         executor: &'static Executor,
+        include_key: bool,
     ) -> std::vec::IntoIter<(SearchIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
@@ -172,14 +188,14 @@ impl SearchState {
             move |segment_reader: &tantivy::SegmentReader| {
                 let fast_fields = segment_reader.fast_fields();
                 let ctid_ff = FFType::new(fast_fields, "ctid");
-                let key_ff = FFType::new(fast_fields, key_field_name.as_str());
+                let key_ff = include_key.then(|| FFType::new(fast_fields, key_field_name.as_str()));
                 let orderby_ff = orderby_field
                     .as_ref()
                     .map(|name| FFType::new(fast_fields, name));
 
                 move |doc: DocId, original_score: Score| SearchIndexScore {
                     bm25: original_score,
-                    key: key_ff.value(doc),
+                    key: key_ff.as_ref().map(|key_ff| key_ff.value(doc)),
                     ctid: ctid_ff
                         .as_u64(doc)
                         .expect("expected the `ctid` field to be a u64"),
@@ -295,16 +311,19 @@ mod collector {
     pub struct ChannelCollector {
         sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
         key_field_name: String,
+        include_key: bool,
     }
 
     impl ChannelCollector {
         pub fn new(
             sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
             key_field_name: String,
+            include_key: bool,
         ) -> Self {
             Self {
                 sender,
                 key_field_name,
+                include_key,
             }
         }
     }
@@ -319,12 +338,14 @@ mod collector {
             segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
             let fast_fields = segment_reader.fast_fields();
-            let ff_ctid = FFType::new(fast_fields, "ctid");
-            let ff_key = FFType::new(fast_fields, &self.key_field_name);
+            let ctid_ff = FFType::new(fast_fields, "ctid");
+            let key_ff = self
+                .include_key
+                .then(|| FFType::new(fast_fields, &self.key_field_name));
             Ok(ChannelSegmentCollector {
                 segment_ord: segment_local_id,
-                ff_ctid,
-                ff_key,
+                ctid_ff,
+                key_ff,
                 sender: self.sender.clone(),
             })
         }
@@ -340,8 +361,8 @@ mod collector {
 
     pub struct ChannelSegmentCollector {
         segment_ord: SegmentOrdinal,
-        ff_ctid: FFType,
-        ff_key: FFType,
+        ctid_ff: FFType,
+        key_ff: Option<FFType>,
         sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
     }
 
@@ -349,8 +370,8 @@ mod collector {
         type Fruit = ();
 
         fn collect(&mut self, doc: DocId, _score: Score) {
-            if let Some(ctid) = self.ff_ctid.as_u64(doc) {
-                let key = self.ff_key.value(doc);
+            if let Some(ctid) = self.ctid_ff.as_u64(doc) {
+                let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
 
                 let doc_address = DocAddress::new(self.segment_ord, doc);
                 let scored = SearchIndexScore {

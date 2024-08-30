@@ -2,12 +2,7 @@
 title: Install Third Party Extensions
 ---
 
-Postgres has a rich ecosystem of extensions. To keep the size of the ParadeDB Dockerfile small, only the ParadeDB extensions — `pg_search` and `pg_analytics` — and a limited set of third party extensions are included.
-However, additional extensions can be installed inside ParadeDB.
-
-## Default Extensions
-
-ParadeDB ships with:
+Postgres has a rich ecosystem of extensions. To keep the size of the ParadeDB Dockerfile small, only the ParadeDB extensions — `pg_search` and `pg_analytics` — and a limited set of third party extensions are included:
 
 - `pg_search` for full text search
 - `pg_analytics` for fast queries over data lakes
@@ -20,6 +15,8 @@ ParadeDB ships with:
   changed.
 </Note>
 
+However, additional extensions can be installed inside ParadeDB.
+
 ## Installing Third Party Extensions
 
 The process for installing an extension varies by extension. Generally speaking, it requires:
@@ -29,8 +26,8 @@ The process for installing an extension varies by extension. Generally speaking,
 - Add the extension to `shared_preload_libraries` in `postgresql.conf`, if required by the extension
 - Run `CREATE EXTENSION <extension name>`
 
-We recommend installing prebuilt binaries whenever available to keep the image size small. Most popular
-As an example, let's install [PostGIS](https://github.com/postgis/postgis), an extension for geospatial data.
+We recommend installing prebuilt binaries whenever available to keep the image size small. As an example,
+let's install [PostGIS](https://github.com/postgis/postgis), an extension for geospatial data.
 
 ### Install Prebuilt Binaries
 
@@ -45,12 +42,17 @@ docker exec -it --user root paradedb bash
 </Note>
 
 Next, install the [prebuilt binaries](https://postgis.net/documentation/getting_started/install_ubuntu/).
-Most Postgres extensions can be installed with `apt-get install`.
+Most popular Postgres extensions can be installed with `apt-get install`.
 
 ```bash
 apt-get update
 apt-get install -y --no-install-recommends postgis postgresql-16-postgis-3
 ```
+
+<Note>
+  If the extension is not available with `apt-get install`, you can usually
+  `curl` the prebuilt binary.
+</Note>
 
 ### Add to `shared_preload_libraries`
 
@@ -85,4 +87,4 @@ A few other extensions that ParadeDB does not ship with include
 - [pgaudit](https://github.com/pgaudit/pgaudit) for audit logging
 - [pg_repack](https://github.com/reorg/pg_repack) for removing bloat from tables
 
-For a comprehensive list of extensions, visit [PGXN](https://pgxn.org/).
+[PGXN](https://pgxn.org/) provides a comprehensive list of Postgres extensions.

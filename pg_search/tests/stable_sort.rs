@@ -51,3 +51,25 @@ fn stable_sort_false(mut conn: PgConnection) {
     let expected: HashSet<i32> = HashSet::from_iter(vec![37, 7]);
     assert_eq!(ids, expected);
 }
+
+#[rstest]
+fn score_bm25_stable_sort_false(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let rows: Vec<(i32, f32)> = r#"
+    SELECT * FROM bm25_search.score_bm25(
+        query => 'description:book',
+        stable_sort => false
+    );
+    "#
+    .fetch_collect(&mut conn);
+
+    // make sure we have the ids we expect
+    let ids: HashSet<i32> = HashSet::from_iter(rows.iter().map(|(id, _)| *id));
+    let expected: HashSet<i32> = HashSet::from_iter(vec![37, 7]);
+    assert_eq!(ids, expected);
+
+    // and that they have scores, whatever they are
+    let ids: HashSet<bool> = HashSet::from_iter(rows.iter().map(|(_, score)| *score != 0.0));
+    let expected: HashSet<bool> = HashSet::from_iter(vec![true, true]);
+    assert_eq!(ids, expected);
+}

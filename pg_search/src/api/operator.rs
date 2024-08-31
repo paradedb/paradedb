@@ -49,8 +49,8 @@ fn search_tantivy(
         let top_docs = scan_state.search(SearchIndex::executor());
         let mut hs = FxHashSet::default();
 
-        for (_score, _doc_address, key, _ctid) in top_docs {
-            hs.insert(key);
+        for (scored, _) in top_docs {
+            hs.insert(scored.key.expect("key should have been retrieved"));
         }
 
         (search_config, hs)

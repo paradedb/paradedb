@@ -16,12 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::globals::WriterGlobal;
+use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
-use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
+use pgrx::itemptr::u64_to_item_pointer;
 use pgrx::*;
-use tantivy::{DocAddress, Score};
+
+type SearchResultIter = SearchResults;
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -72,15 +74,28 @@ pub extern "C" fn amrescan(
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
-    let state = search_index
-        .search_state(&writer_client, &search_config, needs_commit(index_oid))
-        .unwrap();
 
-    let top_docs = state.search(SearchIndex::executor());
+    let leaked_results_iter = unsafe {
+        // we need to leak both the `SearchState` we're about to create and the result iterator from
+        // the search function.  The result iterator needs to be leaked so we can use it across the
+        // IAM API calls, and the SearchState needs to be leaked because that iterator borrows from it
+        // so it needs to be in a known memory address prior to performing a search.
+        let state = search_index
+            .search_state(&writer_client, &search_config, needs_commit(index_oid))
+            .unwrap();
+        let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
+
+        // SAFETY:  `leak_and_drop_on_delete()` gave us a non-null, aligned pointer to the SearchState
+        let results_iter: SearchResultIter = state
+            .as_ref()
+            .unwrap()
+            .search_minimal(SearchIndex::executor());
+
+        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
+    };
 
     // Save the iterator onto the current memory context.
-    scan.opaque = PgMemoryContexts::CurrentMemoryContext
-        .leak_and_drop_on_delete(top_docs.into_iter()) as void_mut_ptr;
+    scan.opaque = leaked_results_iter.cast();
 
     // Return scan state back management to Postgres.
     scan.into_pg();
@@ -92,27 +107,22 @@ pub extern "C" fn amendscan(_scan: pg_sys::IndexScanDesc) {}
 #[pg_guard]
 pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
-    _direction: pg_sys::ScanDirection,
+    _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter = unsafe {
-        (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, TantivyValue, u64)>).as_mut()
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
+        // amrescan, which is always called prior to this function
+        scan.opaque.cast::<SearchResultIter>().as_mut()
     }
     .expect("no scandesc state");
 
     scan.xs_recheck = false;
 
     match iter.next() {
-        Some((_, _, _, ctid)) => {
-            #[cfg(any(
-                feature = "pg12",
-                feature = "pg13",
-                feature = "pg14",
-                feature = "pg15",
-                feature = "pg16"
-            ))]
+        Some((scored, _)) => {
             let tid = &mut scan.xs_heaptid;
-            u64_to_item_pointer(ctid, tid);
+            u64_to_item_pointer(scored.ctid, tid);
 
             true
         }

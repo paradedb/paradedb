@@ -9,12 +9,14 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.80.0
-ARG PGRX_VERSION=0.11.3
+ARG PGRX_VERSION=0.12.1
+ARG PGRX_VERSION_PG_VECTOR_SCALE=0.11.4
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     RUST_VERSION=${RUST_VERSION} \
-    PGRX_VERSION=${PGRX_VERSION}
+    PGRX_VERSION=${PGRX_VERSION} \
+    PGRX_VERSION_PG_VECTOR_SCALE=${PGRX_VERSION_PG_VECTOR_SCALE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
@@ -39,6 +41,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
+# Intall the pgrx version of pg_search and pg_analytics
 RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
@@ -84,9 +87,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-# TODO: Once we start publishing releases for `paradedb/pg_analytics`, switch to a specific version tag
-RUN git clone --branch main https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
-COPY shared/ /tmp/shared
+RUN git clone --branch v0.1.2 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 
 # Build the extension
 WORKDIR /tmp/pg_analytics
@@ -112,6 +113,10 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 ######################
 
 FROM builder AS builder-pgvectorscale
+
+# Intall the pgrx version of pgvectorscale
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_VECTOR_SCALE}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ARG TARGETARCH
 
@@ -155,20 +160,20 @@ RUN echo "trusted = true" >> pg_ivm.control && \
     make USE_PGXS=1 -j
 
 ###############################################
-# Second Stage: PostgreSQL
+# Second Stage: PostgreSQL and Barman Cloud
 ###############################################
-
-# Note: Debian Bookworm = Debian 12
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
-      org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
-      org.opencontainers.image.source="https://github.com/paradedb/paradedb"
+    org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
+    org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 ARG PG_VERSION_MAJOR=16
 
 # Declare runtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Copy third-party extensions from their builder stages
 COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
@@ -198,8 +203,27 @@ USER root
 # the user connects with the postgres user, the DuckDB folder will be created in the /var/lib/postgresql directory. We
 # chmod both directories to ensure that DuckDB can write to them no matter which user is used to connect to the database.
 RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
-    mkdir /var/lib/postgresql/.duckdb/ && chmod -R a+rwX /var/lib/postgresql/.duckdb/ && \
-    apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
+    mkdir /var/lib/postgresql/.duckdb/ && \
+    chmod -R a+rwX /var/lib/postgresql/.duckdb/
+
+# Installs Barman Cloud and its dependencies for Azure, Google, and AWS via PIP and cleans up the installation.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
+    rm /usr/lib/python*/EXTERNALLY-MANAGED && \
+    pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]~=3.11' && \
+    apt-get remove -y python3-dev python3-pip --purge && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* && \
+    find /usr/lib | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /usr/local | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /var/cache -type f -exec truncate --size 0 {} \; && \
+    find /var/log -type f -exec truncate --size 0 {} \;
+
+# This is required for TLS connection to PostHog, which is used for telemetry.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && \
+    update-ca-certificates
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the

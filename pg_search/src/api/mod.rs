@@ -19,3 +19,4 @@ pub mod config;
 pub mod index;
 pub mod operator;
 pub mod search;
+pub mod tokenize;

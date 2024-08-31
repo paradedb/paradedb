@@ -25,8 +25,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchIndexScore {
     pub bm25: f32,
-    pub key: TantivyValue,
+    pub key: Option<TantivyValue>,
     pub ctid: u64,
+
+    /// if we have a specific order by requirement, use that first, instead of sorting by the bm25 score
+    pub order_by: Option<TantivyValue>,
+    pub sort_asc: bool,
 }
 
 // We do these custom trait impls, because we want these to be sortable so:
@@ -41,10 +45,30 @@ impl PartialEq for SearchIndexScore {
 
 impl PartialOrd for SearchIndexScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.bm25 == other.bm25 {
-            other.key.partial_cmp(&self.key)
+        if let (Some(a_order_by), Some(b_order_by)) = (&self.order_by, &other.order_by) {
+            let cmp = if self.sort_asc {
+                a_order_by.partial_cmp(b_order_by)
+            } else {
+                a_order_by.partial_cmp(b_order_by).map(|o| o.reverse())
+            };
+
+            // NB:  we are called from tantivy via our use of its "TopN" collector, which sorts
+            // results in descending order.  As such, for a straight-up order_by, we have to reverse
+            // our understanding of ascending/descending so that the user gets back their results
+            // in the order they asked for
+            let cmp = cmp.map(|o| o.reverse());
+
+            match cmp {
+                // tie-break on the key
+                Some(Ordering::Equal) => other.key.partial_cmp(&self.key),
+                ne => ne,
+            }
         } else {
-            self.bm25.partial_cmp(&other.bm25)
+            match self.bm25.partial_cmp(&other.bm25) {
+                // tie-break on the key
+                Some(Ordering::Equal) => other.key.partial_cmp(&self.key),
+                ne => ne,
+            }
         }
     }
 }

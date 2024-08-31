@@ -18,7 +18,8 @@
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
-use pgrx::pg_sys::{BuiltinOid, ItemPointerData};
+use pgrx::itemptr::item_pointer_get_block_number;
+use pgrx::pg_sys::{Buffer, BuiltinOid, ItemPointerData};
 use pgrx::*;
 
 pub unsafe fn row_to_search_document(
@@ -85,47 +86,94 @@ pub unsafe fn row_to_search_document(
     }
 
     // Insert the ctid value into the entries.
-    let ctid_index_value = pgrx::item_pointer_to_u64(ctid);
+    let ctid_index_value = pgrx::itemptr::item_pointer_to_u64(ctid);
     document.insert(schema.ctid_field().id, ctid_index_value.into());
 
     Ok(document)
 }
 
-pub unsafe fn ctid_satisfies_snapshot(
-    ctid: u64,
+/// Helper to manage the information necessary to validate that a "ctid" is currently visible to
+/// a snapshot
+pub struct VisibilityChecker {
     relation: pg_sys::Relation,
     snapshot: pg_sys::Snapshot,
-) -> bool {
-    // Using ctid, get itempointer => buffer => page => heaptuple
-    let mut item_pointer = pg_sys::ItemPointerData::default();
-    pgrx::u64_to_item_pointer(ctid, &mut item_pointer);
+    last_blockno: pg_sys::BlockNumber,
+    last_buffer: pg_sys::Buffer,
+    ipd: pg_sys::ItemPointerData,
+}
 
-    let blockno = item_pointer_get_block_number(&item_pointer);
-    let offsetno = item_pointer_get_offset_number(&item_pointer);
-    let buffer = pg_sys::ReadBuffer(relation, blockno);
-    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+impl Drop for VisibilityChecker {
+    fn drop(&mut self) {
+        unsafe {
+            if self.last_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                pg_sys::UnlockReleaseBuffer(self.last_buffer);
+            }
+            // SAFETY:  `self.relation` is always a valid, open relation, created via `pg_sys::RelationGetRelation`
+            pg_sys::RelationClose(self.relation);
+        }
+    }
+}
 
-    let page = pg_sys::BufferGetPage(buffer);
-    let item_id = pg_sys::PageGetItemId(page, offsetno);
-    let mut heap_tuple = pg_sys::HeapTupleData {
-        t_data: pg_sys::PageGetItem(page, item_id) as pg_sys::HeapTupleHeader,
-        t_len: item_id.as_ref().unwrap().lp_len(),
-        t_tableOid: (*relation).rd_id,
-        t_self: item_pointer,
-    };
+impl VisibilityChecker {
+    /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
+    /// `relid` in whatever the current snapshot happens to be at the time this function is called.
+    pub fn new(relid: pg_sys::Oid) -> Self {
+        unsafe {
+            // SAFETY:  `pg_sys::RelationIdGetRelation()` will raise an ERROR if the specified
+            // relation oid is not a valid relation.
+            //
+            // `pg_sys::GetTransactionSnapshot()` causes no concern
+            Self {
+                relation: pg_sys::RelationIdGetRelation(relid),
+                snapshot: pg_sys::GetTransactionSnapshot(),
+                last_blockno: pg_sys::InvalidBlockNumber,
+                last_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+                ipd: pg_sys::ItemPointerData::default(),
+            }
+        }
+    }
 
-    // Check if heaptuple is visible
-    // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
-    let visible = pg_sys::heap_hot_search_buffer(
-        &mut item_pointer,
-        relation,
-        buffer,
-        snapshot,
-        &mut heap_tuple,
-        std::ptr::null_mut(),
-        true,
-    );
-    pg_sys::UnlockReleaseBuffer(buffer);
+    /// Returns true if the specified 64bit ctid is visible by the backing snapshot in the backing
+    /// relation
+    pub fn ctid_satisfies_snapshot(&mut self, ctid: u64) -> bool {
+        unsafe {
+            // Using ctid, get itempointer => buffer => page => heaptuple
+            pgrx::itemptr::u64_to_item_pointer(ctid, &mut self.ipd);
 
-    visible
+            let blockno = item_pointer_get_block_number(&self.ipd);
+
+            if blockno == self.last_blockno {
+                // this ctid is on the buffer we already have locked
+                return self.check_page_vis(self.last_buffer);
+            } else if self.last_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                // this ctid is on a different buffer, so release the one we've got locked
+                pg_sys::UnlockReleaseBuffer(self.last_buffer);
+            }
+
+            self.last_blockno = blockno;
+            self.last_buffer = pg_sys::ReadBuffer(self.relation, self.last_blockno);
+
+            pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+
+            self.check_page_vis(self.last_buffer)
+        }
+    }
+
+    unsafe fn check_page_vis(&mut self, buffer: Buffer) -> bool {
+        unsafe {
+            let mut heap_tuple = pg_sys::HeapTupleData::default();
+
+            // Check if heaptuple is visible
+            // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
+            pg_sys::heap_hot_search_buffer(
+                &mut self.ipd,
+                self.relation,
+                buffer,
+                self.snapshot,
+                &mut heap_tuple,
+                std::ptr::null_mut(),
+                true,
+            )
+        }
+    }
 }

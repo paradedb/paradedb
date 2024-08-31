@@ -11,7 +11,7 @@ Once an index is created, it automatically stays in sync with the underlying tab
 ## Basic Usage
 
 The following code block creates an index called `search_idx` over the `description` and `rating` columns of the `mock_items`
-table, which was created in the [quickstart](/api/quickstart#full-text-search).
+table, which was created in the [quickstart](/api-reference/quickstart#full-text-search).
 
 ```sql
 CALL paradedb.create_bm25(
@@ -358,15 +358,45 @@ The following tokenizer names are accepted by the `paradedb.tokenizer` function.
   </ParamField>
 </Expandable>
 
+<ParamField body="source_code">
+  Tokenizes the text by splitting based on casing conventions commonly used in
+  code, such as camelCase or PascalCase. Filters out tokens that exceed 255
+  bytes, and converts them to lowercase with ASCII folding.
+</ParamField>
+
 </ParamField>
 <ParamField body="en_stem" deprecated={true}>
   Equivalent to `stem` with language set to `English`.
 </ParamField>
 
+#### Picking a Tokenizer
+
+The `paradedb.tokenizers()` function returns a list of all available tokenizer names. Evaluation of any named tokenizer is accomplished with the `paradedb.tokenize()` function.
+
+The following query returns all available tokenizers.
+
+```sql
+SELECT * FROM paradedb.tokenizers();
+```
+
+The following query tokenizes the input text with the specified tokenizer.
+
+```sql
+SELECT * FROM paradedb.tokenize(paradedb.tokenizer('<tokenizer>'), '<input text>');
+```
+
+<Accordion title="Example Usage">
+
+```sql
+SELECT * FROM paradedb.tokenize(paradedb.tokenizer('stem', language => 'French'), 'hello world');
+```
+
+</Accordion>
+
 ### Fast Fields
 
 A field that is indexed as `fast` is stored in a column-oriented fashion. Fast fields are necessary for
-[aggregations/faceting](/api/aggregations). They can also improve the query times of [filters](/api/full-text/bm25#efficient-filtering)
+[aggregations/faceting](/api-reference/aggregations). They can also improve the query times of [filters](/api-reference/full-text/bm25#efficient-filtering)
 and BM25 scoring.
 
 The following code block demonstrates how to specify a fast field.

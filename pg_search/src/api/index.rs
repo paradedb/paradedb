@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
@@ -460,9 +461,9 @@ macro_rules! datetime_range_fn {
     };
 }
 
-datetime_range_fn!(range_date, pgrx::Date);
-datetime_range_fn!(range_timestamp, pgrx::Timestamp);
-datetime_range_fn!(range_timestamptz, pgrx::TimestampWithTimeZone);
+datetime_range_fn!(range_date, pgrx::datum::Date);
+datetime_range_fn!(range_timestamp, pgrx::datum::Timestamp);
+datetime_range_fn!(range_timestamptz, pgrx::datum::TimestampWithTimeZone);
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn regex(field: String, pattern: String) -> SearchQueryInput {
@@ -517,11 +518,11 @@ term_fn!(term_i64, i64);
 term_fn!(term_f32, f32);
 term_fn!(term_f64, f64);
 term_fn!(term_bool, bool);
-term_fn!(date, pgrx::Date);
-term_fn!(time, pgrx::Time);
-term_fn!(timestamp, pgrx::Timestamp);
-term_fn!(time_with_time_zone, pgrx::TimeWithTimeZone);
-term_fn!(timestamp_with_time_zome, pgrx::TimestampWithTimeZone);
+term_fn!(date, pgrx::datum::Date);
+term_fn!(time, pgrx::datum::Time);
+term_fn!(timestamp, pgrx::datum::Timestamp);
+term_fn!(time_with_time_zone, pgrx::datum::TimeWithTimeZone);
+term_fn!(timestamp_with_time_zome, pgrx::datum::TimestampWithTimeZone);
 term_fn!(numeric, pgrx::AnyNumeric);
 term_fn!(uuid, pgrx::Uuid);
 term_fn_unsupported!(json, pgrx::Json, "json");
@@ -534,11 +535,15 @@ term_fn_unsupported!(inet, pgrx::Inet, "inet");
 term_fn_unsupported!(int4range, pgrx::Range<i32>, "int4 range");
 term_fn_unsupported!(int8range, pgrx::Range<i64>, "int8 range");
 term_fn_unsupported!(numrange, pgrx::Range<pgrx::AnyNumeric>, "numeric range");
-term_fn_unsupported!(daterange, pgrx::Range<pgrx::Date>, "date range");
-term_fn_unsupported!(tsrange, pgrx::Range<pgrx::Timestamp>, "timestamp range");
+term_fn_unsupported!(daterange, pgrx::Range<pgrx::datum::Date>, "date range");
+term_fn_unsupported!(
+    tsrange,
+    pgrx::Range<pgrx::datum::Timestamp>,
+    "timestamp range"
+);
 term_fn_unsupported!(
     tstzrange,
-    pgrx::Range<pgrx::TimestampWithTimeZone>,
+    pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
     "timestamp ranges with time zone"
 );
 

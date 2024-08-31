@@ -2,36 +2,35 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "ParadeDB",
   "logo": {
-    "light": "/logo/docs.svg",
-    "dark": "/logo/docs.svg",
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
     "href": "https://paradedb.com"
   },
   "favicon": "/favicon.png",
   "colors": {
-    "primary": "#34d399",
-    "light": "#34d399",
-    "dark": "#34d399"
+    "primary": "#4f46e5",
+    "light": "#4f46e5",
+    "dark": "#818cf8"
   },
   "modeToggle": {
-    "default": "dark",
-    "isHidden": true
+    "isHidden": false
   },
   "redirects": [
     {
       "source": "/blog/introducing_analytics",
-      "destination": "https://blog.paradedb.com/pages/introducing_analytics"
+      "destination": "https://paradedb.com/blog/introducing_lakehouse"
     },
     {
       "source": "/blog/introducing_sparse",
-      "destination": "https://blog.paradedb.com/pages/introducing_sparse"
+      "destination": "https://paradedb.com/blog/introducing_sparse"
     },
     {
       "source": "/blog/introducing_bm25",
-      "destination": "https://blog.paradedb.com/pages/introducing_bm25"
+      "destination": "https://paradedb.com/blog/introducing_search"
     },
     {
       "source": "/blog/introducing_paradedb",
-      "destination": "https://blog.paradedb.com/pages/introducing_paradedb"
+      "destination": "https://paradedb.com/blog/introducing_paradedb"
     }
   ],
   "topbarLinks": [
@@ -41,7 +40,7 @@
     },
     {
       "name": "Blog",
-      "url": "https://blog.paradedb.com"
+      "url": "https://paradedb.com/blog"
     }
   ],
   "topbarCtaButton": {
@@ -56,7 +55,7 @@
     {
       "name": "API",
       "icon": "code",
-      "url": "api"
+      "url": "api-reference"
     },
     {
       "name": "Ingest",
@@ -74,7 +73,7 @@
       "url": "changelog"
     }
   ],
-  "versions": ["v0.9.1"],
+  "versions": ["v0.9.3"],
   "navigation": [
     {
       "group": "Welcome",
@@ -84,41 +83,41 @@
       ]
     },
     {
-      "group": "Search",
+      "group": "API",
       "pages": [
-        "api/quickstart",
+        "api-reference/quickstart",
         {
           "group": "Full Text Search",
           "pages": [
-            "api/full-text/overview",
-            "api/full-text/index",
-            "api/full-text/bm25",
-            "api/full-text/complex",
-            "api/full-text/scoring",
-            "api/full-text/highlighting",
-            "api/full-text/joins"
+            "api-reference/full-text/overview",
+            "api-reference/full-text/index",
+            "api-reference/full-text/bm25",
+            "api-reference/full-text/complex",
+            "api-reference/full-text/scoring",
+            "api-reference/full-text/highlighting",
+            "api-reference/full-text/joins"
           ]
         },
-        "api/aggregations",
+        "api-reference/aggregations",
         {
           "group": "Dense Vector Search",
           "pages": [
-            "api/dense/overview",
-            "api/dense/index",
-            "api/dense/search"
+            "api-reference/dense/overview",
+            "api-reference/dense/index",
+            "api-reference/dense/search"
           ]
         },
         {
           "group": "Sparse Vector Search",
           "pages": [
-            "api/sparse/overview",
-            "api/sparse/index",
-            "api/sparse/search"
+            "api-reference/sparse/overview",
+            "api-reference/sparse/index",
+            "api-reference/sparse/search"
           ]
         },
         {
           "group": "Hybrid Search",
-          "pages": ["api/hybrid/basic"]
+          "pages": ["api-reference/hybrid/basic"]
         }
       ]
     },
@@ -132,7 +131,8 @@
             "ingest/import/csv",
             "ingest/import/delta",
             "ingest/import/iceberg",
-            "ingest/import/parquet"
+            "ingest/import/parquet",
+            "ingest/import/spatial"
           ]
         },
         {
@@ -172,6 +172,8 @@
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.9.3",
+        "changelog/0.9.2",
         "changelog/0.9.1",
         "changelog/0.9.0",
         "changelog/0.8.6",

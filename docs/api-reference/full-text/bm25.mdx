@@ -6,7 +6,7 @@ title: Basic Full Text Search
 
 <Note>
   **Prerequisite** Before performing full text search over a table, it must
-  first be [indexed](/api/full-text/index).
+  first be [indexed](/api-reference/full-text/index).
 </Note>
 
 The `search` function returns rows of a table that match a search query. By default, rows are sorted by relevance.
@@ -67,8 +67,8 @@ Filters can be applied over numeric fields, which improves query times compared 
 
 <Note>
   Filters only work over Postgres columns that have been indexed as
-  [`numeric_fields`](/api/full-text/index#creating-a-bm25-index) or
-  [`boolean_fields`](/api/full-text/index#creating-a-bm25-index).
+  [`numeric_fields`](/api-reference/full-text/index#creating-a-bm25-index) or
+  [`boolean_fields`](/api-reference/full-text/index#creating-a-bm25-index).
 </Note>
 
 ### JSON Fields
@@ -151,7 +151,8 @@ are separated by one word, the following query would find this row.
 
 <Note>
   The slop operator is distinct from [fuzzy
-  search](/api/full-text/complex#fuzzy-term), which is used for typo tolerance.
+  search](/api-reference/full-text/complex#fuzzy-term), which is used for typo
+  tolerance.
 </Note>
 
 ### Set Operator
@@ -183,14 +184,19 @@ FROM <index_name>.search(
 
 ## Stable Ordering
 
-Search results are always ordered based on their BM25 score, but we can use the `stable_sort`
-parameter for control over the order of equally-scored results.
+By default, search results are ordered in descending order by their BM25 score, unless specified otherwise using the `order_by_field` parameter,
+and the primary key field is used as a tie-breaker.
 
-If `false`, equally-scored results will be ordered based on their insertion order into the index.
-This is the default, and allows for the fastest possible query times.
+This behavior can be controlled for the `<index_name>.search()` function with the the `stable_sort` parameter.
 
-If `true`, equally-scored results will be ordered based on their `key_field`, but query times will be slower.
-This is useful for testing or anytime where results need to be deterministic.
+If `true`, the default if unspecified, equally-scored or ordered results will be sub-sorted by their `key_field`. As a
+consequence of score evaluation and sorting, query times will be slower. This is useful for testing or anytime where
+results need to be deterministic but the score itself is not necessary. See the `<index_name>.score_bm25()` function
+for retrieving document scores.
+
+If `false`, scores are not generated and instead results are returned in an un-deterministic index order. The benefit
+of this is that the results are returned as quickly as possible. This is useful for queries that are known to return
+many thousands or millions of rows.
 
 ```sql
 SELECT *
@@ -213,4 +219,27 @@ FROM <index_name>.search(
 <ParamField body="stable_sort" default={false}>
   A boolean specifying whether ParadeDB should stabilize the order of
   equally-scored results, at the cost of performance.
+</ParamField>
+
+## Custom Ordering
+
+By default, the rows are ordered by their BM25 score but we can order them by any fast field instead by specifying `order_by_field`.
+
+The sort order can be changed by specifying `order_by_direction`, default is ascending.
+
+```sql
+SELECT
+  *
+FROM <index_name>.search(
+  '<query>',
+  order_by_field => '<field_name>',
+  order_by_direction => 'asc' | 'desc'
+)
+```
+
+<ParamField body="order_by_field">
+  The name of the field to order by.
+</ParamField>
+<ParamField body="order_by_direction" default={"asc"}>
+  The sort order to use.
 </ParamField>

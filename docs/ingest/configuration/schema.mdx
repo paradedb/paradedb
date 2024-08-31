@@ -1,8 +1,8 @@
 ---
-title: Auto Schema Creation
+title: Foreign Table Schema
 ---
 
-## Overview
+## Auto Schema Creation
 
 If no columns are specified in `CREATE FOREIGN TABLE`, the appropriate Postgres schema will
 automatically be created.
@@ -11,6 +11,46 @@ automatically be created.
 CREATE FOREIGN TABLE trips ()
 SERVER parquet_server
 OPTIONS (files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet');
+```
+
+## Configure Columns
+
+The `select` option can be used to configure the columns mapped over the underlying file(s). This is useful for renaming, modifying, or
+generating additional columns. `select` takes any string that can be passed to a SQL `SELECT` statement. By default, it is set to `*`,
+which selects all columns as-is.
+
+```sql
+-- Only use a subset of columns
+CREATE FOREIGN TABLE trips ()
+SERVER parquet_server
+OPTIONS (
+    files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
+    select 'vendorid, passenger_count'
+);
+
+-- Rename columns
+CREATE FOREIGN TABLE trips ()
+SERVER parquet_server
+OPTIONS (
+    files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
+    select 'vendorid AS vendor_id, passenger_count AS passengers'
+);
+
+-- Generate additional columns
+CREATE FOREIGN TABLE trips ()
+SERVER parquet_server
+OPTIONS (
+    files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
+    select '*, 2024 AS year, 1 AS month'
+);
+
+-- Modify existing column
+CREATE FOREIGN TABLE trips ()
+SERVER parquet_server
+OPTIONS (
+    files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
+    select '(vendorid + 1) AS vendorid'
+);
 ```
 
 ## Preserve Casing

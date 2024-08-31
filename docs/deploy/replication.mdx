@@ -190,7 +190,7 @@ The data inserted on the Publisher server should appear on the Subscriber server
 
 ## Schema Changes in Logical Replication
 
-ParadeDB leverages PostgreSQL’s built-in logical replication to provide flexible and efficient data synchronization, and is subject to the same limitations. A well-known caveat of logical replication is that schema changes (DDL commands) are not replciated. This means that any changes to the schema on the source database, such as adding new columns or tables, will not be automatically applied to the subscriber.
+ParadeDB leverages PostgreSQL’s built-in logical replication to provide flexible and efficient data synchronization, and is subject to the same limitations. A well-known caveat of logical replication is that schema changes (DDL commands) are not replicated. This means that any changes to the schema on the source database, such as adding new columns or tables, will not be automatically applied to the subscriber.
 
 ```sql
 -- On Publisher

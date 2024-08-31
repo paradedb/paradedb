@@ -31,7 +31,7 @@ pub extern "C" fn plan_custom_path<CS: CustomScan>(
     custom_plans: *mut pg_sys::List,
 ) -> *mut pg_sys::Plan {
     unsafe {
-        let mut planner_cxt = PgMemoryContexts::For((*root).planner_cxt);
+        let mut planner_cxt = PgMemoryContexts::CurrentMemoryContext;
         let mcx = planner_cxt.as_memcx();
         let builder =
             CustomScanBuilder::new::<CS>(&mcx, root, rel, best_path, tlist, clauses, custom_plans);

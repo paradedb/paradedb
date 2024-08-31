@@ -36,8 +36,7 @@ pub extern "C" fn begin_custom_scan<CS: CustomScan>(
     estate: *mut pg_sys::EState,
     eflags: i32,
 ) {
-    let estate = NonNull::new(estate).expect("`EState` must not be null");
-    unsafe { CS::begin_custom_scan(custom_state(node).as_mut(), estate.as_ref(), eflags) }
+    unsafe { CS::begin_custom_scan(custom_state(node).as_mut(), estate, eflags) }
 }
 
 /// Fetch the next scan tuple. If any tuples remain, it should fill ps_ResultTupleSlot with the next
@@ -87,7 +86,8 @@ pub extern "C" fn restr_pos_custom_scan<CS: CustomScan>(node: *mut pg_sys::Custo
 /// goes away should implement this method.
 #[pg_guard]
 pub extern "C" fn shutdown_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
-    todo!("shutdown_custom_scan")
+    let mut custom_state = custom_state(node);
+    unsafe { CS::shutdown_custom_scan(custom_state.as_mut()) }
 }
 
 /// Output additional information for EXPLAIN of a custom-scan plan node. This callback is optional.

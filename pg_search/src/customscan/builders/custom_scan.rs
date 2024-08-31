@@ -40,8 +40,9 @@ impl<'mcx> CustomScanBuilder<'mcx> {
 
         scan.scan.scanrelid = unsafe { *rel }.relid;
 
+        scan.custom_private = unsafe { *best_path }.custom_private;
         scan.custom_plans = custom_plans;
-        scan.methods = PgMemoryContexts::For(unsafe { *root }.planner_cxt).leak_and_drop_on_delete(
+        scan.methods = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(
             pg_sys::CustomScanMethods {
                 CustomName: CS::NAME.as_ptr(),
                 CreateCustomScanState: Some(create_custom_scan_state::<CS>),

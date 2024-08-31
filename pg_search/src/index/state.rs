@@ -19,6 +19,7 @@ use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
@@ -29,8 +30,29 @@ use tantivy::{snippet::SnippetGenerator, Executor};
 
 /// An iterator of the different styles of search results we can return
 pub enum SearchResults {
+    None,
     AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
     FastPath(std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>),
+}
+
+impl Debug for SearchResults {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SearchResults::None => write!(f, "SearchResults::None"),
+            SearchResults::AllFeatures(iter) => {
+                write!(f, "SearchResults::AllFeatures({:?})", iter.size_hint())
+            }
+            SearchResults::FastPath(iter) => {
+                write!(f, "SearchResults::FastPath({:?})", iter.size_hint())
+            }
+        }
+    }
+}
+
+impl Default for SearchResults {
+    fn default() -> Self {
+        SearchResults::None
+    }
 }
 
 impl Iterator for SearchResults {
@@ -39,6 +61,7 @@ impl Iterator for SearchResults {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self {
+            SearchResults::None => None,
             SearchResults::AllFeatures(iter) => iter.next(),
             SearchResults::FastPath(iter) => iter.next(),
         }
@@ -47,6 +70,7 @@ impl Iterator for SearchResults {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
+            SearchResults::None => (0, Some(0)),
             SearchResults::AllFeatures(iter) => iter.size_hint(),
             SearchResults::FastPath(iter) => iter.size_hint(),
         }
@@ -58,6 +82,7 @@ impl Iterator for SearchResults {
         Self: Sized,
     {
         match self {
+            SearchResults::None => 0,
             SearchResults::AllFeatures(iter) => iter.count(),
             SearchResults::FastPath(iter) => iter.count(),
         }

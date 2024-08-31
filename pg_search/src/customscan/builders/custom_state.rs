@@ -1,11 +1,12 @@
 use crate::customscan::CustomScan;
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{pg_sys, PgList, PgMemoryContexts};
 use std::fmt::{Debug, Formatter};
 
 pub struct Args {
-    cscan: *mut pg_sys::CustomScan,
+    pub cscan: *mut pg_sys::CustomScan,
 }
 
+#[derive(Default)]
 #[repr(C)]
 pub struct CustomScanStateWrapper<CS: CustomScan> {
     pub csstate: pg_sys::CustomScanState,
@@ -28,6 +29,23 @@ where
     }
 }
 
+impl<CS: CustomScan> CustomScanStateWrapper<CS> {
+    #[inline(always)]
+    pub fn scanslot(&self) -> *mut pg_sys::TupleTableSlot {
+        self.csstate.ss.ss_ScanTupleSlot
+    }
+
+    #[inline(always)]
+    pub fn projection_info(&self) -> *mut pg_sys::ProjectionInfo {
+        self.csstate.ss.ps.ps_ProjInfo
+    }
+
+    #[inline(always)]
+    pub fn set_projection_slot(&mut self, slot: *mut pg_sys::TupleTableSlot) {
+        unsafe { (*(*self.csstate.ss.ps.ps_ProjInfo).pi_exprContext).ecxt_scantuple = slot }
+    }
+}
+
 pub struct CustomScanStateBuilder<CS: CustomScan> {
     args: Args,
 
@@ -41,6 +59,14 @@ impl<CS: CustomScan> CustomScanStateBuilder<CS> {
 
             custom_state: CS::State::default(),
         }
+    }
+
+    pub fn args(&self) -> &Args {
+        &self.args
+    }
+
+    pub fn private_data(&self) -> PgList<pg_sys::Node> {
+        unsafe { PgList::from_pg((*self.args.cscan).custom_private) }
     }
 
     pub fn custom_state(&mut self) -> &mut CS::State {

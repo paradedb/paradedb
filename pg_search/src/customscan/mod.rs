@@ -17,7 +17,7 @@
 
 //! https://www.postgresql.org/docs/current/custom-scan.html
 use pgrx::memcx::MemCx;
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{is_a, pg_sys, PgMemoryContexts};
 use std::ffi::{c_void, CStr};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -32,6 +32,7 @@ mod scan;
 
 pub mod example;
 mod explainer;
+mod port;
 
 use crate::customscan::dsm::{
     estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,
@@ -51,7 +52,7 @@ pub use hook::register_rel_pathlist;
 
 pub trait CustomScanState: Default {}
 
-pub trait CustomScan: Sized {
+pub trait CustomScan: Default + Sized {
     const NAME: &'static CStr;
     type State: CustomScanState;
 
@@ -89,11 +90,13 @@ pub trait CustomScan: Sized {
 
     fn begin_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        estate: &pg_sys::EState,
+        estate: *mut pg_sys::EState,
         eflags: i32,
     );
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot;
+
+    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 }
@@ -195,4 +198,14 @@ unsafe fn list<'a, T>(mcxt: &'a MemCx, list: *mut pg_sys::List) -> pgrx::list::L
             .expect("`list` must be a `pg_sys::List` as described by its `Node::tag`");
         std::mem::transmute(list)
     }
+}
+
+#[track_caller]
+#[inline(always)]
+unsafe fn node<T>(void: *mut c_void, tag: pg_sys::NodeTag) -> Option<*mut T> {
+    let node: *mut T = void.cast();
+    if !is_a(node.cast(), tag) {
+        return None;
+    }
+    Some(node)
 }

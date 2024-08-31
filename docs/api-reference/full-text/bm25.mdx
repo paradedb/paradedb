@@ -184,14 +184,19 @@ FROM <index_name>.search(
 
 ## Stable Ordering
 
-Search results are ordered based on their BM25 score, unless specified otherwise using the `order_by_field` parameter, but we can use the `stable_sort`
-parameter for control over the order of equally-scored results.
+By default, search results are ordered in descending order by their BM25 score, unless specified otherwise using the `order_by_field` parameter,
+and the primary key field is used as a tie-breaker.
 
-If `false`, equally-scored results will be ordered based on their insertion order into the index.
-This is the default, and allows for the fastest possible query times.
+This behavior can be controlled for the `<index_name>.search()` function with the the `stable_sort` parameter.
 
-If `true`, equally-scored results will be ordered based on their `key_field`, but query times will be slower.
-This is useful for testing or anytime where results need to be deterministic.
+If `true`, the default if unspecified, equally-scored or ordered results will be sub-sorted by their `key_field`. As a
+consequence of score evaluation and sorting, query times will be slower. This is useful for testing or anytime where
+results need to be deterministic but the score itself is not necessary. See the `<index_name>.score_bm25()` function
+for retrieving document scores.
+
+If `false`, scores are not generated and instead results are returned in an un-deterministic index order. The benefit
+of this is that the results are returned as quickly as possible. This is useful for queries that are known to return
+many thousands or millions of rows.
 
 ```sql
 SELECT *

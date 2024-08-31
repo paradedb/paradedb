@@ -27,6 +27,43 @@ use tantivy::schema::FieldType;
 use tantivy::{query::Query, DocAddress, DocId, Score, Searcher};
 use tantivy::{Executor, SnippetGenerator};
 
+/// An iterator of the different styles of search results we can return
+pub enum SearchResults {
+    AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+    FastPath(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
+}
+
+impl Iterator for SearchResults {
+    type Item = (SearchIndexScore, DocAddress);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            SearchResults::AllFeatures(iter) => iter.next(),
+            SearchResults::FastPath(iter) => iter.next(),
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            SearchResults::AllFeatures(iter) => iter.size_hint(),
+            SearchResults::FastPath(iter) => iter.size_hint(),
+        }
+    }
+
+    #[inline]
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
+        match self {
+            SearchResults::AllFeatures(iter) => iter.count(),
+            SearchResults::FastPath(iter) => iter.count(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct SearchState {
     pub query: Arc<dyn Query>,
@@ -68,13 +105,83 @@ impl SearchState {
         }
     }
 
-    /// Search the Tantivy index for matching documents. If used outside of Postgres
-    /// index access methods, this may return deleted rows until a VACUUM. If you need to scan
-    /// the Tantivy index without a Postgres deduplication, you should use the `search_dedup`
-    /// method instead.
-    pub fn search(
+    /// Search the Tantivy index for matching documents.
+    ///
+    /// This method honors all of ParadeDB's search features including scoring, limits, orderbys,
+    /// and stable sorting.  As such, the returned [`SearchIndexScore`] item will be fully populated.
+    ///
+    /// Additionally, the results will always be sorted descending by score and include tie-breaking,
+    /// regardless of the [`SearchConfig`]'s `stable_sort` property.
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    pub fn search(&self, executor: &'static Executor) -> SearchResults {
+        SearchResults::AllFeatures(self.search_with_top_docs(executor, true))
+    }
+
+    /// Search the Tantivy index for matching documents.
+    ///
+    /// This method will do the minimal amount of work necessary to return [`SearchResults`].  If,
+    /// for example, it determines that scoring and sorting are not strictly necessary, it will
+    /// use a "fast path" for searching where the returned [`SearchIndexScore`] will be minimally
+    /// populated with only the "ctid" value for each matching document.
+    ///
+    /// The order of returned docs is unspecified here if there is no limit or orderby and stable_sort
+    /// is false.
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    pub fn search_minimal(&self, executor: &'static Executor) -> SearchResults {
+        match (
+            self.config.limit_rows,
+            self.config.stable_sort.unwrap_or(true),
+            self.config.order_by_field.clone(),
+        ) {
+            // no limit, no stable sorting, and no sort field
+            //
+            // this we can use a channel to stream the results and also elide doing key lookups.
+            // this is our "fast path"
+            (None, false, None) => {
+                SearchResults::FastPath(self.search_via_channel(executor, false).into_iter())
+            }
+
+            // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
+            // including retrieving the key field
+            _ => SearchResults::AllFeatures(self.search_with_top_docs(executor, true)),
+        }
+    }
+
+    fn search_via_channel(
         &self,
-        executor: &Executor,
+        executor: &'static Executor,
+        include_key: bool,
+    ) -> crossbeam::channel::Receiver<(SearchIndexScore, DocAddress)> {
+        let (sender, receiver) = crossbeam::channel::unbounded();
+        let collector =
+            collector::ChannelCollector::new(sender, self.config.key_field.clone(), include_key);
+        let searcher = self.searcher.clone();
+        let query = self.query.clone();
+        let schema = self.schema.schema.clone();
+        std::thread::spawn(move || {
+            searcher
+                .search_with_executor(
+                    query.as_ref(),
+                    &collector,
+                    executor,
+                    tantivy::query::EnableScoring::Disabled {
+                        schema: &schema,
+                        searcher_opt: Some(&searcher),
+                    },
+                )
+                .expect("failed to search")
+        });
+        receiver
+    }
+
+    fn search_with_top_docs(
+        &self,
+        executor: &'static Executor,
+        include_key: bool,
     ) -> std::vec::IntoIter<(SearchIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
@@ -98,14 +205,14 @@ impl SearchState {
             move |segment_reader: &tantivy::SegmentReader| {
                 let fast_fields = segment_reader.fast_fields();
                 let ctid_ff = FFType::new(fast_fields, "ctid");
-                let key_ff = FFType::new(fast_fields, key_field_name.as_str());
+                let key_ff = include_key.then(|| FFType::new(fast_fields, key_field_name.as_str()));
                 let orderby_ff = orderby_field
                     .as_ref()
                     .map(|name| FFType::new(fast_fields, name));
 
                 move |doc: DocId, original_score: Score| SearchIndexScore {
                     bm25: original_score,
-                    key: key_ff.value(doc),
+                    key: key_ff.as_ref().map(|key_ff| key_ff.value(doc)),
                     ctid: ctid_ff
                         .as_u64(doc)
                         .expect("expected the `ctid` field to be a u64"),
@@ -208,6 +315,99 @@ impl FFType {
             Some(ff.get_val(doc))
         } else {
             None
+        }
+    }
+}
+
+mod collector {
+    use crate::index::score::SearchIndexScore;
+    use crate::index::state::FFType;
+    use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
+
+    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
+    /// each segment, in parallel, as tantivy find each doc.
+    pub struct ChannelCollector {
+        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+        key_field_name: String,
+        include_key: bool,
+    }
+
+    impl ChannelCollector {
+        pub fn new(
+            sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+            key_field_name: String,
+            include_key: bool,
+        ) -> Self {
+            Self {
+                sender,
+                key_field_name,
+                include_key,
+            }
+        }
+    }
+
+    impl Collector for ChannelCollector {
+        type Fruit = ();
+        type Child = ChannelSegmentCollector;
+
+        fn for_segment(
+            &self,
+            segment_local_id: SegmentOrdinal,
+            segment_reader: &SegmentReader,
+        ) -> tantivy::Result<Self::Child> {
+            let fast_fields = segment_reader.fast_fields();
+            let ctid_ff = FFType::new(fast_fields, "ctid");
+            let key_ff = self
+                .include_key
+                .then(|| FFType::new(fast_fields, &self.key_field_name));
+            Ok(ChannelSegmentCollector {
+                segment_ord: segment_local_id,
+                ctid_ff,
+                key_ff,
+                sender: self.sender.clone(),
+            })
+        }
+
+        fn requires_scoring(&self) -> bool {
+            false
+        }
+
+        fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
+            Ok(())
+        }
+    }
+
+    pub struct ChannelSegmentCollector {
+        segment_ord: SegmentOrdinal,
+        ctid_ff: FFType,
+        key_ff: Option<FFType>,
+        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+    }
+
+    impl SegmentCollector for ChannelSegmentCollector {
+        type Fruit = ();
+
+        fn collect(&mut self, doc: DocId, score: Score) {
+            if let Some(ctid) = self.ctid_ff.as_u64(doc) {
+                let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
+
+                let doc_address = DocAddress::new(self.segment_ord, doc);
+                let scored = SearchIndexScore {
+                    bm25: score,
+                    key,
+                    ctid,
+                    order_by: None,
+                    sort_asc: false,
+                };
+                self.sender
+                    .send((scored, doc_address))
+                    .expect("channel should be open")
+            }
+        }
+
+        fn harvest(self) {
+            // noop
         }
     }
 }

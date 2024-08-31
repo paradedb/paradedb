@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchIndexScore {
     pub bm25: f32,
-    pub key: TantivyValue,
+    pub key: Option<TantivyValue>,
     pub ctid: u64,
 
     /// if we have a specific order by requirement, use that first, instead of sorting by the bm25 score

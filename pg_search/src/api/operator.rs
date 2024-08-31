@@ -50,7 +50,7 @@ fn search_tantivy(
         let mut hs = FxHashSet::default();
 
         for (scored, _) in top_docs {
-            hs.insert(scored.key);
+            hs.insert(scored.key.expect("key should have been retrieved"));
         }
 
         (search_config, hs)

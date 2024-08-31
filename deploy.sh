@@ -204,7 +204,7 @@ installBinary(){
     echo "Sorry but we do not support windows yet!"
     echo -e "$EXIT_MSG"
     exit 1
-  elif [[ "$OSTYPE" = "darwin" ]]; then
+  elif [[ "$OSTYPE" = "darwin"* ]]; then
     echo -e "\nOops! We don't have any prebuilt binaries for MacOS right now.\nYou can follow our comprehensive guide to compile ParadeDB from source at: https://github.com/paradedb/paradedb/blob/dev/README.md!"
     echo -e "$EXIT_MSG"
     exit 1

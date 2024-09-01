@@ -99,7 +99,6 @@ where
                 })?;
 
             let mut tantivy_document = TantivyDocument::new();
-            // let mut field_values: Vec<FieldValue> = vec![];
             for vec_entry in doc_vec {
                 let field: Field = serde_json::from_str(&vec_entry.0).map_err(|err| {
                     E::custom(format!("Error deserializing Field from string: {}", err))

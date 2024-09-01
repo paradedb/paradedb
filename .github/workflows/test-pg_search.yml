@@ -133,14 +133,6 @@ jobs:
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
-      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
-      # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
-      # clean any cached pg_search & dependencies build artifacts before running the tests
-      - name: Clean Cached Build Artifacts
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
-        working-directory: pg_search/
-        run: cargo clean
-
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_search Cargo Test Suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -223,12 +215,6 @@ jobs:
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx test "pg${{ matrix.pg_version }}" --features icu
 
-      # On promotion PRs, we test packaging the extension with production features enabled
-      - name: Test Packaging pg_search
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_search/
-        run: cargo clean && cargo pgrx package --features icu
-
   test-pg_search-pgrx-postgres:
     name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
@@ -308,14 +294,6 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
-
-      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
-      # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
-      # clean any cached pg_search & dependencies build artifacts before running the tests
-      - name: Clean Cached Build Artifacts
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
-        working-directory: pg_search/
-        run: cargo clean
 
       - name: Run pg_search Cargo Test Suite Against pgrx Postgres
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

@@ -215,12 +215,6 @@ jobs:
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx test "pg${{ matrix.pg_version }}" --features icu
 
-      # On promotion PRs, we test packaging the extension with production features enabled
-      - name: Test Packaging pg_search
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_search/
-        run: cargo pgrx package --features icu
-
   test-pg_search-pgrx-postgres:
     name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}

@@ -195,10 +195,13 @@ impl SearchState {
                     query.as_ref(),
                     &collector,
                     executor,
-                    tantivy::query::EnableScoring::Disabled {
-                        schema: &schema,
-                        searcher_opt: Some(&searcher),
-                    },
+                    tantivy::query::EnableScoring::Enabled {
+                        searcher: &searcher,
+                        statistics_provider: &searcher,
+                    }, // tantivy::query::EnableScoring::Disabled {
+                       //     schema: &schema,
+                       //     searcher_opt: Some(&searcher),
+                       // },
                 )
                 .expect("failed to search")
         });
@@ -454,7 +457,7 @@ mod collector {
         }
 
         fn requires_scoring(&self) -> bool {
-            false
+            true
         }
 
         fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {

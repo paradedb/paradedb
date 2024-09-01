@@ -1,3 +1,4 @@
+use crate::customscan::port::tuptable_h::ExecClearTuple;
 use crate::customscan::CustomScan;
 use pgrx::{pg_sys, PgList, PgMemoryContexts};
 use std::fmt::{Debug, Formatter};
@@ -31,6 +32,11 @@ where
 
 impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     #[inline(always)]
+    pub fn expr_context(&self) -> *mut pg_sys::ExprContext {
+        self.csstate.ss.ps.ps_ExprContext
+    }
+
+    #[inline(always)]
     pub fn scanslot(&self) -> *mut pg_sys::TupleTableSlot {
         self.csstate.ss.ss_ScanTupleSlot
     }
@@ -41,7 +47,12 @@ impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     }
 
     #[inline(always)]
-    pub fn set_projection_slot(&mut self, slot: *mut pg_sys::TupleTableSlot) {
+    pub fn projection_tupdesc(&self) -> pg_sys::TupleDesc {
+        self.csstate.ss.ps.ps_ResultTupleDesc
+    }
+
+    #[inline(always)]
+    pub fn set_projection_scanslot(&mut self, slot: *mut pg_sys::TupleTableSlot) {
         unsafe { (*(*self.csstate.ss.ps.ps_ProjInfo).pi_exprContext).ecxt_scantuple = slot }
     }
 }
@@ -71,6 +82,10 @@ impl<CS: CustomScan> CustomScanStateBuilder<CS> {
 
     pub fn custom_state(&mut self) -> &mut CS::State {
         &mut self.custom_state
+    }
+
+    pub fn target_list(&self) -> PgList<pg_sys::TargetEntry> {
+        unsafe { PgList::from_pg((*self.args.cscan).scan.plan.targetlist) }
     }
 
     pub fn build(self) -> CustomScanStateWrapper<CS> {

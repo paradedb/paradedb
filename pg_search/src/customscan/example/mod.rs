@@ -15,11 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::builders::custom_path::CustomPathBuilder;
+use crate::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::customscan::builders::custom_state::{CustomScanStateBuilder, CustomScanStateWrapper};
 use crate::customscan::explainer::Explainer;
-use crate::customscan::port::executor_h::ExecProject;
+use crate::customscan::port::executor_h::{ExecProject, ResetExprContext};
+use crate::customscan::port::tuptable_h::ExecClearTuple;
 use crate::customscan::{node, CustomScan, CustomScanState};
 use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
@@ -27,14 +28,13 @@ use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::utils::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
-use libc::c_char;
-use pgrx::itemptr::item_pointer_get_block_number;
-use pgrx::pg_sys::{CustomPath, EState, TupleTableSlot};
+use pgrx::pg_sys::{table_slot_callbacks, CustomPath, EState, TupleTableSlot};
 use pgrx::{
-    name_data_to_str, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts, PgRelation,
+    is_a, name_data_to_str, node_to_string, pg_sys, FromDatum, IntoDatum, PgList, PgRelation,
     PgTupleDesc,
 };
 use std::ffi::CStr;
@@ -44,6 +44,7 @@ pub struct Example;
 
 #[derive(Default)]
 pub struct ExampleScanState {
+    snapshot: Option<pg_sys::Snapshot>,
     heaprel: Option<pg_sys::Relation>,
     index_name: String,
     index_oid: pg_sys::Oid,
@@ -51,11 +52,19 @@ pub struct ExampleScanState {
     key_field: String,
     tantivy_query: String,
     search_results: SearchResults,
+
+    visibility_checker: Option<VisibilityChecker>,
+    score_field_indices: Vec<usize>,
 }
 
 impl CustomScanState for ExampleScanState {}
 
 impl ExampleScanState {
+    #[inline(always)]
+    pub fn snapshot(&self) -> pg_sys::Snapshot {
+        self.snapshot.unwrap()
+    }
+
     #[inline(always)]
     pub fn heaprel(&self) -> pg_sys::Relation {
         self.heaprel.unwrap()
@@ -74,6 +83,11 @@ impl ExampleScanState {
     #[inline(always)]
     pub fn heaptupdesc(&self) -> pg_sys::TupleDesc {
         unsafe { (*self.heaprel()).rd_att }
+    }
+
+    #[inline(always)]
+    pub fn visibility_checker(&mut self) -> &mut VisibilityChecker {
+        self.visibility_checker.as_mut().unwrap()
     }
 }
 
@@ -173,7 +187,7 @@ impl CustomScan for Example {
                         .add_private_data(const_val.cast());
                 }
 
-                return Some(builder.build());
+                return Some(builder.set_flag(Flags::Projection).build());
             }
         }
 
@@ -244,6 +258,28 @@ impl CustomScan for Example {
             }
 
             builder.custom_state().heaprel = Some(heaprel);
+            builder.custom_state().snapshot = Some(pg_sys::GetActiveSnapshot());
+            builder.custom_state().visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
+                heaprel,
+                pg_sys::GetActiveSnapshot(),
+            ));
+
+            // look for columns named "score_bm25" of type FLOAT4
+            unsafe {
+                for (i, entry) in builder.target_list().iter_ptr().enumerate() {
+                    let entry = entry.as_ref().expect("`TargetEntry` should not be null");
+                    let expr = (*entry).expr;
+
+                    if is_a(expr.cast(), pg_sys::NodeTag::T_Const) {
+                        let const_: *mut pg_sys::Const = expr.cast();
+                        if (*const_).consttype == pg_sys::FLOAT4OID
+                            && CStr::from_ptr((*entry).resname) == c"score_bm25"
+                        {
+                            builder.custom_state().score_field_indices.push(i);
+                        }
+                    }
+                }
+            }
 
             builder.build()
         }
@@ -254,8 +290,19 @@ impl CustomScan for Example {
         ancestors: *mut pgrx::pg_sys::List,
         explainer: &mut Explainer,
     ) {
+        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(state.projection_tupdesc()) };
+        let mut projections = String::new();
+
+        for att in tupdesc {
+            if !projections.is_empty() {
+                projections.push_str(", ");
+            }
+            projections.push_str(att.name());
+        }
+
         explainer.add_text("Table", state.custom_state.heaprelname());
         explainer.add_text("Index", &state.custom_state.index_name);
+        (!projections.is_empty()).then(|| explainer.add_text("Projections", &projections));
         explainer.add_text("Tantivy Query", &state.custom_state.tantivy_query);
     }
 
@@ -271,8 +318,9 @@ impl CustomScan for Example {
                 estate,
                 &mut state.csstate.ss,
                 tupdesc,
-                &pg_sys::TTSOpsBufferHeapTuple,
+                table_slot_callbacks(state.custom_state.heaprel()),
             );
+            pg_sys::ExecInitResultTypeTL(&mut state.csstate.ss.ps);
             pg_sys::ExecAssignProjectionInfo(&mut state.csstate.ss.ps, tupdesc);
         }
 
@@ -310,58 +358,64 @@ impl CustomScan for Example {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut TupleTableSlot {
-        match state.custom_state.search_results.next() {
-            // we're done sending back results
-            None => std::ptr::null_mut(),
+        loop {
+            match state.custom_state.search_results.next() {
+                // we've returned all the matching results
+                None => return std::ptr::null_mut(),
 
-            // need to fetch the returned ctid from the heap and perform projection
-            Some((scored, _)) => {
-                let ctid_u64 = scored.ctid;
-
-                unsafe {
-                    let heaprel = state.custom_state.heaprel();
-
-                    let mut heap_tuple = pg_sys::HeapTupleData::default();
-                    pgrx::itemptr::u64_to_item_pointer(ctid_u64, &mut heap_tuple.t_self);
-
-                    let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
-                    let found = pg_sys::heap_fetch(
-                        heaprel,
-                        pg_sys::GetActiveSnapshot(),
-                        &mut heap_tuple,
-                        &mut buffer,
-                        false,
+                // need to fetch the returned ctid from the heap and perform projection
+                Some((scored, _)) => {
+                    let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
+                    let heaprelid = state.custom_state.heaprelid();
+                    // let scanslot = state.scanslot();
+                    let slot = state.custom_state.visibility_checker().exec_if_visible(
+                        scored.ctid,
+                        move |mut htup, buffer| unsafe {
+                            (*bslot).base.base.tts_tableOid = heaprelid;
+                            (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
+                            pg_sys::ExecStoreBufferHeapTuple(&mut htup, bslot.cast(), buffer)
+                        },
                     );
-                    if !found {
-                        // TODO:  I have no idea how to handle this, or if it would even ever happen?
-                        //        I suppose it would happen if the index returned a dead ctid
-                        panic!("don't know what to do if the tid wasn't found")
+
+                    match slot {
+                        // project the slot and return it
+                        Some(slot) => unsafe {
+                            state.set_projection_scanslot(slot);
+                            let slot = ExecProject(state.projection_info());
+
+                            for i in &state.custom_state.score_field_indices {
+                                let i = *i;
+
+                                if i < (*slot).tts_nvalid as usize {
+                                    let values = std::slice::from_raw_parts_mut(
+                                        (*slot).tts_values,
+                                        (*slot).tts_nvalid as usize,
+                                    );
+                                    let nulls = std::slice::from_raw_parts_mut(
+                                        (*slot).tts_isnull,
+                                        (*slot).tts_nvalid as usize,
+                                    );
+
+                                    values[i] = scored.bm25.into_datum().unwrap();
+                                    nulls[i] = false;
+                                }
+                            }
+                            return slot;
+                        },
+
+                        // ctid isn't visible, move to the next one
+                        None => continue,
                     }
-
-                    let slot = state.scanslot();
-
-                    state.set_projection_slot(pg_sys::ExecStoreBufferHeapTuple(
-                        &mut heap_tuple,
-                        slot,
-                        buffer,
-                    ));
-
-                    if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                        pg_sys::ReleaseBuffer(buffer);
-                    }
-
-                    ExecProject(state.projection_info())
                 }
             }
         }
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        pgrx::warning!("shutdown_custom_scan");
+        // TODO:  anything to do here?
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        pgrx::warning!("end_custom_scan");
         if let Some(heaprel) = state.custom_state.heaprel.take() {
             unsafe {
                 pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);

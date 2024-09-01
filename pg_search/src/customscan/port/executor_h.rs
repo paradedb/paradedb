@@ -1,4 +1,5 @@
 use crate::customscan::port::tuptable_h::ExecClearTuple;
+use pgrx::pg_sys;
 use pgrx::pg_sys::{
     uint16, AttrNumber, Datum, ExprContext, ExprState, MemoryContextSwitchTo, ProjectionInfo,
     TupleTableSlot, TTS_FLAG_EMPTY,
@@ -72,4 +73,15 @@ pub unsafe fn ExecEvalExprSwitchContext(
     let retDatum = (*state).evalfunc.as_ref().unwrap()(state, econtext, isNull);
     MemoryContextSwitchTo(oldContext);
     retDatum
+}
+
+/// ```c
+/// #define ResetExprContext(econtext) \
+/// 	MemoryContextReset((econtext)->ecxt_per_tuple_memory)
+/// ```
+#[inline(always)]
+pub unsafe fn ResetExprContext(econtext: *mut pg_sys::ExprContext) {
+    unsafe {
+        pg_sys::MemoryContextReset((*econtext).ecxt_per_tuple_memory);
+    }
 }

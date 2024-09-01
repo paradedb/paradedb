@@ -139,6 +139,7 @@ pub unsafe fn row_to_search_document(
 /// a snapshot
 pub struct VisibilityChecker {
     relation: pg_sys::Relation,
+    need_close: bool,
     snapshot: pg_sys::Snapshot,
     last_buffer: pg_sys::Buffer,
     ipd: pg_sys::ItemPointerData,
@@ -151,8 +152,10 @@ impl Drop for VisibilityChecker {
                 pg_sys::ReleaseBuffer(self.last_buffer);
             }
 
-            // SAFETY:  `self.relation` is always a valid, open relation, created via `pg_sys::RelationGetRelation`
-            pg_sys::RelationClose(self.relation);
+            if self.need_close {
+                // SAFETY:  `self.relation` is always a valid, open relation, created via `pg_sys::RelationGetRelation`
+                pg_sys::RelationClose(self.relation);
+            }
         }
     }
 }
@@ -168,6 +171,7 @@ impl VisibilityChecker {
             // `pg_sys::GetTransactionSnapshot()` causes no concern
             Self {
                 relation: pg_sys::RelationIdGetRelation(relid),
+                need_close: true,
                 snapshot: pg_sys::GetTransactionSnapshot(),
                 last_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 ipd: pg_sys::ItemPointerData::default(),
@@ -175,9 +179,27 @@ impl VisibilityChecker {
         }
     }
 
+    pub fn with_rel_and_snap(relation: pg_sys::Relation, snapshot: pg_sys::Snapshot) -> Self {
+        Self {
+            relation,
+            need_close: false,
+            snapshot,
+            last_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
+            ipd: pg_sys::ItemPointerData::default(),
+        }
+    }
+
     /// Returns true if the specified 64bit ctid is visible by the backing snapshot in the backing
     /// relation
     pub fn ctid_satisfies_snapshot(&mut self, ctid: u64) -> bool {
+        self.exec_if_visible(ctid, |_, _| ()).is_some()
+    }
+
+    pub fn exec_if_visible<T, F: FnMut(pg_sys::HeapTupleData, pg_sys::Buffer) -> T>(
+        &mut self,
+        ctid: u64,
+        mut func: F,
+    ) -> Option<T> {
         unsafe {
             // Using ctid, get itempointer => buffer => page => heaptuple
             u64_to_item_pointer(ctid, &mut self.ipd);
@@ -188,20 +210,20 @@ impl VisibilityChecker {
                 pg_sys::ReleaseAndReadBuffer(self.last_buffer, self.relation, blockno);
 
             pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
-            let found = self.check_page_vis(self.last_buffer);
+            let (found, htup) = self.check_page_vis(self.last_buffer);
+            let result = found.then(|| func(htup, self.last_buffer));
             pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
-            found
+            result
         }
     }
 
-    #[inline(always)]
-    unsafe fn check_page_vis(&mut self, buffer: pg_sys::Buffer) -> bool {
+    unsafe fn check_page_vis(&mut self, buffer: pg_sys::Buffer) -> (bool, pg_sys::HeapTupleData) {
         unsafe {
             let mut heap_tuple = pg_sys::HeapTupleData::default();
 
             // Check if heaptuple is visible
             // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
-            pg_sys::heap_hot_search_buffer(
+            let found = pg_sys::heap_hot_search_buffer(
                 &mut self.ipd,
                 self.relation,
                 buffer,
@@ -209,7 +231,8 @@ impl VisibilityChecker {
                 &mut heap_tuple,
                 std::ptr::null_mut(),
                 true,
-            )
+            );
+            (found, heap_tuple)
         }
     }
 }

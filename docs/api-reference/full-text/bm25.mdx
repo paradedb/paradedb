@@ -63,12 +63,19 @@ Filters can be applied over numeric fields, which improves query times compared 
 
 -- Boolean
 'description:keyboard AND is_available:false'
+
+-- Datetime
+'description:keyboard AND created_at:>2023-04-20T00:00:00.00Z' -- rfc3339 datetime format
+
+-- Set terms
+'description:keyboard AND rating:IN [2 4]' -- (same result as 'rating:2 OR rating:4 ' but more efficient)
 ```
 
 <Note>
   Filters only work over Postgres columns that have been indexed as
   [`numeric_fields`](/api-reference/full-text/index#creating-a-bm25-index) or
-  [`boolean_fields`](/api-reference/full-text/index#creating-a-bm25-index).
+  [`boolean_fields`](/api-reference/full-text/index#creating-a-bm25-index) or
+  [`datetime_fields`](/api-reference/full-text/index#creating-a-bm25-index)
 </Note>
 
 ### JSON Fields

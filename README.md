@@ -11,7 +11,7 @@
   <a href="https://paradedb.com">Website</a> &bull;
   <a href="https://docs.paradedb.com">Docs</a> &bull;
   <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ">Community</a> &bull;
-  <a href="https://blog.paradedb.com">Blog</a> &bull;
+  <a href="https://paradedb.com/blog">Blog</a> &bull;
   <a href="https://docs.paradedb.com/changelog/">Changelog</a>
 </h3>
 

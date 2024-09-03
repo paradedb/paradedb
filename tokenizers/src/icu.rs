@@ -28,6 +28,7 @@ impl Tokenizer for ICUTokenizer {
 
 struct ICUBreakingWord<'a> {
     text: Chars<'a>,
+    char_indices: Vec<(usize, char)>,
     default_breaking_iterator: UBreakIterator,
 }
 
@@ -43,9 +44,12 @@ impl<'a> From<&'a str> for ICUBreakingWord<'a> {
     fn from(text: &'a str) -> Self {
         let loc = rust_icu_uloc::get_default();
         let ustr = &UChar::try_from(text).expect("is an encodable character");
+        let mut char_indices = text.char_indices().collect::<Vec<_>>();
+        char_indices.push((text.len(), '\0'));
 
         ICUBreakingWord {
             text: text.chars(),
+            char_indices,
             default_breaking_iterator: UBreakIterator::try_new_ustring(
                 UBreakIteratorType::UBRK_WORD,
                 &loc,
@@ -82,13 +86,15 @@ impl<'a> Iterator for ICUBreakingWord<'a> {
         match end {
             None => None,
             Some(index) => {
+                let token_start = self.char_indices[start as usize].0;
+                let token_end = self.char_indices[index as usize].0;
                 let substring: String = self
                     .text
                     .clone()
                     .take(index as usize)
                     .skip(start as usize)
                     .collect();
-                Some((substring, start as usize, index as usize))
+                Some((substring, token_start as usize, token_end as usize))
             }
         }
     }

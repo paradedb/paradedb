@@ -96,13 +96,12 @@ installDocker() {
     echo -e "We found a previous paradedb container on your system.\n We need to remove it to continue this setup."
     read -r -p "Would you like to remove it? [y/N] " response
     case "$response" in
-      [yY][eE][sS]|[yY]) 
+      [yY][eE][sS]|[yY])
         docker stop paradedb || true
-        docker rm paradedb || true  
+        docker rm paradedb || true
         echo "Successfully Removed Container ✅"
     esac
   fi
-
 
   # Pull Docker image
   echo "Pulling Docker Image for Parade DB: docker pull paradedb/paradedb"

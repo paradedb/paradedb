@@ -1,0 +1,82 @@
+---
+title: Install Third Party Extensions
+---
+
+Postgres has a rich ecosystem of extensions. To keep the size of the ParadeDB Dockerfile small, only the ParadeDB extensions — `pg_search` and `pg_analytics` — and a limited set of third party extensions are included:
+
+- `pg_search` for full text search
+- `pg_analytics` for fast queries over data lakes
+- `pgvector` for vector search
+- `pg_ivm` for incremental materialized views
+- `pg_cron` for cron jobs
+
+<Note>
+  `pg_cron` is configured on the default `postgres` database and cannot be
+  changed.
+</Note>
+
+However, additional extensions can be installed inside ParadeDB.
+
+## Installing Third Party Extensions
+
+The process for installing an extension varies by extension. Generally speaking, it requires:
+
+- Download the prebuilt binaries inside ParadeDB
+- Install the extension binary and any dependencies inside ParadeDB
+- Add the extension to `shared_preload_libraries` in `postgresql.conf`, if required by the extension
+- Run `CREATE EXTENSION <extension name>`
+
+We recommend installing third party extensions from prebuilt binaries to keep the image size small. As an
+example, let's install [PostGIS](https://github.com/postgis/postgis), an extension for geospatial data.
+
+### Install Prebuilt Binaries
+
+First, enter a shell with root permissions in the ParadeDB image.
+
+```bash
+docker exec -it --user root paradedb bash
+```
+
+<Note>
+  This command assumes that your ParadeDB container name is `paradedb`.
+</Note>
+
+Next, install the [prebuilt binaries](https://postgis.net/documentation/getting_started/install_ubuntu/).
+Most popular Postgres extensions can be installed with `apt-get install`.
+
+```bash
+apt-get update
+apt-get install -y --no-install-recommends postgis postgresql-16-postgis-3
+```
+
+<Note>
+  If the extension is not available with `apt-get install`, you can usually
+  `curl` the prebuilt binary from a GitHub Release page. You will need to first
+  install `curl` via `apt-get install` if you are taking this approach.
+</Note>
+
+### Add to `shared_preload_libraries`
+
+PostGIS does not need to be added to `shared_preload_libraries` in `postgresql.conf`, so we skip this step.
+
+<Accordion title = "Modifying shared_preload_libraries">
+If you are installing an extension which requires this step, you can do so
+via the following command, replacing `<extension_name>` by your extension's name:
+
+```bash
+sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,<extension_name>'/" /var/lib/postgresql/data/postgresql.conf`
+```
+
+</Accordion>
+
+Postgres must be restarted afterwards. We recommend simply restarting the Docker container.
+
+### Create the Extension
+
+Connect to ParadeDB via `psql` and create the extension.
+
+```sql
+CREATE EXTENSION postgis;
+```
+
+PostGIS is now ready to use!

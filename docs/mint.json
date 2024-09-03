@@ -165,7 +165,8 @@
           "group": "Deploy Extensions",
           "pages": ["deploy/pg_search", "deploy/pg_analytics"]
         },
-        "deploy/upgrading"
+        "deploy/upgrading",
+        "deploy/extensions"
       ]
     },
     {

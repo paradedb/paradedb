@@ -180,6 +180,7 @@ unsafe fn snippet(
                     .clone()
                     .unwrap_or(DEFAULT_SNIPPET_POSTFIX.to_string()),
             );
+
             (key, snippet.to_html(), scored.bm25)
         });
 

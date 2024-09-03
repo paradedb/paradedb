@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
-use crate::postgres::customscan::{AsMemCx, CustomScan};
+use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 
 /// Convert a custom path to a finished plan. The return value will generally be a CustomScan object,
@@ -30,15 +30,11 @@ pub extern "C" fn plan_custom_path<CS: CustomScan>(
     clauses: *mut pg_sys::List,
     custom_plans: *mut pg_sys::List,
 ) -> *mut pg_sys::Plan {
-    unsafe {
-        let mut planner_cxt = PgMemoryContexts::CurrentMemoryContext;
-        let mcx = planner_cxt.as_memcx();
-        let builder =
-            CustomScanBuilder::new::<CS>(&mcx, root, rel, best_path, tlist, clauses, custom_plans);
+    let mut planner_cxt = PgMemoryContexts::CurrentMemoryContext;
+    let builder = CustomScanBuilder::new::<CS>(root, rel, best_path, tlist, clauses, custom_plans);
 
-        let scan = CS::plan_custom_path(builder);
-        planner_cxt.leak_and_drop_on_delete(scan).cast()
-    }
+    let scan = CS::plan_custom_path(builder);
+    planner_cxt.leak_and_drop_on_delete(scan).cast()
 }
 
 /// This callback is called while converting a path parameterized by the top-most parent of the

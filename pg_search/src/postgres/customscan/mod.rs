@@ -21,11 +21,8 @@
 #![allow(dead_code)]
 #![allow(clippy::tabs_in_doc_comments)]
 
-use pgrx::memcx::MemCx;
-use pgrx::{is_a, pg_sys, PgMemoryContexts};
+use pgrx::{is_a, pg_sys};
 use std::ffi::{c_void, CStr};
-use std::marker::PhantomData;
-use std::ptr::NonNull;
 
 mod builders;
 mod dsm;
@@ -165,43 +162,6 @@ pub trait ParallelQueryAndMarkRestoreCapable:
             ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
             ExplainCustomScan: Some(explain_custom_scan::<Self>),
         }
-    }
-}
-
-trait AsMemCx {
-    unsafe fn as_memcx<'mcx>(&self) -> MemCx<'mcx>;
-}
-
-impl AsMemCx for PgMemoryContexts {
-    /// Wrap the provided [`pg_sys::MemoryContext`]
-    ///
-    /// # Safety
-    /// Assumes the provided [`pg_sys::MemoryContext`] is valid and properly initialized.
-    /// This method does check to ensure the pointer is non-null, but that is the only sanity
-    /// check that is performed.
-    unsafe fn as_memcx<'mcx>(&self) -> MemCx<'mcx> {
-        // SAFETY:  this must look exactly like `pgrx::memcx::MemCx`
-        struct FakeMemCx<'mcx> {
-            ptr: NonNull<pg_sys::MemoryContextData>,
-            _marker: PhantomData<&'mcx pg_sys::MemoryContextData>,
-        }
-        let ptr = NonNull::new(self.value()).expect("memory context must be non-null");
-        unsafe {
-            // SAFETY:  `FakeMemCx` looks exactly like `pgrx::memcx::MemCx`
-            std::mem::transmute(FakeMemCx {
-                ptr,
-                _marker: PhantomData,
-            })
-        }
-    }
-}
-
-#[track_caller]
-unsafe fn list<'a, T>(mcxt: &'a MemCx, list: *mut pg_sys::List) -> pgrx::list::List<'a, *mut T> {
-    unsafe {
-        let list = pgrx::list::List::<*mut c_void>::downcast_ptr_in_memcx(list, mcxt)
-            .expect("`list` must be a `pg_sys::List` as described by its `Node::tag`");
-        std::mem::transmute(list)
     }
 }
 

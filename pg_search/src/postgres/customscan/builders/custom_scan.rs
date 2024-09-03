@@ -16,9 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::scan::create_custom_scan_state;
-use crate::postgres::customscan::{list, CustomScan};
-use pgrx::list::List;
-use pgrx::memcx::MemCx;
+use crate::postgres::customscan::CustomScan;
 use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};
 use std::ffi::c_void;
 use std::fmt::{Debug, Formatter};
@@ -58,18 +56,16 @@ impl Args {
     }
 }
 
-pub struct CustomScanBuilder<'mcx> {
-    mcx: &'mcx MemCx<'mcx>,
+pub struct CustomScanBuilder {
     args: Args,
 
     custom_scan_node: pg_sys::CustomScan,
-    custom_paths: List<'mcx, *mut c_void>,
+    custom_paths: PgList<c_void>,
     custom_private: PgList<pg_sys::Node>,
 }
 
-impl<'mcx> CustomScanBuilder<'mcx> {
+impl CustomScanBuilder {
     pub fn new<CS: CustomScan>(
-        mcx: &'mcx MemCx<'mcx>,
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
         best_path: *mut pg_sys::CustomPath,
@@ -99,7 +95,6 @@ impl<'mcx> CustomScanBuilder<'mcx> {
         };
 
         CustomScanBuilder {
-            mcx,
             args: Args {
                 root,
                 rel,
@@ -109,7 +104,7 @@ impl<'mcx> CustomScanBuilder<'mcx> {
                 custom_plans,
             },
             custom_scan_node: scan,
-            custom_paths: unsafe { list(mcx, custom_plans) },
+            custom_paths: unsafe { PgList::from_pg(custom_plans) },
             custom_private: unsafe { PgList::from_pg(scan.custom_private) },
         }
     }

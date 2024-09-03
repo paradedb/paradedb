@@ -37,9 +37,6 @@ OPTIONS (files 's3://<bucket>/<path>/*.parquet');
 `CREATE USER MAPPING` is used to provide S3 credentials. These credentials are tied to a specific Postgres user, which enables
 multiple users to query the same foreign table with their own credentials.
 
-Note: Providing credentials via `key_id` and `secret` requires permanent AWS IAM/Identity Center keys. To connect via ephemeral
-key and secret credentials, please refer to (/ingest/object_stores/s3#credential-chain-provider).
-
 ```sql
 CREATE USER MAPPING FOR <current_user>
 SERVER <server_name>
@@ -90,8 +87,8 @@ The following options can be passed into `CREATE USER MAPPING`:
 
 ## Credential Chain Provider
 
-The `CREDENTIAL_CHAIN` provider can automatically fetch credentials using mechanisms provided by the AWS SDK.
-This is useful for reading credentials stored in your environment.
+Providing credentials via `key_id` and `secret` requires permanent AWS IAM/Identity Center keys. The `CREDENTIAL_CHAIN` provider can
+automatically fetch ephemeral credentials using mechanisms provided by the AWS SDK.
 
 ```sql
 CREATE USER MAPPING FOR <current_user>

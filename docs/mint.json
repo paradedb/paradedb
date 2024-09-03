@@ -79,7 +79,6 @@
       "group": "Welcome",
       "pages": [
         "welcome/introduction",
-        "welcome/benchmarks",
         "welcome/support"
       ]
     },

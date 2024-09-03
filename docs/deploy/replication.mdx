@@ -28,7 +28,7 @@ We'll use the following environment setup for our demonstration:
 - **Replication User**: `replicator`
 - **Replication Password**: `passw0rd`
 
-**Standby Server(s)**
+**Standby Servers**
 
 - **OS**: Ubuntu 24.04
 - **IP**: `192.168.0.31`, `192.168.0.32`
@@ -126,12 +126,12 @@ CALL paradedb.create_bm25(
 );
 ```
 
-## Standby Server(s) Setup
+## Standby Servers Setup
 
-Standby servers do not have any specific configuration necessary other than the table(s) in which you are ingesting logical replication must start off empty. Configuring
+Standby servers do not have any specific configuration necessary other than the tables in which you are ingesting logical replication must start off empty. Configuring
 replication consists of two steps:
 
-- Running pg_basebackup, which will create a snapshot of your primary onto your standy server(s). This makes the initial replication much faster.
+- Running pg_basebackup, which will create a snapshot of your primary onto your standy servers. This makes the initial replication much faster.
 - Subscribing via logical replication, which will create a subscription that continuously propagates changes on the primary server to the standby.
 
 ### Run pg_basebackup

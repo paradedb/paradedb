@@ -90,6 +90,7 @@ unsafe fn score_bm25(
                 datum::AnyElement::from_polymorphic_datum(
                     scored
                         .key
+                        .expect("key should have been retrieved")
                         .try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,
@@ -154,6 +155,7 @@ unsafe fn snippet(
                 datum::AnyElement::from_polymorphic_datum(
                     scored
                         .key
+                        .expect("key should have been retrieved")
                         .try_into_datum(PgOid::from_untagged(key_oid))
                         .expect("failed to convert key_field to datum"),
                     false,

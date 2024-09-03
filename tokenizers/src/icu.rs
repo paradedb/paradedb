@@ -44,6 +44,8 @@ impl<'a> From<&'a str> for ICUBreakingWord<'a> {
     fn from(text: &'a str) -> Self {
         let loc = rust_icu_uloc::get_default();
         let ustr = &UChar::try_from(text).expect("is an encodable character");
+        // Implementation from a similar fix in https://github.com/jiegec/tantivy-jieba/pull/5
+        // referenced by Tantivy issue https://github.com/quickwit-oss/tantivy/issues/1134
         let mut char_indices = text.char_indices().collect::<Vec<_>>();
         char_indices.push((text.len(), '\0'));
 

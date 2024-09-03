@@ -65,16 +65,13 @@ pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
     rte: *mut pg_sys::RangeTblEntry,
 ) {
     unsafe {
-        pgrx::memcx::current_context(|mcx| {
-            if let Some(path) = CS::callback(CustomPathBuilder::new::<CS>(mcx, root, rel, rti, rte))
-            {
-                pg_sys::add_path(
-                    rel,
-                    PgMemoryContexts::CurrentMemoryContext
-                        .leak_and_drop_on_delete(path)
-                        .cast(),
-                );
-            }
-        })
+        if let Some(path) = CS::callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte)) {
+            pg_sys::add_path(
+                rel,
+                PgMemoryContexts::CurrentMemoryContext
+                    .leak_and_drop_on_delete(path)
+                    .cast(),
+            );
+        }
     }
 }

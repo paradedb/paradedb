@@ -17,7 +17,6 @@
 
 use crate::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::customscan::CustomScan;
-use pgrx::memcx::MemCx;
 use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
@@ -57,8 +56,7 @@ pub enum Flags {
     Projection = 0x0004,
 }
 
-pub struct CustomPathBuilder<'mcx> {
-    mcx: &'mcx MemCx<'mcx>,
+pub struct CustomPathBuilder {
     args: Args,
     flags: HashSet<Flags>,
 
@@ -68,7 +66,7 @@ pub struct CustomPathBuilder<'mcx> {
     custom_private: PgList<pg_sys::Node>,
 }
 
-impl Debug for CustomPathBuilder<'_> {
+impl Debug for CustomPathBuilder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CustomPathBuilder")
             .field("args", &self.args)
@@ -94,16 +92,14 @@ impl Debug for CustomPathBuilder<'_> {
     }
 }
 
-impl<'mcx> CustomPathBuilder<'mcx> {
+impl CustomPathBuilder {
     pub fn new<CS: CustomScan>(
-        mcx: &'mcx MemCx<'mcx>,
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
         rti: pg_sys::Index,
         rte: *mut pg_sys::RangeTblEntry,
-    ) -> CustomPathBuilder<'mcx> {
+    ) -> CustomPathBuilder {
         Self {
-            mcx,
             args: Args {
                 root,
                 rel,
@@ -118,18 +114,8 @@ impl<'mcx> CustomPathBuilder<'mcx> {
                     pathtype: pg_sys::NodeTag::T_CustomScan,
                     parent: rel,
                     pathtarget: unsafe { *rel }.reltarget,
-                    param_info: std::ptr::null_mut(),
-                    parallel_aware: false,
-                    parallel_safe: false,
-                    parallel_workers: 0,
-                    rows: 0.0,
-                    startup_cost: 0.0,
-                    total_cost: 0.0,
-                    pathkeys: std::ptr::null_mut(),
+                    ..Default::default()
                 },
-                flags: 0,
-                custom_paths: std::ptr::null_mut(),
-                custom_private: std::ptr::null_mut(),
                 methods: PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(
                     pg_sys::CustomPathMethods {
                         CustomName: CS::NAME.as_ptr(),
@@ -139,14 +125,11 @@ impl<'mcx> CustomPathBuilder<'mcx> {
                         ),
                     },
                 ),
+                ..Default::default()
             },
             custom_paths: PgList::default(),
             custom_private: PgList::default(),
         }
-    }
-
-    pub fn mcx(&self) -> &'mcx MemCx<'mcx> {
-        self.mcx
     }
 
     pub fn args(&self) -> &Args {

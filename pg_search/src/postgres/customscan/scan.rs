@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::builders::custom_state::CustomScanStateBuilder;
-use crate::customscan::CustomScan;
+use crate::postgres::customscan::builders::custom_state::CustomScanStateBuilder;
+use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 
 /// Allocate a CustomScanState for this CustomScan. The actual allocation will often be larger than

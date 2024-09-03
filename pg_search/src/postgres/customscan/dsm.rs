@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::{CustomScan, ParallelQueryCapable};
+use crate::postgres::customscan::{CustomScan, ParallelQueryCapable};
 use pgrx::{pg_guard, pg_sys};
 
 /// Estimate the amount of dynamic shared memory that will be required for parallel operation. This

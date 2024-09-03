@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::builders::custom_state::CustomScanStateWrapper;
-use crate::customscan::explainer::Explainer;
-use crate::customscan::CustomScan;
+use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
+use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_guard, pg_sys};
 use std::ptr::NonNull;
 

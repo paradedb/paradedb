@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::port::tuptable_h::ExecClearTuple;
+use crate::postgres::customscan::port::tuptable_h::ExecClearTuple;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     uint16, AttrNumber, Datum, ExprContext, ExprState, MemoryContextSwitchTo, ProjectionInfo,

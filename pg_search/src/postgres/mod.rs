@@ -26,6 +26,7 @@ mod scan;
 mod vacuum;
 mod validate;
 
+pub mod customscan;
 pub mod datetime;
 pub mod transaction;
 pub mod types;

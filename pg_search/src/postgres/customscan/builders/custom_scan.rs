@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::scan::create_custom_scan_state;
-use crate::customscan::{list, CustomScan};
+use crate::postgres::customscan::scan::create_custom_scan_state;
+use crate::postgres::customscan::{list, CustomScan};
 use pgrx::list::List;
 use pgrx::memcx::MemCx;
 use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};

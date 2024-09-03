@@ -15,16 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::customscan::builders::custom_path::{CustomPathBuilder, Flags};
-use crate::customscan::builders::custom_scan::CustomScanBuilder;
-use crate::customscan::builders::custom_state::{CustomScanStateBuilder, CustomScanStateWrapper};
-use crate::customscan::explainer::Explainer;
-use crate::customscan::port::executor_h::ExecProject;
-use crate::customscan::{node, CustomScan, CustomScanState};
 use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
+use crate::postgres::customscan::builders::custom_state::{
+    CustomScanStateBuilder, CustomScanStateWrapper,
+};
+use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::port::executor_h::ExecProject;
+use crate::postgres::customscan::{node, CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::VisibilityChecker;

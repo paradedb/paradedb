@@ -17,7 +17,6 @@
 
 mod api;
 mod bootstrap;
-mod customscan;
 mod env;
 mod globals;
 mod index;
@@ -29,6 +28,7 @@ mod writer;
 #[cfg(test)]
 pub mod fixtures;
 
+use self::postgres::customscan;
 use crate::globals::WRITER_GLOBAL;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;

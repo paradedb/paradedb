@@ -38,19 +38,21 @@ pub mod example;
 mod explainer;
 mod port;
 
-use crate::customscan::dsm::{
+use crate::postgres::customscan::dsm::{
     estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,
     reinitialize_dsm_custom_scan,
 };
-use crate::customscan::exec::{
+use crate::postgres::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan,
     mark_pos_custom_scan, rescan_custom_scan, restr_pos_custom_scan, shutdown_custom_scan,
 };
 
-use crate::customscan::builders::custom_path::CustomPathBuilder;
-use crate::customscan::builders::custom_scan::CustomScanBuilder;
-use crate::customscan::builders::custom_state::{CustomScanStateBuilder, CustomScanStateWrapper};
-use crate::customscan::explainer::Explainer;
+use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
+use crate::postgres::customscan::builders::custom_state::{
+    CustomScanStateBuilder, CustomScanStateWrapper,
+};
+use crate::postgres::customscan::explainer::Explainer;
 pub use hook::register_rel_pathlist;
 
 pub trait CustomScanState: Default {}

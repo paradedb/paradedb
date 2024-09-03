@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::customscan::builders::custom_scan::CustomScanBuilder;
-use crate::customscan::{list, AsMemCx, CustomScan};
+use crate::customscan::{AsMemCx, CustomScan};
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 
 /// Convert a custom path to a finished plan. The return value will generally be a CustomScan object,

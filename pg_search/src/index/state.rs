@@ -29,7 +29,9 @@ use tantivy::{query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, 
 use tantivy::{snippet::SnippetGenerator, Executor};
 
 /// An iterator of the different styles of search results we can return
+#[derive(Default)]
 pub enum SearchResults {
+    #[default]
     None,
     AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
     FastPath(std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>),
@@ -46,12 +48,6 @@ impl Debug for SearchResults {
                 write!(f, "SearchResults::FastPath({:?})", iter.size_hint())
             }
         }
-    }
-}
-
-impl Default for SearchResults {
-    fn default() -> Self {
-        SearchResults::None
     }
 }
 
@@ -188,7 +184,6 @@ impl SearchState {
             collector::ChannelCollector::new(sender, self.config.key_field.clone(), include_key);
         let searcher = self.searcher.clone();
         let query = self.query.clone();
-        let schema = self.schema.schema.clone();
         std::thread::spawn(move || {
             searcher
                 .search_with_executor(

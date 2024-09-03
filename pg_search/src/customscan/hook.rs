@@ -26,7 +26,7 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
     unsafe {
         static mut PREV_HOOKS: Lazy<
             FxHashMap<std::any::TypeId, pg_sys::set_rel_pathlist_hook_type>,
-        > = Lazy::new(|| Default::default());
+        > = Lazy::new(Default::default);
 
         #[pg_guard]
         extern "C" fn __priv_callback<CS: CustomScan + 'static>(

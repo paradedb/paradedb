@@ -19,8 +19,7 @@ use crate::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::customscan::builders::custom_state::{CustomScanStateBuilder, CustomScanStateWrapper};
 use crate::customscan::explainer::Explainer;
-use crate::customscan::port::executor_h::{ExecProject, ResetExprContext};
-use crate::customscan::port::tuptable_h::ExecClearTuple;
+use crate::customscan::port::executor_h::ExecProject;
 use crate::customscan::{node, CustomScan, CustomScanState};
 use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
@@ -33,10 +32,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use pgrx::pg_sys::{table_slot_callbacks, CustomPath, EState, TupleTableSlot};
-use pgrx::{
-    is_a, name_data_to_str, node_to_string, pg_sys, FromDatum, IntoDatum, PgList, PgRelation,
-    PgTupleDesc,
-};
+use pgrx::{is_a, name_data_to_str, pg_sys, FromDatum, IntoDatum, PgList, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 
 #[derive(Default)]
@@ -213,10 +209,10 @@ impl CustomScan for Example {
             {
                 let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
                 let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
-                let uuid = unsafe { &*ops }
+                let uuid = (*ops)
                     .get_uuid()
                     .expect("`USING bm25` index should have a value `uuid` option");
-                let key_field = unsafe { &*ops }
+                let key_field = (*ops)
                     .get_key_field()
                     .expect("`USING bm25` index should have a valued `key_field` option")
                     .0;
@@ -265,18 +261,16 @@ impl CustomScan for Example {
             ));
 
             // look for columns named "score_bm25" of type FLOAT4
-            unsafe {
-                for (i, entry) in builder.target_list().iter_ptr().enumerate() {
-                    let entry = entry.as_ref().expect("`TargetEntry` should not be null");
-                    let expr = (*entry).expr;
+            for (i, entry) in builder.target_list().iter_ptr().enumerate() {
+                let entry = entry.as_ref().expect("`TargetEntry` should not be null");
+                let expr = entry.expr;
 
-                    if is_a(expr.cast(), pg_sys::NodeTag::T_Const) {
-                        let const_: *mut pg_sys::Const = expr.cast();
-                        if (*const_).consttype == pg_sys::FLOAT4OID
-                            && CStr::from_ptr((*entry).resname) == c"score_bm25"
-                        {
-                            builder.custom_state().score_field_indices.push(i);
-                        }
+                if is_a(expr.cast(), pg_sys::NodeTag::T_Const) {
+                    let const_: *mut pg_sys::Const = expr.cast();
+                    if (*const_).consttype == pg_sys::FLOAT4OID
+                        && CStr::from_ptr(entry.resname) == c"score_bm25"
+                    {
+                        builder.custom_state().score_field_indices.push(i);
                     }
                 }
             }

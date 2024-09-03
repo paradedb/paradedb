@@ -16,10 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! https://www.postgresql.org/docs/current/custom-scan.html
+
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(clippy::tabs_in_doc_comments)]
+
 use pgrx::memcx::MemCx;
 use pgrx::{is_a, pg_sys, PgMemoryContexts};
 use std::ffi::{c_void, CStr};
-use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
@@ -42,7 +46,6 @@ use crate::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan,
     mark_pos_custom_scan, rescan_custom_scan, restr_pos_custom_scan, shutdown_custom_scan,
 };
-use crate::customscan::scan::create_custom_scan_state;
 
 use crate::customscan::builders::custom_path::CustomPathBuilder;
 use crate::customscan::builders::custom_scan::CustomScanBuilder;
@@ -194,7 +197,7 @@ impl AsMemCx for PgMemoryContexts {
 #[track_caller]
 unsafe fn list<'a, T>(mcxt: &'a MemCx, list: *mut pg_sys::List) -> pgrx::list::List<'a, *mut T> {
     unsafe {
-        let list = pgrx::list::List::<*mut c_void>::downcast_ptr_in_memcx(list, &mcxt)
+        let list = pgrx::list::List::<*mut c_void>::downcast_ptr_in_memcx(list, mcxt)
             .expect("`list` must be a `pg_sys::List` as described by its `Node::tag`");
         std::mem::transmute(list)
     }

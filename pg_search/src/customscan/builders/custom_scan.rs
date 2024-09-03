@@ -1,5 +1,22 @@
+// Copyright (c) 2023-2024 Retake, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use crate::customscan::scan::create_custom_scan_state;
-use crate::customscan::{list, node, CustomScan};
+use crate::customscan::{list, CustomScan};
 use pgrx::list::List;
 use pgrx::memcx::MemCx;
 use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};
@@ -60,22 +77,26 @@ impl<'mcx> CustomScanBuilder<'mcx> {
         clauses: *mut pg_sys::List,
         custom_plans: *mut pg_sys::List,
     ) -> Self {
-        let mut scan = pg_sys::CustomScan::default();
-
-        scan.flags = unsafe { (*best_path).flags };
-        scan.scan.plan.type_ = pg_sys::NodeTag::T_CustomScan;
-        scan.scan.plan.targetlist = tlist;
-
-        scan.scan.scanrelid = unsafe { *rel }.relid;
-
-        scan.custom_private = unsafe { *best_path }.custom_private;
-        scan.custom_plans = custom_plans;
-        scan.methods = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(
-            pg_sys::CustomScanMethods {
-                CustomName: CS::NAME.as_ptr(),
-                CreateCustomScanState: Some(create_custom_scan_state::<CS>),
+        let scan = pg_sys::CustomScan {
+            flags: unsafe { (*best_path).flags },
+            custom_private: unsafe { *best_path }.custom_private,
+            custom_plans,
+            methods: PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(
+                pg_sys::CustomScanMethods {
+                    CustomName: CS::NAME.as_ptr(),
+                    CreateCustomScanState: Some(create_custom_scan_state::<CS>),
+                },
+            ),
+            scan: pg_sys::Scan {
+                plan: pg_sys::Plan {
+                    type_: pg_sys::NodeTag::T_CustomScan,
+                    targetlist: tlist,
+                    ..Default::default()
+                },
+                scanrelid: unsafe { *rel }.relid,
             },
-        );
+            ..Default::default()
+        };
 
         CustomScanBuilder {
             mcx,
@@ -102,7 +123,7 @@ impl<'mcx> CustomScanBuilder<'mcx> {
         self
     }
 
-    pub fn build(mut self) -> pg_sys::CustomScan {
+    pub fn build(self) -> pg_sys::CustomScan {
         self.custom_scan_node
     }
 }

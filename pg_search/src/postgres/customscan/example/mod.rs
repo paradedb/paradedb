@@ -129,6 +129,7 @@ impl CustomScan for Example {
     type State = ExampleScanState;
 
     fn callback(mut builder: CustomPathBuilder) -> Option<CustomPath> {
+        pgrx::warning!("HERE");
         unsafe {
             let rte = builder.args().rte();
 

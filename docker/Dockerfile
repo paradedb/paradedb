@@ -239,8 +239,8 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
 # In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
 # ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
 # To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
-# downloading the package lists. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
-# extension(s) when the time comes.
+# downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
+# extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
 #
 # We also uninstall `wget` after adding the PostgreSQL APT repository to the list of sources to minimize the surface area for potential security risks.
 RUN apt-get update && \

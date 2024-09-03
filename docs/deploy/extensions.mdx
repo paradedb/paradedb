@@ -71,7 +71,7 @@ sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,<extension_name>'/" /var/li
 
 Postgres must be restarted afterwards. We recommend simply restarting the Docker container.
 
-### Creating the Extension
+### Create the Extension
 
 Connect to ParadeDB via `psql` and create the extension.
 

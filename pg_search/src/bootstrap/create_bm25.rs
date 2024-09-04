@@ -398,6 +398,18 @@ fn create_bm25_impl(
         $func$ LANGUAGE plpgsql"
     ))?;
 
+    let schema_oid_query = format!(
+        "SELECT oid FROM pg_namespace WHERE nspname = {}",
+        spi::quote_literal(index_name)
+    );
+    let schema_oid = Spi::get_one::<pg_sys::Oid>(&schema_oid_query)
+        .expect("error looking up schema in create_bm25")
+        .expect("no oid for schema created in create_bm25")
+        .as_u32();
+
+    // Add the dependency between the index and schema
+    add_pg_depend_entry(pg_sys::Oid::from(index_oid), pg_sys::Oid::from(schema_oid));
+
     Spi::run(&format!(
         "SET client_min_messages TO {}",
         spi::quote_literal(original_client_min_messages)
@@ -488,4 +500,27 @@ fn index_size(index_name: &str) -> Result<i64> {
     let total_size = writer_directory.total_size()?;
 
     Ok(total_size as i64)
+}
+
+/// Function to record a dependency on an index
+fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
+    unsafe {
+        let mut dep = pg_sys::ObjectAddress {
+            classId: pg_sys::RelationRelationId,
+            objectId: index_oid,
+            objectSubId: 0,
+        };
+
+        let mut ref_dep = pg_sys::ObjectAddress {
+            classId: pg_sys::NamespaceRelationId,
+            objectId: schema_oid,
+            objectSubId: 0,
+        };
+
+        pg_sys::recordDependencyOn(
+            &mut dep,
+            &mut ref_dep,
+            pg_sys::DependencyType::DEPENDENCY_NORMAL,
+        );
+    }
 }

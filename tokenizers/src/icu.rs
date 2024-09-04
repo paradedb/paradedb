@@ -46,6 +46,9 @@ impl<'a> From<&'a str> for ICUBreakingWord<'a> {
         let ustr = &UChar::try_from(text).expect("is an encodable character");
         // Implementation from a similar fix in https://github.com/jiegec/tantivy-jieba/pull/5
         // referenced by Tantivy issue https://github.com/quickwit-oss/tantivy/issues/1134
+        // Append null byte to the end because Tantivy defines the end of a token to be the
+        // "offset of the token's last byte + 1" https://docs.rs/tantivy/latest/tantivy/tokenizer/struct.Token.html
+        // which is equivalent to "offset of the first byte of the next token."
         let mut char_indices = text.char_indices().collect::<Vec<_>>();
         char_indices.push((text.len(), '\0'));
 

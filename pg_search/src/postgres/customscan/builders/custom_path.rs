@@ -140,8 +140,8 @@ impl CustomPathBuilder {
     // convenience getters for type safety
     //
 
-    pub fn base_restrict_info(&self) -> PgList<pg_sys::RestrictInfo> {
-        unsafe { PgList::from_pg(self.args.rel().baserestrictinfo) }
+    pub fn base_restrict_info(&self) -> *mut pg_sys::List {
+        self.args.rel().baserestrictinfo
     }
 
     //

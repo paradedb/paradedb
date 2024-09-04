@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod qual_inspect;
+
 use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
@@ -24,6 +26,7 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::example::qual_inspect::extract_quals;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::port::executor_h::ExecProject;
 use crate::postgres::customscan::{node, CustomScan, CustomScanState};
@@ -143,50 +146,52 @@ impl CustomScan for Example {
 
             // and that relation must have a `USING bm25` index
             let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
-            let mut quals = Vec::new();
+            // let mut quals = Vec::new();
 
             //
             // look for quals we can support
             //
-            for ri in builder.base_restrict_info().iter_ptr() {
-                if let Some(clause) =
-                    node::<pg_sys::OpExpr>((*ri).clause.cast(), pg_sys::NodeTag::T_OpExpr)
-                {
-                    // this is just hacky code for testing.
-                    //
-                    // matches:  text_field = 'string value'
-                    if (*clause).opno == pg_sys::Oid::from(pg_sys::TextEqualOperator) {
-                        let args = PgList::<pg_sys::Node>::from_pg((*clause).args);
-                        if args.len() == 2 {
-                            let first = args.get_ptr(0).unwrap();
-                            let second = args.get_ptr(1).unwrap();
+            let quals = extract_quals(builder.base_restrict_info().cast());
+            pgrx::warning!("{quals:#?}");
+            // for ri in builder.base_restrict_info().iter_ptr() {
+            //     if let Some(clause) =
+            //         node::<pg_sys::OpExpr>((*ri).clause.cast(), pg_sys::NodeTag::T_OpExpr)
+            //     {
+            //         // this is just hacky code for testing.
+            //         //
+            //         // matches:  text_field = 'string value'
+            //         if (*clause).opno == pg_sys::Oid::from(pg_sys::TextEqualOperator) {
+            //             let args = PgList::<pg_sys::Node>::from_pg((*clause).args);
+            //             if args.len() == 2 {
+            //                 let first = args.get_ptr(0).unwrap();
+            //                 let second = args.get_ptr(1).unwrap();
+            //
+            //                 if let (Some(first), Some(second)) = (
+            //                     node::<pg_sys::Var>(first.cast(), pg_sys::NodeTag::T_Var),
+            //                     node::<pg_sys::Const>(second.cast(), pg_sys::NodeTag::T_Const),
+            //                 ) {
+            //                     if (*second).consttype == pg_sys::TEXTOID {
+            //                         quals.push((first, second))
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
 
-                            if let (Some(first), Some(second)) = (
-                                node::<pg_sys::Var>(first.cast(), pg_sys::NodeTag::T_Var),
-                                node::<pg_sys::Const>(second.cast(), pg_sys::NodeTag::T_Const),
-                            ) {
-                                if (*second).consttype == pg_sys::TEXTOID {
-                                    quals.push((first, second))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if !quals.is_empty() {
-                builder = builder
-                    .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast());
-
-                for (var, const_val) in quals {
-                    builder = builder
-                        .add_private_data(var.cast())
-                        .add_private_data(const_val.cast());
-                }
-
-                return Some(builder.set_flag(Flags::Projection).build());
-            }
+            // if !quals.is_empty() {
+            //     builder = builder
+            //         .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
+            //         .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast());
+            //
+            //     for (var, const_val) in quals {
+            //         builder = builder
+            //             .add_private_data(var.cast())
+            //             .add_private_data(const_val.cast());
+            //     }
+            //
+            //     return Some(builder.set_flag(Flags::Projection).build());
+            // }
         }
 
         None

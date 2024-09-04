@@ -755,11 +755,10 @@ async fn json_array_mixed_data(mut conn: PgConnection) {
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
-    // Searching for numbers in an array isn't supported by Tantivy. No result will be returned.
     let columns: SimpleProductsTableVec =
         "SELECT * FROM bm25_search.search('metadata.attributes:4', stable_sort => true)"
             .fetch_collect(&mut conn);
-    assert!(columns.id.is_empty());
+    assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
         "SELECT * FROM bm25_search.search('metadata.attributes:true', stable_sort => true)"

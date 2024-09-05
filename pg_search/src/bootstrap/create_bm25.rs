@@ -398,17 +398,8 @@ fn create_bm25_impl(
         $func$ LANGUAGE plpgsql"
     ))?;
 
-    let schema_oid_query = format!(
-        "SELECT oid FROM pg_namespace WHERE nspname = {}",
-        spi::quote_literal(index_name)
-    );
-    let schema_oid = Spi::get_one::<pg_sys::Oid>(&schema_oid_query)
-        .expect("error looking up schema in create_bm25")
-        .expect("no oid for schema created in create_bm25")
-        .as_u32();
-
     // Add the dependency between the index and schema
-    add_pg_depend_entry(pg_sys::Oid::from(index_oid), pg_sys::Oid::from(schema_oid));
+    add_pg_depend_entry(pg_sys::Oid::from(index_oid), pg_relation.namespace_oid());
 
     Spi::run(&format!(
         "SET client_min_messages TO {}",

@@ -1,0 +1,31 @@
+---
+title: 0.9.4
+---
+
+## pg_search
+
+### Bug Fixes
+
+- Fixed an out-of-bound issue when using the `snippet` functionality over fields tokenized via the ICU tokenizer.
+
+### New Features
+
+- Shortened query times in half in scenarios where `stable_sort = false`.
+- Added a `paradedb.tokenize()` function that lists available tokenizers and can display tokens. This function is helpful for picking the right tokenizer for your use case.
+
+## pg_analytics
+
+### New Features
+
+- Added support for the JSON & JSONB datatypes.
+- Added support for `DATE_TRUNC()` queries.
+
+## ParadeDB
+
+### New Features
+
+- Added documentation for installing PostGIS and other third party Postgres extensions inside ParadeDB.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.9.4).

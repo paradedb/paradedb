@@ -73,7 +73,7 @@
       "url": "changelog"
     }
   ],
-  "versions": ["v0.9.3"],
+  "versions": ["v0.9.4"],
   "navigation": [
     {
       "group": "Welcome",
@@ -172,6 +172,7 @@
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.9.4",
         "changelog/0.9.3",
         "changelog/0.9.2",
         "changelog/0.9.1",

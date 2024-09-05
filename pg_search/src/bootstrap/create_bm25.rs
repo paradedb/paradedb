@@ -460,7 +460,7 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
             SELECT INTO original_client_min_messages current_setting('client_min_messages');
             SET client_min_messages TO WARNING;
 
-            EXECUTE 'DROP INDEX IF EXISTS {}.{}'; 
+            EXECUTE 'DROP INDEX IF EXISTS {}.{} CASCADE'; 
             EXECUTE 'DROP SCHEMA IF EXISTS {} CASCADE';
             EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
         END;
@@ -502,24 +502,31 @@ fn index_size(index_name: &str) -> Result<i64> {
     Ok(total_size as i64)
 }
 
-/// Function to record a dependency on an index
 fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
     unsafe {
-        let mut dep = pg_sys::ObjectAddress {
+        let mut index_dep = pg_sys::ObjectAddress {
             classId: pg_sys::RelationRelationId,
             objectId: index_oid,
             objectSubId: 0,
         };
 
-        let mut ref_dep = pg_sys::ObjectAddress {
+        let mut schema_dep = pg_sys::ObjectAddress {
             classId: pg_sys::NamespaceRelationId,
             objectId: schema_oid,
             objectSubId: 0,
         };
 
+        // Create dependency from index to schema
         pg_sys::recordDependencyOn(
-            &mut dep,
-            &mut ref_dep,
+            &mut index_dep,
+            &mut schema_dep,
+            pg_sys::DependencyType::DEPENDENCY_NORMAL,
+        );
+
+        // Create dependency from schema to index
+        pg_sys::recordDependencyOn(
+            &mut schema_dep,
+            &mut index_dep,
             pg_sys::DependencyType::DEPENDENCY_NORMAL,
         );
     }

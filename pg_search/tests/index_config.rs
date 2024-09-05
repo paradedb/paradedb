@@ -699,3 +699,32 @@ fn drop_index_cascades_schema(mut conn: PgConnection) {
         "Schema was not dropped after dropping index"
     );
 }
+
+#[rstest]
+fn drop_table_cascades_bm25_schema(mut conn: PgConnection) {
+    // Create the test table and BM25 index
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut conn);
+
+    // Drop the table and check if the index schema is dropped
+    "DROP TABLE paradedb.index_config CASCADE;".execute(&mut conn);
+
+    let schema_exists =
+        "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'index_config');"
+            .fetch_one::<(bool,)>(&mut conn)
+            .0;
+
+    assert!(
+        !schema_exists,
+        "BM25 index schema was not dropped after dropping the table"
+    );
+}

@@ -197,7 +197,7 @@ COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-p
 # Switch to root for configuring runtime dependencies
 USER root
 
-# Required for pg_analytics, pg_cron
+# Required for pg_analytics and pg_cron
 #
 # If a user connects to ParadeDB with the superuser, the DuckDB folder will be created in the user's home directory. If
 # the user connects with the postgres user, the DuckDB folder will be created in the /var/lib/postgresql directory. We
@@ -206,7 +206,8 @@ RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
     mkdir /var/lib/postgresql/.duckdb/ && \
     chmod -R a+rwX /var/lib/postgresql/.duckdb/
 
-# Installs Barman Cloud and its dependencies for Azure, Google, and AWS via PIP and cleans up the installation.
+# Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
+# minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \
@@ -234,6 +235,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # stable, always-available database for its operations, no matter what other databases are created or deleted.
 RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_analytics,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
+
+# In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
+# ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
+# To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
+# downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
+# extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
+#
+# We also uninstall `wget` after adding the PostgreSQL APT repository to the list of sources to minimize the surface area for potential security risks.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget && \
+    echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
+    wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
+    apt-get purge -y wget && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
 
 # Change the uid of the postgres user to 26, for CloudNativePG compatibility
 RUN usermod -u 26 postgres \

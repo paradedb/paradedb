@@ -399,7 +399,9 @@ fn create_bm25_impl(
     ))?;
 
     // Add the dependency between the index and schema
-    add_pg_depend_entry(pg_sys::Oid::from(index_oid), pg_relation.namespace_oid());
+    unsafe {
+        add_pg_depend_entry(pg_sys::Oid::from(index_oid), pg_relation.namespace_oid());
+    }
 
     Spi::run(&format!(
         "SET client_min_messages TO {}",
@@ -493,7 +495,7 @@ fn index_size(index_name: &str) -> Result<i64> {
     Ok(total_size as i64)
 }
 
-fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
+unsafe fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
     unsafe {
         let index_dep = pg_sys::ObjectAddress {
             classId: pg_sys::RelationRelationId,
@@ -521,4 +523,6 @@ fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
             pg_sys::DependencyType::DEPENDENCY_NORMAL,
         );
     }
+
+    pg_sys::CommandCounterIncrement();
 }

@@ -503,6 +503,9 @@ fn index_size(index_name: &str) -> Result<i64> {
 }
 
 fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
+    // SAFETY:  The calls to [`pg_sys::recordDependencyOn`] are unsafe purely because of FFI.
+    //    They operate on const pointers, which we stack allocate, and will raise their own ERRORs
+    //    should they fail.
     unsafe {
         let index_dep = pg_sys::ObjectAddress {
             classId: pg_sys::RelationRelationId,

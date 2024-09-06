@@ -645,20 +645,20 @@ fn partitioned_index(mut conn: PgConnection) {
 #[rstest]
 fn drop_schema_cascades_index(mut conn: PgConnection) {
     // Test that dropping a schema cascades to drop the index as well
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
         index_name => 'index_config',
         table_name => 'index_config',
-        schema_name => 'paradedb',
+        schema_name => 'public',
         key_field => 'id',
         text_fields => paradedb.field('description')
     )"
     .execute(&mut conn);
 
     // Drop the schema and ensure the index is also dropped
-    "DROP SCHEMA paradedb CASCADE".execute(&mut conn);
+    "DROP SCHEMA index_config CASCADE".execute(&mut conn);
 
     let index_exists =
         "SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'index_config_bm25_index');"
@@ -674,20 +674,20 @@ fn drop_schema_cascades_index(mut conn: PgConnection) {
 #[rstest]
 fn drop_index_cascades_schema(mut conn: PgConnection) {
     // Test that dropping an index cascades to drop the schema as well
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
         index_name => 'index_config',
         table_name => 'index_config',
-        schema_name => 'paradedb',
+        schema_name => 'public',
         key_field => 'id',
         text_fields => paradedb.field('description')
     )"
     .execute(&mut conn);
 
     // Drop the index and ensure the schema is also dropped
-    "DROP INDEX paradedb.index_config_bm25_index CASCADE".execute(&mut conn);
+    "DROP INDEX public.index_config_bm25_index CASCADE".execute(&mut conn);
 
     let schema_exists =
         "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'index_config');"
@@ -703,20 +703,20 @@ fn drop_index_cascades_schema(mut conn: PgConnection) {
 #[rstest]
 fn drop_table_cascades_bm25_schema(mut conn: PgConnection) {
     // Create the test table and BM25 index
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
         index_name => 'index_config',
         table_name => 'index_config',
-        schema_name => 'paradedb',
+        schema_name => 'public',
         key_field => 'id',
         text_fields => paradedb.field('description')
     )"
     .execute(&mut conn);
 
     // Drop the table and check if the index schema is dropped
-    "DROP TABLE paradedb.index_config CASCADE;".execute(&mut conn);
+    "DROP TABLE public.index_config CASCADE;".execute(&mut conn);
 
     let schema_exists =
         "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'index_config');"

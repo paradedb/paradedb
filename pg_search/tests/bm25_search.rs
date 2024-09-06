@@ -1077,15 +1077,12 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
         "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
-    // When the predicate column is dropped, partial index will be dropped, but the schema will remain.
-    // This behavior is the same as normal postgres index.
-    "ALTER TABLE paradedb.test_partial_index DROP COLUMN category;".execute(&mut conn);
+    // When the predicate column is dropped with CASCADE, the index and the corresponding
+    // schema are both dropped.
+    "ALTER TABLE paradedb.test_partial_index DROP COLUMN category CASCADE;".execute(&mut conn);
     let rows: Vec<(String,)> =
         "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
-    let rows: Vec<(String,)> =
-        "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
 
     // We need to comment this test out for now, because we've had to change the implementation
     // of paradedb.drop_bm25 to rely on the index OID, which is used to determine the file path

@@ -79,13 +79,26 @@
       "group": "Welcome",
       "pages": [
         "welcome/introduction",
+        {
+          "group": "Getting Started",
+          "pages": [
+            "welcome/install",
+            "welcome/quickstart"
+          ]
+        },
         "welcome/support"
       ]
     },
     {
       "group": "API",
       "pages": [
-        "api-reference/quickstart",
+        {
+          "group": "BM25 Index",
+          "pages": [
+            "api-reference/indexing/overview",
+            "api-reference/indexing/tokenizers"
+          ]
+        },
         {
           "group": "Full Text Search",
           "pages": [
@@ -144,6 +157,7 @@
             "ingest/object_stores/s3"
           ]
         },
+        "ingest/postgres",
         {
           "group": "Configuration",
           "pages": [

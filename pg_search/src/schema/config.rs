@@ -15,11 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::JsonB;
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::query::SearchQueryInput;
+use pgrx::pg_sys::Relation;
+use pgrx::{pg_sys, JsonB, PgRelation};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer};
 use std::str::FromStr;
-
-use crate::query::SearchQueryInput;
 
 #[derive(Debug, Deserialize, Default, Clone, PartialEq)]
 pub struct SearchConfig {
@@ -127,6 +128,36 @@ where
         }
 
         Ok(output)
+    }
+}
+
+pub type IndexRelation = PgRelation;
+
+impl From<(String, IndexRelation)> for SearchConfig {
+    fn from(value: (String, IndexRelation)) -> Self {
+        let (query, indexrel) = value;
+        let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
+        let ops = unsafe { ops.as_ref().expect("indexrel.rd_options must not be null") };
+
+        SearchConfig {
+            query: SearchQueryInput::Parse {
+                query_string: query,
+            },
+            index_name: indexrel.name().to_string(),
+            index_oid: indexrel.oid().as_u32(),
+            table_oid: indexrel.heap_relation().unwrap().oid().as_u32(),
+            key_field: ops.get_key_field().unwrap().to_string(),
+            offset_rows: None,
+            limit_rows: None,
+            max_num_chars: None,
+            highlight_field: None,
+            prefix: None,
+            postfix: None,
+            stable_sort: Some(false), // for speed
+            uuid: ops.get_uuid().unwrap(),
+            order_by_field: None,
+            order_by_direction: None,
+        }
     }
 }
 

@@ -20,12 +20,12 @@ use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use std::sync::Arc;
-use tantivy::collector::TopDocs;
+use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
 use tantivy::schema::FieldType;
-use tantivy::{query::Query, DocAddress, DocId, Score, Searcher};
-use tantivy::{snippet::SnippetGenerator, Executor};
+use tantivy::{query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal};
+use tantivy::{Executor, SnippetGenerator};
 
 /// An iterator of the different styles of search results we can return
 pub enum SearchResults {
@@ -235,6 +235,33 @@ impl SearchState {
             )
             .expect("failed to search")
             .into_iter()
+    }
+
+    pub fn estimate_docs(&self) -> Option<usize> {
+        let readers = self.searcher.segment_readers();
+        let (ordinal, largest_reader) = readers
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, reader)| reader.num_docs())?;
+
+        let collector = tantivy::collector::Count;
+        let schema = self.schema.schema.clone();
+        let weight = self
+            .query
+            .as_ref()
+            .weight(tantivy::query::EnableScoring::Disabled {
+                schema: &schema,
+                searcher_opt: Some(&self.searcher),
+            })
+            .expect("creating a Weight from a Query should not fail");
+
+        let count = collector
+            .collect_segment(weight.as_ref(), ordinal as SegmentOrdinal, largest_reader)
+            .expect("counting docs in the largest segment should not fail");
+        let segment_doc_proportion =
+            largest_reader.num_docs() as f64 / self.searcher.num_docs() as f64;
+
+        Some((count as f64 / segment_doc_proportion).ceil() as usize)
     }
 }
 

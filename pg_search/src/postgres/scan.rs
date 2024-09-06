@@ -18,6 +18,7 @@
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
+use crate::postgres::ScanStrategy;
 use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::itemptr::u64_to_item_pointer;
@@ -59,14 +60,40 @@ pub extern "C" fn amrescan(
     let nkeys = nkeys as usize;
     let keys = unsafe { std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys) };
 
-    // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
-    let config_jsonb = unsafe {
-        JsonB::from_datum(keys[0].sk_argument, false)
-            .expect("failed to convert query to tuple of strings")
-    };
+    let search_config = match ScanStrategy::try_from(keys[0].sk_strategy).expect("invalid strategy")
+    {
+        ScanStrategy::SearchConfigJson if keys.len() > 1 => {
+            panic!("the SearchConfigJson strategy only supports one scan key")
+        }
+        ScanStrategy::SearchConfigJson => {
+            // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
+            unsafe {
+                SearchConfig::from_jsonb(
+                    JsonB::from_datum(keys[0].sk_argument, false)
+                        .expect("failed to convert query to tuple of strings"),
+                )
+                .expect("could not parse search config")
+            }
+        }
+        ScanStrategy::TextQuery => unsafe {
+            // Directly create a SearchConfig by building a query of ANDed scan keys
+            let mut query = String::new();
+            for key in keys {
+                if !query.is_empty() {
+                    query.push_str(" AND ");
+                }
 
-    let search_config =
-        SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
+                if let Some(clause) = String::from_datum(key.sk_argument, false) {
+                    query.push('(');
+                    query.push_str(&clause);
+                    query.push(')');
+                }
+            }
+
+            let indexrel = PgRelation::from_pg(scan.indexRelation);
+            SearchConfig::from((query, indexrel))
+        },
+    };
 
     // Create the index and scan state
     let index_oid = unsafe { (*scan.indexRelation).rd_id.as_u32() };
@@ -83,6 +110,7 @@ pub extern "C" fn amrescan(
         let state = search_index
             .search_state(&writer_client, &search_config, needs_commit(index_oid))
             .unwrap();
+
         let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
 
         // SAFETY:  `leak_and_drop_on_delete()` gave us a non-null, aligned pointer to the SearchState
@@ -109,23 +137,48 @@ pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
-    let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
         // amrescan, which is always called prior to this function
-        scan.opaque.cast::<SearchResultIter>().as_mut()
+        (*scan).opaque.cast::<SearchResultIter>().as_mut()
     }
-    .expect("no scandesc state");
+    .expect("no scan.opaque state");
 
-    scan.xs_recheck = false;
+    unsafe {
+        (*scan).xs_recheck = false;
+    }
 
     match iter.next() {
         Some((scored, _)) => {
-            let tid = &mut scan.xs_heaptid;
+            let tid = unsafe { &mut (*scan).xs_heaptid };
             u64_to_item_pointer(scored.ctid, tid);
 
             true
         }
         None => false,
     }
+}
+
+#[pg_guard]
+pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
+    let iter = unsafe {
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
+        // amrescan, which is always called prior to this function
+        (*scan).opaque.cast::<SearchResultIter>().as_mut()
+    }
+    .expect("no scan.opaque state");
+
+    let mut cnt = 0i64;
+    for (scored, _) in iter {
+        let mut tid = pg_sys::ItemPointerData::default();
+        u64_to_item_pointer(scored.ctid, &mut tid);
+
+        unsafe {
+            pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
+        }
+
+        cnt += 1;
+    }
+
+    cnt
 }

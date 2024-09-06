@@ -324,5 +324,9 @@ unsafe fn build_callback_internal(
                 .expect("could not register commit callbacks for build operation");
         });
         state.memctx.reset();
+
+        // important to count the number of items we've indexed for proper statistics updates,
+        // especially after CREATE INDEX has finished
+        state.count += 1;
     }
 }

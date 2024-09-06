@@ -21,6 +21,20 @@ use crate::writer::IndexError;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::*;
 
+pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
+    unsafe {
+        let heaprel = PgRelation::open(heaprelid);
+        for index in heaprel.indices(pg_sys::AccessShareLock as _) {
+            if !(index.rd_indam.is_null())
+                && (*index.rd_indam).ambuild == Some(crate::postgres::build::ambuild)
+            {
+                return Some(index);
+            }
+        }
+        None
+    }
+}
+
 pub unsafe fn row_to_search_document(
     ctid: pg_sys::ItemPointerData,
     tupdesc: &PgTupleDesc,

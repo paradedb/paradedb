@@ -21,6 +21,8 @@ use crate::writer::IndexError;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::*;
 
+/// Finds and returns the first `USING bm25` index on the specified relation, or [`None`] if there
+/// aren't any
 pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
     unsafe {
         let heaprel = PgRelation::open(heaprelid);

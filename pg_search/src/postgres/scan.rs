@@ -19,6 +19,7 @@ use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
 use crate::postgres::ScanStrategy;
+use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::itemptr::u64_to_item_pointer;
@@ -62,21 +63,48 @@ pub extern "C" fn amrescan(
 
     let search_config = match ScanStrategy::try_from(keys[0].sk_strategy).expect("invalid strategy")
     {
-        ScanStrategy::SearchConfigJson if keys.len() > 1 => {
-            panic!("the SearchConfigJson strategy only supports one scan key")
-        }
-        ScanStrategy::SearchConfigJson => {
-            // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
-            unsafe {
-                SearchConfig::from_jsonb(
-                    JsonB::from_datum(keys[0].sk_argument, false)
+        // Build a Boolean "must" set of each query from the scan keys, using the first one's JSONB
+        // definition as the overall SearchConfig
+        ScanStrategy::SearchConfigJson if keys.len() > 1 => unsafe {
+            let mut queries = Vec::with_capacity(nkeys);
+
+            for key in keys {
+                let next = SearchConfig::from_jsonb(
+                    JsonB::from_datum(key.sk_argument, false)
                         .expect("failed to convert query to tuple of strings"),
                 )
-                .expect("could not parse search config")
+                .expect("could not parse search config");
+
+                queries.push(next.query);
             }
-        }
+
+            let boolean = SearchQueryInput::Boolean {
+                must: queries,
+                should: vec![],
+                must_not: vec![],
+            };
+
+            let mut search_config = SearchConfig::from_jsonb(
+                JsonB::from_datum(keys[0].sk_argument, false)
+                    .expect("failed to convert query to tuple of strings"),
+            )
+            .expect("could not parse search config");
+
+            search_config.query = boolean;
+            search_config
+        },
+
+        // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
+        ScanStrategy::SearchConfigJson => unsafe {
+            SearchConfig::from_jsonb(
+                JsonB::from_datum(keys[0].sk_argument, false)
+                    .expect("failed to convert query to tuple of strings"),
+            )
+            .expect("could not parse search config")
+        },
+
+        // Directly create a SearchConfig by building a query of ANDed scan keys
         ScanStrategy::TextQuery => unsafe {
-            // Directly create a SearchConfig by building a query of ANDed scan keys
             let mut query = String::new();
             for key in keys {
                 if !query.is_empty() {

@@ -19,10 +19,10 @@ use crate::postgres::options::SearchIndexCreateOptions;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::Relation;
 use pgrx::{pg_sys, JsonB, PgRelation};
-use serde::{de::DeserializeOwned, Deserialize, Deserializer};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::str::FromStr;
 
-#[derive(Debug, Deserialize, Default, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 pub struct SearchConfig {
     pub query: SearchQueryInput,
     pub index_name: String,

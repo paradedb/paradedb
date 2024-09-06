@@ -87,8 +87,8 @@ The following options can be passed into `CREATE USER MAPPING`:
 
 ## Credential Chain Provider
 
-The `CREDENTIAL_CHAIN` provider can automatically fetch credentials using mechanisms provided by the AWS SDK.
-This is useful for reading credentials stored in your environment.
+Providing credentials via `key_id` and `secret` requires permanent AWS IAM/Identity Center keys. The `CREDENTIAL_CHAIN` provider can
+automatically fetch ephemeral credentials using mechanisms provided by the AWS SDK.
 
 ```sql
 CREATE USER MAPPING FOR <current_user>

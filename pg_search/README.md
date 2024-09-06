@@ -215,7 +215,7 @@ If you prefer to use a different version of Postgres, update the `--pg` flag acc
 
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
-`pgrx` requires `libclang`. To install it:
+`pgrx` requires `libclang`, which does not come by default on Linux. To install it:
 
 ```bash
 # Ubuntu

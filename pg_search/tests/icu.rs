@@ -162,3 +162,26 @@ fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
 
     assert_eq!(columns.id, vec![1]);
 }
+
+#[rstest]
+fn test_icu_snippet(mut conn: PgConnection) {
+    IcuArabicPostsTable::setup().execute(&mut conn);
+    r#"
+    CALL paradedb.create_bm25(
+	    index_name => 'idx_arabic',
+	    table_name => 'icu_arabic_posts',
+	    key_field => 'id',
+	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
+                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
+                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
+    )"#
+    .execute(&mut conn);
+
+    let columns: Vec<(i32, String)> =
+        r#"SELECT id, snippet FROM idx_arabic.snippet('title:"السوق"', highlight_field => 'title')"#
+            .fetch(&mut conn);
+    assert_eq!(
+        columns,
+        vec![(2, "رحلة إلى <b>السوق</b> مع أبي".to_string())]
+    );
+}

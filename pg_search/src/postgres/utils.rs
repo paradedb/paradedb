@@ -19,11 +19,10 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
 use pgrx::itemptr::item_pointer_get_block_number;
-use pgrx::pg_sys::{Buffer, BuiltinOid, ItemPointerData};
 use pgrx::*;
 
 pub unsafe fn row_to_search_document(
-    ctid: ItemPointerData,
+    ctid: pg_sys::ItemPointerData,
     tupdesc: &PgTupleDesc,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
@@ -54,7 +53,7 @@ pub unsafe fn row_to_search_document(
 
         let is_json = matches!(
             base_oid,
-            PgOid::BuiltIn(BuiltinOid::JSONBOID | BuiltinOid::JSONOID)
+            PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
         );
 
         let datum = *values.add(attno);
@@ -97,7 +96,6 @@ pub unsafe fn row_to_search_document(
 pub struct VisibilityChecker {
     relation: pg_sys::Relation,
     snapshot: pg_sys::Snapshot,
-    last_blockno: pg_sys::BlockNumber,
     last_buffer: pg_sys::Buffer,
     ipd: pg_sys::ItemPointerData,
 }
@@ -106,8 +104,9 @@ impl Drop for VisibilityChecker {
     fn drop(&mut self) {
         unsafe {
             if self.last_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::UnlockReleaseBuffer(self.last_buffer);
+                pg_sys::ReleaseBuffer(self.last_buffer);
             }
+
             // SAFETY:  `self.relation` is always a valid, open relation, created via `pg_sys::RelationGetRelation`
             pg_sys::RelationClose(self.relation);
         }
@@ -126,7 +125,6 @@ impl VisibilityChecker {
             Self {
                 relation: pg_sys::RelationIdGetRelation(relid),
                 snapshot: pg_sys::GetTransactionSnapshot(),
-                last_blockno: pg_sys::InvalidBlockNumber,
                 last_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 ipd: pg_sys::ItemPointerData::default(),
             }
@@ -142,24 +140,18 @@ impl VisibilityChecker {
 
             let blockno = item_pointer_get_block_number(&self.ipd);
 
-            if blockno == self.last_blockno {
-                // this ctid is on the buffer we already have locked
-                return self.check_page_vis(self.last_buffer);
-            } else if self.last_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                // this ctid is on a different buffer, so release the one we've got locked
-                pg_sys::UnlockReleaseBuffer(self.last_buffer);
-            }
+            self.last_buffer =
+                pg_sys::ReleaseAndReadBuffer(self.last_buffer, self.relation, blockno);
 
-            self.last_blockno = blockno;
-            self.last_buffer = pg_sys::ReadBuffer(self.relation, self.last_blockno);
-
-            pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
-
-            self.check_page_vis(self.last_buffer)
+            pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
+            let found = self.check_page_vis(self.last_buffer);
+            pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+            found
         }
     }
 
-    unsafe fn check_page_vis(&mut self, buffer: Buffer) -> bool {
+    #[inline(always)]
+    unsafe fn check_page_vis(&mut self, buffer: pg_sys::Buffer) -> bool {
         unsafe {
             let mut heap_tuple = pg_sys::HeapTupleData::default();
 

@@ -27,7 +27,7 @@ pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
     unsafe {
         let heaprel = PgRelation::open(heaprelid);
         for index in heaprel.indices(pg_sys::AccessShareLock as _) {
-            if !(index.rd_indam.is_null())
+            if !index.rd_indam.is_null()
                 && (*index.rd_indam).ambuild == Some(crate::postgres::build::ambuild)
             {
                 return Some(index);

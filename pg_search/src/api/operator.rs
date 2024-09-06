@@ -22,18 +22,15 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
-use lazy_static::lazy_static;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
-use pgrx::pg_sys::{lookup_type_cache, planner_rt_fetch, rt_fetch, Oid};
+use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
 use pgrx::*;
 use rustc_hash::FxHashSet;
-use std::collections::HashMap;
 use std::ptr::NonNull;
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 const UNKNOWN_SELECTIVITY: f64 = 0.00001;
 
@@ -67,7 +64,7 @@ fn search_tantivy_text(
     query: &str,
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> bool {
-    panic!("query is incompatible with pg_search's `@@@(key_field, TEXT)` operator")
+    panic!("query is incompatible with pg_search's `@@@(key_field, TEXT)` operator: `{query}`")
 }
 
 #[pg_extern]
@@ -215,9 +212,9 @@ fn search_tantivy_restrict(
     planner_info: Internal, // <pg_sys::PlannerInfo>,
     operator_oid: pg_sys::Oid,
     args: Internal, // <pg_sys::List>,
-    var_relid: i32,
+    _var_relid: i32,
 ) -> f64 {
-    fn estimate_selectivity(heaprelid: Oid, search_config: &SearchConfig) -> Option<f64> {
+    fn estimate_selectivity(heaprelid: pg_sys::Oid, search_config: &SearchConfig) -> Option<f64> {
         let directory = WriterDirectory::from_index_oid(search_config.index_oid);
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
@@ -298,32 +295,21 @@ fn search_tantivy_restrict(
         }
     }
 
-    unsafe {
-        let mut selectivity = if anyelement_text_opoid() == operator_oid {
-            inner_text(planner_info, args).unwrap_or(UNKNOWN_SELECTIVITY)
-        } else if anyelement_jsonb_opoid() == operator_oid {
-            inner_jsonb(planner_info, args).unwrap_or(UNKNOWN_SELECTIVITY)
-        } else {
-            UNKNOWN_SELECTIVITY
-        };
+    let mut selectivity = if anyelement_text_opoid() == operator_oid {
+        inner_text(planner_info, args).unwrap_or(UNKNOWN_SELECTIVITY)
+    } else if anyelement_jsonb_opoid() == operator_oid {
+        inner_jsonb(planner_info, args).unwrap_or(UNKNOWN_SELECTIVITY)
+    } else {
+        UNKNOWN_SELECTIVITY
+    };
 
-        if selectivity > 1.0 {
-            selectivity = UNKNOWN_SELECTIVITY;
-        }
-
-        selectivity
+    if selectivity > 1.0 {
+        selectivity = UNKNOWN_SELECTIVITY;
     }
+
+    selectivity
 }
 
-fn anyelement_text_procoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"paradedb.search_tantivy_text(anyelement, text)".into_datum()],
-        )
-        .expect("the `paradedb.search_tantivy_text(anyelement, text)` function should exist")
-    }
-}
 fn anyelement_jsonb_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(

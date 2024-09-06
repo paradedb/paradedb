@@ -17,8 +17,7 @@
 
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::query::SearchQueryInput;
-use pgrx::pg_sys::Relation;
-use pgrx::{pg_sys, JsonB, PgRelation};
+use pgrx::{JsonB, PgRelation};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::str::FromStr;
 

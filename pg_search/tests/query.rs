@@ -1029,13 +1029,47 @@ fn lenient_config_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // Test lenient configuration: lenient flag enabled, should allow for minor errors like typos
+    let result = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.parse('descriptioNN:teddy'),
+    );
+    "#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_term(field => 'category', value => 'elector'),
-        lenient_parsing => true,
-        stable_sort => true
-    )"#
+        query => paradedb.parse('descriptioNN:teddy'),
+        lenient_parsing => true
+    );
+    "#
     .fetch_collect(&mut conn);
 
-    assert_eq!(columns.len(), 4);
+    assert!(columns.is_empty());
+}
+
+#[rstest]
+fn conjunction_config_search(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let mut columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        'description:keyboard rating:>2',
+        conjunction_by_default => true,
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(columns.len(), 2);
+
+    columns = r#"
+    SELECT * FROM bm25_search.search(
+        'description:keyboard rating:>2'
+    );
+    "#
+    .fetch_collect(&mut conn);
+
+    assert!(columns.len() > 2);
 }

@@ -66,6 +66,7 @@ fn anyelement_jsonb_procoid() -> pg_sys::Oid {
         .expect("the `paradedb.search_with_search_config(anyelement, jsonb) function should exist")
     }
 }
+
 fn anyelement_text_opoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -73,6 +74,16 @@ fn anyelement_text_opoid() -> pg_sys::Oid {
             &[c"@@@(anyelement, text)".into_datum()],
         )
         .expect("the `@@@(anyelement, text)` operator should exist")
+    }
+}
+
+fn anyelement_query_input_opoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regoperatorin,
+            &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
+        )
+        .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist")
     }
 }
 
@@ -114,6 +125,7 @@ extension_sql!(
     r#"
 ALTER FUNCTION paradedb.search_with_search_config SUPPORT paradedb.search_config_support;
 ALTER FUNCTION paradedb.search_with_text SUPPORT paradedb.text_support;
+ALTER FUNCTION paradedb.search_with_query_input SUPPORT paradedb.query_input_support;
 
 CREATE OPERATOR pg_catalog.@@@ (
     PROCEDURE = search_with_search_config,
@@ -129,9 +141,17 @@ CREATE OPERATOR pg_catalog.@@@ (
     RESTRICT = text_restrict
 );
 
+CREATE OPERATOR pg_catalog.@@@ (
+    PROCEDURE = search_with_query_input,
+    LEFTARG = anyelement,
+    RIGHTARG = paradedb.searchqueryinput,
+    RESTRICT = query_input_restrict
+);
+
 CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25 AS
     OPERATOR 1 pg_catalog.@@@(anyelement, jsonb),                        /* for querying with a full SearchConfig jsonb object */
     OPERATOR 2 pg_catalog.@@@(anyelement, text),                         /* for querying with a tantivy-compatible text query */
+    OPERATOR 3 pg_catalog.@@@(anyelement, paradedb.searchqueryinput),    /* for querying with a paradedb.searchqueryinput structure */
     STORAGE anyelement;
 
 "#,
@@ -145,5 +165,9 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
         text::search_with_text,
         text::text_restrict,
         text::text_support,
+        // for using SearchQueryInput on the rhs
+        searchqueryinput::search_with_query_input,
+        searchqueryinput::query_input_restrict,
+        searchqueryinput::query_input_support,
     ]
 );

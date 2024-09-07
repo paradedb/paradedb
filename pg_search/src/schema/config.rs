@@ -135,13 +135,18 @@ pub type IndexRelation = PgRelation;
 impl From<(String, IndexRelation)> for SearchConfig {
     fn from(value: (String, IndexRelation)) -> Self {
         let (query, indexrel) = value;
+        SearchConfig::from((SearchQueryInput::Parse(query), indexrel))
+    }
+}
+
+impl From<(SearchQueryInput, IndexRelation)> for SearchConfig {
+    fn from(value: (SearchQueryInput, IndexRelation)) -> Self {
+        let (query, indexrel) = value;
         let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
         let ops = unsafe { ops.as_ref().expect("indexrel.rd_options must not be null") };
 
         SearchConfig {
-            query: SearchQueryInput::Parse {
-                query_string: query,
-            },
+            query,
             index_name: indexrel.name().to_string(),
             index_oid: indexrel.oid().as_u32(),
             table_oid: indexrel.heap_relation().unwrap().oid().as_u32(),

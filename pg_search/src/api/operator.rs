@@ -21,10 +21,13 @@ mod text;
 
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
+use crate::postgres::utils::locate_bm25_index;
+use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
+use pgrx::pg_sys::{planner_rt_fetch, Node, SupportRequestSimplify};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
@@ -119,6 +122,83 @@ fn estimate_selectivity(heaprelid: pg_sys::Oid, search_config: &SearchConfig) ->
     }
 
     Some(selectivity)
+}
+
+unsafe fn make_new_opexpr_node(
+    srs: *mut SupportRequestSimplify,
+    input_args: &mut PgList<Node>,
+    var: *mut pg_sys::Var,
+    query: SearchQueryInput,
+) -> ReturnedNodePointer {
+    // we're about to fabricate a new pg_sys::OpExpr node to return
+    // that represents the `@@@(anyelement, jsonb)` operator
+    let mut newopexpr = pg_sys::OpExpr {
+        xpr: pg_sys::Expr {
+            type_: pg_sys::NodeTag::T_OpExpr,
+        },
+        opno: anyelement_jsonb_opoid(),
+        opfuncid: anyelement_jsonb_procoid(),
+        opresulttype: pg_sys::BOOLOID,
+        opretset: false,
+        opcollid: pg_sys::DEFAULT_COLLATION_OID,
+        inputcollid: pg_sys::DEFAULT_COLLATION_OID,
+        args: std::ptr::null_mut(),
+        location: (*(*srs).fcall).location,
+    };
+
+    // we need to use what should be the only `USING bm25` index on the table
+    let rte = planner_rt_fetch((*var).varno as pg_sys::Index, (*srs).root);
+    let heaprel = PgRelation::open((*rte).relid);
+    let indexrel = locate_bm25_index((*rte).relid).unwrap_or_else(|| {
+        panic!(
+            "relation `{}.{}` must have a `USING bm25` index",
+            heaprel.namespace(),
+            heaprel.name()
+        )
+    });
+
+    let heaptupdesc = heaprel.tuple_desc();
+    let varatt = heaptupdesc
+        .get(
+            ((*var).varattno - 1)
+                .try_into()
+                .expect("varattno should be within the bounds of usize"),
+        )
+        .expect("varattno should exist in the heap");
+
+    // fabricate a `SearchConfig` from the above relation and query string
+    // and get it serialized into a JSONB Datum
+    let search_config = SearchConfig::from((query, indexrel));
+    if search_config.key_field != varatt.name() {
+        panic!("left-hand side of the @@@ operator should be the `key_field` of the only `USING bm25` index");
+    }
+
+    let search_config_json =
+        serde_json::to_value(&search_config).expect("SearchConfig should serialize to json");
+    let jsonb_datum = JsonB(search_config_json).into_datum().unwrap();
+
+    // from which we'll create a new pg_sys::Const node
+    let jsonb_const = pg_sys::makeConst(
+        pg_sys::JSONBOID,
+        -1,
+        pg_sys::DEFAULT_COLLATION_OID,
+        -1,
+        jsonb_datum,
+        false,
+        false,
+    );
+
+    // and assign it to the original argument list
+    input_args.replace_ptr(1, jsonb_const.cast());
+
+    // then assign that list to our new OpExpr node
+    newopexpr.args = input_args.as_ptr();
+
+    // copy that node into the current memory context and return it
+    let node = PgMemoryContexts::CurrentMemoryContext
+        .copy_ptr_into(&mut newopexpr, size_of::<pg_sys::OpExpr>());
+
+    ReturnedNodePointer(NonNull::new(node.cast()))
 }
 
 extension_sql!(

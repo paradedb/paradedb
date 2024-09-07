@@ -1,15 +1,12 @@
 use crate::api::operator::{
-    anyelement_jsonb_opoid, anyelement_jsonb_procoid, anyelement_query_input_opoid,
-    estimate_selectivity, ReturnedNodePointer, UNKNOWN_SELECTIVITY,
+    anyelement_query_input_opoid, estimate_selectivity, make_new_opexpr_node, ReturnedNodePointer,
+    UNKNOWN_SELECTIVITY,
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use pgrx::pg_sys::planner_rt_fetch;
-use pgrx::{
-    is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, IntoDatum, JsonB, PgList,
-    PgMemoryContexts,
-};
+use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 use std::ptr::NonNull;
 
 #[pg_extern(immutable, parallel_safe)]
@@ -36,31 +33,6 @@ pub fn query_input_support(arg: Internal) -> ReturnedNodePointer {
                         let var = lhs.cast::<pg_sys::Var>();
                         let const_ = rhs.cast::<pg_sys::Const>();
 
-                        // we're about to fabricate a new pg_sys::OpExpr node to return
-                        // that represents the `@@@(anyelement, jsonb)` operator
-                        let mut newopexpr = pg_sys::OpExpr {
-                            xpr: pg_sys::Expr {
-                                type_: pg_sys::NodeTag::T_OpExpr,
-                            },
-                            opno: anyelement_jsonb_opoid(),
-                            opfuncid: anyelement_jsonb_procoid(),
-                            opresulttype: pg_sys::BOOLOID,
-                            opretset: false,
-                            opcollid: pg_sys::DEFAULT_COLLATION_OID,
-                            inputcollid: pg_sys::DEFAULT_COLLATION_OID,
-                            args: std::ptr::null_mut(),
-                            location: (*(*srs).fcall).location,
-                        };
-
-                        // we need to use what should be the only `USING bm25` index on the table
-                        let rte = planner_rt_fetch((*var).varno as pg_sys::Index, (*srs).root);
-                        let indexrel = locate_bm25_index((*rte).relid).unwrap_or_else(|| {
-                            panic!(
-                                "relation `oid={}` must have a `USING bm25` index",
-                                (*rte).relid.as_u32()
-                            )
-                        });
-
                         // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
                         let query = SearchQueryInput::from_datum(
                             (*const_).constvalue,
@@ -68,34 +40,7 @@ pub fn query_input_support(arg: Internal) -> ReturnedNodePointer {
                         )
                         .expect("query must not be NULL");
 
-                        // fabricate a `SearchConfig` from the above relation and query string
-                        // and get it serialized into a JSONB Datum
-                        let search_config = SearchConfig::from((query, indexrel));
-                        let search_config_json = serde_json::to_value(&search_config)
-                            .expect("SearchConfig should serialize to json");
-                        let jsonb_datum = JsonB(search_config_json).into_datum().unwrap();
-
-                        // from which we'll create a new pg_sys::Const node
-                        let jsonb_const = pg_sys::makeConst(
-                            pg_sys::JSONBOID,
-                            -1,
-                            pg_sys::DEFAULT_COLLATION_OID,
-                            -1,
-                            jsonb_datum,
-                            false,
-                            false,
-                        );
-
-                        // and assign it to the original argument list
-                        input_args.replace_ptr(1, jsonb_const.cast());
-
-                        // then assign that list to our new OpExpr node
-                        newopexpr.args = input_args.as_ptr();
-
-                        // copy that node into the current memory context and return it
-                        let node = PgMemoryContexts::CurrentMemoryContext
-                            .copy_ptr_into(&mut newopexpr, size_of::<pg_sys::OpExpr>());
-                        return ReturnedNodePointer(NonNull::new(node.cast()));
+                        return make_new_opexpr_node(srs, &mut input_args, var, query);
                     }
                 }
 

@@ -34,6 +34,8 @@ pub mod utils;
 pub enum ScanStrategy {
     SearchConfigJson = 1,
     TextQuery = 2,
+    SearchQueryInput = 3,
+    // NB:  Any additions here **mut** update the `amroutine.amstrategies` down below in [`bm25_handler`]
 }
 
 impl TryFrom<u16> for ScanStrategy {
@@ -44,6 +46,8 @@ impl TryFrom<u16> for ScanStrategy {
             Ok(ScanStrategy::SearchConfigJson)
         } else if value == 2 {
             Ok(ScanStrategy::TextQuery)
+        } else if value == 3 {
+            Ok(ScanStrategy::SearchQueryInput)
         } else {
             Err(format!("`{value}` is an unknown `ScanStrategy` number"))
         }
@@ -59,7 +63,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     let mut amroutine =
         unsafe { PgBox::<pg_sys::IndexAmRoutine>::alloc_node(pg_sys::NodeTag::T_IndexAmRoutine) };
 
-    amroutine.amstrategies = 2;
+    amroutine.amstrategies = 3;
     amroutine.amsupport = 0;
     amroutine.amcanmulticol = true;
     amroutine.amsearcharray = true;

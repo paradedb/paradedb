@@ -71,7 +71,7 @@ pub extern "C" fn amrescan(
             for key in keys {
                 let next = SearchConfig::from_jsonb(
                     JsonB::from_datum(key.sk_argument, false)
-                        .expect("failed to convert query to tuple of strings"),
+                        .expect("ScanKey.sk_argument must not be null"),
                 )
                 .expect("could not parse search config");
 
@@ -86,7 +86,7 @@ pub extern "C" fn amrescan(
 
             let mut search_config = SearchConfig::from_jsonb(
                 JsonB::from_datum(keys[0].sk_argument, false)
-                    .expect("failed to convert query to tuple of strings"),
+                    .expect("ScanKey.sk_argument must not be null"),
             )
             .expect("could not parse search config");
 
@@ -98,7 +98,7 @@ pub extern "C" fn amrescan(
         ScanStrategy::SearchConfigJson => unsafe {
             SearchConfig::from_jsonb(
                 JsonB::from_datum(keys[0].sk_argument, false)
-                    .expect("failed to convert query to tuple of strings"),
+                    .expect("ScanKey.sk_argument must not be null"),
             )
             .expect("could not parse search config")
         },
@@ -111,12 +111,35 @@ pub extern "C" fn amrescan(
                     query.push_str(" AND ");
                 }
 
-                if let Some(clause) = String::from_datum(key.sk_argument, false) {
-                    query.push('(');
-                    query.push_str(&clause);
-                    query.push(')');
-                }
+                let clause = String::from_datum(key.sk_argument, false)
+                    .expect("ScanKey.sk_argument must not be null");
+                query.push('(');
+                query.push_str(&clause);
+                query.push(')');
             }
+
+            let indexrel = PgRelation::from_pg(scan.indexRelation);
+            SearchConfig::from((query, indexrel))
+        },
+
+        // Directly create a SearchConfig using the provided SearchQueryInput keys
+        ScanStrategy::SearchQueryInput => unsafe {
+            let mut queries = Vec::with_capacity(nkeys);
+            for key in keys {
+                let query = SearchQueryInput::from_datum(key.sk_argument, false)
+                    .expect("ScanKey.sk_argument must not be null");
+                queries.push(query);
+            }
+
+            let query = if queries.len() == 1 {
+                queries.pop().unwrap()
+            } else {
+                SearchQueryInput::Boolean {
+                    must: queries,
+                    should: vec![],
+                    must_not: vec![],
+                }
+            };
 
             let indexrel = PgRelation::from_pg(scan.indexRelation);
             SearchConfig::from((query, indexrel))

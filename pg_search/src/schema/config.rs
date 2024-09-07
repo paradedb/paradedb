@@ -134,8 +134,8 @@ pub type IndexRelation = PgRelation;
 
 impl From<(String, IndexRelation)> for SearchConfig {
     fn from(value: (String, IndexRelation)) -> Self {
-        let (query, indexrel) = value;
-        SearchConfig::from((SearchQueryInput::Parse(query), indexrel))
+        let (query_string, indexrel) = value;
+        SearchConfig::from((SearchQueryInput::Parse { query_string }, indexrel))
     }
 }
 

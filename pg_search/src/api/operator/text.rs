@@ -35,7 +35,7 @@ pub fn text_support(arg: Internal) -> ReturnedNodePointer {
                         let var = lhs.cast::<pg_sys::Var>();
                         let const_ = rhs.cast::<pg_sys::Const>();
 
-                        // we're aboute to fabricate a new pg_sys::OpExpr node to return
+                        // we're about to fabricate a new pg_sys::OpExpr node to return
                         // that represents the `@@@(anyelement, jsonb)` operator
                         let mut newopexpr = pg_sys::OpExpr {
                             xpr: pg_sys::Expr {

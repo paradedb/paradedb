@@ -1,6 +1,6 @@
 use crate::api::operator::{
     anyelement_jsonb_opoid, anyelement_jsonb_procoid, anyelement_query_input_opoid,
-    anyelement_text_opoid, estimate_selectivity, ReturnedNodePointer, UNKNOWN_SELECTIVITY,
+    estimate_selectivity, ReturnedNodePointer, UNKNOWN_SELECTIVITY,
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -36,7 +36,7 @@ pub fn query_input_support(arg: Internal) -> ReturnedNodePointer {
                         let var = lhs.cast::<pg_sys::Var>();
                         let const_ = rhs.cast::<pg_sys::Const>();
 
-                        // we're aboute to fabricate a new pg_sys::OpExpr node to return
+                        // we're about to fabricate a new pg_sys::OpExpr node to return
                         // that represents the `@@@(anyelement, jsonb)` operator
                         let mut newopexpr = pg_sys::OpExpr {
                             xpr: pg_sys::Expr {
@@ -62,8 +62,11 @@ pub fn query_input_support(arg: Internal) -> ReturnedNodePointer {
                         });
 
                         // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
-                        let query = String::from_datum((*const_).constvalue, (*const_).constisnull)
-                            .expect("query must not be NULL");
+                        let query = SearchQueryInput::from_datum(
+                            (*const_).constvalue,
+                            (*const_).constisnull,
+                        )
+                        .expect("query must not be NULL");
 
                         // fabricate a `SearchConfig` from the above relation and query string
                         // and get it serialized into a JSONB Datum

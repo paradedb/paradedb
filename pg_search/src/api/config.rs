@@ -92,9 +92,8 @@ mod tests {
                 "fieldnorms": false,
                 "record": "position",
                 "expand_dots": true,
-                "tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false},
-                "normalizer": "lowercase",
-                "stemmer": "English"
+                "tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false, "stemmer": "English"},
+                "normalizer": "lowercase"
             }
         });
 

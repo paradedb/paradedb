@@ -511,6 +511,7 @@ mod tests {
         let tokenizer = SearchTokenizer::EnStem(SearchTokenizerFilters {
             remove_long: Some(999),
             lowercase: Some(true),
+            stemmer: None,
         });
         assert_eq!(
             tokenizer.name(),
@@ -538,6 +539,7 @@ mod tests {
                 filters: SearchTokenizerFilters {
                     remove_long: Some(123),
                     lowercase: Some(false),
+                    stemmer: None
                 }
             }
         );
@@ -555,6 +557,7 @@ mod tests {
             filters: SearchTokenizerFilters {
                 remove_long: Some(100),
                 lowercase: None,
+                stemmer: None,
             },
         };
 

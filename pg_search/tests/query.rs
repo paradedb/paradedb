@@ -37,7 +37,6 @@ fn boolean_tree(mut conn: PgConnection) {
 			    paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1, prefix => true)
             ]
         ),
-        lenient_parsing => false,
         stable_sort => true
     );
     "#
@@ -1032,12 +1031,7 @@ fn lenient_config_search(mut conn: PgConnection) {
     // Test lenient configuration: lenient flag enabled, should allow for minor errors like typos
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_term(
-            field => 'description',
-            value => 'wolo',
-            transposition_cost_one => false,
-            distance => 1
-        ),
+        query => paradedb.fuzzy_term(field => 'category', value => 'elector'),
         lenient_parsing => true,
         stable_sort => true
     )"#

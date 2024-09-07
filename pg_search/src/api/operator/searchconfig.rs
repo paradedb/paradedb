@@ -1,18 +1,15 @@
 use crate::api::operator::{
-    anyelement_jsonb_opoid, anyelement_text_opoid, estimate_selectivity, ReturnedNodePointer,
-    UNKNOWN_SELECTIVITY,
+    anyelement_jsonb_opoid, estimate_selectivity, ReturnedNodePointer, UNKNOWN_SELECTIVITY,
 };
 use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::locate_bm25_index;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{
     is_a, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal, JsonB, PgList, PgOid,
-    PgRelation,
 };
 use rustc_hash::FxHashSet;
 use std::ptr::NonNull;

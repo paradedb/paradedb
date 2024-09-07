@@ -2,15 +2,12 @@ use crate::api::operator::{
     anyelement_jsonb_opoid, anyelement_jsonb_procoid, anyelement_text_opoid, estimate_selectivity,
     ReturnedNodePointer, UNKNOWN_SELECTIVITY,
 };
-use crate::globals::WriterGlobal;
-use crate::index::SearchIndex;
 use crate::postgres::utils::locate_bm25_index;
 use crate::schema::SearchConfig;
-use crate::writer::WriterDirectory;
 use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{
     is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, IntoDatum, JsonB, PgList,
-    PgMemoryContexts, PgRelation,
+    PgMemoryContexts,
 };
 use std::ptr::NonNull;
 
@@ -56,10 +53,12 @@ pub fn text_support(arg: Internal) -> ReturnedNodePointer {
 
                         // we need to use what should be the only `USING bm25` index on the table
                         let rte = planner_rt_fetch((*var).varno as pg_sys::Index, (*srs).root);
-                        let indexrel = locate_bm25_index((*rte).relid).expect(&format!(
-                            "relation `oid={}` must have a `USING bm25` index",
-                            (*rte).relid.as_u32()
-                        ));
+                        let indexrel = locate_bm25_index((*rte).relid).unwrap_or_else(|| {
+                            panic!(
+                                "relation `oid={}` must have a `USING bm25` index",
+                                (*rte).relid.as_u32()
+                            )
+                        });
 
                         // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
                         let query = String::from_datum((*const_).constvalue, (*const_).constisnull)

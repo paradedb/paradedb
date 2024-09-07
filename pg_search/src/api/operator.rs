@@ -19,21 +19,16 @@ mod searchconfig;
 mod searchqueryinput;
 mod text;
 
-use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
-use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::locate_bm25_index;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
-use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
 use pgrx::*;
-use rustc_hash::FxHashSet;
 use std::ptr::NonNull;
 
 const UNKNOWN_SELECTIVITY: f64 = 0.00001;
@@ -48,7 +43,7 @@ unsafe impl BoxRet for ReturnedNodePointer {
                 let datum = pg_sys::Datum::from(nonnull.as_ptr());
                 fcinfo.return_raw_datum(datum)
             })
-            .unwrap_or_else(|| Datum::null())
+            .unwrap_or_else(Datum::null)
     }
 }
 
@@ -97,7 +92,7 @@ fn estimate_selectivity(heaprelid: pg_sys::Oid, search_config: &SearchConfig) ->
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(&writer_client, &search_config, false)
+        .search_state(&writer_client, search_config, false)
         .expect("SearchState creation should not fail");
 
     let reltuples = unsafe { PgRelation::open(heaprelid).reltuples().unwrap_or(1.0) as f64 };

@@ -531,7 +531,7 @@ fn value_to_term(
                     let tantivy_datetime = tantivy::DateTime::from_timestamp_micros(
                         datetime.and_utc().timestamp_micros(),
                     );
-                    Term::from_field_date(field, tantivy_datetime)
+                    Term::from_field_date_for_search(field, tantivy_datetime)
                 }
                 _ => Term::from_field_text(field, text),
             }
@@ -549,7 +549,7 @@ fn value_to_term(
         OwnedValue::I64(i64) => Term::from_field_i64(field, *i64),
         OwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
         OwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
-        OwnedValue::Date(date) => Term::from_field_date(field, *date),
+        OwnedValue::Date(date) => Term::from_field_date_for_search(field, *date),
         OwnedValue::Facet(facet) => Term::from_facet(field, facet),
         OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
         OwnedValue::Object(_) => panic!("json cannot be converted to term"),

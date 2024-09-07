@@ -27,7 +27,7 @@ use tantivy::{
     collector::DocSetCollector,
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
-        ExistsQuery, FastFieldRangeWeight, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
+        ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
         PhraseQuery, Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
@@ -267,15 +267,26 @@ impl SearchQueryInput {
                 lower_bound,
                 upper_bound,
             } => {
-                field_lookup
+                let field = field_lookup
                     .as_u64(&field)
                     .or_else(|| field_lookup.as_i64(&field))
                     .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
 
-                Ok(Box::new(FastFieldRangeWeight::new(
-                    field,
-                    lower_bound,
-                    upper_bound,
+                let new_lower_bound = match lower_bound {
+                    Bound::Excluded(v) => Bound::Excluded(Term::from_field_u64(field, v)),
+                    Bound::Included(v) => Bound::Included(Term::from_field_u64(field, v)),
+                    Bound::Unbounded => Bound::Unbounded,
+                };
+
+                let new_upper_bound = match upper_bound {
+                    Bound::Excluded(v) => Bound::Excluded(Term::from_field_u64(field, v)),
+                    Bound::Included(v) => Bound::Included(Term::from_field_u64(field, v)),
+                    Bound::Unbounded => Bound::Unbounded,
+                };
+
+                Ok(Box::new(FastFieldRangeQuery::new(
+                    new_lower_bound,
+                    new_upper_bound,
                 )))
             }
             Self::FuzzyTerm {
@@ -451,12 +462,7 @@ impl SearchQueryInput {
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
-                Ok(Box::new(RangeQuery::new_term_bounds(
-                    field_name,
-                    field_type.value_type(),
-                    &lower_bound,
-                    &upper_bound,
-                )))
+                Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
             }
             Self::Regex { field, pattern } => Ok(Box::new(
                 RegexQuery::from_pattern(
@@ -525,7 +531,7 @@ fn value_to_term(
                     let tantivy_datetime = tantivy::DateTime::from_timestamp_micros(
                         datetime.and_utc().timestamp_micros(),
                     );
-                    Term::from_field_date(field, tantivy_datetime)
+                    Term::from_field_date_for_search(field, tantivy_datetime)
                 }
                 _ => Term::from_field_text(field, text),
             }
@@ -543,7 +549,7 @@ fn value_to_term(
         OwnedValue::I64(i64) => Term::from_field_i64(field, *i64),
         OwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
         OwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
-        OwnedValue::Date(date) => Term::from_field_date(field, *date),
+        OwnedValue::Date(date) => Term::from_field_date_for_search(field, *date),
         OwnedValue::Facet(facet) => Term::from_facet(field, facet),
         OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
         OwnedValue::Object(_) => panic!("json cannot be converted to term"),

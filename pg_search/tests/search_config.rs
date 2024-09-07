@@ -515,7 +515,7 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
 fn language_stem_tokenizer_deprecated(mut conn: PgConnection) {
     for (language, data, author_query, title_query, message_query) in LANGUAGES {
         // Prepare test data setup for each language
-        let language_str = language_to_str(&language);
+        let language_str = language_to_str(language);
         let setup_query = format!(
             r#"
             DROP TABLE IF EXISTS test_table;
@@ -574,7 +574,7 @@ fn language_stem_tokenizer_deprecated(mut conn: PgConnection) {
 fn language_stem_filter(mut conn: PgConnection) {
     for (language, data, author_query, title_query, message_query) in LANGUAGES {
         // Prepare test data setup for each language
-        let language_str = language_to_str(&language);
+        let language_str = language_to_str(language);
         let setup_query = format!(
             r#"
             DROP TABLE IF EXISTS test_table;

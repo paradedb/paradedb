@@ -26,6 +26,7 @@ use pgrx::*;
 use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 use tantivy::schema::IndexRecordOption;
+use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 // For now just pass the count on the build callback state
@@ -150,7 +151,7 @@ pub extern "C" fn ambuild(
             fast: true,
             stored: true,
             fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw,
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
         },
@@ -159,7 +160,7 @@ pub extern "C" fn ambuild(
             fast: true,
             stored: true,
             expand_dots: false,
-            tokenizer: SearchTokenizer::Raw,
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
         },

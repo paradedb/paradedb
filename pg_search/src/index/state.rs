@@ -24,7 +24,7 @@ use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
 use tantivy::schema::FieldType;
-use tantivy::{query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal};
+use tantivy::{query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyError};
 use tantivy::{Executor, SnippetGenerator};
 
 /// An iterator of the different styles of search results we can return
@@ -246,14 +246,35 @@ impl SearchState {
 
         let collector = tantivy::collector::Count;
         let schema = self.schema.schema.clone();
-        let weight = self
+        let weight = match self
             .query
             .as_ref()
             .weight(tantivy::query::EnableScoring::Disabled {
                 schema: &schema,
                 searcher_opt: Some(&self.searcher),
-            })
-            .expect("creating a Weight from a Query should not fail");
+            }) {
+            // created the Weight, no problem
+            Ok(weight) => weight,
+
+            // got an error trying to create the weight.  This *likely* means
+            // the query requires scoring, so try again with scoring enabled.
+            // I've seen this with the `MoreLikeThis` query type.
+            //
+            // NB:  we could just return `None` here and let the caller deal with it?
+            //      a deciding factor might be if users complain that query planning
+            //      is too slow when they use constructs like `MoreLikeThis`
+            Err(TantivyError::InvalidArgument(_)) => self
+                .query
+                .as_ref()
+                .weight(tantivy::query::EnableScoring::Enabled {
+                    searcher: &self.searcher,
+                    statistics_provider: &self.searcher,
+                })
+                .expect("creating a Weight from a Query should not fail"),
+
+            // something completely unexpected happen, so just panic
+            Err(e) => panic!("{:?}", e),
+        };
 
         let count = collector
             .collect_segment(weight.as_ref(), ordinal as SegmentOrdinal, largest_reader)

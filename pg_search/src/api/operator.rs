@@ -87,6 +87,12 @@ fn anyelement_jsonb_opoid() -> pg_sys::Oid {
 }
 
 fn estimate_selectivity(heaprelid: pg_sys::Oid, search_config: &SearchConfig) -> Option<f64> {
+    let reltuples = unsafe { PgRelation::open(heaprelid).reltuples().unwrap_or(1.0) as f64 };
+    if !reltuples.is_normal() || reltuples.is_sign_negative() {
+        // we can't estimate against a non-normal or negative estimate of heap tuples
+        return None;
+    }
+
     let directory = WriterDirectory::from_index_oid(search_config.index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
@@ -94,8 +100,6 @@ fn estimate_selectivity(heaprelid: pg_sys::Oid, search_config: &SearchConfig) ->
     let state = search_index
         .search_state(&writer_client, search_config, false)
         .expect("SearchState creation should not fail");
-
-    let reltuples = unsafe { PgRelation::open(heaprelid).reltuples().unwrap_or(1.0) as f64 };
     let estimate = state.estimate_docs().unwrap_or(1) as f64;
 
     let mut selectivity = estimate / reltuples;

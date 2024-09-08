@@ -15,11 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use tantivy::schema::{Field, FieldValue, OwnedValue, Value};
-use tantivy::TantivyDocument;
-
 use crate::schema::SearchFieldId;
+use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
+use tantivy::schema::{Field, OwnedValue, Value};
+use tantivy::TantivyDocument;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchDocument {
@@ -32,7 +31,7 @@ pub struct SearchDocument {
 
 impl SearchDocument {
     pub fn insert(&mut self, SearchFieldId(key): SearchFieldId, value: OwnedValue) {
-        self.doc.add_field_value(key, value)
+        self.doc.add_field_value(key, &value)
     }
 }
 
@@ -47,21 +46,21 @@ where
     S: Serializer,
 {
     let mut field_values: Vec<(String, String, OwnedValue)> = vec![];
-    for field_value in doc.field_values() {
-        let field_string =
-            serde_json::to_string(&field_value.field()).map_err(serde::ser::Error::custom)?;
+    for (field, value) in doc.field_values() {
+        let field_string = serde_json::to_string(&field).map_err(serde::ser::Error::custom)?;
         // We have to store the type for the following because positive i64s and dates get automatically deserialized as u64s
-        let (value_type, value) = match field_value.value() {
+        let owened_value = tantivy::schema::document::OwnedValue::from(value);
+        let (value_type, value) = match owened_value {
             tantivy::schema::document::OwnedValue::I64(i64) => (
                 "i64".into(),
                 tantivy::schema::document::OwnedValue::Str(
-                    serde_json::to_string(i64).map_err(serde::ser::Error::custom)?,
+                    serde_json::to_string(&i64).map_err(serde::ser::Error::custom)?,
                 ),
             ),
             tantivy::schema::document::OwnedValue::Date(date) => (
                 "date".into(),
                 tantivy::schema::document::OwnedValue::Str(
-                    serde_json::to_string(date).map_err(serde::ser::Error::custom)?,
+                    serde_json::to_string(&date).map_err(serde::ser::Error::custom)?,
                 ),
             ),
             val => ("other".into(), val.clone()),
@@ -98,7 +97,8 @@ where
                         err
                     ))
                 })?;
-            let mut field_values: Vec<FieldValue> = vec![];
+
+            let mut tantivy_document = TantivyDocument::new();
             for vec_entry in doc_vec {
                 let field: Field = serde_json::from_str(&vec_entry.0).map_err(|err| {
                     E::custom(format!("Error deserializing Field from string: {}", err))
@@ -127,11 +127,10 @@ where
                     ),
                     _ => vec_entry.2,
                 };
-
-                field_values.push(FieldValue::new(field, owned_value));
+                tantivy_document.add_field_value(field, owned_value.as_ref());
             }
 
-            Ok(TantivyDocument::from(field_values))
+            Ok(tantivy_document)
         }
     }
 

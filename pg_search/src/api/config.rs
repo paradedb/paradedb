@@ -46,8 +46,11 @@ pub fn field(
 }
 
 #[pg_extern(immutable, parallel_safe)]
+#[allow(clippy::too_many_arguments)]
 pub fn tokenizer(
     name: &str,
+    remove_long: default!(Option<i32>, "255"),
+    lowercase: default!(Option<bool>, "true"),
     min_gram: default!(Option<i32>, "NULL"),
     max_gram: default!(Option<i32>, "NULL"),
     prefix_only: default!(Option<bool>, "NULL"),
@@ -58,13 +61,21 @@ pub fn tokenizer(
 
     config.insert("type".to_string(), Value::String(name.to_string()));
 
+    // Options for all types
+    remove_long.map(|v| config.insert("remove_long".to_string(), Value::Number(v.into())));
+    lowercase.map(|v| config.insert("lowercase".to_string(), Value::Bool(v)));
+    // Options for type = ngram
     min_gram.map(|v| config.insert("min_gram".to_string(), Value::Number(v.into())));
     max_gram.map(|v| config.insert("max_gram".to_string(), Value::Number(v.into())));
     prefix_only.map(|v| config.insert("prefix_only".to_string(), Value::Bool(v)));
+    // Options for type = stem
     language.map(|v| config.insert("language".to_string(), Value::String(v)));
+    // Options for type = regex
     pattern.map(|v| config.insert("pattern".to_string(), Value::String(v)));
+
     JsonB(json!(config))
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,6 +105,8 @@ mod tests {
             Some(true),
             Some(tokenizer(
                 "ngram",
+                None,
+                None,
                 Some(4),
                 Some(4),
                 Some(false),

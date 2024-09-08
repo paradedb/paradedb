@@ -398,6 +398,18 @@ fn create_bm25_impl(
         $func$ LANGUAGE plpgsql"
     ))?;
 
+    let schema_oid_query = format!(
+        "SELECT oid FROM pg_namespace WHERE nspname = {}",
+        spi::quote_literal(index_name)
+    );
+    let schema_oid = Spi::get_one::<pg_sys::Oid>(&schema_oid_query)
+        .expect("error looking up schema in create_bm25")
+        .expect("no oid for schema created in create_bm25")
+        .as_u32();
+
+    // Add the dependency between the index and schema
+    add_pg_depend_entry(pg_sys::Oid::from(index_oid), pg_sys::Oid::from(schema_oid));
+
     Spi::run(&format!(
         "SET client_min_messages TO {}",
         spi::quote_literal(original_client_min_messages)
@@ -448,7 +460,7 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
             SELECT INTO original_client_min_messages current_setting('client_min_messages');
             SET client_min_messages TO WARNING;
 
-            EXECUTE 'DROP INDEX IF EXISTS {}.{}'; 
+            EXECUTE 'DROP INDEX IF EXISTS {}.{} CASCADE'; 
             EXECUTE 'DROP SCHEMA IF EXISTS {} CASCADE';
             EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
         END;
@@ -488,4 +500,37 @@ fn index_size(index_name: &str) -> Result<i64> {
     let total_size = writer_directory.total_size()?;
 
     Ok(total_size as i64)
+}
+
+fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
+    // SAFETY:  The calls to [`pg_sys::recordDependencyOn`] are unsafe purely because of FFI.
+    //    They operate on const pointers, which we stack allocate, and will raise their own ERRORs
+    //    should they fail.
+    unsafe {
+        let index_dep = pg_sys::ObjectAddress {
+            classId: pg_sys::RelationRelationId,
+            objectId: index_oid,
+            objectSubId: 0,
+        };
+
+        let schema_dep = pg_sys::ObjectAddress {
+            classId: pg_sys::NamespaceRelationId,
+            objectId: schema_oid,
+            objectSubId: 0,
+        };
+
+        // Create dependency from index to schema
+        pg_sys::recordDependencyOn(
+            &index_dep,
+            &schema_dep,
+            pg_sys::DependencyType::DEPENDENCY_NORMAL,
+        );
+
+        // Create dependency from schema to index
+        pg_sys::recordDependencyOn(
+            &schema_dep,
+            &index_dep,
+            pg_sys::DependencyType::DEPENDENCY_NORMAL,
+        );
+    }
 }

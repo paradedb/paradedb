@@ -188,7 +188,7 @@ impl SearchFieldConfig {
 
         let tokenizer = match obj.get("tokenizer") {
             Some(v) => SearchTokenizer::from_json_value(v),
-            None => Ok(SearchTokenizer::Default),
+            None => Ok(SearchTokenizer::default()),
         }?;
 
         let record = match obj.get("record") {
@@ -247,7 +247,7 @@ impl SearchFieldConfig {
 
         let tokenizer = match obj.get("tokenizer") {
             Some(v) => SearchTokenizer::from_json_value(v),
-            None => Ok(SearchTokenizer::Default),
+            None => Ok(SearchTokenizer::default()),
         }?;
 
         let record = match obj.get("record") {

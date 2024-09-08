@@ -51,10 +51,6 @@ pub extern "C" fn amrescan(
         panic!("no ScanKeys provided");
     }
 
-    // Convert the raw pointer to a safe wrapper. This action takes ownership of the object
-    // pointed to by the raw pointer in a safe way.
-    let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
-
     // Convert the raw keys into a slice for easier access.
     let nkeys = nkeys as usize;
     let keys = unsafe { std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys) };
@@ -68,8 +64,27 @@ pub extern "C" fn amrescan(
     let search_config =
         SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
 
+    // assert that the index from the `SearchConfig` is the **same** index as the one Postgres
+    // has decided to use for this IndexScan.  If it's not, we cannot continue.
+    //
+    // As we disallow creating multiple `USING bm25` indexes on a given table, this should never
+    // happen, but it's hard to know what the state of existing databases are out there in the wild
+    unsafe {
+        // SAFETY:  we assert that the pointers we're about to dereference are not null.
+        assert!(!scan.is_null());
+        assert!(!(*scan).indexRelation.is_null());
+
+        let postgres_index_oid = (*(*scan).indexRelation).rd_id;
+        let our_index_id = search_config.index_oid;
+        assert_eq!(
+            postgres_index_oid,
+            pg_sys::Oid::from(our_index_id),
+            "SearchConfig jsonb index doesn't match the index in the current IndexScan"
+        );
+    }
+
     // Create the index and scan state
-    let index_oid = unsafe { (*scan.indexRelation).rd_id.as_u32() };
+    let index_oid = search_config.index_oid;
     let directory = WriterDirectory::from_index_oid(index_oid);
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
@@ -95,10 +110,10 @@ pub extern "C" fn amrescan(
     };
 
     // Save the iterator onto the current memory context.
-    scan.opaque = leaked_results_iter.cast();
-
-    // Return scan state back management to Postgres.
-    scan.into_pg();
+    unsafe {
+        // SAFETY:  We asserted above that `scan` is non-null
+        (*scan).opaque = leaked_results_iter.cast();
+    }
 }
 
 #[pg_guard]

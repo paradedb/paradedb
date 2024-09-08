@@ -93,7 +93,7 @@ installDocker() {
   fi
 
   if docker inspect "paradedb" > /dev/null 2>&1; then
-    echo -e "We found a previous paradedb container on your system.\n We need to remove it to continue this setup."
+    echo -e "We found a previous paradedb container on your system.\nWe need to remove it to continue this setup."
     read -r -p "Would you like to remove it? [y/N] " response
     case "$response" in
       [yY][eE][sS]|[yY])
@@ -107,9 +107,6 @@ installDocker() {
   echo "Pulling Docker Image for Parade DB: docker pull paradedb/paradedb"
   docker pull paradedb/paradedb || { echo "Failed to pull Docker image"; exit 1; }
   echo -e "Pulled Successfully ✅\n"
-
-
-  echo -e "\n"
 
   echo -e "Would you like to add a Docker volume to your database?\nA docker volume will ensure that your ParadeDB Postgres database is stored across Docker restarts.\nNote that you will need to manually update ParadeDB versions on your volume via: https://docs.paradedb.com/upgrading.\nIf you're only testing, we do not recommend adding a volume."
 

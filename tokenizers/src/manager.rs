@@ -300,7 +300,6 @@ impl SearchTokenizer {
             SearchTokenizer::Raw(filters) => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
                     .filter(filters.stemmer())
                     .build(),
             ),

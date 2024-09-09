@@ -1,13 +1,12 @@
 use crate::api::operator::{
-    anyelement_query_input_opoid, estimate_selectivity, make_new_opexpr_node, ReturnedNodePointer,
-    UNKNOWN_SELECTIVITY,
+    anyelement_query_input_opoid, estimate_selectivity, make_search_config_opexpr_node,
+    ReturnedNodePointer, UNKNOWN_SELECTIVITY,
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
-use std::ptr::NonNull;
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn search_with_query_input(
@@ -24,6 +23,10 @@ pub fn query_input_support(arg: Internal) -> ReturnedNodePointer {
         let node = arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>();
 
         match (*node).type_ {
+            // rewrite this node, which is using the @@@(key_field, paradedb.searchqueryinput) operator
+            // to instead use the @@@(key_field, jsonb) operator.  This involves converting the rhs
+            // of the operator into the jsonb representation of a SearchConfig, which is built
+            // in `make_new_opexpr_node()`
             pg_sys::NodeTag::T_SupportRequestSimplify => {
                 let srs = node.cast::<pg_sys::SupportRequestSimplify>();
 
@@ -40,21 +43,11 @@ pub fn query_input_support(arg: Internal) -> ReturnedNodePointer {
                         )
                         .expect("query must not be NULL");
 
-                        return make_new_opexpr_node(srs, &mut input_args, var, query);
+                        return make_search_config_opexpr_node(srs, &mut input_args, var, query);
                     }
                 }
 
                 ReturnedNodePointer(None)
-            }
-
-            pg_sys::NodeTag::T_SupportRequestCost => {
-                let src = node.cast::<pg_sys::SupportRequestCost>();
-
-                // our `search_with_*` functions are *incredibly* expensive.  So much so that
-                // we really don't ever want Postgres to prefer them.  As such, hardcode in some
-                // big numbers.
-                (*src).per_tuple = 1_000_000.0;
-                ReturnedNodePointer(NonNull::new(node))
             }
 
             _ => ReturnedNodePointer(None),

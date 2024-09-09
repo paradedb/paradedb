@@ -69,12 +69,12 @@ pub fn search_config_support(arg: Internal) -> ReturnedNodePointer {
         let node = arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>();
 
         match (*node).type_ {
+            // our `search_with_*` functions are *incredibly* expensive.  So much so that
+            // we really don't ever want Postgres to prefer them.  As such, hardcode in some
+            // big numbers.
             pg_sys::NodeTag::T_SupportRequestCost => {
                 let src = node.cast::<pg_sys::SupportRequestCost>();
 
-                // our `search_with_*` functions are *incredibly* expensive.  So much so that
-                // we really don't ever want Postgres to prefer them.  As such, hardcode in some
-                // big numbers.
                 (*src).per_tuple = 1_000_000.0;
                 ReturnedNodePointer(NonNull::new(node))
             }

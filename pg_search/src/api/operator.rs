@@ -124,7 +124,7 @@ fn estimate_selectivity(heaprelid: pg_sys::Oid, search_config: &SearchConfig) ->
     Some(selectivity)
 }
 
-unsafe fn make_new_opexpr_node(
+unsafe fn make_search_config_opexpr_node(
     srs: *mut SupportRequestSimplify,
     input_args: &mut PgList<Node>,
     var: *mut pg_sys::Var,

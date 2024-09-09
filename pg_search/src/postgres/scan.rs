@@ -213,6 +213,9 @@ pub extern "C" fn amgettuple(
 
 #[pg_guard]
 pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
+    assert!(!tbm.is_null());
+    assert!(!scan.is_null());
+
     let iter = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
         // amrescan, which is always called prior to this function
@@ -226,6 +229,8 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
         u64_to_item_pointer(scored.ctid, &mut tid);
 
         unsafe {
+            // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
+            // initialized as a stack-allocated ItemPointerData
             pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
         }
 

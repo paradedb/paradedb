@@ -30,7 +30,7 @@ pub mod datetime;
 pub mod types;
 pub mod utils;
 
-#[repr(u16)]
+#[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is
 pub enum ScanStrategy {
     SearchConfigJson = 1,
     TextQuery = 2,
@@ -38,10 +38,10 @@ pub enum ScanStrategy {
     // NB:  Any additions here **mut** update the `amroutine.amstrategies` down below in [`bm25_handler`]
 }
 
-impl TryFrom<u16> for ScanStrategy {
+impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
     type Error = String;
 
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
+    fn try_from(value: pg_sys::StrategyNumber) -> Result<Self, Self::Error> {
         if value == 1 {
             Ok(ScanStrategy::SearchConfigJson)
         } else if value == 2 {

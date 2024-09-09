@@ -1056,7 +1056,7 @@ fn conjunction_config_search(mut conn: PgConnection) {
     let mut columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
         'description:keyboard rating:>2',
-        conjunction_by_default => true,
+        conjunction_mode => true,
         stable_sort => true
     );
     "#

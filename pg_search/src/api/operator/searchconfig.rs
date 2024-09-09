@@ -5,7 +5,7 @@ use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
-use crate::UNKNOWN_SELECTIVITY;
+use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{
     check_for_interrupts, is_a, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
@@ -81,7 +81,7 @@ pub fn search_config_support(arg: Internal) -> ReturnedNodePointer {
             pg_sys::NodeTag::T_SupportRequestCost => {
                 let src = node.cast::<pg_sys::SupportRequestCost>();
 
-                (*src).startup = 10.0;
+                (*src).startup = DEFAULT_STARTUP_COST;
                 (*src).per_tuple = pg_sys::cpu_index_tuple_cost * 10_000.0;
                 ReturnedNodePointer(NonNull::new(node))
             }

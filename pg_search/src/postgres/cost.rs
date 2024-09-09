@@ -18,7 +18,7 @@
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::writer::WriterDirectory;
-use crate::UNKNOWN_SELECTIVITY;
+use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -72,7 +72,7 @@ pub unsafe extern "C" fn amcostestimate(
     *index_correlation = 0.0;
 
     // it does cost a little bit for us to startup, which is spawning the tantivy query
-    *index_startup_cost = 10.0;
+    *index_startup_cost = DEFAULT_STARTUP_COST;
 
     // choose the smallest selectivity from the RestrictInfo clauses that have already done their estimations
     *index_selectivity = index_clauses

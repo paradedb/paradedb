@@ -42,6 +42,7 @@ pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
 
 // A hardcoded value when we can't figure out a good selectivity value
 const UNKNOWN_SELECTIVITY: f64 = 0.00001;
+const DEFAULT_STARTUP_COST: f64 = 10.0;
 
 pgrx::pg_module_magic!();
 

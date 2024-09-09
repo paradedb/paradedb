@@ -147,7 +147,7 @@ impl SearchState {
 
             // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
             // including retrieving the key field
-            _ => SearchResults::AllFeatures(self.search_with_top_docs(executor, include_key)),
+            _ => SearchResults::AllFeatures(self.search_with_top_docs(executor, true)),
         }
     }
 

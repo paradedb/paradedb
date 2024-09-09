@@ -38,6 +38,7 @@ use tantivy::tokenizer::{
 pub struct SearchTokenizerFilters {
     remove_long: Option<usize>,
     lowercase: Option<bool>,
+    stemmer: Option<Language>,
 }
 
 impl SearchTokenizerFilters {
@@ -60,6 +61,11 @@ impl SearchTokenizerFilters {
                 )
             })?);
         };
+        if let Some(stemmer) = value.get("stemmer") {
+            filters.stemmer = Some(serde_json::from_value(stemmer.clone()).map_err(|_| {
+                anyhow::anyhow!("stemmer tokenizer requires a valid 'stemmer' field")
+            })?);
+        }
 
         Ok(filters)
     }
@@ -96,6 +102,10 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}lowercase={value}", sep(is_empty)).unwrap();
             is_empty = false;
         }
+        if let Some(value) = self.stemmer {
+            write!(buffer, "{}stemmer={value:?}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
 
         if is_empty {
             "".into()
@@ -114,6 +124,10 @@ impl SearchTokenizerFilters {
             Some(false) => None, // Only disable if explicitly requested.
             _ => Some(LowerCaser),
         }
+    }
+
+    fn stemmer(&self) -> Option<Stemmer> {
+        self.stemmer.map(Stemmer::new)
     }
 }
 
@@ -280,42 +294,35 @@ impl SearchTokenizer {
                 TextAnalyzer::builder(SimpleTokenizer::default())
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
                     .build(),
             ),
             SearchTokenizer::Raw(filters) => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(filters.remove_long_filter())
+                    .filter(filters.stemmer())
                     .build(),
             ),
+            // Deprecated, use `lowercase` filter instead
             SearchTokenizer::Lowercase(filters) => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
                     .build(),
             ),
             SearchTokenizer::WhiteSpace(filters) => Some(
                 TextAnalyzer::builder(WhitespaceTokenizer::default())
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
                     .build(),
             ),
             SearchTokenizer::RegexTokenizer { pattern, filters } => Some(
                 TextAnalyzer::builder(RegexTokenizer::new(pattern.as_str()).unwrap())
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
-                    .build(),
-            ),
-            SearchTokenizer::ChineseCompatible(filters) => Some(
-                TextAnalyzer::builder(ChineseTokenizer)
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .build(),
-            ),
-            SearchTokenizer::SourceCode(filters) => Some(
-                TextAnalyzer::builder(CodeTokenizer::default())
-                    .filter(filters.remove_long_filter())
-                    .filter(filters.lower_caser())
-                    .filter(AsciiFoldingFilter)
+                    .filter(filters.stemmer())
                     .build(),
             ),
             SearchTokenizer::Ngram {
@@ -329,7 +336,21 @@ impl SearchTokenizer {
                 )
                 .filter(filters.remove_long_filter())
                 .filter(filters.lower_caser())
+                .filter(filters.stemmer())
                 .build(),
+            ),
+            SearchTokenizer::ChineseCompatible(filters) => Some(
+                TextAnalyzer::builder(ChineseTokenizer)
+                    .filter(filters.remove_long_filter())
+                    .filter(filters.lower_caser())
+                    .build(),
+            ),
+            SearchTokenizer::SourceCode(filters) => Some(
+                TextAnalyzer::builder(CodeTokenizer::default())
+                    .filter(filters.remove_long_filter())
+                    .filter(filters.lower_caser())
+                    .filter(AsciiFoldingFilter)
+                    .build(),
             ),
             SearchTokenizer::ChineseLindera(filters) => Some(
                 TextAnalyzer::builder(LinderaChineseTokenizer::default())
@@ -349,6 +370,7 @@ impl SearchTokenizer {
                     .filter(filters.lower_caser())
                     .build(),
             ),
+            // Deprecated, use `stemmer` filter instead
             SearchTokenizer::EnStem(filters) => Some(
                 TextAnalyzer::builder(SimpleTokenizer::default())
                     .filter(filters.remove_long_filter())
@@ -356,6 +378,7 @@ impl SearchTokenizer {
                     .filter(Stemmer::new(Language::English))
                     .build(),
             ),
+            // Deprecated, use `stemmer` filter instead
             SearchTokenizer::Stem { language, filters } => Some(
                 TextAnalyzer::builder(SimpleTokenizer::default())
                     .filter(filters.remove_long_filter())
@@ -487,6 +510,7 @@ mod tests {
         let tokenizer = SearchTokenizer::EnStem(SearchTokenizerFilters {
             remove_long: Some(999),
             lowercase: Some(true),
+            stemmer: None,
         });
         assert_eq!(
             tokenizer.name(),
@@ -514,6 +538,7 @@ mod tests {
                 filters: SearchTokenizerFilters {
                     remove_long: Some(123),
                     lowercase: Some(false),
+                    stemmer: None
                 }
             }
         );
@@ -531,6 +556,7 @@ mod tests {
             filters: SearchTokenizerFilters {
                 remove_long: Some(100),
                 lowercase: None,
+                stemmer: None,
             },
         };
 

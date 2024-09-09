@@ -56,6 +56,7 @@ pub fn tokenizer(
     prefix_only: default!(Option<bool>, "NULL"),
     language: default!(Option<String>, "NULL"),
     pattern: default!(Option<String>, "NULL"),
+    stemmer: default!(Option<String>, "NULL"),
 ) -> JsonB {
     let mut config = Map::new();
 
@@ -64,6 +65,7 @@ pub fn tokenizer(
     // Options for all types
     remove_long.map(|v| config.insert("remove_long".to_string(), Value::Number(v.into())));
     lowercase.map(|v| config.insert("lowercase".to_string(), Value::Bool(v)));
+    stemmer.map(|v| config.insert("stemmer".to_string(), Value::String(v)));
     // Options for type = ngram
     min_gram.map(|v| config.insert("min_gram".to_string(), Value::Number(v.into())));
     max_gram.map(|v| config.insert("max_gram".to_string(), Value::Number(v.into())));
@@ -90,7 +92,7 @@ mod tests {
                 "fieldnorms": false,
                 "record": "position",
                 "expand_dots": true,
-                "tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false},
+                "tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false, "stemmer": "English"},
                 "normalizer": "lowercase"
             }
         });
@@ -112,6 +114,7 @@ mod tests {
                 Some(false),
                 None,
                 None,
+                Some("English".to_string()),
             )),
             Some("lowercase".to_string()),
         );

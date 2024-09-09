@@ -324,7 +324,7 @@ impl FFType {
         let value = match self {
             FFType::Text(ff) => {
                 let mut s = String::new();
-                let ord = ff.term_ords(doc).next().unwrap();
+                let ord = ff.term_ords(doc).next().expect("no term ord for doc");
                 ff.ord_to_str(ord, &mut s).expect("no string for term ord");
                 TantivyValue(s.into())
             }
@@ -346,7 +346,7 @@ impl FFType {
         let value = match self {
             FFType::Text(ff) => {
                 // just use the first term ord here.  that's enough to do a tie-break quickly
-                let ord = ff.term_ords(doc).next().unwrap();
+                let ord = ff.term_ords(doc).next().expect("no term ord for doc");
                 TantivyValue(ord.into())
             }
             other => other.value(doc),

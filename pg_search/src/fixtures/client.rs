@@ -44,9 +44,10 @@ impl TestClient {
 impl WriterClient<WriterRequest> for TestClient {
     fn request(&mut self, request: WriterRequest) -> Result<(), ClientError> {
         // Serialize the data to emulate the real transfer process.
-        let serialized_request = bincode::serialize(&request).unwrap();
-        let deserialized_request: WriterRequest =
-            bincode::deserialize(&serialized_request).unwrap();
+        let serialized_request = bincode::serialize(&request)
+            .expect("Failed to serialize request in TestClient::request");
+        let deserialized_request: WriterRequest = bincode::deserialize(&serialized_request)
+            .expect("Failed to deserialize request in TestClient::request");
         self.writer
             .handle(deserialized_request)
             .map_err(|err| ClientError::ServerError(err.to_string()))
@@ -58,9 +59,10 @@ impl WriterClient<WriterRequest> for TestClient {
         request: WriterRequest,
     ) -> Result<(), ClientError> {
         // Serialize the data to emulate the real transfer process.
-        let serialized_request = bincode::serialize(&request).unwrap();
-        let deserialized_request: WriterRequest =
-            bincode::deserialize(&serialized_request).unwrap();
+        let serialized_request = bincode::serialize(&request)
+            .expect("Failed to serialize request in TestClient::transfer");
+        let deserialized_request: WriterRequest = bincode::deserialize(&serialized_request)
+            .expect("Failed to deserialize request in TestClient::transfer");
         self.request(deserialized_request)
     }
 }

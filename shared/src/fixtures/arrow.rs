@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use bigdecimal::{BigDecimal, ToPrimitive};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use datafusion::arrow::array::*;
@@ -38,7 +38,7 @@ fn array_data() -> ArrayData {
         .add_buffer(Buffer::from_slice_ref(&offsets[..]))
         .add_buffer(Buffer::from_slice_ref(&values[..]))
         .build()
-        .unwrap()
+        .expect("Failed to build array data")
 }
 
 // Fixed size binary is not supported yet, but this will be useful for test data when we do support.
@@ -50,7 +50,7 @@ fn fixed_size_array_data() -> ArrayData {
         .len(3)
         .add_buffer(Buffer::from(&values[..]))
         .build()
-        .unwrap()
+        .expect("Failed to build fixed size array data")
 }
 
 fn binary_array_data() -> ArrayData {
@@ -62,7 +62,7 @@ fn binary_array_data() -> ArrayData {
         .add_buffer(Buffer::from_slice_ref(&offsets[..]))
         .add_buffer(Buffer::from_slice_ref(&values[..]))
         .build()
-        .unwrap()
+        .expect("Failed to build binary array data")
 }
 
 #[derive(Debug)]
@@ -505,7 +505,8 @@ fn decode<'r, T: sqlx::Decode<'r, Postgres> + sqlx::Type<Postgres>>(
 }
 
 pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch> {
-    let unix_epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+    let unix_epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
+        .ok_or_else(|| anyhow!("Failed to create unix epoch"))?;
     let arrays = schema
         .fields()
         .into_iter()

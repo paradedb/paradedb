@@ -120,7 +120,7 @@ pub extern "C" fn amrescan(
     let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
 
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+        .expect("Failed to get SearchIndex from cache in amrescan");
     let writer_client = WriterGlobal::client();
     let state = search_index
         .search_state(&writer_client, &search_config)

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
@@ -215,7 +215,8 @@ unsafe fn build_relopts(
     }
 
     for relopt in std::slice::from_raw_parts_mut(p_options, n_options as usize) {
-        relopt.gen.as_mut().unwrap().lockmode = pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE;
+        relopt.gen.as_mut().expect("relopt is null").lockmode =
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE;
     }
 
     let rdopts = pg_sys::allocateReloptStruct(
@@ -257,9 +258,7 @@ impl SearchIndexCreateOptions {
             .map(|(field_name, field_config)| {
                 (
                     field_name.clone().into(),
-                    parser(field_config)
-                        .context("failed to deserialize {field_name} config")
-                        .unwrap(),
+                    parser(field_config).expect("failed to deserialize {field_name} config"),
                 )
             })
             .collect()
@@ -331,7 +330,10 @@ impl SearchIndexCreateOptions {
             let value =
                 unsafe { CStr::from_ptr((opts + offset as usize) as *const std::os::raw::c_char) };
 
-            value.to_str().unwrap().to_owned()
+            value
+                .to_str()
+                .expect("failed to parse fields as utf-8")
+                .to_owned()
         }
     }
 }

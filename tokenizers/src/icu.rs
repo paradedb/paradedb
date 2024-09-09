@@ -75,7 +75,7 @@ impl<'a> Iterator for ICUBreakingWord<'a> {
         let mut end = self.default_breaking_iterator.next();
         while cont && end.is_some() {
             if end.is_some() && self.default_breaking_iterator.get_rule_status() == 0 {
-                start = end.unwrap();
+                start = end.expect("Invalid end iterator");
                 end = self.default_breaking_iterator.next();
             }
             if let Some(index) = end {

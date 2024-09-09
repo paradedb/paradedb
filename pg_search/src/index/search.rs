@@ -456,7 +456,9 @@ impl<'de> Deserialize<'de> for SearchIndex {
             uuid,
         } = SearchIndexHelper::deserialize(deserializer)?;
 
-        let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path(true).unwrap();
+        let TantivyDirPath(tantivy_dir_path) = directory
+            .tantivy_dir_path(true)
+            .expect("Failed to get tantivy directory path while deserializing SearchIndex");
 
         let mut underlying_index =
             Index::open_in_dir(tantivy_dir_path).expect("failed to open index");

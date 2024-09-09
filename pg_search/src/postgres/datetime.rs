@@ -25,7 +25,8 @@ pub fn datetime_components_to_tantivy_date(
     hms_micro: (u8, u8, u8, u32),
 ) -> Result<tantivy::schema::OwnedValue, DateTimeConversionError> {
     let naive_dt = match ymd {
-        Some(ymd) => NaiveDate::from_ymd_opt(ymd.0, ymd.1.into(), ymd.2.into()).unwrap(),
+        Some(ymd) => NaiveDate::from_ymd_opt(ymd.0, ymd.1.into(), ymd.2.into())
+            .expect("failed to convert ymd to naive date"),
         None => NaiveDateTime::UNIX_EPOCH.date(),
     }
     .and_hms_micro_opt(

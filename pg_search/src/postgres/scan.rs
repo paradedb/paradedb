@@ -100,7 +100,7 @@ pub extern "C" fn amrescan(
                 query.push(')');
             }
 
-            let indexrel = PgRelation::from_pg(scan.indexRelation);
+            let indexrel = PgRelation::from_pg((*scan).indexRelation);
             SearchConfig::from((query, indexrel))
         },
 
@@ -123,7 +123,7 @@ pub extern "C" fn amrescan(
                 }
             };
 
-            let indexrel = PgRelation::from_pg(scan.indexRelation);
+            let indexrel = PgRelation::from_pg((*scan).indexRelation);
             SearchConfig::from((query, indexrel))
         },
     };

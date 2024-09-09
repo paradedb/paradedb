@@ -65,42 +65,28 @@ pub extern "C" fn amrescan(
     {
         // Build a Boolean "must" set of each query from the scan keys, using the first one's JSONB
         // definition as the overall SearchConfig
-        ScanStrategy::SearchConfigJson if keys.len() > 1 => unsafe {
-            let mut queries = Vec::with_capacity(nkeys);
+        ScanStrategy::SearchConfigJson => unsafe {
+            let mut first = SearchConfig::from_jsonb(
+                JsonB::from_datum(keys[0].sk_argument, false)
+                    .expect("ScanKey.sk_argument must not be null"),
+            )
+            .expect("`ScanKey.sk_argument` should be a valid `SearchConfig`");
 
-            for key in keys {
+            for key in &keys[1..] {
                 let next = SearchConfig::from_jsonb(
                     JsonB::from_datum(key.sk_argument, false)
                         .expect("ScanKey.sk_argument must not be null"),
                 )
-                .expect("could not parse search config");
+                .expect("`ScanKey.sk_argument` should be a valid `SearchConfig`");
 
-                queries.push(next.query);
+                first.query = SearchQueryInput::Boolean {
+                    must: vec![first.query, next.query],
+                    should: Default::default(),
+                    must_not: Default::default(),
+                };
             }
 
-            let boolean = SearchQueryInput::Boolean {
-                must: queries,
-                should: vec![],
-                must_not: vec![],
-            };
-
-            let mut search_config = SearchConfig::from_jsonb(
-                JsonB::from_datum(keys[0].sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null"),
-            )
-            .expect("could not parse search config");
-
-            search_config.query = boolean;
-            search_config
-        },
-
-        // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
-        ScanStrategy::SearchConfigJson => unsafe {
-            SearchConfig::from_jsonb(
-                JsonB::from_datum(keys[0].sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null"),
-            )
-            .expect("could not parse search config")
+            first
         },
 
         // Directly create a SearchConfig by building a query of ANDed scan keys

@@ -9,7 +9,8 @@ use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{
-    is_a, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal, JsonB, PgList, PgOid,
+    check_for_interrupts, is_a, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
+    JsonB, PgList, PgOid,
 };
 use rustc_hash::FxHashSet;
 use std::ptr::NonNull;
@@ -22,8 +23,13 @@ pub fn search_with_search_config(
 ) -> bool {
     let default_hash_set = || {
         let JsonB(search_config_json) = &config_json;
-        let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
+        let mut search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
             .expect("could not parse search config");
+
+        // if these options are set, searching tantivy takes the slow path, and we don't want that
+        search_config.stable_sort = Some(false);
+        search_config.order_by_field = None;
+        search_config.limit_rows = None;
 
         let writer_client = WriterGlobal::client();
         let directory = WriterDirectory::from_index_oid(search_config.index_oid);
@@ -36,10 +42,11 @@ pub fn search_with_search_config(
                 needs_commit(search_config.index_oid),
             )
             .unwrap();
-        let top_docs = scan_state.search(SearchIndex::executor());
+        let top_docs = scan_state.search_minimal(true, SearchIndex::executor());
         let mut hs = FxHashSet::default();
 
         for (scored, _) in top_docs {
+            check_for_interrupts!();
             hs.insert(scored.key.expect("key should have been retrieved"));
         }
 
@@ -75,7 +82,7 @@ pub fn search_config_support(arg: Internal) -> ReturnedNodePointer {
             pg_sys::NodeTag::T_SupportRequestCost => {
                 let src = node.cast::<pg_sys::SupportRequestCost>();
 
-                (*src).per_tuple = 1_000_000.0;
+                (*src).per_tuple = pg_sys::cpu_index_tuple_cost * 1000.0;
                 ReturnedNodePointer(NonNull::new(node))
             }
 

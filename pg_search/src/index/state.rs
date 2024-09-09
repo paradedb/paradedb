@@ -131,7 +131,7 @@ impl SearchState {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_minimal(&self, executor: &'static Executor) -> SearchResults {
+    pub fn search_minimal(&self, include_key: bool, executor: &'static Executor) -> SearchResults {
         match (
             self.config.limit_rows,
             self.config.stable_sort.unwrap_or(true),
@@ -142,12 +142,12 @@ impl SearchState {
             // this we can use a channel to stream the results and also elide doing key lookups.
             // this is our "fast path"
             (None, false, None) => {
-                SearchResults::FastPath(self.search_via_channel(executor, false).into_iter())
+                SearchResults::FastPath(self.search_via_channel(executor, include_key).into_iter())
             }
 
             // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
             // including retrieving the key field
-            _ => SearchResults::AllFeatures(self.search_with_top_docs(executor, true)),
+            _ => SearchResults::AllFeatures(self.search_with_top_docs(executor, include_key)),
         }
     }
 

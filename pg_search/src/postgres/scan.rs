@@ -154,7 +154,7 @@ pub extern "C" fn amrescan(
         let results_iter: SearchResultIter = state
             .as_ref()
             .unwrap()
-            .search_minimal(SearchIndex::executor());
+            .search_minimal(false, SearchIndex::executor());
 
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
     };

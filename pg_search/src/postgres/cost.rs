@@ -29,8 +29,11 @@ pub unsafe extern "C" fn amcostestimate(
     index_correlation: *mut f64,
     index_pages: *mut f64,
 ) {
-    let path = path.as_mut().expect("path argument is NULL");
-    let indexinfo = path.indexinfo.as_ref().expect("indexinfo in path is NULL");
+    let path = path.as_mut().expect("`path` must not be null`");
+    let indexinfo = path
+        .indexinfo
+        .as_ref()
+        .expect("`indexinfo` must not be null`");
     let index_relation = unsafe {
         PgRelation::with_lock(
             indexinfo.indexoid,
@@ -39,7 +42,7 @@ pub unsafe extern "C" fn amcostestimate(
     };
     let heap_relation = index_relation
         .heap_relation()
-        .expect("failed to get heap relation for index");
+        .expect("index relation must have a valid corresponding heap relation");
 
     *index_correlation = 0.0;
     *index_startup_cost = 0.0;

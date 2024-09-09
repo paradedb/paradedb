@@ -5,10 +5,13 @@ title: Tokenizers
 Tokenizers determine how text is split up when indexed. Picking the right tokenizer is crucial for returning the results that you want.
 Different tokenizers are useful for different query types, data types, and languages.
 
+For instance, consider the phrase `lore ipsum dolor`. If we tokenize this phrase by splitting on whitespace, then users can find this phrase if
+they search for `lore`, `ipsum`, or `dolor`.
+
 ## Basic Usage
 
 A `tokenizer` can be provided to any text or JSON field. If no `tokenizer` is specified, the `default` tokenizer is used, which splits on whitespace and punctuation,
-filters out tokens that are larger than 255 bytes, and lowercases.
+filters out tokens that are larger than 255 bytes, and lowercases all tokens.
 
 ```sql
 CALL paradedb.create_bm25(
@@ -35,14 +38,14 @@ CALL paradedb.create_bm25(
   key_field => 'id',
   text_fields => paradedb.field(
     name => 'description',
-    tokenizer => paradedb.tokenizer('default')
+    tokenizer => paradedb.tokenizer('whitespace')
   )
 );
 ```
 
 ### Raw
 
-Does not process nor tokenize text. Filters out tokens larger than 255 bytes.
+Treats the entire text as a single token. Filters out tokens larger than 255 bytes.
 
 ```sql
 CALL paradedb.create_bm25(
@@ -52,22 +55,6 @@ CALL paradedb.create_bm25(
   text_fields => paradedb.field(
     name => 'description',
     tokenizer => paradedb.tokenizer('raw')
-  )
-);
-```
-
-### Lowercase
-
-Equivalent to raw, but also lowercases.
-
-```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field(
-    name => 'description',
-    tokenizer => paradedb.tokenizer('lowercase')
   )
 );
 ```
@@ -88,6 +75,10 @@ CALL paradedb.create_bm25(
   )
 );
 ```
+
+<ParamField body="min_gram">
+    Defines the minimum length for the n-grams. For instance, if set to 2, the smallest token created would be of length 2 characters.
+</ParamField>
 
 ### Ngram
 

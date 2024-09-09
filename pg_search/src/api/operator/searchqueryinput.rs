@@ -1,10 +1,11 @@
 use crate::api::operator::{
     anyelement_query_input_opoid, estimate_selectivity, make_search_config_opexpr_node,
-    ReturnedNodePointer, UNKNOWN_SELECTIVITY,
+    ReturnedNodePointer,
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
+use crate::UNKNOWN_SELECTIVITY;
 use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 

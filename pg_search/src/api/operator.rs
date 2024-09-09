@@ -34,8 +34,6 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 use pgrx::*;
 use std::ptr::NonNull;
 
-const UNKNOWN_SELECTIVITY: f64 = 0.00001;
-
 #[repr(transparent)]
 pub struct ReturnedNodePointer(Option<NonNull<pg_sys::Node>>);
 

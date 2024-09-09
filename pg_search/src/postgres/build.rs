@@ -56,6 +56,19 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
 
+    // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
+    for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
+        if existing_index.oid() == index_oid {
+            // the index we're about to build already exists on the table.
+            // we're likely here as a result of REINDEX
+            continue;
+        }
+
+        if is_bm25_index(&existing_index) {
+            panic!("a relation may only have one `USING bm25` index");
+        }
+    }
+
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
     } else {
@@ -324,5 +337,12 @@ unsafe fn build_callback_internal(
                 .expect("could not register commit callbacks for build operation");
         });
         state.memctx.reset();
+    }
+}
+
+fn is_bm25_index(indexrel: &PgRelation) -> bool {
+    unsafe {
+        // SAFETY:  we ensure that `indexrel.rd_indam` is non null and can be dereferenced
+        !indexrel.rd_indam.is_null() && (*indexrel.rd_indam).ambuild == Some(ambuild)
     }
 }

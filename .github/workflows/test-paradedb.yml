@@ -130,19 +130,19 @@ jobs:
         pg_version: [16]
 
     steps:
-      - name: Trigger paradedb/helm-charts Test Workflow
+      - name: Trigger paradedb/charts Test Workflow
         uses: multinarity/workflow-dispatch@master
         with:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           workflow: test-helm-chart.yml
-          repo: paradedb/helm-charts
+          repo: paradedb/charts
           ref: main
 
-      - name: Wait for paradedb/helm-charts Test Workflow to Complete
+      - name: Wait for paradedb/charts Test Workflow to Complete
         run: |
           while true; do
             status=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
-              https://api.github.com/repos/paradedb/helm-charts/actions/workflows/test-helm-chart.yml/runs?event=repository_dispatch \
+              https://api.github.com/repos/paradedb/charts/actions/workflows/test-helm-chart.yml/runs?event=repository_dispatch \
               | jq -r '.workflow_runs[0].status')
             if [ "$status" = "completed" ]; then
               break
@@ -150,10 +150,10 @@ jobs:
             sleep 10
           done
 
-      - name: Report paradedb/helm-charts Test Workflow Conclusion
+      - name: Report paradedb/charts Test Workflow Conclusion
         run: |
           conclusion=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
-            https://api.github.com/repos/paradedb/helm-charts/actions/workflows/test-helm-chart.yml/runs?event=repository_dispatch \
+            https://api.github.com/repos/paradedb/charts/actions/workflows/test-helm-chart.yml/runs?event=repository_dispatch \
             | jq -r '.workflow_runs[0].conclusion')
           if [ "$conclusion" = "success" ]; then
             echo "Helm chart test passed"

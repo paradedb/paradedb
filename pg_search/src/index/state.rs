@@ -25,7 +25,7 @@ use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
 use tantivy::schema::FieldType;
 use tantivy::{query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyError};
-use tantivy::{Executor, SnippetGenerator};
+use tantivy::{snippet::SnippetGenerator, Executor};
 
 /// An iterator of the different styles of search results we can return
 pub enum SearchResults {

@@ -3994,7 +3994,6 @@ dependencies = [
  "indexmap",
  "interprocess",
  "json5",
- "lazy_static",
  "libc",
  "memoffset",
  "num_cpus",

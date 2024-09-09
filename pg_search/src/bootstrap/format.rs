@@ -39,7 +39,7 @@ pub fn format_bm25_function(
             order_by_field text DEFAULT NULL,
             order_by_direction text DEFAULT NULL,
             lenient_parsing boolean DEFAULT NULL,
-            use_conjunction boolean DEFAULT NULL
+            conjunction_mode boolean DEFAULT NULL
         ) RETURNS {return_type} AS $func$
         BEGIN
             RETURN QUERY SELECT * FROM {function_name}(
@@ -55,7 +55,7 @@ pub fn format_bm25_function(
                 order_by_field => order_by_field,
                 order_by_direction => order_by_direction,
                 lenient_parsing => lenient_parsing,
-                use_conjunction => use_conjunction
+                conjunction_mode => conjunction_mode
             );
         END
         $func$ LANGUAGE plpgsql;
@@ -73,7 +73,7 @@ pub fn format_bm25_function(
             order_by_field text DEFAULT NULL,
             order_by_direction text DEFAULT NULL,
             lenient_parsing boolean DEFAULT NULL,
-            use_conjunction boolean DEFAULT NULL
+            conjunction_mode boolean DEFAULT NULL
         ) RETURNS {return_type} AS $func$
         DECLARE
             __paradedb_search_config__ JSONB;
@@ -91,7 +91,7 @@ pub fn format_bm25_function(
                 'order_by_field', order_by_field,
                 'order_by_direction', order_by_direction,
                 'lenient_parsing', lenient_parsing,
-                'use_conjunction', use_conjunction
+                'conjunction_mode', conjunction_mode
             );
             {function_body};
         END

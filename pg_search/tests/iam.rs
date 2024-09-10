@@ -119,9 +119,7 @@ fn explain_row_estimate(mut conn: PgConnection) {
 
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "VACUUM ANALYZE paradedb.bm25_search;".execute(&mut conn);
-
-    let (plan, ) = "EXPLAIN (FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' AND id = 2".fetch_one::<(Value,)>(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' AND id = 2".fetch_one::<(Value,)>(&mut conn);
     let plan = plan
         .get(0)
         .unwrap()

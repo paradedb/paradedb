@@ -90,7 +90,7 @@ where
             sqlx::query_as::<_, T>(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()))
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
         })
     }
 
@@ -99,7 +99,7 @@ where
             sqlx::query(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()))
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
         })
     }
 
@@ -122,7 +122,7 @@ where
             let rows = sqlx::query(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()));
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()));
             schema_to_batch(schema, &rows).expect("could not convert rows to RecordBatch")
         })
     }
@@ -135,7 +135,7 @@ where
             sqlx::query_scalar(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()))
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
         })
     }
 
@@ -147,7 +147,7 @@ where
             sqlx::query_as::<_, T>(self.as_ref())
                 .fetch_one(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()))
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
         })
     }
 

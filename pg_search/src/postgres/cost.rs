@@ -59,7 +59,7 @@ pub unsafe extern "C" fn amcostestimate(
                 .expect("`SearchIndexCreateOptions` must have a `uuid` property"),
         )
         .expect("should be able to retrieve a SearchIndex from internal cache");
-        search_index.directory.byte_size().unwrap_or(0) / pg_sys::BLCKSZ as u64
+        search_index.byte_size().unwrap_or(0) / pg_sys::BLCKSZ as u64
     };
     drop(indexrel);
 
@@ -90,4 +90,12 @@ pub unsafe extern "C" fn amcostestimate(
     // estimated number of rows we expect to return
     *index_total_cost =
         *index_startup_cost + *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
+
+    pgrx::warning!(
+        "selectivity={}, pages={}, startup_cost={}, total_cost={}",
+        *index_selectivity,
+        *index_pages,
+        *index_startup_cost,
+        *index_total_cost
+    );
 }

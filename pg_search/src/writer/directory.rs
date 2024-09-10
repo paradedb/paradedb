@@ -120,15 +120,6 @@ impl WriterDirectory {
         Ok(path.exists())
     }
 
-    /// Returns the total size, in bytes, of the files in the index's directory.
-    pub fn byte_size(&self) -> Result<u64> {
-        let path = self.search_index_dir_path(false)?;
-        Ok(WriterDirectory::list_files(&path.0)
-            .iter()
-            .map(|path| path.metadata().map(|metadata| metadata.len()))
-            .sum::<std::io::Result<u64>>()?)
-    }
-
     fn search_index_config_file_path(
         &self,
         ensure_exists: bool,

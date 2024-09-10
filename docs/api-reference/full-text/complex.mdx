@@ -196,9 +196,9 @@ SELECT * FROM search_idx.search(
   single edit in the Levenshtein distance calculation, while `false` considers
   it two separate edits (a deletion and an insertion).
 </ParamField>
-<ParamField body="prefix" default={false}>
+<ParamField body="prefix" default={true}>
   When set to `true`, the initial substring (prefix) of the query term is
-  exempted from the fuzzy edit distance calculation, while false includes the
+  exempted from the fuzzy edit distance calculation, while `false` includes the
   entire string in the calculation.
 </ParamField>
 

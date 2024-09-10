@@ -90,12 +90,4 @@ pub unsafe extern "C" fn amcostestimate(
     // estimated number of rows we expect to return
     *index_total_cost =
         *index_startup_cost + *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
-
-    pgrx::warning!(
-        "selectivity={}, pages={}, startup_cost={}, total_cost={}",
-        *index_selectivity,
-        *index_pages,
-        *index_startup_cost,
-        *index_total_cost
-    );
 }

@@ -24,6 +24,7 @@ use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::itemptr::u64_to_item_pointer;
 use pgrx::*;
+use std::error::Error;
 
 type SearchResultIter = SearchResults;
 
@@ -48,103 +49,76 @@ pub extern "C" fn amrescan(
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
-    // Ensure there's at least one key provided for the search.
-    if nkeys == 0 {
-        panic!("no ScanKeys provided");
-    }
-
-    // Convert the raw keys into a slice for easier access.
-    let nkeys = nkeys as usize;
-    let keys = unsafe { std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys) };
-
-    let search_config = match ScanStrategy::try_from(keys[0].sk_strategy).expect("invalid strategy")
-    {
-        // Build a Boolean "must" set of each query from the scan keys, using the first one's JSONB
-        // definition as the overall SearchConfig
-        ScanStrategy::SearchConfigJson => unsafe {
-            let mut first = SearchConfig::from_jsonb(
-                JsonB::from_datum(keys[0].sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null"),
-            )
-            .expect("`ScanKey.sk_argument` should be a valid `SearchConfig`");
-
-            for key in &keys[1..] {
-                let next = SearchConfig::from_jsonb(
+    fn key_to_config(
+        indexrel: pg_sys::Relation,
+        key: &pg_sys::ScanKeyData,
+    ) -> Result<SearchConfig, Box<dyn Error>> {
+        let search_config = match ScanStrategy::try_from(key.sk_strategy)? {
+            ScanStrategy::SearchConfigJson => unsafe {
+                let search_config = SearchConfig::from_jsonb(
                     JsonB::from_datum(key.sk_argument, false)
                         .expect("ScanKey.sk_argument must not be null"),
                 )
                 .expect("`ScanKey.sk_argument` should be a valid `SearchConfig`");
 
-                first.query = SearchQueryInput::Boolean {
-                    must: vec![first.query, next.query],
-                    should: Default::default(),
-                    must_not: Default::default(),
-                };
-            }
+                // assert that the index from the `SearchConfig` is the **same** index as the one Postgres
+                // has decided to use for this IndexScan.  If it's not, we cannot continue.
+                //
+                // As we disallow creating multiple `USING bm25` indexes on a given table, this should never
+                // happen, but it's hard to know what the state of existing databases are out there in the wild
+                let postgres_index_oid = (*indexrel).rd_id;
+                let our_index_id = search_config.index_oid;
+                assert_eq!(
+                    postgres_index_oid,
+                    pg_sys::Oid::from(our_index_id),
+                    "SearchConfig jsonb index doesn't match the index in the current IndexScan"
+                );
+                search_config
+            },
 
-            first
-        },
-
-        // Directly create a SearchConfig by building a query of ANDed scan keys
-        ScanStrategy::TextQuery => unsafe {
-            let mut query = String::new();
-            for key in keys {
-                if !query.is_empty() {
-                    query.push_str(" AND ");
-                }
-
-                let clause = String::from_datum(key.sk_argument, false)
+            ScanStrategy::TextQuery => unsafe {
+                let query = String::from_datum(key.sk_argument, false)
                     .expect("ScanKey.sk_argument must not be null");
-                query.push('(');
-                query.push_str(&clause);
-                query.push(')');
-            }
+                let indexrel = PgRelation::from_pg(indexrel);
+                SearchConfig::from((query, indexrel))
+            },
 
-            let indexrel = PgRelation::from_pg((*scan).indexRelation);
-            SearchConfig::from((query, indexrel))
-        },
-
-        // Directly create a SearchConfig using the provided SearchQueryInput keys
-        ScanStrategy::SearchQueryInput => unsafe {
-            let mut queries = Vec::with_capacity(nkeys);
-            for key in keys {
+            ScanStrategy::SearchQueryInput => unsafe {
                 let query = SearchQueryInput::from_datum(key.sk_argument, false)
                     .expect("ScanKey.sk_argument must not be null");
-                queries.push(query);
-            }
+                let indexrel = PgRelation::from_pg(indexrel);
+                SearchConfig::from((query, indexrel))
+            },
+        };
 
-            let query = if queries.len() == 1 {
-                queries.pop().unwrap()
-            } else {
-                SearchQueryInput::Boolean {
-                    must: queries,
-                    should: vec![],
-                    must_not: vec![],
-                }
-            };
+        Ok(search_config)
+    }
 
-            let indexrel = PgRelation::from_pg((*scan).indexRelation);
-            SearchConfig::from((query, indexrel))
-        },
-    };
-
-    // assert that the index from the `SearchConfig` is the **same** index as the one Postgres
-    // has decided to use for this IndexScan.  If it's not, we cannot continue.
-    //
-    // As we disallow creating multiple `USING bm25` indexes on a given table, this should never
-    // happen, but it's hard to know what the state of existing databases are out there in the wild
-    unsafe {
-        // SAFETY:  we assert that the pointers we're about to dereference are not null.
+    let (indexrel, keys) = unsafe {
+        // SAFETY:  asserting the pointers we're going to use are non-null
         assert!(!scan.is_null());
         assert!(!(*scan).indexRelation.is_null());
+        assert!(!keys.is_null());
+        assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
 
-        let postgres_index_oid = (*(*scan).indexRelation).rd_id;
-        let our_index_id = search_config.index_oid;
-        assert_eq!(
-            postgres_index_oid,
-            pg_sys::Oid::from(our_index_id),
-            "SearchConfig jsonb index doesn't match the index in the current IndexScan"
-        );
+        let indexrel = (*scan).indexRelation;
+        let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
+
+        (indexrel, keys)
+    };
+
+    // build a Boolean "must" clause of all the ScanKeys
+    let mut search_config = key_to_config(indexrel, &keys[0])
+        .expect("ScanKey should transform to a valid SearchConfig");
+    for key in &keys[1..] {
+        let key =
+            key_to_config(indexrel, key).expect("ScanKey should transform to a valid SearchConfig");
+
+        search_config.query = SearchQueryInput::Boolean {
+            must: vec![search_config.query, key.query],
+            should: vec![],
+            must_not: vec![],
+        };
     }
 
     // Create the index and scan state

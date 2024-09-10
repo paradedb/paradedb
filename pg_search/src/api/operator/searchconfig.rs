@@ -22,13 +22,8 @@ pub fn search_with_search_config(
 ) -> bool {
     let default_hash_set = || {
         let JsonB(search_config_json) = &config_json;
-        let mut search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
+        let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
             .expect("could not parse search config");
-
-        // if these options are set, searching tantivy takes the slow path, and we don't want that
-        search_config.stable_sort = Some(false);
-        search_config.order_by_field = None;
-        search_config.limit_rows = None;
 
         let writer_client = WriterGlobal::client();
         let directory = WriterDirectory::from_index_oid(search_config.index_oid);

@@ -88,7 +88,8 @@ pub unsafe extern "C" fn amcostestimate(
 
     // total cost is just a hardcoded value of the cost to read a tuple from an index times the
     // estimated number of rows we expect to return
-    *index_total_cost += *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
+    *index_total_cost =
+        *index_startup_cost + *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
 
     // this ensures the rows estimate is reflected, at least, in EXPLAIN output
     (*path).path.rows = *index_selectivity * reltuples;

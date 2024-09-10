@@ -26,6 +26,11 @@ use crate::UNKNOWN_SELECTIVITY;
 use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
+/// This is the function behind the `@@@(anyelement, paradedb.searchqueryinput)` operator. Since we
+/// transform those to use `@@@(anyelement, jsonb`), this function won't be called in normal
+/// circumstances, but it could be called if the rhs of the @@@ is some kind of volatile value.
+///
+/// And in that case we just have to give up.
 #[pg_extern(immutable, parallel_safe)]
 pub fn search_with_query_input(
     _element: AnyElement,

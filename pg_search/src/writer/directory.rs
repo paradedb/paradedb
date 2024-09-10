@@ -255,7 +255,7 @@ impl SearchFs for WriterDirectory {
     fn remove(&self) -> Result<(), SearchDirectoryError> {
         let SearchIndexDirPath(index_path) = self.search_index_dir_path(false)?;
         if index_path.exists() {
-            Self::remove_dir_all_recursive(&index_path)?
+            Self::remove_dir_all_recursive(&index_path)?;
         }
         Ok(())
     }

@@ -428,29 +428,6 @@ LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
     let schema_name = schema_name.unwrap_or("current_schema()");
 
-    let oid_query = format!(
-        "SELECT oid FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
-        index_name
-    );
-
-    let oid_results = Spi::connect(|client| {
-        client
-            .select(&oid_query, None, None)?
-            .map(|row| anyhow::Ok((row["oid"].value()?,)))
-            .collect::<anyhow::Result<Vec<(Option<pg_sys::Oid>,)>, _>>()
-    })?;
-
-    let index_oid = if oid_results.is_empty() {
-        // No index with the passed name exists. Nothing to do, so return.
-        return Ok(());
-    } else {
-        oid_results
-            .first()
-            .expect("already asserted that oid_results is not empty")
-            .0
-            .expect("oid in drop_bm25 is unexpectedly NULL")
-    };
-
     Spi::run(&format!(
         r#"
         DO $$
@@ -471,6 +448,16 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
         spi::quote_identifier(index_name),
     ))?;
 
+    Ok(())
+}
+
+#[pg_extern(sql = "
+CREATE OR REPLACE PROCEDURE paradedb.delete_bm25_index_by_oid(
+    index_oid oid
+)
+LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
+")]
+unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
     crate::api::search::drop_bm25_internal(index_oid);
 
     Ok(())
@@ -534,3 +521,25 @@ fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
         );
     }
 }
+
+extension_sql!(
+    r#"
+    CREATE OR REPLACE FUNCTION paradedb.drop_bm25_event_trigger()
+    RETURNS event_trigger AS $$
+    DECLARE
+        obj RECORD;
+    BEGIN
+        FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() LOOP
+            IF obj.object_type = 'index' THEN
+                CALL paradedb.delete_bm25_index_by_oid(obj.objid);
+            END IF;
+        END LOOP;
+    END;
+    $$ LANGUAGE plpgsql;
+    
+    CREATE EVENT TRIGGER trigger_on_sql_index_drop
+    ON sql_drop
+    EXECUTE FUNCTION paradedb.drop_bm25_event_trigger();
+    "#
+    name = "create_drop_bm25_event_trigger"
+);

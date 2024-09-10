@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::env::needs_commit;
+use crate::env::{needs_commit, register_commit_callback};
 use crate::index::state::SearchState;
 use crate::postgres::utils::VisibilityChecker;
 use crate::schema::SearchConfig;
@@ -188,15 +188,17 @@ unsafe fn snippet(
 }
 
 pub fn drop_bm25_internal(index_oid: pg_sys::Oid) {
-    // We need to receive the index_name as an argument here, because PGRX has
-    // some limitations around passing OID / u32 as a pg_extern parameter:
-    // https://github.com/pgcentralfoundation/pgrx/issues/1536
-
     let writer_client = WriterGlobal::client();
+    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
 
     // Drop the Tantivy data directory.
-    SearchIndex::drop_index(&writer_client, index_oid.as_u32())
+    SearchIndex::drop_index(&writer_client, &directory)
         .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
+
+    // The physical delete will happen when the transaction commits, so a commit callback
+    // must be registered.
+    register_commit_callback(&writer_client, directory.clone())
+        .expect("could not register commit callback for drop index operation");
 }
 
 /// # Safety

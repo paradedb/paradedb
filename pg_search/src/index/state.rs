@@ -278,7 +278,8 @@ impl SearchState {
 
         let count = collector
             .collect_segment(weight.as_ref(), ordinal as SegmentOrdinal, largest_reader)
-            .expect("counting docs in the largest segment should not fail");
+            .expect("counting docs in the largest segment should not fail")
+            .max(1); // want to assume at least 1 matching document
         let segment_doc_proportion =
             largest_reader.num_docs() as f64 / self.searcher.num_docs() as f64;
 

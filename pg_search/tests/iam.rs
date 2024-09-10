@@ -129,5 +129,6 @@ fn explain_row_estimate(mut conn: PgConnection) {
         .unwrap()
         .as_object()
         .unwrap();
+    eprintln!("{plan:#?}");
     assert_eq!(plan.get("Plan Rows"), Some(&Value::Number(Number::from(2))));
 }

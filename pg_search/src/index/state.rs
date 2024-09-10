@@ -448,9 +448,10 @@ mod collector {
                     order_by: None,
                     sort_asc: false,
                 };
-                self.sender
-                    .send((scored, doc_address))
-                    .expect("channel should be open")
+
+                // if send fails that likely means the receiver was dropped so we have nowhere
+                // to send the result.  That's okay
+                self.sender.send((scored, doc_address)).ok();
             }
         }
 

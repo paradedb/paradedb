@@ -24,7 +24,7 @@ pub fn format_bm25_function(
     index_json: &Value,
 ) -> String {
     let index_json_str = serde_json::to_string(&index_json)
-        .expect("Failed to convert index json to string in format_bm25_function");
+        .expect("index json should be serializable for format_bm25_function");
     let formatted_sql = format!(
         r#"
         CREATE OR REPLACE FUNCTION {function_name}(
@@ -161,7 +161,7 @@ pub fn format_hybrid_function(
         function_name = function_name,
         return_type = return_type,
         index_json = serde_json::to_string(&index_json)
-            .expect("Failed to convert index json to string in format_hybrid_function"),
+            .expect("index json should be serializable for format_hybrid_function"),
         function_body = function_body
     );
 

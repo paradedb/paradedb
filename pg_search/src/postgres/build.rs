@@ -273,7 +273,7 @@ unsafe extern "C" fn build_callback(
     _tuple_is_alive: bool,
     state: *mut std::os::raw::c_void,
 ) {
-    let htup = htup.as_ref().expect("HeapTuple pointer is null");
+    let htup = htup.as_ref().expect("HeapTuple pointer should not be null");
     build_callback_internal(htup.t_self, values, isnull, state, index);
 }
 
@@ -301,7 +301,7 @@ unsafe fn build_callback_internal(
     check_for_interrupts!();
     let state = (state as *mut BuildState)
         .as_mut()
-        .expect("BuildState pointer is null");
+        .expect("BuildState pointer should not be null");
 
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a

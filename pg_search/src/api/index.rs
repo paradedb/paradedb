@@ -416,19 +416,19 @@ pub fn range_numeric(field: String, range: Range<pgrx::AnyNumeric>) -> SearchQue
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
-                    n.try_into().expect("Failed to convert numeric to f64"),
+                    n.try_into().expect("numeric should be a valid f64"),
                 )),
                 RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
-                    n.try_into().expect("Failed to convert numeric to f64"),
+                    n.try_into().expect("numeric should be a valid f64"),
                 )),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
-                    n.try_into().expect("Failed to convert numeric to f64"),
+                    n.try_into().expect("numeric should be a valid f64"),
                 )),
                 RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
-                    n.try_into().expect("Failed to convert numeric to f64"),
+                    n.try_into().expect("numeric should be a valid f64"),
                 )),
             },
         },
@@ -455,18 +455,18 @@ macro_rules! datetime_range_fn {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
                             (&TantivyValue::try_from(n)
-                                .expect("Failed to convert to tantivy value")
+                                .expect("n should be a valid TantivyValue representation")
                                 .tantivy_schema_value())
                                 .as_datetime()
-                                .expect("Failed to convert to datetime")
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                         RangeBound::Exclusive(n) => Bound::Excluded(
                             (&TantivyValue::try_from(n)
-                                .expect("Failed to convert to tantivy value")
+                                .expect("n should be a valid TantivyValue representation")
                                 .tantivy_schema_value())
                                 .as_datetime()
-                                .expect("Failed to convert to datetime")
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                     },
@@ -474,18 +474,18 @@ macro_rules! datetime_range_fn {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
                             (&TantivyValue::try_from(n)
-                                .expect("Failed to convert to tantivy value")
+                                .expect("n should be a valid TantivyValue representation")
                                 .tantivy_schema_value())
                                 .as_datetime()
-                                .expect("Failed to convert to datetime")
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                         RangeBound::Exclusive(n) => Bound::Excluded(
                             (&TantivyValue::try_from(n)
-                                .expect("Failed to convert to tantivy value")
+                                .expect("n should be a valid TantivyValue representation")
                                 .tantivy_schema_value())
                                 .as_datetime()
-                                .expect("Failed to convert to datetime")
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                     },
@@ -515,7 +515,7 @@ macro_rules! term_fn {
                 SearchQueryInput::Term {
                     field,
                     value: TantivyValue::try_from(value)
-                        .expect("Failed to convert value to tantivy value")
+                        .expect("value should be a valid TantivyValue representation")
                         .tantivy_schema_value(),
                 }
             } else {

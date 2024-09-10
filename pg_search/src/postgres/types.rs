@@ -241,7 +241,7 @@ impl fmt::Display for TantivyValue {
                 write!(
                     f,
                     "{}",
-                    String::from_utf8(bytes.clone()).expect("Failed to convert bytes to string")
+                    String::from_utf8(bytes.clone()).expect("bytes should be valid utf-8")
                 )
             }
             tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),

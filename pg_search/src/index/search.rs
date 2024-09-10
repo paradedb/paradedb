@@ -458,10 +458,10 @@ impl<'de> Deserialize<'de> for SearchIndex {
 
         let TantivyDirPath(tantivy_dir_path) = directory
             .tantivy_dir_path(true)
-            .expect("Failed to get tantivy directory path while deserializing SearchIndex");
+            .expect("tantivy directory path should be valid");
 
         let mut underlying_index =
-            Index::open_in_dir(tantivy_dir_path).expect("failed to open index");
+            Index::open_in_dir(tantivy_dir_path).expect("index should be openable");
 
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);

@@ -96,12 +96,12 @@ impl SearchTokenizerFilters {
 
         if let Some(value) = self.remove_long {
             write!(buffer, "{}remove_long={value}", sep(is_empty))
-                .expect("Failed to write to buffer");
+                .expect("Writing to String buffer should never fail");
             is_empty = false;
         }
         if let Some(value) = self.lowercase {
             write!(buffer, "{}lowercase={value}", sep(is_empty))
-                .expect("Failed to write to buffer");
+                .expect("Writing to String buffer should never fail");
             is_empty = false;
         }
         if let Some(value) = self.stemmer {
@@ -336,7 +336,7 @@ impl SearchTokenizer {
             } => Some(
                 TextAnalyzer::builder(
                     NgramTokenizer::new(*min_gram, *max_gram, *prefix_only)
-                        .expect("Invalid ngram parameters"),
+                        .expect("Ngram parameters should be valid parameters for NgramTokenizer"),
                 )
                 .filter(filters.remove_long_filter())
                 .filter(filters.lower_caser())

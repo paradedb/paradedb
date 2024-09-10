@@ -38,7 +38,7 @@ fn array_data() -> ArrayData {
         .add_buffer(Buffer::from_slice_ref(&offsets[..]))
         .add_buffer(Buffer::from_slice_ref(&values[..]))
         .build()
-        .expect("Failed to build array data")
+        .expect("binary array data should be valid for BinaryArray")
 }
 
 // Fixed size binary is not supported yet, but this will be useful for test data when we do support.
@@ -50,7 +50,7 @@ fn fixed_size_array_data() -> ArrayData {
         .len(3)
         .add_buffer(Buffer::from(&values[..]))
         .build()
-        .expect("Failed to build fixed size array data")
+        .expect("fixed size binary array data should be valid for FixedSizeBinaryArray")
 }
 
 fn binary_array_data() -> ArrayData {
@@ -62,7 +62,7 @@ fn binary_array_data() -> ArrayData {
         .add_buffer(Buffer::from_slice_ref(&offsets[..]))
         .add_buffer(Buffer::from_slice_ref(&values[..]))
         .build()
-        .expect("Failed to build binary array data")
+        .expect("binary array data should be valid for LargeBinaryArray")
 }
 
 #[derive(Debug)]

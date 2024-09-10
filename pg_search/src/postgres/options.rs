@@ -215,8 +215,11 @@ unsafe fn build_relopts(
     }
 
     for relopt in std::slice::from_raw_parts_mut(p_options, n_options as usize) {
-        relopt.gen.as_mut().expect("relopt is null").lockmode =
-            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE;
+        relopt
+            .gen
+            .as_mut()
+            .expect("relopt should be non-null")
+            .lockmode = pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE;
     }
 
     let rdopts = pg_sys::allocateReloptStruct(
@@ -258,7 +261,8 @@ impl SearchIndexCreateOptions {
             .map(|(field_name, field_config)| {
                 (
                     field_name.clone().into(),
-                    parser(field_config).expect("failed to deserialize {field_name} config"),
+                    parser(field_config)
+                        .expect("field config should be valid for SearchFieldConfig::{field_name}"),
                 )
             })
             .collect()
@@ -332,7 +336,7 @@ impl SearchIndexCreateOptions {
 
             value
                 .to_str()
-                .expect("failed to parse fields as utf-8")
+                .expect("value should be valid utf-8")
                 .to_owned()
         }
     }

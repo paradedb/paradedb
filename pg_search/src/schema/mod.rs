@@ -373,7 +373,8 @@ impl SearchFieldConfig {
 
 impl SearchFieldConfig {
     pub fn from_json(value: serde_json::Value) -> Self {
-        serde_json::from_value(value).expect("Failed to deserialize search field config")
+        serde_json::from_value(value)
+            .expect("value should be a valid SearchFieldConfig representation")
     }
 
     pub fn default_text() -> Self {

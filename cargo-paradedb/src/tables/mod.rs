@@ -30,7 +30,7 @@ impl PathSource for &String {
     fn paths(&self) -> Box<dyn Iterator<Item = PathBuf>> {
         // Use a globbing library to interpret the string as a glob pattern
         // and return an iterator over the matching paths
-        let glob_pattern = glob::glob(self).expect("Failed to interpret glob pattern");
+        let glob_pattern = glob::glob(self).expect("glob pattern should be valid");
         Box::new(glob_pattern.filter_map(Result::ok))
     }
 }
@@ -39,7 +39,7 @@ impl PathSource for &str {
     fn paths(&self) -> Box<dyn Iterator<Item = PathBuf>> {
         // Use a globbing library to interpret the string as a glob pattern
         // and return an iterator over the matching paths
-        let glob_pattern = glob::glob(self).expect("Failed to interpret glob pattern");
+        let glob_pattern = glob::glob(self).expect("glob pattern should be valid");
         Box::new(glob_pattern.filter_map(Result::ok))
     }
 }

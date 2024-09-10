@@ -175,19 +175,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
-# Install Postgis
-ENV POSTGIS_MAJOR 3
-ENV POSTGIS_VERSION 3.4.2+dfsg-1.pgdg120+1
-
-RUN apt-get update \
-    && apt-cache showpkg postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR \
-    && apt-get install -y --no-install-recommends \
-            postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR=$POSTGIS_VERSION \
-            postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR-scripts \
-            # ca-certificates: for accessing remote raster files;
-            #   fix: https://github.com/postgis/docker-postgis/issues/307
-            ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy third-party extensions from their builder stages
 COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
@@ -234,8 +221,16 @@ RUN apt-get update && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
 
-# This is required for TLS connection to PostHog, which is used for telemetry.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install Postgis and ca-certificates
+# ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
+ENV POSTGIS_MAJOR 3
+ENV POSTGIS_VERSION 3.4.2+dfsg-1.pgdg120+1
+
+RUN apt-get update \
+    && apt-cache showpkg postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR \
+    && apt-get install -y --no-install-recommends \
+    postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR=$POSTGIS_VERSION \
+    postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR-scripts \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/* && \
     update-ca-certificates

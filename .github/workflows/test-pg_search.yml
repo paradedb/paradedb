@@ -305,6 +305,7 @@ jobs:
           cargo pgrx start
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 28816 -h localhost pg_search
           DATABASE_URL=postgresql://localhost:28816/pg_search cargo test --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
+          cat ~/.pgrx/${{ matrix.pg_version}}.log
       - name: Show the Postgres log
         run: |
-          cat ~/pgrx/${{ matrix.pg_version}}.log
+          cat ~/.pgrx/${{ matrix.pg_version}}.log

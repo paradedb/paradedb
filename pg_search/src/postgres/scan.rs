@@ -24,7 +24,6 @@ use crate::schema::SearchConfig;
 use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::itemptr::u64_to_item_pointer;
 use pgrx::*;
-use std::error::Error;
 
 type SearchResultIter = SearchResults;
 
@@ -49,11 +48,8 @@ pub extern "C" fn amrescan(
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
-    fn key_to_config(
-        indexrel: pg_sys::Relation,
-        key: &pg_sys::ScanKeyData,
-    ) -> Result<SearchConfig, Box<dyn Error>> {
-        let search_config = match ScanStrategy::try_from(key.sk_strategy)? {
+    fn key_to_config(indexrel: pg_sys::Relation, key: &pg_sys::ScanKeyData) -> SearchConfig {
+        match ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized") {
             ScanStrategy::SearchConfigJson => unsafe {
                 let search_config = SearchConfig::from_jsonb(
                     JsonB::from_datum(key.sk_argument, false)
@@ -89,13 +85,11 @@ pub extern "C" fn amrescan(
                 let indexrel = PgRelation::from_pg(indexrel);
                 SearchConfig::from((query, indexrel))
             },
-        };
-
-        Ok(search_config)
+        }
     }
 
     let (indexrel, keys) = unsafe {
-        // SAFETY:  asserting the pointers we're going to use are non-null
+        // SAFETY:  assert the pointers we're going to use are non-null
         assert!(!scan.is_null());
         assert!(!(*scan).indexRelation.is_null());
         assert!(!keys.is_null());
@@ -108,11 +102,9 @@ pub extern "C" fn amrescan(
     };
 
     // build a Boolean "must" clause of all the ScanKeys
-    let mut search_config = key_to_config(indexrel, &keys[0])
-        .expect("ScanKey should transform to a valid SearchConfig");
+    let mut search_config = key_to_config(indexrel, &keys[0]);
     for key in &keys[1..] {
-        let key =
-            key_to_config(indexrel, key).expect("ScanKey should transform to a valid SearchConfig");
+        let key = key_to_config(indexrel, key);
 
         search_config.query = SearchQueryInput::Boolean {
             must: vec![search_config.query, key.query],
@@ -127,31 +119,20 @@ pub extern "C" fn amrescan(
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
-
-    let leaked_results_iter = unsafe {
-        // we need to leak both the `SearchState` we're about to create and the result iterator from
-        // the search function.  The result iterator needs to be leaked so we can use it across the
-        // IAM API calls, and the SearchState needs to be leaked because that iterator borrows from it
-        // so it needs to be in a known memory address prior to performing a search.
-        let state = search_index
-            .search_state(&writer_client, &search_config, needs_commit(index_oid))
-            .unwrap();
-
-        let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
-
-        // SAFETY:  `leak_and_drop_on_delete()` gave us a non-null, aligned pointer to the SearchState
-        let results_iter: SearchResultIter = state
-            .as_ref()
-            .unwrap()
-            .search_minimal(false, SearchIndex::executor());
-
-        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
-    };
+    let state = search_index
+        .search_state(&writer_client, &search_config, needs_commit(index_oid))
+        .expect("SearchState should construct cleanly");
 
     // Save the iterator onto the current memory context.
     unsafe {
         // SAFETY:  We asserted above that `scan` is non-null
-        (*scan).opaque = leaked_results_iter.cast();
+        (*scan).opaque = {
+            let results_iter: SearchResultIter =
+                state.search_minimal(false, SearchIndex::executor());
+            PgMemoryContexts::CurrentMemoryContext
+                .leak_and_drop_on_delete(results_iter)
+                .cast()
+        }
     }
 }
 

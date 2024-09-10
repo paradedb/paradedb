@@ -87,13 +87,13 @@ fn direct_and_queries(mut conn: PgConnection) {
 
         assert_eq!(
             columns.description.iter().cloned().collect::<HashSet<_>>(),
-            vec!["Plastic Keyboard","Ergonomic metal keyboard"].iter().map(|s| s.to_string())
+            ["Plastic Keyboard","Ergonomic metal keyboard"].iter().map(|s| s.to_string())
                 .collect::<HashSet<_>>()
         );
 
         assert_eq!(
             columns.category.iter().cloned().collect::<HashSet<_>>(),
-            vec!["Electronics"].iter()
+            ["Electronics"].iter()
                 .map(|s| s.to_string())
                 .collect::<HashSet<_>>()
         );

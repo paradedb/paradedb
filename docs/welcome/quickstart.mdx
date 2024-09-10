@@ -41,13 +41,14 @@ Next, let's create a BM25 index called `search_idx` on this table. We'll index t
 
 ```sql
 CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        schema_name => 'public',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) ||
-                       paradedb.field('category'),
-        numeric_fields => paradedb.field('rating')
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description'),
+  numeric_fields => paradedb.field('rating'),
+  boolean_fields => paradedb.field('in_stock'),
+  datetime_fields => paradedb.field('created_at'),
+  json_fields => paradedb.field('metadata')
 );
 ```
 

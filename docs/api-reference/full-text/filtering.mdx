@@ -1,0 +1,66 @@
+---
+title: Filtering
+---
+
+The ParadeQL query accepts filters, which can drastically improve query times compared to standard SQL `WHERE` clauses.
+For optimal performance and ranking, it is important to pass filters directly into the search query whenever possible.
+
+## Numeric Filter
+
+The following query returns all rows matching `description:keyboard` where `rating` equals `4`.
+
+```sql
+SELECT * FROM search_idx.search('description:keyboard AND rating:4');
+```
+
+Comparison operators `>`, `>=`, `<`, and `<=` are supported.
+
+```sql
+SELECT * FROM search_idx.search('description:keyboard AND rating:>=4');
+```
+
+## Datetime Filter
+
+RFC3339-formatted dates can be used to filter over datetime fields.
+
+```sql
+SELECT * FROM search_idx.search('created_at:"2023-04-15T13:27:09Z"');
+```
+
+## Boolean Filter
+
+Boolean fields can be filtered with `true` or `false`.
+
+```sql
+SELECT * FROM search_idx.search('in_stock:true');
+```
+
+## Range Filter
+
+The inclusive `[]` and exclusive `{}` bounds can be used for range filtering.
+
+```sql
+-- Numeric
+SELECT * FROM search_idx.search('rating:[1 TO 4]');
+
+-- Datetime
+SELECT * FROM search_idx.search(
+    'created_at:[2020-01-31T00:00:00Z TO 2024-01-31T00:00:00Z]'
+);
+```
+
+Range filters can also be applied over text fields. The following query finds all documents where 
+`description` contains a token that is lexicographically between `book` and `camera` (i.e. would come between
+`book` and `camera` in a dictionary).
+
+```sql
+SELECT * FROM search_idx.search('description:[book TO camera]');
+```
+
+## Set Filter
+
+The `IN` operator finds documents that match at least one element in a set.
+
+```sql
+SELECT * FROM search_idx.search('rating:IN [2 3 4]');
+```

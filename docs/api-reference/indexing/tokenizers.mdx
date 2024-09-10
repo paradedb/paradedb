@@ -3,9 +3,9 @@ title: Tokenizers
 ---
 
 Tokenizers determine how text is split up when indexed. Picking the right tokenizer is crucial for returning the results that you want.
-Different tokenizers are useful for different query types, data types, and languages.
+Different tokenizers are optimized for different query types and languages.
 
-For instance, consider the phrase `lore ipsum dolor`. If we tokenize this phrase by splitting on whitespace, then users can find this phrase if
+For instance, consider the phrase `lore ipsum dolor`. If we tokenize this phrase by splitting on whitespace, users can find this phrase if
 they search for `lore`, `ipsum`, or `dolor`.
 
 ## Basic Usage
@@ -25,22 +25,35 @@ CALL paradedb.create_bm25(
 );
 ```
 
+Queries are automatically tokenized in the same way as the underlying field. For instance, in the following query,
+the word `keyboard` is tokenized with the default tokenizer.
+
+```sql
+SELECT * FROM search_idx.search('description:keyboard');
+```
+
 ## Available Tokenizers
+
+The `paradedb.tokenizers()` function returns a list of all available tokenizer names.
+
+```sql
+SELECT * FROM paradedb.tokenizers();
+```
+
+### Default
+
+Tokenizes the text by splitting on whitespace and punctuation, filters out tokens that are larger than 255 bytes, and converts to lowercase.
+
+```sql
+paradedb.tokenizer('default')
+```
 
 ### Whitespace
 
-Tokenizes the text by splitting on whitespace only, filters out tokens that are larger than 255 bytes, and converts to lowercase.
+Like `default`, but splits based on whitespace only. Filters out tokens that are larger than 255 bytes and converts to lowercase.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field(
-    name => 'description',
-    tokenizer => paradedb.tokenizer('whitespace')
-  )
-);
+paradedb.tokenizer('whitespace')
 ```
 
 ### Raw
@@ -48,15 +61,7 @@ CALL paradedb.create_bm25(
 Treats the entire text as a single token. Filters out tokens larger than 255 bytes.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field(
-    name => 'description',
-    tokenizer => paradedb.tokenizer('raw')
-  )
-);
+paradedb.tokenizer('raw')
 ```
 
 ### Regex
@@ -65,19 +70,11 @@ Tokenizes text using a regular expression. The regular expression can be specifi
 For instance, `\\W+` splits on non-word characters.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field(
-    name => 'description',
-    tokenizer => paradedb.tokenizer('regex', pattern => '\\W+')
-  )
-);
+paradedb.tokenizer('regex', pattern => '\\W+')
 ```
 
-<ParamField body="min_gram">
-    Defines the minimum length for the n-grams. For instance, if set to 2, the smallest token created would be of length 2 characters.
+<ParamField body="pattern">
+  The regular expression pattern used to tokenize the text.
 </ParamField>
 
 ### Ngram
@@ -85,16 +82,12 @@ CALL paradedb.create_bm25(
 Tokenizes text by splitting words into overlapping substrings based on the specified parameters. For instance, a 3-gram tokenizer splits the word `cheese`
 into `che`, `hee`, `ees`, and `ese`.
 
+During search, an ngram-tokenized query is considered a match only if **all** its ngram tokens match. For instance, the 3-grams of `chse` do not match against `cheese`
+because the token `hse` does not match with any of the tokens of `cheese`. However, the query `hees` matches because all of its 3-grams match against
+those of `cheese`.
+
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field(
-    name => 'description',
-    tokenizer => paradedb.tokenizer('ngram', min_gram => 2, max_gram => 4, prefix_only => false)
-  )
-);
+paradedb.tokenizer('ngram', min_gram => 2, max_gram => 4, prefix_only => false)
 ```
 
 <ParamField body="min_gram">
@@ -107,7 +100,90 @@ Determines the maximum length of the n-grams. If set to 5, the largest token pro
 When set to `true`, the tokenizer generates n-grams that start from the beginning of the word only, ensuring a prefix progression. If false, n-grams are created from all possible character combinations within the `min_gram` and `max_gram` range.
 </ParamField>
 
+### Source Code
+
+Tokenizes the text by splitting based on casing conventions commonly used in code, such as camelCase or PascalCase. Filters out tokens that exceed 255 bytes, and converts them to lowercase with ASCII folding.
+
+```sql
+paradedb.tokenizer('source_code')
+```
+
+### Chinese Compatible
+
+The `chinese_compatible` tokenizer performs simple character splitting by treating each CJK (Chinese, Japanese, Korean) character as a single token and grouping non-CJK characters as a single token. Non-alphanumeric characters like punctuation are ignored and not included in any token.
+
+```sql
+paradedb.tokenizer('chinese_compatible')
+```
+
+### Lindera
+
+The Lindera tokenizer is a more advanced CJK tokenizer that uses prebuilt Chinese, Japanese, or Korean dictionaries to break text into meaningful tokens (words or phrases) rather than on
+individual characters.
+
+`chinese_lindera` uses the CC-CEDICT dictionary.
+
+```sql
+paradedb.tokenizer('chinese_lindera');
+```
+
+`korean_lindera` uses the KoDic dictionary.
+
+```sql
+paradedb.tokenizer('korean_lindera');
+```
+
+`japanese_lindera` uses the IPADIC dictionary.
+
+```sql
+paradedb.tokenizer('japanese_lindera');
+```
+
+### ICU 
+
+The ICU (International Components for Unicode) tokenizer breaks down text according to the Unicode standard. It can be used to tokenize most languages
+and recognizes the nuances in word boundaries across different languages.
+
+```sql
+paradedb.tokenizer('icu');
+```
+
+## Token Filters
+
+Token filters apply additional processing to tokens after they have been created. For instance, the `remove_long` filter
+removes all tokens longer than a fixed number of bytes.
+
+```sql
+paradedb.tokenizer('default', lowercase => false, remove_long => 255)
+```
+
+<ParamField body="lowercase" default={true}>
+  Lowercases all tokens.
+</ParamField>
+<ParamField body="remove_long" default={255}>
+  Removes all tokens longer than this number of bytes.
+</ParamField>
+
+## Multi-Language Stemming
+
+Stemming is the process of reducing words to their root form. In English, for example, the root form of `running` and `runs` is `run`. The `stemmer` filter can
+be applied to any tokenizer.
+
+```sql
+paradedb.tokenizer('default', stemmer => 'English')
+```
+
+<ParamField body="stemmer">
+  Applies language-specific stemming to tokens. Available stemmers are `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`, `Portuguese`, `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, and `Turkish`.
+</ParamField>
+
 ## Inspecting a Tokenizer
 
-Picking the right tokenizer is crucial for returning the results that you want. ParadeDB exposes a variety of tokenizers for different types of
-data and queries.
+`paradedb.tokenize` tokenizes the input text with the specified tokenizer. It's useful for comparing different tokenizers.
+
+```sql
+SELECT * FROM paradedb.tokenize(
+  paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false), 
+  'keyboard'
+);
+```

@@ -1,0 +1,14 @@
+---
+title: Introduction
+---
+
+The ParadeDB API makes use of PostgreSQL operators and functions to enable full text, similarity, and hybrid search over Postgres tables. 
+
+All code blocks in this section use a table called `mock_items`. We recommend creating this table in your database to follow along.
+
+```sql
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+```

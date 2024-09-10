@@ -92,46 +92,45 @@
     {
       "group": "API",
       "pages": [
+        "api-reference/introduction",
         {
-          "group": "BM25 Index",
+          "group": "Indexing",
           "pages": [
             "api-reference/indexing/overview",
-            "api-reference/indexing/tokenizers"
+            "api-reference/indexing/create_index",
+            "api-reference/indexing/inspect_index",
+            "api-reference/indexing/delete_index",
+            "api-reference/indexing/tokenizers",
+            "api-reference/indexing/fast_fields",
+            "api-reference/indexing/record"
           ]
         },
         {
           "group": "Full Text Search",
           "pages": [
             "api-reference/full-text/overview",
-            "api-reference/full-text/index",
-            "api-reference/full-text/bm25",
-            "api-reference/full-text/complex",
+            "api-reference/full-text/term",
+            "api-reference/full-text/phrase",
+            "api-reference/full-text/json",
+            "api-reference/full-text/filtering",
+            "api-reference/full-text/pagination",
             "api-reference/full-text/scoring",
             "api-reference/full-text/highlighting",
-            "api-reference/full-text/joins"
+            "api-reference/full-text/sorting",
+            "api-reference/full-text/boosting"
           ]
         },
         "api-reference/aggregations",
         {
-          "group": "Dense Vector Search",
+          "group": "Similarity Search",
           "pages": [
             "api-reference/dense/overview",
             "api-reference/dense/index",
             "api-reference/dense/search"
           ]
         },
-        {
-          "group": "Sparse Vector Search",
-          "pages": [
-            "api-reference/sparse/overview",
-            "api-reference/sparse/index",
-            "api-reference/sparse/search"
-          ]
-        },
-        {
-          "group": "Hybrid Search",
-          "pages": ["api-reference/hybrid/basic"]
-        }
+        "api-reference/hybrid",
+        "api-reference/autocomplete"
       ]
     },
     {

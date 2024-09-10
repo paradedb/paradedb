@@ -1,0 +1,27 @@
+---
+title: Fast Fields
+---
+
+A field that is indexed as `fast` is stored in a column-oriented fashion. Fast fields are necessary for
+[aggregations/faceting](/api-reference/aggregations). They can also improve the query times of [filtering](/api-reference/full-text/bm25#efficient-filtering)
+and BM25 scoring.
+
+The following code block demonstrates how to specify a fast field.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  numeric_fields => paradedb.field('rating', fast => true)
+);
+```
+
+### Normalizers
+
+The normalizer controls how text and JSON fast fields are tokenized. By default, the `raw` normalizer is used. It treats the entire text as a single token and removes tokens
+larger than 255 bytes. The `lowercase` normalizer is like `raw` but also lowercases the token.
+
+```sql
+paradedb.field('category', fast => true, normalizer => 'raw' | 'lowercase')
+```

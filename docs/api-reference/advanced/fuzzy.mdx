@@ -10,8 +10,9 @@ title: Fuzzy Term
 allowing for minor typos in the input.
 
 <Note>
-`value` is treated as a token. [Additional processing](/api-reference/autocomplete#fuzzy-phrase) is required to perform fuzzy search
-over a phrase containing multiple tokens.
+  `value` is treated as a token. [Additional
+  processing](/api-reference/autocomplete#fuzzy-phrase) is required to perform
+  fuzzy search over a phrase containing multiple tokens.
 </Note>
 
 ```sql
@@ -24,8 +25,8 @@ SELECT * FROM search_idx.search(
   Specifies the field within the document to search for the term.
 </ParamField>
 <ParamField body="value" required>
-  Defines the term you are searching for within the specified field,
-  using fuzzy logic based on Levenshtein distance to find similar terms.
+  Defines the term you are searching for within the specified field, using fuzzy
+  logic based on Levenshtein distance to find similar terms.
 </ParamField>
 <ParamField body="distance" default={2}>
   The maximum Levenshtein distance (i.e. single character edits) allowed to

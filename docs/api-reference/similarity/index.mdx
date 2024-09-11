@@ -21,11 +21,12 @@ USING hnsw (<column_name> <distance_metric>);
   The name of the column being indexed. Must be of type `vector`.
 </ParamField>
 <ParamField body="distance_metric" required>
-  The distance metric used for measuring similarity between two vectors. For the `vector`
-  data type, use `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, and
-  `vector_cosine_ops` for cosine distance. For the `sparsevec` data type, use 
-  `sparsevec_l2_ops` for L2 distance, `sparsevec_ip_ops` for inner product, and
-  `sparsevec_cosine_ops` for cosine distance.
+  The distance metric used for measuring similarity between two vectors. For the
+  `vector` data type, use `vector_l2_ops` for L2 distance, `vector_ip_ops` for
+  inner product, and `vector_cosine_ops` for cosine distance. For the
+  `sparsevec` data type, use `sparsevec_l2_ops` for L2 distance,
+  `sparsevec_ip_ops` for inner product, and `sparsevec_cosine_ops` for cosine
+  distance.
 </ParamField>
 <ParamField body="schema_name">
   The name of the schema, or namespace, of the table. If not provided, the

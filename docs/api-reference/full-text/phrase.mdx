@@ -3,7 +3,8 @@ title: Phrase Search
 ---
 
 <Note>
-To enable phrase search, a field must be indexed with [record](/api-reference/indexing/record) of `position`.
+  To enable phrase search, a field must be indexed with
+  [record](/api-reference/indexing/record) of `position`.
 </Note>
 
 ## Basic Usage
@@ -23,7 +24,7 @@ the word `ergonomic` followed by `keyboard`, allowing for a maximum of one word 
 SELECT * FROM search_idx.search('description:"ergonomic keyboard"~1');
 ```
 
-## Phrase Prefix 
+## Phrase Prefix
 
 The `*` prefix operator allows for the last term in the phrase query to be the prefix of another word. For instance,
 `"plastic keyb"*` matches `plastic keyboard`.

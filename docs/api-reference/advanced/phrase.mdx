@@ -7,7 +7,6 @@ title: Phrase
 Searches for documents containing an exact sequence of words, with `slop` allowing for some flexibility in term proximity.
 The field must be indexed with a [record](/api-reference/indexing/record) of `position`.
 
-
 ```sql
 SELECT * FROM search_idx.search(
 	query => paradedb.phrase(
@@ -26,8 +25,8 @@ SELECT * FROM search_idx.search(
   flexibility is allowed based on the `slop` parameter.
 </ParamField>
 <ParamField body="slop" default={0}>
-  A slop of `0` requires the terms to appear exactly as they are in the phrase and
-  adjacent to each other. Higher slop values allow for more distance and
+  A slop of `0` requires the terms to appear exactly as they are in the phrase
+  and adjacent to each other. Higher slop values allow for more distance and
   flexibility between the terms, accommodating variations in the phrase's
   structure within the document.
 </ParamField>

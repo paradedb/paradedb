@@ -14,7 +14,9 @@ SELECT search_idx.aggregate('{
 }');
 ```
 
-<ParamField body="field" required>The field to aggregate on.</ParamField>
+<ParamField body="field" required>
+  The field to aggregate on.
+</ParamField>
 <ParamField body="interval" required>
   The interval to chunk your data range. Each bucket spans a value range of
   [0..interval). Must be a positive value.
@@ -50,10 +52,13 @@ SELECT search_idx.aggregate('{
 }');
 ```
 
-<ParamField body="field" required>The field to aggregate on.</ParamField>
+<ParamField body="field" required>
+  The field to aggregate on.
+</ParamField>
 <ParamField body="fixed_interval" required>
   The interval to chunk your data range. Each bucket spans a value range of
-  [0..fixed_interval). Accepted values should end in `ms`, `s`, `m`, `h`, or `d`.
+  [0..fixed_interval). Accepted values should end in `ms`, `s`, `m`, `h`, or
+  `d`.
 </ParamField>
 <ParamField body="offset" default={0}>
   Shift the grid of buckets by the specified offset.
@@ -88,8 +93,12 @@ SELECT search_idx.aggregate('{
 }');
 ```
 
-<ParamField body="field" required>The field to aggregate on.</ParamField>
-<ParamField body="ranges" required>A list of ranges to aggregate on.</ParamField>
+<ParamField body="field" required>
+  The field to aggregate on.
+</ParamField>
+<ParamField body="ranges" required>
+  A list of ranges to aggregate on.
+</ParamField>
 <ParamField body="keyed" default={false}>
   Whether to return the buckets as a hash map.
 </ParamField>
@@ -106,7 +115,9 @@ SELECT search_idx.aggregate('{
 }');
 ```
 
-<ParamField body="field" required>The field to aggregate on.</ParamField>
+<ParamField body="field" required>
+  The field to aggregate on.
+</ParamField>
 <ParamField body="size" default={10}>
   The number of terms to return.
 </ParamField>

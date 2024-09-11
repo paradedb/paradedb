@@ -32,6 +32,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
 use pgrx::*;
+use std::mem::size_of;
 use std::ptr::NonNull;
 
 #[repr(transparent)]

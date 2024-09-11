@@ -1,21 +1,19 @@
 ---
-title: Index Creation
+title: Create an Index
 ---
 
-## Creating a HNSW Index
+Search over massive collections of vectors can be slow. HNSW (Hierarchical Navigable Small World) is an algorithm that significantly
+accelerates vector search times.
 
-An HNSW index can be created over any column with the `vector` type.
-Vectors with up to `2,000` dimensions can be indexed.
+## Basic Usage
+
+An HNSW index can be created over any column with the `vector` or `sparsevec` type.
 
 ```sql
 CREATE INDEX ON <schema_name>.<table_name>
 USING hnsw (<column_name> <distance_metric>);
 ```
 
-<ParamField body="schema_name">
-  The name of the schema, or namespace, of the table. If not provided, the
-  search path is used as a default.
-</ParamField>
 <ParamField body="table_name" required>
   The name of the table being indexed.
 </ParamField>
@@ -23,9 +21,15 @@ USING hnsw (<column_name> <distance_metric>);
   The name of the column being indexed. Must be of type `vector`.
 </ParamField>
 <ParamField body="distance_metric" required>
-  The distance metric used for measuring similarity between two vectors. Use
-  `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, and
-  `vector_cosine_ops` for cosine distance.
+  The distance metric used for measuring similarity between two vectors. For the `vector`
+  data type, use `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, and
+  `vector_cosine_ops` for cosine distance. For the `sparsevec` data type, use 
+  `sparsevec_l2_ops` for L2 distance, `sparsevec_ip_ops` for inner product, and
+  `sparsevec_cosine_ops` for cosine distance.
+</ParamField>
+<ParamField body="schema_name">
+  The name of the schema, or namespace, of the table. If not provided, the
+  search path is used as a default.
 </ParamField>
 
 ## Index Options
@@ -33,8 +37,8 @@ USING hnsw (<column_name> <distance_metric>);
 The following example demonstrates how to pass options when creating the HNSW index:
 
 ```sql
-CREATE INDEX ON mock_items
-USING hnsw (embedding vector_l2_ops)
+CREATE INDEX ON <schema_name>.<table_name>
+USING hnsw (<column_name> <distance_metric>)
 WITH (m = 16, ef_construction = 64);
 ```
 
@@ -46,20 +50,3 @@ WITH (m = 16, ef_construction = 64);
   A higher value creates a higher quality graph, which increases recall but also
   construction time.
 </ParamField>
-
-## Deleting a HNSW Index
-
-The following command deletes a HNSW index:
-
-```sql
-DROP INDEX <index_name>;
-```
-
-<ParamField body="index_name" required>
-  The name of the index you wish to delete.
-</ParamField>
-
-## Recreating a HNSW Index
-
-An HNSW index only needs to be recreated if the name of the indexed column changes.
-To recreate the index, simply delete and create it using the SQL commands above.

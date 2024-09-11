@@ -2,7 +2,22 @@
 title: Introduction
 ---
 
-The ParadeDB API makes use of PostgreSQL operators and functions to enable full text, similarity, and hybrid search over Postgres tables. 
+## Overview
+
+The ParadeDB API makes use of PostgreSQL operators and functions to enable full text and similarity search over Postgres tables. 
+
+## Full Text vs. Similarity Search
+
+Full text search is a technique that finds entries in a collection of text based on the presence of specific keywords and phrases.
+Similarity search, on the other hand, matches documents based on semantic meaning. 
+
+For instance, consider a movie review site that lets users search for movies. Movie titles would benefit from full text search, since users are
+likely looking for exact keywords like `Harry` and `Potter`. On the other hand, movie descriptions might benefit from similarity search.
+Users that query for `the boy who lived` may be looking for `Harry Potter` even though these phrases share no common keywords.
+
+Many modern applications use a combination of full text and similarity search. This practice is called hybrid search and can yield more accurate results.
+
+## Get Started
 
 All code blocks in this section reference a table called `mock_items` and a BM25 index called `search_idx`. 
 We recommend creating these relations in your database to follow along.

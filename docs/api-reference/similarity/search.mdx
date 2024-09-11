@@ -1,5 +1,5 @@
 ---
-title: Dense Vector Search
+title: Vector Search
 ---
 
 ## Basic Usage
@@ -22,5 +22,17 @@ SELECT * FROM mock_items ORDER BY embedding <=> '[1,2,3]'::vector;
 SELECT * FROM mock_items ORDER BY embedding <#> '[1,2,3]'::vector;
 ```
 
-Under the hood, ParadeDB uses `pgvector` for similarity search. Please refer to the
-[`pgvector` documentation](https://github.com/pgvector/pgvector) for more details.
+## Sparse Vector Search 
+
+The following code block demonstrates the equivalent for sparse vector search.
+
+```sql
+-- L2 distance
+SELECT * FROM items ORDER BY embedding <-> '{1:3,3:1,5:2}/5' LIMIT 5;
+
+-- Cosine distance
+SELECT * FROM items ORDER BY embedding <=> '{1:3,3:1,5:2}/5' LIMIT 5;
+
+-- Inner product
+SELECT * FROM items ORDER BY embedding <#> '{1:3,3:1,5:2}/5' LIMIT 5;
+```

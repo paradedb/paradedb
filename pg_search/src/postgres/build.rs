@@ -314,7 +314,6 @@ unsafe fn build_callback_internal(
         state.memctx.switch_to(|_| {
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
-            let index_name = index_relation_ref.name();
             let index_oid = index_relation_ref.oid();
             let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
@@ -322,7 +321,10 @@ unsafe fn build_callback_internal(
             let search_document =
                 row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)
                     .unwrap_or_else(|err| {
-                        panic!("error creating index entries for index '{index_name}': {err}",)
+                        panic!(
+                            "error creating index entries for index '{}': {err}",
+                            index_relation_ref.name()
+                        );
                     });
 
             let writer_client = WriterGlobal::client();
@@ -337,6 +339,10 @@ unsafe fn build_callback_internal(
                 .expect("could not register commit callbacks for build operation");
         });
         state.memctx.reset();
+
+        // important to count the number of items we've indexed for proper statistics updates,
+        // especially after CREATE INDEX has finished
+        state.count += 1;
     }
 }
 

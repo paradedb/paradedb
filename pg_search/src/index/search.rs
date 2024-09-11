@@ -172,6 +172,15 @@ impl SearchIndex {
         Ok(())
     }
 
+    /// Returns the index size, in bytes, according to tantivy
+    pub fn byte_size(&self) -> Result<u64> {
+        Ok(self
+            .reader
+            .searcher()
+            .space_usage()
+            .map(|space| space.total().get_bytes())?)
+    }
+
     pub fn query_parser(&self) -> QueryParser {
         QueryParser::for_index(
             &self.underlying_index,

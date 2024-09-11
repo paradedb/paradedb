@@ -20,11 +20,11 @@ use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use std::sync::Arc;
-use tantivy::collector::TopDocs;
+use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
 use tantivy::schema::FieldType;
-use tantivy::{query::Query, DocAddress, DocId, Score, Searcher};
+use tantivy::{query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyError};
 use tantivy::{snippet::SnippetGenerator, Executor};
 
 /// An iterator of the different styles of search results we can return
@@ -131,7 +131,7 @@ impl SearchState {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_minimal(&self, executor: &'static Executor) -> SearchResults {
+    pub fn search_minimal(&self, include_key: bool, executor: &'static Executor) -> SearchResults {
         match (
             self.config.limit_rows,
             self.config.stable_sort.unwrap_or(true),
@@ -142,7 +142,7 @@ impl SearchState {
             // this we can use a channel to stream the results and also elide doing key lookups.
             // this is our "fast path"
             (None, false, None) => {
-                SearchResults::FastPath(self.search_via_channel(executor, false).into_iter())
+                SearchResults::FastPath(self.search_via_channel(executor, include_key).into_iter())
             }
 
             // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
@@ -235,6 +235,55 @@ impl SearchState {
             )
             .expect("failed to search")
             .into_iter()
+    }
+
+    pub fn estimate_docs(&self) -> Option<usize> {
+        let readers = self.searcher.segment_readers();
+        let (ordinal, largest_reader) = readers
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, reader)| reader.num_docs())?;
+
+        let collector = tantivy::collector::Count;
+        let schema = self.schema.schema.clone();
+        let weight = match self
+            .query
+            .as_ref()
+            .weight(tantivy::query::EnableScoring::Disabled {
+                schema: &schema,
+                searcher_opt: Some(&self.searcher),
+            }) {
+            // created the Weight, no problem
+            Ok(weight) => weight,
+
+            // got an error trying to create the weight.  This *likely* means
+            // the query requires scoring, so try again with scoring enabled.
+            // I've seen this with the `MoreLikeThis` query type.
+            //
+            // NB:  we could just return `None` here and let the caller deal with it?
+            //      a deciding factor might be if users complain that query planning
+            //      is too slow when they use constructs like `MoreLikeThis`
+            Err(TantivyError::InvalidArgument(_)) => self
+                .query
+                .as_ref()
+                .weight(tantivy::query::EnableScoring::Enabled {
+                    searcher: &self.searcher,
+                    statistics_provider: &self.searcher,
+                })
+                .expect("creating a Weight from a Query should not fail"),
+
+            // something completely unexpected happen, so just panic
+            Err(e) => panic!("{:?}", e),
+        };
+
+        let count = collector
+            .collect_segment(weight.as_ref(), ordinal as SegmentOrdinal, largest_reader)
+            .expect("counting docs in the largest segment should not fail")
+            .max(1); // want to assume at least 1 matching document
+        let segment_doc_proportion =
+            largest_reader.num_docs() as f64 / self.searcher.num_docs() as f64;
+
+        Some((count as f64 / segment_doc_proportion).ceil() as usize)
     }
 }
 
@@ -400,9 +449,10 @@ mod collector {
                     order_by: None,
                     sort_asc: false,
                 };
-                self.sender
-                    .send((scored, doc_address))
-                    .expect("channel should be open")
+
+                // if send fails that likely means the receiver was dropped so we have nowhere
+                // to send the result.  That's okay
+                self.sender.send((scored, doc_address)).ok();
             }
         }
 

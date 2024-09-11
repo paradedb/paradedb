@@ -15,6 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::SearchIndex;
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::writer::WriterDirectory;
+use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -29,54 +33,61 @@ pub unsafe extern "C" fn amcostestimate(
     index_correlation: *mut f64,
     index_pages: *mut f64,
 ) {
-    let path = path.as_ref().expect("path argument is NULL");
-    let indexinfo = path.indexinfo.as_ref().expect("indexinfo in path is NULL");
-    let index_relation = unsafe {
+    assert!(!path.is_null());
+    assert!(!(*path).indexinfo.is_null());
+
+    let indexrel = unsafe {
         PgRelation::with_lock(
-            indexinfo.indexoid,
+            (*(*path).indexinfo).indexoid,
             pg_sys::AccessShareLock as pg_sys::LOCKMODE,
         )
     };
-    let heap_relation = index_relation
+    let index_clauses = PgList::<pg_sys::IndexClause>::from_pg((*path).indexclauses);
+    let reltuples = indexrel
         .heap_relation()
-        .expect("failed to get heap relation for index");
+        .expect("index relation must have a valid corresponding heap relation")
+        .reltuples()
+        .unwrap_or(1.0) as f64;
+    let page_estimate = {
+        assert!(!indexrel.rd_options.is_null());
+        let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
+        let directory = WriterDirectory::from_index_oid(indexrel.oid().as_u32());
+        let search_index = SearchIndex::from_cache(
+            &directory,
+            &(*options)
+                .get_uuid()
+                .expect("`SearchIndexCreateOptions` must have a `uuid` property"),
+        )
+        .expect("should be able to retrieve a SearchIndex from internal cache");
+        search_index.byte_size().unwrap_or(0) / pg_sys::BLCKSZ as u64
+    };
+    drop(indexrel);
 
-    *index_correlation = 1.0;
-    *index_startup_cost = 0.0;
+    // start these at zero
+    *index_selectivity = 0.0;
     *index_pages = 0.0;
     *index_total_cost = 0.0;
-    *index_selectivity = 1.0;
 
-    #[cfg(any(
-        feature = "pg12",
-        feature = "pg13",
-        feature = "pg14",
-        feature = "pg15",
-        feature = "pg16"
-    ))]
-    let index_clauses = PgList::<pg_sys::IndexClause>::from_pg(path.indexclauses);
+    // we output rows in random order relative to the heap's ctid ordering
+    *index_correlation = 0.0;
 
-    for clause in index_clauses.iter_ptr() {
-        #[cfg(any(
-            feature = "pg12",
-            feature = "pg13",
-            feature = "pg14",
-            feature = "pg15",
-            feature = "pg16"
-        ))]
-        let ri = clause
-            .as_ref()
-            .unwrap()
-            .rinfo
-            .as_ref()
-            .expect("restrict info in index clause is NULL");
+    // it does cost a little bit for us to startup, which is spawning the tantivy query
+    *index_startup_cost = DEFAULT_STARTUP_COST;
 
-        if ri.norm_selec > 0f64 {
-            *index_selectivity = ri.norm_selec.min(*index_selectivity);
-        }
-    }
+    // choose the smallest selectivity from the RestrictInfo clauses that have already done their estimations
+    *index_selectivity = index_clauses
+        .iter_ptr()
+        .map(|clause| (*(*clause).rinfo).norm_selec)
+        .filter(|norm| *norm > 0.0)
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Greater))
+        .unwrap_or(UNKNOWN_SELECTIVITY);
 
-    let reltuples = heap_relation.reltuples().unwrap_or(1f32) as f64;
-    *index_total_cost += *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
-    *index_total_cost -= pg_sys::random_page_cost;
+    // use the selectivity to further estimate how many postgres pages we'd read,
+    // if in fact we were based on Postgres' block storage
+    *index_pages = *index_selectivity * page_estimate as f64;
+
+    // total cost is just a hardcoded value of the cost to read a tuple from an index times the
+    // estimated number of rows we expect to return
+    *index_total_cost =
+        *index_startup_cost + *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
 }

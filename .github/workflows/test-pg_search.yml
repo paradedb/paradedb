@@ -214,6 +214,11 @@ jobs:
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx test "pg${{ matrix.pg_version }}" --features icu
+          cat ~/.pgrx/${{ matrix.pg_version}}.log
+      - name: Show the Postgres log
+        if: "!cancelled()"
+        run: |
+          cat ~/.pgrx/${{ matrix.pg_version}}.log
 
   test-pg_search-pgrx-postgres:
     name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
@@ -305,3 +310,8 @@ jobs:
           cargo pgrx start
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 28816 -h localhost pg_search
           DATABASE_URL=postgresql://localhost:28816/pg_search cargo test --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
+          cat ~/.pgrx/${{ matrix.pg_version}}.log
+      - name: Show the Postgres log
+        if: "!cancelled()"
+        run: |
+          cat ~/.pgrx/${{ matrix.pg_version}}.log

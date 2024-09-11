@@ -40,6 +40,14 @@ use tracing::debug;
 // A static variable is required to host grand unified configuration settings.
 pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
 
+// A hardcoded value when we can't figure out a good selectivity value
+const UNKNOWN_SELECTIVITY: f64 = 0.00001;
+
+// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
+// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely
+// meaningless but we should be honest that do _something_.
+const DEFAULT_STARTUP_COST: f64 = 10.0;
+
 pgrx::pg_module_magic!();
 
 extension_sql!("GRANT ALL ON SCHEMA paradedb TO PUBLIC;" name = "paradedb_grant_all");

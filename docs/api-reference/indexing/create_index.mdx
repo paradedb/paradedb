@@ -3,7 +3,6 @@ title: Create an Index
 ---
 
 The following code block creates an index called `search_idx` over multiple columns of the `mock_items` table.
-
 ```sql
 CALL paradedb.create_bm25(
   index_name => 'search_idx',
@@ -49,8 +48,13 @@ FROM search_idx.search('description:shoes AND rating:>3');
 ```
 
 <Accordion title="Expected Response">
-  ```csv id | description | rating ----+---------------------+-------- 5 |
-  Generic shoes | 4 3 | Sleek running shoes | 5 (2 rows) ```
+```csv
+ id |     description     | rating
+----+---------------------+--------
+  5 | Generic shoes       |      4
+  3 | Sleek running shoes |      5
+(2 rows)
+```
 </Accordion>
 
 ### Text Fields

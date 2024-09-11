@@ -1,0 +1,33 @@
+---
+title: Phrase
+---
+
+## Basic Usage
+
+Searches for documents containing an exact sequence of words, with `slop` allowing for some flexibility in term proximity.
+The field must be indexed with a [record](/api-reference/indexing/record) of `position`.
+
+
+```sql
+SELECT * FROM search_idx.search(
+	query => paradedb.phrase(
+		field => 'description',
+		phrases => ARRAY['robot', 'building', 'kit']
+	)
+);
+```
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="phrases" required>
+  An `ARRAY` of words that form the search phrase. These words must appear in
+  the specified order within the document for a match to occur, although some
+  flexibility is allowed based on the `slop` parameter.
+</ParamField>
+<ParamField body="slop" default={0}>
+  A slop of `0` requires the terms to appear exactly as they are in the phrase and
+  adjacent to each other. Higher slop values allow for more distance and
+  flexibility between the terms, accommodating variations in the phrase's
+  structure within the document.
+</ParamField>

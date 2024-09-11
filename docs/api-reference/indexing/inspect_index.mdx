@@ -7,12 +7,8 @@ title: Inspect an Index
 The `schema` function returns a table with information about the index schema. This is useful for inspecting how an index was configured.
 
 ```sql
-SELECT * FROM <index_name>.schema();
+SELECT * FROM search_idx.schema();
 ```
-
-<ParamField body="index_name" required>
-  The name of the index.
-</ParamField>
 
 ## Index Size
 
@@ -20,9 +16,5 @@ Because BM25 indexes rely on a custom storage implementation, the built-in Postg
 `index_size` function returns the size of a BM25 index in bytes.
 
 ```sql
-SELECT * FROM <index_name>.index_size();
+SELECT * FROM search_idx.index_size();
 ```
-
-<ParamField body="index_name" required>
-  The name of the index.
-</ParamField>

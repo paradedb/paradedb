@@ -152,7 +152,7 @@ paradedb.tokenizer('icu');
 
 At search time, queries are automatically tokenized in the same way as the target field.
 
-`paradedb.tokenize` tokenizes the input text with the specified tokenizer. It's useful for comparing different tokenizers or
+To manually tokenizes input text with a specified tokenizer, use `paradedb.tokenize`. This function is useful for comparing different tokenizers or
 passing tokens directly into a [term-level query](/api-reference/advanced/term).
 
 ```sql
@@ -161,3 +161,10 @@ SELECT * FROM paradedb.tokenize(
   'keyboard'
 );
 ```
+
+## Multiple Tokenizers
+
+In ParadeDB, only one tokenizer is allowed per field and only one BM25 index is allowed per table. However, some advanced search cases may require the same field to be tokenized in multiple ways. For instance, tokenizing on both whitespace and
+ngrams may improve how search results are ranked.
+
+One way to achieve this is to use generated columns. For instance, suppose we 

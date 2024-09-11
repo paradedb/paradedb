@@ -1,0 +1,16 @@
+---
+title: Overview
+---
+
+The `search` function that’s generated for your index can accept query objects instead of a query string. Nearly all the query types implemented in Tantivy, our underlying search engine, are exposed to Postgres.
+
+Query objects are composable, allowing for arbitrarily fine-grained queries. A query string itself is parsed into a query object, and can be used anywhere in a query tree with `paradedb.parse`.
+
+`paradedb.parse` is implicitly performed if a query string is passed directly to the search function. These two queries are identical:
+
+```sql
+SELECT * FROM search_idx.search('description:shoes');
+SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'));
+```
+
+Additionally, the advanced search API exposes some advanced queries like `fuzzy_term` that are not available to the ParadeQL query syntax.

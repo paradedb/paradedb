@@ -1,0 +1,146 @@
+---
+title: Bucket Aggregations
+---
+
+## Histogram
+
+Histogram is a bucket aggregation where buckets are created dynamically based on a specified interval. Each document value is rounded down to its bucket. For example, if you have a price of 18 and an interval of 5, the document will fall into the bucket with the key 15. The formula used for this is: `((val - offset) / interval).floor() * interval + offset`.
+
+```sql
+SELECT search_idx.aggregate('{
+  "rating_histogram": {
+    "histogram": {"field": "rating", "interval": 1}
+  }
+}');
+```
+
+<ParamField body="field" required>The field to aggregate on.</ParamField>
+<ParamField body="interval" required>
+  The interval to chunk your data range. Each bucket spans a value range of
+  [0..interval). Must be a positive value.
+</ParamField>
+<ParamField body="offset" default={0.0}>
+  Shift the grid of buckets by the specified offset.
+</ParamField>
+<ParamField body="min_doc_count" default={0}>
+  The minimum number of documents in a bucket to be returned.
+</ParamField>
+<ParamField body="hard_bounds">
+  Limits the data range to [min, max] closed interval.
+</ParamField>
+<ParamField body="extended_bounds">
+  Extends the value range of the buckets.
+</ParamField>
+<ParamField body="keyed" default={false}>
+  Whether to return the buckets as a hash map.
+</ParamField>
+<ParamField body="is_normalized_to_ns" default={false}>
+  Whether the values are normalized to ns for date time values.
+</ParamField>
+
+## Date Histogram
+
+Similar to histogram, but can only be used with date types. Currently, only fixed time intervals are supported.
+
+```sql
+SELECT search_idx.aggregate('{
+  "created_at_histogram": {
+    "date_histogram": {"field": "rating", "fixed_interval": "1h"}
+  }
+}');
+```
+
+<ParamField body="field" required>The field to aggregate on.</ParamField>
+<ParamField body="fixed_interval" required>
+  The interval to chunk your data range. Each bucket spans a value range of
+  [0..fixed_interval). Accepted values should end in `ms`, `s`, `m`, `h`, or `d`.
+</ParamField>
+<ParamField body="offset" default={0}>
+  Shift the grid of buckets by the specified offset.
+</ParamField>
+<ParamField body="min_doc_count" default={0}>
+  The minimum number of documents in a bucket to be returned.
+</ParamField>
+<ParamField body="hard_bounds">
+  Limits the data range to [min, max] closed interval.
+</ParamField>
+<ParamField body="extended_bounds">
+  Extends the value range of the buckets.
+</ParamField>
+<ParamField body="keyed" default={false}>
+  Whether to return the buckets as a hash map.
+</ParamField>
+
+## Range
+
+Range aggregation allows you to define custom buckets for specific ranges.
+
+```sql
+SELECT search_idx.aggregate('{
+  "ranges": {
+    "range": {"field": "rating", "ranges": [
+        { "to": 3.0 },
+        { "from": 3.0, "to": 7.0 },
+        { "from": 7.0, "to": 20.0 },
+        { "from": 20.0 }
+    ]}
+  }
+}');
+```
+
+<ParamField body="field" required>The field to aggregate on.</ParamField>
+<ParamField body="ranges" required>A list of ranges to aggregate on.</ParamField>
+<ParamField body="keyed" default={false}>
+  Whether to return the buckets as a hash map.
+</ParamField>
+
+## Terms
+
+Terms aggregation creates a bucket for every unique term and counts the number of occurrences.
+
+```sql
+SELECT search_idx.aggregate('{
+  "rating_terms": {
+    "terms": {"field": "rating"}
+  }
+}');
+```
+
+<ParamField body="field" required>The field to aggregate on.</ParamField>
+<ParamField body="size" default={10}>
+  The number of terms to return.
+</ParamField>
+<ParamField body="segment_size" default={100}>
+  The number of terms to fetch from each segment.
+</ParamField>
+<ParamField body="show_term_doc_count_error" default={false}>
+  Whether to include the document count error.
+</ParamField>
+<ParamField body="min_doc_count" default={1}>
+  The minimum number of documents in a term to be returned.
+</ParamField>
+<ParamField body="order">The order in which to return the terms.</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field.
+</ParamField>
+
+## Nested Aggregations
+
+Buckets can contain sub-aggregations. For example, creating buckets with the range aggregation and then calculating the average on each bucket:
+
+```sql
+SELECT bm25_search.aggregate('{
+  "range_rating": {
+    "range": {
+      "field": "rating",
+      "ranges": [
+        { "from": 1, "to": 3 },
+        { "from": 3, "to": 5 }
+      ]
+    },
+    "aggs": {
+      "average_in_range": { "avg": { "field": "rating"} }
+    }
+  }
+}');
+```

@@ -58,8 +58,3 @@ DROP INDEX <index_name>;
 <ParamField body="index_name" required>
   The name of the index you wish to delete.
 </ParamField>
-
-## Recreating a Sparse HNSW Index
-
-A sparse HNSW index only needs to be recreated if the name of the indexed column changes.
-To recreate the index, simply delete and create it using the SQL commands above.

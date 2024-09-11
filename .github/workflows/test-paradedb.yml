@@ -134,7 +134,7 @@ jobs:
         uses: multinarity/workflow-dispatch@master
         with:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          workflow: test-helm-chart.yml
+          workflow: paradedb-test-eks.yml
           repo: paradedb/charts
           ref: main
 
@@ -142,7 +142,7 @@ jobs:
         run: |
           while true; do
             status=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
-              https://api.github.com/repos/paradedb/charts/actions/workflows/test-helm-chart.yml/runs?event=repository_dispatch \
+              https://api.github.com/repos/paradedb/charts/actions/workflows/paradedb-test-eks.yml/runs?event=repository_dispatch \
               | jq -r '.workflow_runs[0].status')
             if [ "$status" = "completed" ]; then
               break
@@ -153,7 +153,7 @@ jobs:
       - name: Report paradedb/charts Test Workflow Conclusion
         run: |
           conclusion=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
-            https://api.github.com/repos/paradedb/charts/actions/workflows/test-helm-chart.yml/runs?event=repository_dispatch \
+            https://api.github.com/repos/paradedb/charts/actions/workflows/paradedb-test-eks.yml/runs?event=repository_dispatch \
             | jq -r '.workflow_runs[0].conclusion')
           if [ "$conclusion" = "success" ]; then
             echo "Helm chart test passed"

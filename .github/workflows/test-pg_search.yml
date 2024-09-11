@@ -218,8 +218,7 @@ jobs:
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
-        run: |
-          cat ~/.pgrx/${{ matrix.pg_version}}.log
+        run: cat ~/.pgrx/${{ matrix.pg_version}}.log
 
   test-pg_search-pgrx-postgres:
     name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
@@ -315,5 +314,4 @@ jobs:
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
-        run: |
-          cat ~/.pgrx/${{ matrix.pg_version}}.log
+        run: cat ~/.pgrx/${{ matrix.pg_version}}.log

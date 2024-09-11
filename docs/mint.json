@@ -118,6 +118,15 @@
         {
           "group": "Hybrid Search",
           "pages": ["api-reference/hybrid/basic"]
+        },
+        {
+          "group": "Direct SQL Search",
+          "pages": [
+            "api-reference/direct-sql/overview",
+            "api-reference/direct-sql/mix-text-and-sql",
+            "api-reference/direct-sql/joins",
+            "api-reference/direct-sql/debugging"
+          ]
         }
       ]
     },

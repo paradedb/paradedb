@@ -300,7 +300,7 @@ jobs:
           sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version 0.12.1
+        run: cargo install --locked cargo-pgrx --version 0.12.4
 
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Initialize pgrx for Current PostgreSQL Version

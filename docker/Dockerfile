@@ -9,7 +9,7 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.80.0
-ARG PGRX_VERSION=0.12.1
+ARG PGRX_VERSION=0.12.4
 ARG PGRX_VERSION_PG_VECTOR_SCALE=0.11.4
 
 # Declare buildtime environment variables
@@ -87,7 +87,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-RUN git clone --branch v0.1.3 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
+RUN git clone --branch v0.1.4 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 
 # Build the extension
 WORKDIR /tmp/pg_analytics

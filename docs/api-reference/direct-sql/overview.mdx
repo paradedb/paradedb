@@ -1,0 +1,138 @@
+---
+title: Overview
+---
+
+ParadeDB's Postgres integration allows for combining "text search" queries and "plain sql" queries together into a single
+SELECT.
+
+There are some caveats, discussed below, however the general approach allows for creating more expressive and sometimes
+more efficient queries which are more amenable to complex SELECT statements.
+
+## Getting Started
+
+Throughout this chapter, the examples will assume a test table and index defined as below. All examples will query the
+`paradedb.bm25_search` table directly.
+
+```sql
+CALL paradedb.create_bm25_test_table(
+    table_name => 'bm25_search',
+    schema_name => 'paradedb'
+);
+
+CALL paradedb.create_bm25(
+    index_name => 'bm25_search',
+    table_name => 'bm25_search',
+    schema_name => 'paradedb',
+    key_field => 'id',
+    text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')),
+    numeric_fields => paradedb.field('rating'),
+    boolean_fields => paradedb.field('in_stock'),
+    json_fields => paradedb.field('metadata'),
+    datetime_fields => paradedb.field('created_at') ||
+                       paradedb.field('last_updated_date') ||
+                       paradedb.field('latest_available_time')
+);
+```
+
+## Introducing the `@@@` Operator
+
+Postgres defines an operator as a specially-named function that (typically) takes two arguments. The first argument
+is the left-hand-side of the operator, and the second argument is the right-hand-side. Additionally, Postgres allows
+for operator and function overloading.
+
+To facilitate directly querying a table using text search queries ParadeDB provides a custom operator, named `@@@`. It has two
+forms:
+
+- `@@@(key_field, text)`: Query using a tantivy-compatible query string
+- `@@@(key_field, paradedb.SearchQueryInput)`: Query using a complex text search query created using ParadeDB's various builder functions.
+
+In SQL, these are used like so:
+
+```sql
+-- @@@(key_field, text)
+SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:shoe';
+
+-- @@@(key_field, paradedb.SearchQueryInput)
+SELECT * FROM paradedb.bm25_search WHERE id @@@ paradedb.term('description', 'shoe');
+```
+
+## Important Considerations
+
+Using the `@@@` operator means "find all rows in the table that match a text search query". It's designed to answer
+such questions as quickly as possible and allow complex SQL queries that also include normal SQL query predicates.
+
+The `@@@` operator interacts well with `ORDER BY`, `OFFSET/LIMIT`, `GROUP BY` clauses as well as standard query operators
+such as `AND`, `OR`, and `NOT`.
+
+Unlike the `idxname.search()` and `idxname.score_bm25()` search functions, the `@@@` **does not** itself perform any
+scoring, ordering, offset or limit. These are now operations that need to be added to the overall query.
+
+The [Text Search with Plain SQL](/api-reference/direct-sql/mix-text-and-sql) chapter explains these situations.
+
+<Note>
+It is **not** possible to retrieve scores with the `@@@` operator.
+
+If scores are required, the `idxname.score_bm25()` function must be used.
+
+</Note>
+
+## A simple Example
+
+Finding all records in `paradedb.bm25_search` that are about shoes `shoes`, in plain SQL might look like:
+
+```sql
+SELECT * FROM paradedb.bm25_search WHERE description ilike '%shoes%';
+```
+
+<Accordian title="Expected Response">
+```csv
+id |     description     | rating | category | in_stock |                    metadata                     |     created_at      | last_updated_date | latest_available_time
+----+---------------------+--------+----------+----------+-------------------------------------------------+---------------------+-------------------+-----------------------
+ 3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | 2023-04-28 10:55:43 | 2023-04-29        | 10:55:43
+ 4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | 2023-04-20 16:38:02 | 2023-04-22        | 16:38:02
+ 5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | 2023-05-02 08:45:11 | 2023-05-03        | 08:45:11
+(3 rows)
+```
+</Accordian>
+
+Looking back at the `CALL paradedb.create_bm25()` statement above, the ParadeDB index was created using the column named
+`id` as the index's "key_field", and also used the english stemmer for the `description` field. With that in mind,
+querying the table directly will use that field and ParadeDB's `@@@` operator. For example:
+
+```sql
+SELECT * FROM paradedb.bm25_Search WHERE id @@@ 'description:shoe';
+```
+
+<Accordian title="Expected Response">
+```csv
+id |     description     | rating | category | in_stock |                    metadata                     |     created_at      | last_updated_date | latest_available_time
+----+---------------------+--------+----------+----------+-------------------------------------------------+---------------------+-------------------+-----------------------
+ 5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | 2023-05-02 08:45:11 | 2023-05-03        | 08:45:11
+ 4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | 2023-04-20 16:38:02 | 2023-04-22        | 16:38:02
+ 3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | 2023-04-28 10:55:43 | 2023-04-29        | 10:55:43
+(3 rows)
+```
+</Accordian>
+
+Alternatively, if the various `paradedb.*` builder functions are better suited to a text search query, those can be used
+in the same manner:
+
+```sql
+SELECT * FROM paradedb.bm25_search WHERE id @@@ paradedb.term('description', 'shoe');
+```
+
+<Accordian title="Expected Response">
+  ```csv
+id |     description     | rating | category | in_stock |                    metadata                     |     created_at      | last_updated_date | latest_available_time
+----+---------------------+--------+----------+----------+-------------------------------------------------+---------------------+-------------------+-----------------------
+ 5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | 2023-05-02 08:45:11 | 2023-05-03        | 08:45:11
+ 4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | 2023-04-20 16:38:02 | 2023-04-22        | 16:38:02
+ 3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | 2023-04-28 10:55:43 | 2023-04-29        | 10:55:43
+(3 rows)
+```
+</Accordian>
+
+<Info>
+  In all cases, the index's configured "key_field" must be used on the
+  left-hand-side of the `@@@` operator.
+</Info>

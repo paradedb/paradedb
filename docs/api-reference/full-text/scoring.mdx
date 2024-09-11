@@ -34,15 +34,6 @@ SELECT * FROM search_idx.score_bm25(
 <ParamField body="query" required>
   The query string.
 </ParamField>
-<ParamField body="limit_rows">The maximum number of rows to return.</ParamField>
-<ParamField body="offset_rows">
-  The number of rows to skip before starting to return rows.
-</ParamField>
-<ParamField body="stable_sort" default={false}>
-  A boolean specifying whether ParadeDB should stabilize the order of
-  equally-scored results, at the cost of performance.
-</ParamField>
-
 
 ## Joining BM25 Scores
 

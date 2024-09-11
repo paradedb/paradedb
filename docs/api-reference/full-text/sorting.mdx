@@ -1,5 +1,5 @@
 ---
-title: Sorting 
+title: Sorting
 ---
 
 ## Tiebreaking
@@ -16,6 +16,8 @@ If `false`, scores are not generated and instead results are returned in an un-d
 of this is that the results are returned as quickly as possible. This is useful for queries that are known to return
 many thousands or millions of rows.
 
+`stable_sort` can be passed into `search`, `score_bm25`, and `snippet`.
+
 ```sql
 SELECT * FROM search_idx.search('description:keyboard', stable_sort => true);
 ```
@@ -24,12 +26,13 @@ SELECT * FROM search_idx.search('description:keyboard', stable_sort => true);
 
 By default, the rows are ordered by their BM25 score but we can order them by any [fast field](/api-reference/indexing/fast_fields) instead by specifying `order_by_field`.
 
-The sort order can be changed by specifying `order_by_direction`. The default is `asc`.
+The sort order can be changed by specifying `order_by_direction`. The default is `asc`. These arguments can be passed into
+`search`, `score_bm25`, and `snippet`.
 
 ```sql
 SELECT * FROM search_idx.search(
   'description:keyboard',
-  order_by_field => 'category',
+  order_by_field => 'rating',
   order_by_direction => 'asc' | 'desc'
 )
 ```

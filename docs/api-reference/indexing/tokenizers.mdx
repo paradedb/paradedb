@@ -91,13 +91,18 @@ paradedb.tokenizer('ngram', min_gram => 2, max_gram => 4, prefix_only => false)
 ```
 
 <ParamField body="min_gram">
-    Defines the minimum length for the n-grams. For instance, if set to 2, the smallest token created would be of length 2 characters.
+  Defines the minimum length for the n-grams. For instance, if set to 2, the
+  smallest token created would be of length 2 characters.
 </ParamField>
 <ParamField body="max_gram">
-Determines the maximum length of the n-grams. If set to 5, the largest token produced would be of length 5 characters.
+  Determines the maximum length of the n-grams. If set to 5, the largest token
+  produced would be of length 5 characters.
 </ParamField>
 <ParamField body="prefix_only">
-When set to `true`, the tokenizer generates n-grams that start from the beginning of the word only, ensuring a prefix progression. If false, n-grams are created from all possible character combinations within the `min_gram` and `max_gram` range.
+  When set to `true`, the tokenizer generates n-grams that start from the
+  beginning of the word only, ensuring a prefix progression. If false, n-grams
+  are created from all possible character combinations within the `min_gram` and
+  `max_gram` range.
 </ParamField>
 
 ### Source Code
@@ -139,7 +144,7 @@ paradedb.tokenizer('korean_lindera');
 paradedb.tokenizer('japanese_lindera');
 ```
 
-### ICU 
+### ICU
 
 The ICU (International Components for Unicode) tokenizer breaks down text according to the Unicode standard. It can be used to tokenize most languages
 and recognizes the nuances in word boundaries across different languages.
@@ -157,14 +162,29 @@ passing tokens directly into a [term-level query](/api-reference/advanced/term).
 
 ```sql
 SELECT * FROM paradedb.tokenize(
-  paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false), 
+  paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false),
   'keyboard'
 );
 ```
 
 ## Multiple Tokenizers
 
-In ParadeDB, only one tokenizer is allowed per field and only one BM25 index is allowed per table. However, some advanced search cases may require the same field to be tokenized in multiple ways. For instance, tokenizing on both whitespace and
-ngrams may improve how search results are ranked.
+In ParadeDB, only one tokenizer is allowed per field and only one BM25 index is allowed per table. However, some advanced search cases may require the same field to be tokenized in multiple ways. For instance, suppose we wish to use both the `whitespace` and `ngrams` tokenizer
+to tokenize the `description` field. One way to achieve this is to use generated columns.
 
-One way to achieve this is to use generated columns. For instance, suppose we 
+```sql
+ALTER TABLE mock_items
+ADD COLUMN description_ngrams TEXT GENERATED ALWAYS AS (description) STORED;
+
+-- Optional: Drop existing search_idx if exists
+CALL paradedb.drop_bm25('search_idx')
+
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields =>
+    paradedb.field('description', tokenizer => paradedb.tokenizer('whitespace')) ||
+    paradedb.field('description_ngrams', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false))
+);
+```

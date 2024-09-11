@@ -88,18 +88,16 @@ CALL paradedb.create_bm25(
   Fieldnorms store information about the length of the text field. Must be
   `true` to calculate the BM25 score.
 </ParamField>
-<ParamField body="tokenizer" default="default">
-  A `JSONB` produced by `paradedb.tokenizer` which specifies the tokenizer and
-  tokenizer configuration options. See [tokenizers](#tokenizers) for a list of
-  available tokenizers.
+<ParamField body="tokenizer">
+  See [tokenizers](/api-reference/indexing/tokenizers) for how to configure the tokenizer.
 </ParamField>
 <ParamField body="record" default="position">
-  Describes the amount of information indexed. See [record](#record) for a list
-  of available record types.
+  Describes the amount of information indexed. See [record](/api-reference/indexing/record) for a list of available
+  record types.
 </ParamField>
-<ParamField body="normalizer" default="raw">
+<ParamField body="normalizer">
   The name of the tokenizer used for fast fields. This field is ignored unless
-  `fast=true`. See [normalizers](#normalizers) for a list of available
+  `fast=true`. See [normalizers](/api-reference/indexing/fast_fields#normalizers) for a list of available
   normalizers.
 </ParamField>
 
@@ -192,17 +190,19 @@ CALL paradedb.create_bm25(
   If `true`, JSON keys containing a `.` will be expanded. For instance, if `expand_dots` is `true`,
   `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`.
 </ParamField>
-<ParamField body="tokenizer" default="default">
-  The name of the tokenizer. See [tokenizers](#tokenizers) for a list of available tokenizers.
+<ParamField body="tokenizer">
+  See [tokenizers](/api-reference/indexing/tokenizers) for how to configure the tokenizer.
 </ParamField>
 <ParamField body="record" default="position">
-  Describes the amount of information indexed. See [record](#record) for a list of available
+  Describes the amount of information indexed. See [record](/api-reference/indexing/record) for a list of available
   record types.
 </ParamField>
-<ParamField body="normalizer" default="raw">
-  The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
-  [normalizers](#normalizers) for a list of available normalizers.
+<ParamField body="normalizer">
+  The name of the tokenizer used for fast fields. This field is ignored unless
+  `fast=true`. See [normalizers](/api-reference/indexing/fast_fields#normalizers) for a list of available
+  normalizers.
 </ParamField>
+
 
 ### Datetime Fields
 

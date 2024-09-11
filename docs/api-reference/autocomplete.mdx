@@ -69,9 +69,9 @@ FROM search_idx.search(
 ```
 </Accordion>
 
-## Multiple Fields
+## Multiple Fuzzy Fields
 
-The `boolean` query can be used to match the same query against multiple fields.
+Suppose we want to compare a query against both `description` and `category`. The `boolean` query can be used to query across multiple fields.
 
 ```sql
 -- Pre-tokenize "ruining shoez"
@@ -147,7 +147,7 @@ FROM ngrams_idx.search('description:sho');
 ```
 </Accordion>
 
-## Any Ngram
+## Ngram Term Set
 
 When querying against an ngrams field, all ngrams of the query must match in order for the document to be considered a match.
 This means that a query like `hsoes` would not match `shoes`, because the `hso` token does not match any of the tokens of `shoes`.

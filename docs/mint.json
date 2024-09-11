@@ -101,6 +101,7 @@
             "api-reference/indexing/inspect_index",
             "api-reference/indexing/delete_index",
             "api-reference/indexing/tokenizers",
+            "api-reference/indexing/token_filters",
             "api-reference/indexing/fast_fields",
             "api-reference/indexing/record"
           ]

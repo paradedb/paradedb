@@ -148,38 +148,12 @@ and recognizes the nuances in word boundaries across different languages.
 paradedb.tokenizer('icu');
 ```
 
-## Token Filters
+## Tokenizing a Query
 
-Token filters apply additional processing to tokens after they have been created. For instance, the `remove_long` filter
-removes all tokens longer than a fixed number of bytes.
+At search time, queries are automatically tokenized in the same way as the target field.
 
-```sql
-paradedb.tokenizer('default', lowercase => false, remove_long => 255)
-```
-
-<ParamField body="lowercase" default={true}>
-  Lowercases all tokens.
-</ParamField>
-<ParamField body="remove_long" default={255}>
-  Removes all tokens longer than this number of bytes.
-</ParamField>
-
-## Multi-Language Stemming
-
-Stemming is the process of reducing words to their root form. In English, for example, the root form of `running` and `runs` is `run`. The `stemmer` filter can
-be applied to any tokenizer.
-
-```sql
-paradedb.tokenizer('default', stemmer => 'English')
-```
-
-<ParamField body="stemmer">
-  Applies language-specific stemming to tokens. Available stemmers are `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`, `Portuguese`, `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, and `Turkish`.
-</ParamField>
-
-## Inspecting a Tokenizer
-
-`paradedb.tokenize` tokenizes the input text with the specified tokenizer. It's useful for comparing different tokenizers.
+`paradedb.tokenize` tokenizes the input text with the specified tokenizer. It's useful for comparing different tokenizers or
+passing tokens directly into a [term-level query](/api-reference/advanced/term).
 
 ```sql
 SELECT * FROM paradedb.tokenize(

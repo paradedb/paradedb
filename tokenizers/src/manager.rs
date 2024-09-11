@@ -300,10 +300,11 @@ impl SearchTokenizer {
             SearchTokenizer::Raw(filters) => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(filters.remove_long_filter())
+                    .filter(filters.lower_caser())
                     .filter(filters.stemmer())
                     .build(),
             ),
-            // Deprecated, use `lowercase` filter instead
+            // Deprecated, use `raw` with `lowercase` filter instead
             SearchTokenizer::Lowercase(filters) => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(filters.remove_long_filter())
@@ -343,6 +344,7 @@ impl SearchTokenizer {
                 TextAnalyzer::builder(ChineseTokenizer)
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
                     .build(),
             ),
             SearchTokenizer::SourceCode(filters) => Some(
@@ -350,24 +352,28 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(AsciiFoldingFilter)
+                    .filter(filters.stemmer())
                     .build(),
             ),
             SearchTokenizer::ChineseLindera(filters) => Some(
                 TextAnalyzer::builder(LinderaChineseTokenizer::default())
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
                     .build(),
             ),
             SearchTokenizer::JapaneseLindera(filters) => Some(
                 TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
                     .build(),
             ),
             SearchTokenizer::KoreanLindera(filters) => Some(
                 TextAnalyzer::builder(LinderaKoreanTokenizer::default())
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
                     .build(),
             ),
             // Deprecated, use `stemmer` filter instead
@@ -391,6 +397,7 @@ impl SearchTokenizer {
                 TextAnalyzer::builder(ICUTokenizer)
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
                     .build(),
             ),
         }

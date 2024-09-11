@@ -50,11 +50,11 @@ fn quickstart(mut conn: PgConnection) {
 
     r#"
     CALL paradedb.create_bm25(
-            index_name => 'search_idx',
-            schema_name => 'public',
-            table_name => 'mock_items',
-            key_field => 'id',
-            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category')
+        index_name => 'default_idx',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating')
     );
     "#
     .execute(&mut conn);

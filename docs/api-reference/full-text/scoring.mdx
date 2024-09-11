@@ -11,7 +11,7 @@ The `rank_bm25` function has been deprecated as of 0.8.5 and has been replaced w
 BM25 scores measure how relevant a score is for a given query. Higher scores indicate higher relevance.
 
 The `score_bm25` function takes a query and returns a table with two columns: the `key_field` of each result and its BM25 score. `score_bm25` accepts the same
-parameters as [`search`](/api-reference/full-text/bm25).
+parameters as [`search`](/api-reference/full-text/overview).
 
 ```sql
 SELECT * FROM <index_name>.score_bm25('<query>');

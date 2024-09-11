@@ -5,7 +5,7 @@ title: Vector Search
 ## Basic Usage
 
 <Note>
-  Creating an [HNSW index](/api-reference/dense/index) over a table can
+  Creating an [HNSW index](/api-reference/similarity/index) over a table can
   significantly improve query times.
 </Note>
 
@@ -22,7 +22,7 @@ SELECT * FROM mock_items ORDER BY embedding <=> '[1,2,3]'::vector;
 SELECT * FROM mock_items ORDER BY embedding <#> '[1,2,3]'::vector;
 ```
 
-## Sparse Vector Search 
+## Sparse Vector Search
 
 The following code block demonstrates the equivalent for sparse vector search.
 

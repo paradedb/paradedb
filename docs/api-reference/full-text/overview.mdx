@@ -4,7 +4,7 @@ title: Overview
 
 <Note>
   **Prerequisite** Before performing full text search over a table, it must
-  first be [indexed](/api-reference/full-text/index).
+  first be [indexed](/api-reference/indexing/create_index).
 </Note>
 
 ## Basic Usage
@@ -12,22 +12,14 @@ title: Overview
 Every BM25 index comes with a `search` function, which returns rows of a table that match a search query. By default, rows are sorted by relevance.
 
 ```sql
-SELECT * FROM <index_name>.search('<query>');
+SELECT * FROM search_idx.search('<query>');
 ```
 
-<ParamField body="index_name" required>
-  The name of the index.
-</ParamField>
-<ParamField body="query" required>
-  The [ParadeQL](#paradeql) query string. See the documentation below for how to
-  construct this string.
-</ParamField>
+## Query Language
 
-## ParadeQL
+The query string accepts a mini query language which can be used to construct expressive queries.
 
-The query string accepts ParadeQL, a mini query language which can be used to construct more expressive queries.
-
-In ParadeQL, each query must specify which field to search over. In the following example, we are querying for
+Each query must specify which field to search over. In the following example, we are querying for
 `keyboard` against the `description` field.
 
 ```sql

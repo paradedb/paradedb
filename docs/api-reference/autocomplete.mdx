@@ -22,9 +22,14 @@ FROM search_idx.search(
 ```
 
 <Accordion title="Expected Response">
-  ```csv description | rating | category
-  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
-  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+(3 rows)
+```
 </Accordion>
 
 ## Fuzzy Phrase
@@ -54,9 +59,14 @@ FROM search_idx.search(
 ```
 
 <Accordion title="Expected Response">
-  ```csv description | rating | category
-  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
-  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+(3 rows)
+```
 </Accordion>
 
 ## Multiple Fields
@@ -89,9 +99,14 @@ SELECT description, rating, category FROM search_idx.search(
 ```
 
 <Accordion title="Expected Response">
-  ```csv description | rating | category
-  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
-  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+(3 rows)
+```
 </Accordion>
 
 ## Ngram Term
@@ -122,9 +137,14 @@ FROM ngrams_idx.search('description:sho');
 ```
 
 <Accordion title="Expected Response">
-  ```csv description | rating | category
-  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
-  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+(3 rows)
+```
 </Accordion>
 
 ## Any Ngram
@@ -157,7 +177,12 @@ FROM ngrams_idx.search(
 ```
 
 <Accordion title="Expected Response">
-  ```csv description | rating | category
-  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
-  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+(3 rows)
+```
 </Accordion>

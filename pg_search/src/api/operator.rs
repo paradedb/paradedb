@@ -155,21 +155,15 @@ unsafe fn make_search_config_opexpr_node(
         )
     });
 
-    let heaptupdesc = heaprel.tuple_desc();
-    let varatt = heaptupdesc
-        .get(
-            ((*var).varattno - 1)
-                .try_into()
-                .expect("varattno should be within the bounds of usize"),
-        )
-        .expect("varattno should exist in the heap");
+    let keys = &(*indexrel.rd_index).indkey;
+    let keys = keys.values.as_slice(keys.dim1 as usize);
+    if keys[0] != (*var).varattno {
+        panic!("left-hand side of the @@@ operator must match the first column of the only `USING bm25` index");
+    }
 
     // fabricate a `SearchConfig` from the above relation and query string
     // and get it serialized into a JSONB Datum
     let search_config = SearchConfig::from((query, indexrel));
-    if search_config.key_field != varatt.name() {
-        panic!("left-hand side of the @@@ operator should be the `key_field` of the only `USING bm25` index");
-    }
 
     let search_config_json =
         serde_json::to_value(&search_config).expect("SearchConfig should serialize to json");

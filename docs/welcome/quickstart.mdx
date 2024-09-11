@@ -37,7 +37,7 @@ LIMIT 3;
 </Accordion>
 
 Next, let's create a BM25 index called `default_idx` on this table. We'll index the
-`description` and `category` fields and configure the tokenizer on the `description` field.
+`description`, `category`, and `rating` fields.
 
 ```sql
 CALL paradedb.create_bm25(
@@ -105,7 +105,7 @@ FROM default_idx.search('description:"bluetooth speaker"~1');
 </Accordion>
 
 Note that phrases must be wrapped in double quotes. Also note our use of the `~1` slop operator,
-which tells ParadeDB to return matches even if they are separated by `1` word.
+which tells ParadeDB to return matches even if they are separated by one word.
 
 Finally, let's use the `snippet` function to examine the BM25 scores and generate
 highlighted snippets for our results.
@@ -150,8 +150,7 @@ LEFT JOIN mock_items ON snippet.id = mock_items.id;
 ```
 </Accordion>
 
-Please refer to our [advanced search queries](/api-reference/full-text/complex) guide for all available
-query types.
+For more on full text search, refer to the [full text search API](/api-reference/full-text/overview) section.
 
 ## Similarity Search
 

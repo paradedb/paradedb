@@ -150,7 +150,7 @@ jobs:
               sleep 10
             fi
           done
-      
+
           status="in_progress"
           while [ "$status" != "completed" ]; do
             status=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
@@ -161,7 +161,7 @@ jobs:
               sleep 10
             fi
           done
-      
+
           conclusion=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
             https://api.github.com/repos/paradedb/charts/actions/runs/$workflow_run_id \
             | jq -r '.conclusion')

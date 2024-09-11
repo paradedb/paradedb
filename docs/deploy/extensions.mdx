@@ -59,14 +59,15 @@ apt-get install -y --no-install-recommends postgresql-16-partman
 ### Add to `shared_preload_libraries`
 
 <Accordion title = "Modifying shared_preload_libraries">
+
 If you are installing an extension which requires this step, you can do so
-via the following command, replacing `\<extension_name\>` with your extension's name:
+via the following command, replacing `<extension_name>` with your extension's name:
 
 ```bash
 sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,<extension_name>'/" /var/lib/postgresql/data/postgresql.conf
 ```
 
-So in case of pg_partman the command will be:
+So in case of `pg_partman` the command will be:
 
 ```bash
 sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,pg_partman_bgw'/" /var/lib/postgresql/data/postgresql.conf

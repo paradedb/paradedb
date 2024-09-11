@@ -304,13 +304,13 @@ impl SearchQueryInput {
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 if prefix.unwrap_or(false) {
-                    Ok(Box::new(FuzzyTermQuery::new(
+                    Ok(Box::new(FuzzyTermQuery::new_prefix(
                         term,
                         distance,
                         transposition_cost_one,
                     )))
                 } else {
-                    Ok(Box::new(FuzzyTermQuery::new_prefix(
+                    Ok(Box::new(FuzzyTermQuery::new(
                         term,
                         distance,
                         transposition_cost_one,

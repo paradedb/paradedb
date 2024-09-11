@@ -113,7 +113,7 @@ jobs:
         uses: multinarity/workflow-dispatch@master
         with:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          workflow: publish-helm-chart.yml
+          workflow: paradedb-publish-chart.yml
           repo: paradedb/charts
           ref: main
           inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'

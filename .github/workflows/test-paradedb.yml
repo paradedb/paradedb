@@ -140,25 +140,32 @@ jobs:
 
       - name: Wait for paradedb/charts Test Workflow to Complete
         run: |
-          while true; do
-            status=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
+          workflow_run_id=""
+          while [ -z "$workflow_run_id" ]; do
+            workflow_run_id=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
               https://api.github.com/repos/paradedb/charts/actions/workflows/paradedb-test-eks.yml/runs?event=workflow_dispatch \
-              | jq -r '.workflow_runs[0].status')
-            if [ "$status" = "completed" ]; then
-              break
+              | jq -r '.workflow_runs[] | select(.status == "in_progress" or .status == "queued") | .id' | head -n 1)
+            if [ -z "$workflow_run_id" ]; then
+              echo "Waiting for workflow run to start..."
+              sleep 10
             fi
-            sleep 10
           done
-
-      - name: Report paradedb/charts Test Workflow Conclusion
-        run: |
+      
+          status="in_progress"
+          while [ "$status" != "completed" ]; do
+            status=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
+              https://api.github.com/repos/paradedb/charts/actions/runs/$workflow_run_id \
+              | jq -r '.status')
+            echo "Current status: $status"
+            if [ "$status" != "completed" ]; then
+              sleep 10
+            fi
+          done
+      
           conclusion=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
-            https://api.github.com/repos/paradedb/charts/actions/workflows/paradedb-test-eks.yml/runs?event=workflow_dispatch \
-            | jq -r '.workflow_runs[0].conclusion')
-          if [ "$conclusion" = "success" ]; then
-            echo "Helm chart test passed"
-            exit 0
-          else
-            echo "Helm chart test failed"
+            https://api.github.com/repos/paradedb/charts/actions/runs/$workflow_run_id \
+            | jq -r '.conclusion')
+          echo "Workflow completed with conclusion: $conclusion"
+          if [ "$conclusion" != "success" ]; then
             exit 1
           fi

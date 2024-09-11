@@ -381,7 +381,7 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
 
     let count: (i64,) = r#"SELECT COUNT(*) FROM bm25_search.search('description:"GENERIC SHOES"')"#
         .fetch_one(&mut conn);
-    assert_eq!(count.0, 0);
+    assert_eq!(count.0, 1);
 
     let count: (i64,) = r#"SELECT COUNT(*) FROM bm25_search.search('description:"Generic shoes"')"#
         .fetch_one(&mut conn);

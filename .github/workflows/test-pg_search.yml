@@ -216,8 +216,8 @@ jobs:
           cargo pgrx test "pg${{ matrix.pg_version }}" --features icu
           cat ~/.pgrx/${{ matrix.pg_version}}.log
 
-      - name: Show the Postgres log
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && !cancelled()
+      - name: Print the Postgres Logs
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
         run: |
           cat ~/.pgrx/${{ matrix.pg_version}}.log
 
@@ -313,7 +313,7 @@ jobs:
           DATABASE_URL=postgresql://localhost:28816/pg_search cargo test --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
           cat ~/.pgrx/${{ matrix.pg_version}}.log
 
-      - name: Show the Postgres log
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && !cancelled()
+      - name: Print the Postgres Logs
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
         run: |
           cat ~/.pgrx/${{ matrix.pg_version}}.log

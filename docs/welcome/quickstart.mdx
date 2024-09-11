@@ -26,36 +26,30 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-```csv
-       description        | rating |  category
---------------------------+--------+-------------
- Ergonomic metal keyboard |      4 | Electronics
- Plastic Keyboard         |      4 | Electronics
- Sleek running shoes      |      5 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  --------------------------+--------+------------- Ergonomic metal keyboard | 4
+  | Electronics Plastic Keyboard | 4 | Electronics Sleek running shoes | 5 |
+  Footwear (3 rows) ```
 </Accordion>
 
-Next, let's create a BM25 index called `search_idx` on this table. We'll index the
+Next, let's create a BM25 index called `default_idx` on this table. We'll index the
 `description` and `category` fields and configure the tokenizer on the `description` field.
 
 ```sql
 CALL paradedb.create_bm25(
-  index_name => 'search_idx',
+  index_name => 'default_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  text_fields => paradedb.field('description'),
-  numeric_fields => paradedb.field('rating'),
-  boolean_fields => paradedb.field('in_stock'),
-  datetime_fields => paradedb.field('created_at'),
-  json_fields => paradedb.field('metadata')
+  text_fields => paradedb.field('description') || paradedb.field('category'),
+  numeric_fields => paradedb.field('rating')
 );
 ```
 
 <Note>
-Note the mandatory `key_field` option. Every BM25 index needs a `key_field`, which should
-be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field`
-can just be the name of your table's primary key column.
+  Note the mandatory `key_field` option. Every BM25 index needs a `key_field`,
+  which should be the name of a column that will function as a row's unique
+  identifier within the index. Usually, the `key_field` can just be the name of
+  your table's primary key column.
 </Note>
 
 We're now ready to execute a full-text search. We'll look for rows with a `rating` greater than `2` where `description` matches `keyboard`
@@ -63,23 +57,18 @@ or `category` matches `electronics`.
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search(
+FROM default_idx.search(
   '(description:keyboard OR category:electronics) AND rating:>2',
   limit_rows => 5
 );
 ```
 
 <Accordion title="Expected Response">
-``` csv
-         description         | rating |  category
------------------------------+--------+-------------
- Plastic Keyboard            |      4 | Electronics
- Ergonomic metal keyboard    |      4 | Electronics
- Innovative wireless earbuds |      5 | Electronics
- Fast charging power bank    |      4 | Electronics
- Bluetooth-enabled speaker   |      3 | Electronics
-(5 rows)
-```
+  ``` csv description | rating | category
+  -----------------------------+--------+------------- Plastic Keyboard | 4 |
+  Electronics Ergonomic metal keyboard | 4 | Electronics Innovative wireless
+  earbuds | 5 | Electronics Fast charging power bank | 4 | Electronics
+  Bluetooth-enabled speaker | 3 | Electronics (5 rows) ```
 </Accordion>
 
 <Note>
@@ -88,6 +77,7 @@ Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal pe
 
 Similarly, the `rating` column was indexed and the `rating:>2` filter was used instead of the SQL `WHERE` clause
 for [efficient filtering](/api-reference/full-text/bm25#efficient-filtering).
+
 </Note>
 
 Next, let's see how ParadeDB handles a phrase query like `bluetooth speaker`. Let's also surface results even
@@ -95,65 +85,32 @@ if there is a word between `bluetooth` and `speaker`.
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search('description:"bluetooth speaker"~1');
+FROM default_idx.search('description:"bluetooth speaker"~1');
 ```
 
 <Accordion title="Expected Response">
-``` csv
-        description        | rating |  category
----------------------------+--------+-------------
- Bluetooth-enabled speaker |      3 | Electronics
-(1 row)
-```
+  ``` csv description | rating | category
+  ---------------------------+--------+------------- Bluetooth-enabled speaker |
+  3 | Electronics (1 row) ```
 </Accordion>
 
 Note that phrases must be wrapped in double quotes. Also note our use of the `~1` slop operator,
 which tells ParadeDB to return matches even if they are separated by `1` word.
 
-Next, let's match against a partial word like `blue`. To
-do this, we'll create a new index that uses the `ngrams` tokenizer,
-which splits text into chunks of size `n`.
-
-```sql
-CALL paradedb.create_bm25(
-        index_name => 'ngrams_idx',
-        schema_name => 'public',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false)) ||
-                       paradedb.field('category')
-);
-
-SELECT description, rating, category
-FROM ngrams_idx.search('description:blue');
-```
-
-<Accordion title="Expected Response">
-``` csv
-        description        | rating |  category
----------------------------+--------+-------------
- Bluetooth-enabled speaker |      3 | Electronics
-(1 row)
-```
-</Accordion>
-
 Finally, let's use the `snippet` function to examine the BM25 scores and generate
 highlighted snippets for our results.
 
 ```sql
-SELECT * FROM ngrams_idx.snippet(
-  'description:blue',
+SELECT * FROM search_idx.snippet(
+  'description:bluetooth',
   highlight_field => 'description'
 );
 ```
 
 <Accordion title="Expected Response">
-``` csv
- id |             snippet              | score_bm25
-----+----------------------------------+------------
- 32 | <b>Blue</b>tooth-enabled speaker |  2.9903657
-(1 row)
-```
+  ``` csv id | snippet | score_bm25
+  ----+----------------------------------+------------ 32 | <b>Bluetooth</b>
+  -enabled speaker | 2.9903657 (1 row) ```
 </Accordion>
 
 Let's join this result with our `mock_items` table to see the BM25 scores and highlighted snippets
@@ -172,12 +129,10 @@ LEFT JOIN mock_items ON snippet.id = mock_items.id;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-        description        |             snippet              | score_bm25
----------------------------+----------------------------------+------------
- Bluetooth-enabled speaker | <b>Blue</b>tooth-enabled speaker |  2.9903657
-(1 row)
-```
+  ``` csv description | snippet | score_bm25
+  ---------------------------+----------------------------------+------------
+  Bluetooth-enabled speaker | <b>Blue</b>tooth-enabled speaker | 2.9903657 (1
+  row) ```
 </Accordion>
 
 Please refer to our [advanced search queries](/api-reference/full-text/complex) guide for all available
@@ -203,14 +158,10 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-       description        | rating |  category   | embedding
---------------------------+--------+-------------+-----------
- Ergonomic metal keyboard |      4 | Electronics | [3,4,5]
- Plastic Keyboard         |      4 | Electronics | [4,5,6]
- Sleek running shoes      |      5 | Footwear    | [5,6,7]
-(3 rows)
-```
+  ``` csv description | rating | category | embedding
+  --------------------------+--------+-------------+----------- Ergonomic metal
+  keyboard | 4 | Electronics | [3,4,5] Plastic Keyboard | 4 | Electronics |
+  [4,5,6] Sleek running shoes | 5 | Footwear | [5,6,7] (3 rows) ```
 </Accordion>
 
 Next, let's create an HNSW index on the `embedding` column of our table.
@@ -231,14 +182,10 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-       description       |  category  | rating | embedding
--------------------------+------------+--------+-----------
- Artistic ceramic vase   | Home Decor |      4 | [1,2,3]
- Modern wall clock       | Home Decor |      4 | [1,2,3]
- Designer wall paintings | Home Decor |      5 | [1,2,3]
-(3 rows)
-```
+  ``` csv description | category | rating | embedding
+  -------------------------+------------+--------+----------- Artistic ceramic
+  vase | Home Decor | 4 | [1,2,3] Modern wall clock | Home Decor | 4 | [1,2,3]
+  Designer wall paintings | Home Decor | 5 | [1,2,3] (3 rows) ```
 </Accordion>
 
 ## Hybrid Search
@@ -251,7 +198,7 @@ The `score_hybrid` function accepts a BM25 query and a similarity query. It appl
 similarity scores and combines them using a weighted average.
 
 ```sql
-SELECT * FROM search_idx.score_hybrid(
+SELECT * FROM default_idx.score_hybrid(
     bm25_query => 'description:keyboard OR category:electronics',
     similarity_query => '''[1,2,3]'' <-> embedding',
     bm25_weight => 0.9,
@@ -260,16 +207,8 @@ SELECT * FROM search_idx.score_hybrid(
 ```
 
 <Accordion title="Expected Response">
-``` csv
- id | score_hybrid
-----+--------------
-  2 |  0.95714283
-  1 |   0.8487012
- 29 |         0.1
- 39 |         0.1
-  9 |         0.1
-(5 rows)
-```
+  ``` csv id | score_hybrid ----+-------------- 2 | 0.95714283 1 | 0.8487012 29
+  | 0.1 39 | 0.1 9 | 0.1 (5 rows) ```
 </Accordion>
 
 Let's join this result with our `mock_items` table to see the full results of our hybrid search:
@@ -278,7 +217,7 @@ Let's join this result with our `mock_items` table to see the full results of ou
 SELECT m.description, m.category, m.embedding, s.score_hybrid
 FROM mock_items m
 LEFT JOIN (
-    SELECT * FROM search_idx.score_hybrid(
+    SELECT * FROM default_idx.score_hybrid(
         bm25_query => 'description:keyboard OR category:electronics',
         similarity_query => '''[1,2,3]'' <-> embedding',
         bm25_weight => 0.9,
@@ -290,16 +229,12 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-       description        |  category   | embedding | score_hybrid
---------------------------+-------------+-----------+--------------
- Plastic Keyboard         | Electronics | [4,5,6]   |  0.95714283
- Ergonomic metal keyboard | Electronics | [3,4,5]   |   0.8487012
- Designer wall paintings  | Home Decor  | [1,2,3]   |         0.1
- Handcrafted wooden frame | Home Decor  | [1,2,3]   |         0.1
- Modern wall clock        | Home Decor  | [1,2,3]   |         0.1
-(5 rows)
-```
+  ``` csv description | category | embedding | score_hybrid
+  --------------------------+-------------+-----------+-------------- Plastic
+  Keyboard | Electronics | [4,5,6] | 0.95714283 Ergonomic metal keyboard |
+  Electronics | [3,4,5] | 0.8487012 Designer wall paintings | Home Decor |
+  [1,2,3] | 0.1 Handcrafted wooden frame | Home Decor | [1,2,3] | 0.1 Modern
+  wall clock | Home Decor | [1,2,3] | 0.1 (5 rows) ```
 </Accordion>
 
 As we can see, results with the word `keyboard` scored higher than results with an embedding of

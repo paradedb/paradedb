@@ -16,61 +16,26 @@ title: Faceting
 ## Overview
 
 ParadeDB provides powerful aggregation capabilities over text search results using Tantivy's aggregation features. With the `aggregate` function, you can compute various statistical metrics and group data into buckets based on search queries. This is especially useful for deriving insights from your data.
-
 You can specify the aggregation operation and the field on which the operation is performed in a JSON format compatible with Elasticsearch.
 
-### Creating the Test Table and BM25 Index
+### Basic Usage
 
-Before performing any aggregations, you need to create the test table and BM25 index as shown below:
-
-```sql
-CALL paradedb.create_bm25_test_table(
-    table_name => 'bm25_search',
-    schema_name => 'paradedb'
-);
-
-CALL paradedb.create_bm25(
-    index_name => 'bm25_search',
-    table_name => 'bm25_search',
-    schema_name => 'paradedb',
-    key_field => 'id',
-    text_fields => paradedb.field('description'),
-    numeric_fields => paradedb.field('rating'),
-    boolean_fields => paradedb.field('in_stock'),
-    json_fields => paradedb.field('metadata'),
-    datetime_fields => paradedb.field('created_at') ||
-                       paradedb.field('last_updated_date') ||
-                       paradedb.field('latest_available_time')
-);
-```
-
-### Syntax
+`<index_name>.aggregate` accepts an aggregate query.
 
 ```sql
-SELECT bm25_search.aggregate('<aggregation_query>');
+SELECT search_idx.aggregate('<aggregation_query>');
 ```
-
-### Example Usage
 
 The following code blocks demonstrate the use of the `bm25_search.aggregate` function with different aggregation queries.
 
 ```sql
 -- Average rating for all documents
-SELECT bm25_search.aggregate('{
+SELECT search_idx.aggregate('{
   "avg_rating": {
     "avg": {"field": "rating"}
   }
 }');
 ```
-
-<Accordion title="Expected Response">
-```csv
-                   aggregate
------------------------------------------------
- {"avg_rating": {"value": 3.8536585365853657}}
-(1 row)
-```
-</Accordion>
 
 ```sql
 -- Average rating for documents containing "keyboard"
@@ -93,7 +58,7 @@ SELECT bm25_search.aggregate(
 ```
 </Accordion>
 
-### User-Defined Aggregation Names
+### Aggregation Names
 
 In the examples above, the top-level key (`avg_rating`) in the aggregation query is a user-defined name. This name is arbitrary and can be any valid string. It serves as an identifier for the aggregation result, allowing you to reference and distinguish between multiple aggregations in the response.
 

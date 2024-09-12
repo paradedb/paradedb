@@ -167,7 +167,7 @@ SELECT * FROM paradedb.tokenize(
 
 ## Multiple Tokenizers
 
-In ParadeDB, only one tokenizer is allowed per field and only one BM25 index is allowed per table. However, some advanced search cases may require the same field to be tokenized in multiple ways. For instance, suppose we wish to use both the `whitespace` and `ngrams` tokenizer
+In ParadeDB, only one tokenizer is allowed per field and only one BM25 index is allowed per table. However, some scenarios may require the same field to be tokenized in multiple ways. For instance, suppose we wish to use both the `whitespace` and `ngrams` tokenizer
 to tokenize the `description` field. One way to achieve this is to use generated columns.
 
 ```sql

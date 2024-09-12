@@ -53,8 +53,8 @@
   },
   "anchors": [
     {
-      "name": "API",
-      "icon": "code",
+      "name": "Search",
+      "icon": "binoculars",
       "url": "api-reference"
     },
     {
@@ -122,7 +122,7 @@
           ]
         },
         {
-          "group": "Advanced Search",
+          "group": "Query Builder",
           "pages": [
             "api-reference/advanced/overview",
             "api-reference/advanced/all",

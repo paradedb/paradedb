@@ -67,7 +67,7 @@ via the following command, replacing `<extension_name>` with your extension's na
 sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,<extension_name>'/" /var/lib/postgresql/data/postgresql.conf
 ```
 
-So in case of `pg_partman` the command will be:
+For `pg_partman`, the command is:
 
 ```bash
 sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,pg_partman_bgw'/" /var/lib/postgresql/data/postgresql.conf

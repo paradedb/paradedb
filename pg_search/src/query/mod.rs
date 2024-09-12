@@ -338,7 +338,7 @@ impl SearchQueryInput {
             } => {
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
-                let conjunction_mode = conjunction_mode.unwrap_or(true);
+                let conjunction_mode = conjunction_mode.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
 
                 let index_oid = config.index_oid;

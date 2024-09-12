@@ -151,7 +151,7 @@ impl From<(SearchQueryInput, IndexRelation)> for SearchConfig {
             index_name: indexrel.name().to_string(),
             index_oid: indexrel.oid().as_u32(),
             table_oid: indexrel.heap_relation().unwrap().oid().as_u32(),
-            database_oid: indexrel.rd_locator.dbOid.as_u32(),
+            database_oid: crate::MyDatabaseId(),
             key_field: ops.get_key_field().unwrap().to_string(),
             offset_rows: None,
             limit_rows: None,

@@ -252,6 +252,7 @@ fn create_bm25_impl(
         "index_name": index_name_suffixed,
         "index_oid": index_oid,
         "table_oid": table_oid,
+        "database_oid": crate::MyDatabaseId(),
         "table_name": table_name,
         "key_field": key_field,
         "schema_name": schema_name,

@@ -51,7 +51,10 @@ pub unsafe extern "C" fn amcostestimate(
     let page_estimate = {
         assert!(!indexrel.rd_options.is_null());
         let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
-        let directory = WriterDirectory::from_index_oid(indexrel.oid().as_u32());
+        let database_oid = indexrel.rd_locator.dbOid.as_u32();
+        let index_oid = indexrel.oid().as_u32();
+        let relfilenode = indexrel.rd_locator.relNumber.as_u32();
+        let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
         let search_index = SearchIndex::from_cache(
             &directory,
             &(*options)

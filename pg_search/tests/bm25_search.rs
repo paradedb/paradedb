@@ -129,6 +129,10 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
             .fetch_one::<(i32,)>(&mut conn)
             .0;
 
+    let database_oid = "SELECT oid::int4 FROM pg_database WHERE datname = current_database();"
+        .fetch_one::<(i32,)>(&mut conn)
+        .0;
+
     let columns: SimpleProductsTableVec = format!(
         "SELECT * FROM paradedb.bm25_search
         WHERE paradedb.search_with_search_config(
@@ -137,6 +141,7 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
                 'index_name', 'bm25_search_bm25_index',
                 'index_oid', {index_oid},
                 'table_oid', {table_oid},
+                'database_oid', {database_oid},
                 'table_name', 'bm25_search',
                 'schema_name', 'paradedb',
                 'key_field', 'id',

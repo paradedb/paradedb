@@ -101,11 +101,12 @@ pub fn text_restrict(
                 if !rte.is_null() {
                     let heaprelid = (*rte).relid;
                     let indexrel = locate_bm25_index(heaprelid)?;
+                    let relfilenode = indexrel.rd_locator.relNumber;
 
                     let query = String::from_datum((*const_).constvalue, (*const_).constisnull)?;
                     let search_config = SearchConfig::from((query, indexrel));
 
-                    return estimate_selectivity(heaprelid, &search_config);
+                    return estimate_selectivity(heaprelid, relfilenode, &search_config);
                 }
             }
 

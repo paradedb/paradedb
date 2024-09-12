@@ -122,16 +122,16 @@ jobs:
             exit 1
           fi
 
+  # Only run this job on the `main` branch since it requires access to GitHub Secrets, which
+  # community contributors don't have access to.
   test-paradedb-helm-chart:
-    name: Test ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
+    name: Test ParadeDB Helm Chart
     runs-on: depot-ubuntu-latest-2
-    strategy:
-      matrix:
-        pg_version: [16]
+    if: github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'main'
 
     steps:
       - name: Trigger paradedb/charts Test Workflow
-        uses: multinarity/workflow-dispatch@master
+        uses: benc-uk/workflow-dispatch@v1.2.4
         with:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           workflow: paradedb-test-eks.yml

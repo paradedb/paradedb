@@ -79,7 +79,7 @@ pub enum SearchQueryInput {
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
-        conjunction_mode: Option<bool>,
+        match_all_terms: Option<bool>,
     },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
@@ -331,11 +331,11 @@ impl SearchQueryInput {
                 distance,
                 transposition_cost_one,
                 prefix,
-                conjunction_mode,
+                match_all_terms,
             } => {
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
-                let conjunction_mode = conjunction_mode.unwrap_or(false);
+                let match_all_terms = match_all_terms.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
 
                 let field = field_lookup
@@ -358,7 +358,7 @@ impl SearchQueryInput {
                     } else {
                         Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
                     };
-                    let occur = if conjunction_mode {
+                    let occur = if match_all_terms {
                         Occur::Must
                     } else {
                         Occur::Should

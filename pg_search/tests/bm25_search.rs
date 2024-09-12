@@ -624,7 +624,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     assert!(index_dir_path.exists());
 
     // Get the index metadata
-    let index = Index::open_in_dir(&index_dir_path.join("tantivy"))?;
+    let index = Index::open_in_dir(index_dir_path.join("tantivy"))?;
     let reader = index.reader()?;
     let searcher = reader.searcher();
     let total_docs = searcher

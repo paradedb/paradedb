@@ -300,7 +300,7 @@ impl SearchIndex {
         writer.lock()?.request(request)?;
 
         // Drop the index from this connection's cache.
-        unsafe { Self::drop_from_cache(&directory).map_err(SearchIndexError::from)? }
+        unsafe { Self::drop_from_cache(directory).map_err(SearchIndexError::from)? }
 
         Ok(())
     }

@@ -95,3 +95,29 @@ Yes, yes he did!
 (1 row)
 ```
 </Accordion>
+
+## Which items haven't been purchased yet?
+
+To find all the "black" items that haven't been purchased yet
+
+```sql
+    SELECT products.*
+      FROM paradedb.orders
+RIGHT JOIN paradedb.bm25_search products ON orders.product_id = products.id
+     WHERE orders.product_id IS NULL
+      AND products.id @@@ 'metadata.color:black';
+```
+
+<Accordion title="Expected Response">
+```csv
+ id |         description         | rating |  category   | in_stock |                    metadata                     |     created_at      | last_updated_date >
+----+-----------------------------+--------+-------------+----------+-------------------------------------------------+---------------------+------------------->
+ 12 | Innovative wireless earbuds |      5 | Electronics | t        | {"color": "Black", "location": "China"}         | 2023-04-22 10:05:39 | 2023-04-23        >
+ 16 | High-resolution DSLR        |      4 | Photography | t        | {"color": "Black", "location": "United States"} | 2023-04-21 14:30:19 | 2023-04-23        >
+ 22 | Fast charging power bank    |      4 | Electronics | t        | {"color": "Black", "location": "United States"} | 2023-04-17 11:35:52 | 2023-04-19        >
+ 26 | Portable tripod stand       |      4 | Photography | t        | {"color": "Black", "location": "Canada"}        | 2023-05-07 15:20:48 | 2023-05-09        >
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}        | 2023-04-26 09:34:11 | 2023-04-28        >
+ 36 | Lightweight camera bag      |      5 | Photography | f        | {"color": "Black", "location": "China"}         | 2023-04-22 17:10:55 | 2023-04-24        >
+(6 rows)
+```
+</Accordion>

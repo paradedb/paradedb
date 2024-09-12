@@ -44,7 +44,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))
   - [x] Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) ([see deployment instructions](https://docs.paradedb.com/deploy/helm))
 - [x] Specialized Workloads
-  - [ ] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
+  - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
   - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
   - [x] Support for basic incremental view maintenance (IVM) via [pg_ivm](https://github.com/sraoss/pg_ivm)
 

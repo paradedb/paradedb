@@ -45,7 +45,7 @@ fn boolean_tree(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn fuzzy_fields(mut conn: PgConnection) {
+fn fuzzy_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
@@ -994,4 +994,33 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn fuzzy_phrase(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez'),
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![3, 4, 5]);
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez', match_all_terms => true),
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![3]);
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez', distance => 1),
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.id.len(), 0);
 }

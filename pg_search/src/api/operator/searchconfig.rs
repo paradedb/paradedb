@@ -20,14 +20,15 @@ use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::locate_bm25_index;
+use crate::postgres::utils::relfilenode_from_index_oid;
+use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{
     check_for_interrupts, is_a, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
-    JsonB, PgList, PgOid, Spi,
+    JsonB, PgList, PgOid,
 };
 use rustc_hash::FxHashSet;
 use std::ptr::NonNull;
@@ -43,19 +44,12 @@ pub fn search_with_search_config(
         let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
             .expect("could not parse search config");
 
-        let index_name = &search_config.index_name;
-        let index_oid = &search_config.index_oid;
-        let database_oid = crate::MyDatabaseId();
-        let oid_query =
-            format!("SELECT relfilenode FROM pg_class WHERE oid = {index_oid} AND relkind = 'i'",);
-        let relfilenode = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
-            Ok(Some(relfilenode)) => relfilenode,
-            Ok(None) => panic!("no relfilenode for index '{index_name}' in snippet"),
-            Err(err) => panic!("error looking up index '{index_name}': {err}"),
-        };
+        let index_oid = search_config.index_oid;
+        let database_oid = search_config.database_oid;
+        let relfilenode = relfilenode_from_index_oid(index_oid);
 
         let writer_client = WriterGlobal::client();
-        let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
+        let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
         let scan_state = search_index
@@ -140,7 +134,7 @@ pub fn search_config_restrict(
                 if !rte.is_null() {
                     let heaprelid = (*rte).relid;
                     let indexrel = locate_bm25_index(heaprelid)?;
-                    let relfilenode = indexrel.rd_locator.relNumber;
+                    let relfilenode = relfilenode_from_pg_relation(&indexrel);
 
                     let search_config_jsonb =
                         JsonB::from_datum((*const_).constvalue, (*const_).constisnull)?;

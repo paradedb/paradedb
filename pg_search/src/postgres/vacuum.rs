@@ -17,7 +17,10 @@
 
 use pgrx::*;
 
-use crate::{globals::WriterGlobal, index::SearchIndex, writer::WriterDirectory};
+use crate::{
+    globals::WriterGlobal, index::SearchIndex, postgres::utils::relfilenode_from_index_oid,
+    writer::WriterDirectory,
+};
 
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
@@ -41,7 +44,7 @@ pub extern "C" fn amvacuumcleanup(
     let index_name = index_relation.name();
 
     let index_oid = index_relation.oid().as_u32();
-    let relfilenode = index_relation.rd_locator.relNumber.as_u32();
+    let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
     let database_oid = crate::MyDatabaseId();
 
     let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);

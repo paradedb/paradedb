@@ -19,7 +19,7 @@ use pgrx::{pg_sys::ItemPointerData, *};
 
 use crate::{
     env::register_commit_callback, globals::WriterGlobal, index::SearchIndex,
-    writer::WriterDirectory,
+    postgres::utils::relfilenode_from_index_oid, writer::WriterDirectory,
 };
 
 #[pg_guard]
@@ -35,7 +35,7 @@ pub extern "C" fn ambulkdelete(
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
 
     let index_oid = index_relation.oid().as_u32();
-    let relfilenode = index_relation.rd_locator.relNumber.as_u32();
+    let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
     let database_oid = crate::MyDatabaseId();
 
     let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);

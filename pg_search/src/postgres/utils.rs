@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::types::TantivyValue;
-use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
+use crate::schema::{SearchConfig, SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
+use anyhow::Result;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::*;
 
@@ -183,5 +184,28 @@ impl VisibilityChecker {
                 true,
             )
         }
+    }
+}
+
+pub fn relfilenode_from_search_config(search_config: &SearchConfig) -> pg_sys::Oid {
+    let index_oid = search_config.index_oid;
+    relfilenode_from_index_oid(index_oid)
+}
+
+/// Retrieves the `relfilenode` for a given index OID, handling PostgreSQL version differences.
+pub fn relfilenode_from_index_oid(index_oid: u32) -> pg_sys::Oid {
+    let index_relation = unsafe { PgRelation::open(pg_sys::Oid::from(index_oid)) };
+    relfilenode_from_pg_relation(&index_relation)
+}
+
+/// Extracts the `relfilenode` from a `PgRelation`, handling PostgreSQL version differences.
+pub fn relfilenode_from_pg_relation(index_relation: &PgRelation) -> pg_sys::Oid {
+    #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+    {
+        index_relation.rd_node.relNode
+    }
+    #[cfg(any(feature = "pg16", feature = "pg17"))]
+    {
+        index_relation.rd_locator.relNumber
     }
 }

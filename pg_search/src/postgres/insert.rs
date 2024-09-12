@@ -22,6 +22,8 @@ use crate::writer::WriterDirectory;
 use crate::{env::register_commit_callback, globals::WriterGlobal};
 use pgrx::*;
 
+use super::utils::relfilenode_from_index_oid;
+
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
@@ -84,10 +86,10 @@ unsafe fn aminsert_internal(
     let index_name = index_relation_ref.name();
 
     let index_oid = index_relation_ref.oid().as_u32();
-    let relfilenode = index_relation_ref.rd_locator.relNumber.as_u32();
+    let relfilenode = relfilenode_from_index_oid(index_oid);
     let database_oid = crate::MyDatabaseId();
 
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
+    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
     let search_index = SearchIndex::from_cache(&directory, uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let search_document =

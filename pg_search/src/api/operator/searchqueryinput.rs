@@ -19,7 +19,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, estimate_selectivity, make_search_config_opexpr_node,
     ReturnedNodePointer,
 };
-use crate::postgres::utils::locate_bm25_index;
+use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::UNKNOWN_SELECTIVITY;
@@ -103,7 +103,7 @@ pub fn query_input_restrict(
                 if !rte.is_null() {
                     let heaprelid = (*rte).relid;
                     let indexrel = locate_bm25_index(heaprelid)?;
-                    let relfilenode = indexrel.rd_locator.relNumber;
+                    let relfilenode = relfilenode_from_pg_relation(&indexrel);
 
                     let query =
                         SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;

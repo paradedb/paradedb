@@ -19,7 +19,7 @@ use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::row_to_search_document;
+use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
@@ -55,8 +55,8 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
-    let relfilenode = index_relation.rd_locator.relNumber;
     let database_oid = crate::MyDatabaseId();
+    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
@@ -318,7 +318,7 @@ unsafe fn build_callback_internal(
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
             let index_oid = index_relation_ref.oid();
-            let relfilenode = index_relation_ref.rd_locator.relNumber;
+            let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
             let database_oid = crate::MyDatabaseId();
 
             let directory =

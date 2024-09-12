@@ -18,6 +18,7 @@
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
+use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
@@ -115,9 +116,9 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let index_oid = search_config.index_oid;
-    let relfilenode = unsafe { (*indexrel).rd_locator.relNumber.as_u32() };
+    let relfilenode = relfilenode_from_index_oid(index_oid);
     let database_oid = search_config.database_oid;
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
+    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
 
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));

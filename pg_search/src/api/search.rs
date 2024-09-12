@@ -17,7 +17,7 @@
 
 use crate::env::{needs_commit, register_commit_callback};
 use crate::index::state::SearchState;
-use crate::postgres::utils::VisibilityChecker;
+use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
 use crate::schema::SearchConfig;
 use crate::writer::{Client, WriterDirectory, WriterRequest};
 use crate::{globals::WriterGlobal, index::SearchIndex};
@@ -72,18 +72,11 @@ unsafe fn score_bm25(
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
 
-    let index_name = &search_config.index_name;
-    let index_oid = &search_config.index_oid;
-    let oid_query =
-        format!("SELECT relfilenode FROM pg_class WHERE oid = {index_oid} AND relkind = 'i'",);
-    let relfilenode = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
-        Ok(Some(relfilenode)) => relfilenode,
-        Ok(None) => panic!("no relfilenode for index '{index_name}' in score_bm25"),
-        Err(err) => panic!("error looking up index '{index_name}': {err}"),
-    };
+    let index_oid = search_config.index_oid;
+    let relfilenode = relfilenode_from_index_oid(index_oid);
     let database_oid = crate::MyDatabaseId();
 
-    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
+    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

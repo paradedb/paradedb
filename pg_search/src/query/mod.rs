@@ -36,9 +36,6 @@ use tantivy::{
 };
 use thiserror::Error;
 
-use crate::index::SearchIndex;
-use crate::writer::WriterDirectory;
-
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub enum SearchQueryInput {
     All,
@@ -341,15 +338,11 @@ impl SearchQueryInput {
                 let conjunction_mode = conjunction_mode.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
 
-                let index_oid = config.index_oid;
-                let directory = WriterDirectory::from_index_oid(index_oid);
-                let search_index = SearchIndex::from_disk(&directory)
-                    .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
                 let field = field_lookup
                     .as_str(&field)
                     .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
 
-                let mut analyzer = search_index.underlying_index.tokenizer_for_field(field)?;
+                let mut analyzer = searcher.index().tokenizer_for_field(field)?;
                 let mut stream = analyzer.token_stream(&value);
                 let mut terms = Vec::new();
 

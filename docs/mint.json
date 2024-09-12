@@ -125,7 +125,7 @@
             "api-reference/direct-sql/overview",
             "api-reference/direct-sql/mix-text-and-sql",
             "api-reference/direct-sql/joins",
-            "api-reference/direct-sql/debugging"
+            "api-reference/direct-sql/explain"
           ]
         }
       ]

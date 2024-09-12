@@ -14,6 +14,7 @@
 /docs/api-reference/full-text/scoring.mdx
 /docs/api-reference/full-text/highlighting.mdx
 /docs/api-reference/full-text/joins.mdx
+/docs/api-reference/direct-sql/mix-text-and-sql.mdx
 /docs/api-reference/aggregations.mdx
 /docs/ingest/quickstart.mdx
 /pg_search/benchmarks/out/

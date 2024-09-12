@@ -55,7 +55,7 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
-    let relfile_oid = index_relation.rd_locator.relNumber;
+    let relfilenode = index_relation.rd_locator.relNumber;
     let database_oid = crate::MyDatabaseId();
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
@@ -224,7 +224,7 @@ pub extern "C" fn ambuild(
 
     let writer_client = WriterGlobal::client();
     let directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfile_oid.as_u32());
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
 
     SearchIndex::create_index(
         &writer_client,
@@ -318,11 +318,11 @@ unsafe fn build_callback_internal(
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
             let index_oid = index_relation_ref.oid();
-            let relfile_oid = index_relation_ref.rd_locator.relNumber;
+            let relfilenode = index_relation_ref.rd_locator.relNumber;
             let database_oid = crate::MyDatabaseId();
 
             let directory =
-                WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfile_oid.as_u32());
+                WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
                 .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
             let search_document =

@@ -82,22 +82,22 @@ pub trait SearchFs {
 }
 
 /// The file location for a pg_search index is:
-/// $data_directory/pg_search/$database_oid/$index_oid/$relfile_oid
+/// $data_directory/pg_search/$database_oid/$index_oid/$relfilenode
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct WriterDirectory {
     pub database_oid: u32,
     pub index_oid: u32,
-    pub relfile_oid: u32,
+    pub relfilenode: u32,
     pub postgres_data_dir_path: PathBuf,
 }
 
 impl WriterDirectory {
     /// Useful in a connection process, where the database oid is available in the environment.
-    pub fn from_oids(database_oid: u32, index_oid: u32, relfile_oid: u32) -> Self {
+    pub fn from_oids(database_oid: u32, index_oid: u32, relfilenode: u32) -> Self {
         Self {
             database_oid,
             index_oid,
-            relfile_oid,
+            relfilenode,
             postgres_data_dir_path: Self::postgres_data_dir_path(),
         }
     }
@@ -119,11 +119,11 @@ impl WriterDirectory {
                 .filter(|entry| entry.path().is_dir())
                 .map(|entry| entry.file_name())
                 .filter_map(|name| name.to_str().and_then(|s| s.parse::<u32>().ok()))
-                .map(|relfile_oid| {
+                .map(|relfilenode| {
                     Ok(Self {
                         database_oid,
                         index_oid,
-                        relfile_oid,
+                        relfilenode,
                         postgres_data_dir_path: postgres_data_dir_path.clone(),
                     })
                 })
@@ -135,7 +135,7 @@ impl WriterDirectory {
 
     /// Construct the directory path up to the $index_oid component.
     /// The returned path is relative to the postgres_data_dir_path.
-    /// There may be multiple $relfile_oid children of the $index_oid folder
+    /// There may be multiple $relfilenode children of the $index_oid folder
     /// during vacuum / index rebuilds.
     fn index_dir_path(database_oid: u32, index_oid: u32) -> PathBuf {
         PathBuf::from(SEARCH_DIR_NAME)
@@ -161,7 +161,7 @@ impl WriterDirectory {
         let search_index_dir_path = self
             .postgres_data_dir_path
             .join(Self::index_dir_path(self.database_oid, self.index_oid))
-            .join(self.relfile_oid.to_string());
+            .join(self.relfilenode.to_string());
 
         if ensure_exists {
             Self::ensure_dir(&search_index_dir_path)?;

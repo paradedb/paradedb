@@ -478,8 +478,8 @@ fn index_size(index_name: &str) -> Result<i64> {
     );
 
     let database_oid = crate::MyDatabaseId();
-    let (index_oid, relfile_oid) = match Spi::get_two::<pg_sys::Oid, pg_sys::Oid>(&oid_query) {
-        Ok((Some(index_oid), Some(relfile_oid))) => (index_oid, relfile_oid),
+    let (index_oid, relfilenode) = match Spi::get_two::<pg_sys::Oid, pg_sys::Oid>(&oid_query) {
+        Ok((Some(index_oid), Some(relfilenode))) => (index_oid, relfilenode),
         Ok((None, _)) => panic!("no oid for index '{index_name}_bm25_index' in schema_bm25"),
         Ok((_, None)) => {
             panic!("no relfilenode for index '{index_name}_bm25_index' in schema_bm25")
@@ -489,7 +489,7 @@ fn index_size(index_name: &str) -> Result<i64> {
 
     // Create a WriterDirectory with the obtained index_oid
     let writer_directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfile_oid.as_u32());
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
 
     // Call the total_size method to get the size in bytes
     let total_size = writer_directory.total_size()?;

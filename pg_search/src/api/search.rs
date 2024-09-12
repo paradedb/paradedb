@@ -76,14 +76,14 @@ unsafe fn score_bm25(
     let index_oid = &search_config.index_oid;
     let oid_query =
         format!("SELECT relfilenode FROM pg_class WHERE oid = {index_oid} AND relkind = 'i'",);
-    let relfile_oid = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
-        Ok(Some(relfile_oid)) => relfile_oid,
+    let relfilenode = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
+        Ok(Some(relfilenode)) => relfilenode,
         Ok(None) => panic!("no relfilenode for index '{index_name}' in score_bm25"),
         Err(err) => panic!("error looking up index '{index_name}': {err}"),
     };
     let database_oid = crate::MyDatabaseId();
 
-    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfile_oid.as_u32());
+    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -145,14 +145,14 @@ unsafe fn snippet(
     let index_oid = &search_config.index_oid;
     let oid_query =
         format!("SELECT relfilenode FROM pg_class WHERE oid = {index_oid} AND relkind = 'i'",);
-    let relfile_oid = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
-        Ok(Some(relfile_oid)) => relfile_oid,
+    let relfilenode = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
+        Ok(Some(relfilenode)) => relfilenode,
         Ok(None) => panic!("no relfilenode for index '{index_name}' in snippet"),
         Err(err) => panic!("error looking up index '{index_name}': {err}"),
     };
     let database_oid = crate::MyDatabaseId();
 
-    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfile_oid.as_u32());
+    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
 
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));

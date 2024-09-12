@@ -115,9 +115,9 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let index_oid = search_config.index_oid;
-    let relfile_oid = unsafe { (*indexrel).rd_locator.relNumber.as_u32() };
+    let relfilenode = unsafe { (*indexrel).rd_locator.relNumber.as_u32() };
     let database_oid = search_config.database_oid;
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfile_oid);
+    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
 
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));

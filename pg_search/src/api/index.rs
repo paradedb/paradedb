@@ -50,15 +50,15 @@ pub fn schema_bm25(
         bm25_index_name
     );
     let database_oid = crate::MyDatabaseId();
-    let (index_oid, relfile_oid) = match Spi::get_two::<pg_sys::Oid, pg_sys::Oid>(&oid_query) {
-        Ok((Some(index_oid), Some(relfile_oid))) => (index_oid, relfile_oid),
+    let (index_oid, relfilenode) = match Spi::get_two::<pg_sys::Oid, pg_sys::Oid>(&oid_query) {
+        Ok((Some(index_oid), Some(relfilenode))) => (index_oid, relfilenode),
         Ok((None, _)) => panic!("no oid for index '{bm25_index_name}' in schema_bm25"),
         Ok((_, None)) => panic!("no relfilenode for index '{bm25_index_name}' in schema_bm25"),
         Err(err) => panic!("error looking up index '{bm25_index_name}': {err}"),
     };
 
     let directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfile_oid.as_u32());
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

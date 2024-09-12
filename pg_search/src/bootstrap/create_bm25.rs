@@ -458,8 +458,8 @@ CREATE OR REPLACE PROCEDURE paradedb.delete_bm25_index_by_oid(
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
 unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
-    crate::api::search::drop_bm25_internal(index_oid);
-
+    let database_oid = crate::MyDatabaseId();
+    crate::api::search::drop_bm25_internal(database_oid, index_oid.as_u32());
     Ok(())
 }
 
@@ -472,16 +472,23 @@ LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 fn index_size(index_name: &str) -> Result<i64> {
     // Fetch the OID of the index using its name
     let oid_query = format!(
-        "SELECT oid FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
+        "SELECT oid, relfilenode FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
         index_name
     );
 
-    let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)?
-        .ok_or_else(|| anyhow::anyhow!("Index '{}' not found", index_name))?
-        .as_u32();
+    let database_oid = crate::MyDatabaseId();
+    let (index_oid, relfile_oid) = match Spi::get_two::<pg_sys::Oid, pg_sys::Oid>(&oid_query) {
+        Ok((Some(index_oid), Some(relfile_oid))) => (index_oid, relfile_oid),
+        Ok((None, _)) => panic!("no oid for index '{index_name}_bm25_index' in schema_bm25"),
+        Ok((_, None)) => {
+            panic!("no relfilenode for index '{index_name}_bm25_index' in schema_bm25")
+        }
+        Err(err) => panic!("error looking up index '{index_name}_bm25_index': {err}"),
+    };
 
     // Create a WriterDirectory with the obtained index_oid
-    let writer_directory = WriterDirectory::from_index_oid(index_oid);
+    let writer_directory =
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfile_oid.as_u32());
 
     // Call the total_size method to get the size in bytes
     let total_size = writer_directory.total_size()?;

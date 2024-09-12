@@ -71,7 +71,19 @@ unsafe fn score_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+
+    let index_name = &search_config.index_name;
+    let index_oid = &search_config.index_oid;
+    let oid_query =
+        format!("SELECT relfilenode FROM pg_class WHERE oid = {index_oid} AND relkind = 'i'",);
+    let relfile_oid = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
+        Ok(Some(relfile_oid)) => relfile_oid,
+        Ok(None) => panic!("no relfilenode for index '{index_name}' in score_bm25"),
+        Err(err) => panic!("error looking up index '{index_name}': {err}"),
+    };
+    let database_oid = crate::MyDatabaseId();
+
+    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfile_oid.as_u32());
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -128,7 +140,20 @@ unsafe fn snippet(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+
+    let index_name = &search_config.index_name;
+    let index_oid = &search_config.index_oid;
+    let oid_query =
+        format!("SELECT relfilenode FROM pg_class WHERE oid = {index_oid} AND relkind = 'i'",);
+    let relfile_oid = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
+        Ok(Some(relfile_oid)) => relfile_oid,
+        Ok(None) => panic!("no relfilenode for index '{index_name}' in snippet"),
+        Err(err) => panic!("error looking up index '{index_name}': {err}"),
+    };
+    let database_oid = crate::MyDatabaseId();
+
+    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfile_oid.as_u32());
+
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -187,18 +212,23 @@ unsafe fn snippet(
     TableIterator::new(top_docs)
 }
 
-pub fn drop_bm25_internal(index_oid: pg_sys::Oid) {
+pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
     let writer_client = WriterGlobal::client();
-    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+    let relfile_paths = WriterDirectory::relfile_paths(database_oid, index_oid)
+        .expect("could not look up pg_search relfilenode directory");
 
-    // Drop the Tantivy data directory.
-    SearchIndex::drop_index(&writer_client, &directory)
-        .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
+    for directory in relfile_paths {
+        // Drop the Tantivy data directory.
+        // It's expected that this will be queued to actually perform the delete upon
+        // transaction commit.
+        SearchIndex::drop_index(&writer_client, &directory)
+            .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
 
-    // The physical delete will happen when the transaction commits, so a commit callback
-    // must be registered.
-    register_commit_callback(&writer_client, directory.clone())
-        .expect("could not register commit callback for drop index operation");
+        // The physical delete will happen when the transaction commits, so a commit callback
+        // must be registered.
+        register_commit_callback(&writer_client, directory.clone())
+            .expect("could not register commit callback for drop index operation");
+    }
 }
 
 /// # Safety

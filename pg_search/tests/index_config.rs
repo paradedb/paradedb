@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use shared::fixtures::utils::pg_search_index_directory_path;
 use sqlx::PgConnection;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {
@@ -746,18 +747,8 @@ fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
     )"
     .execute(&mut conn);
 
-    let index_oid =
-        "SELECT oid::int4 FROM pg_class WHERE relname = 'index_config_bm25_index' AND relkind = 'i'"
-            .fetch_one::<(i32,)>(&mut conn)
-            .0;
-
-    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
-    let index_dir = PathBuf::from(data_directory)
-        .join("pg_search")
-        .join(index_oid.to_string())
-        .join("tantivy");
-
     // Ensure the expected directory exists.
+    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_bm25_index");
     assert!(
         index_dir.exists(),
         "expected index directory to exist at: {:?}",
@@ -794,18 +785,8 @@ fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
     )"
     .execute(&mut conn);
 
-    let index_oid =
-        "SELECT oid::int4 FROM pg_class WHERE relname = 'index_config_bm25_index' AND relkind = 'i'"
-            .fetch_one::<(i32,)>(&mut conn)
-            .0;
-
-    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
-    let index_dir = PathBuf::from(data_directory)
-        .join("pg_search")
-        .join(index_oid.to_string())
-        .join("tantivy");
-
     // Ensure the expected directory exists.
+    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_bm25_index");
     assert!(
         index_dir.exists(),
         "expected index directory to exist at: {:?}",

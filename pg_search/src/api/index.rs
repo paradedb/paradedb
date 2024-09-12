@@ -46,14 +46,19 @@ pub fn schema_bm25(
 )> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
     let oid_query = format!(
-        "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
+        "SELECT oid, relfilenode FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
         bm25_index_name
     );
-    let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)
-        .expect("error looking up index in schema_bm25")
-        .expect("no oid for index passed to schema_bm25");
+    let database_oid = crate::MyDatabaseId();
+    let (index_oid, relfile_oid) = match Spi::get_two::<pg_sys::Oid, pg_sys::Oid>(&oid_query) {
+        Ok((Some(index_oid), Some(relfile_oid))) => (index_oid, relfile_oid),
+        Ok((None, _)) => panic!("no oid for index '{bm25_index_name}' in schema_bm25"),
+        Ok((_, None)) => panic!("no relfilenode for index '{bm25_index_name}' in schema_bm25"),
+        Err(err) => panic!("error looking up index '{bm25_index_name}': {err}"),
+    };
 
-    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+    let directory =
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfile_oid.as_u32());
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

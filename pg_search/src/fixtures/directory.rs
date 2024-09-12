@@ -38,7 +38,9 @@ impl MockWriterDirectory {
         Self {
             temp_dir,
             writer_dir: WriterDirectory {
+                database_oid: 0, // mock value for test
                 index_oid,
+                relfile_oid: 0, // mock value for test
                 postgres_data_dir_path: temp_path,
             },
         }

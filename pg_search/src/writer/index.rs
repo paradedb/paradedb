@@ -178,7 +178,6 @@ impl Writer {
 
 impl Handler<WriterRequest> for Writer {
     fn handle(&mut self, request: WriterRequest) -> Result<()> {
-        tracing::debug!(?request, "handling writer request");
         match request {
             WriterRequest::Insert {
                 directory,

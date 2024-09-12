@@ -67,3 +67,20 @@ pub fn default_table_path(conn: &mut PgConnection, schema_name: &str, table_name
     let table_oid = table_oid(conn, schema_name, table_name);
     default_schema_path(conn, schema_name).join(table_oid)
 }
+
+pub fn pg_search_index_directory_path(conn: &mut PgConnection, index_name: &str) -> PathBuf {
+    let (relfile_oid, index_oid) = format!(
+        "SELECT relfilenode::int4, oid::int4 FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
+        index_name
+    )
+    .fetch_one::<(i32, i32)>(conn);
+    let (database_oid,) = "SELECT oid::int4 FROM pg_database WHERE datname = current_database();"
+        .fetch_one::<(i32,)>(conn);
+    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(conn).0;
+
+    PathBuf::from(data_directory)
+        .join("pg_search")
+        .join(database_oid.to_string())
+        .join(index_oid.to_string())
+        .join(relfile_oid.to_string())
+}

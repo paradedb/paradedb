@@ -131,9 +131,8 @@ jobs:
 
     steps:
       - name: Trigger paradedb/charts Test Workflow
-        uses: multinarity/workflow-dispatch@master
+        uses: benc-uk/workflow-dispatch@v1.2.4
         with:
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           workflow: paradedb-test-eks.yml
           repo: paradedb/charts
           ref: main

@@ -134,12 +134,12 @@
             "api-reference/advanced/exists",
             "api-reference/advanced/fuzzy",
             "api-reference/advanced/more_like_this",
-            "api-reference/advanced/phrase_prefix",
             "api-reference/advanced/phrase",
+            "api-reference/advanced/phrase_prefix",
             "api-reference/advanced/range",
             "api-reference/advanced/regex",
-            "api-reference/advanced/term_set",
-            "api-reference/advanced/term"
+            "api-reference/advanced/term",
+            "api-reference/advanced/term_set"
           ]
         },
         {

@@ -36,6 +36,9 @@ use tantivy::{
 };
 use thiserror::Error;
 
+use crate::index::SearchIndex;
+use crate::writer::WriterDirectory;
+
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub enum SearchQueryInput {
     All,
@@ -72,6 +75,14 @@ pub enum SearchQueryInput {
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
+    },
+    FuzzyPhrase {
+        field: String,
+        value: String,
+        distance: Option<u8>,
+        transposition_cost_one: Option<bool>,
+        prefix: Option<bool>,
+        conjunction_mode: Option<bool>,
     },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
@@ -316,6 +327,54 @@ impl SearchQueryInput {
                         transposition_cost_one,
                     )))
                 }
+            }
+            Self::FuzzyPhrase {
+                field,
+                value,
+                distance,
+                transposition_cost_one,
+                prefix,
+                conjunction_mode,
+            } => {
+                let distance = distance.unwrap_or(2);
+                let transposition_cost_one = transposition_cost_one.unwrap_or(true);
+                let conjunction_mode = conjunction_mode.unwrap_or(true);
+                let prefix = prefix.unwrap_or(false);
+
+                let index_oid = config.index_oid;
+                let directory = WriterDirectory::from_index_oid(index_oid);
+                let search_index = SearchIndex::from_disk(&directory)
+                    .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+                let field = field_lookup
+                    .as_str(&field)
+                    .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
+
+                let mut analyzer = search_index.underlying_index.tokenizer_for_field(field)?;
+                let mut stream = analyzer.token_stream(&value);
+                let mut terms = Vec::new();
+
+                while stream.advance() {
+                    let token = stream.token().text.clone();
+                    let term = Term::from_field_text(field, &token);
+                    let term_query: Box<dyn Query> = if prefix {
+                        Box::new(FuzzyTermQuery::new_prefix(
+                            term,
+                            distance,
+                            transposition_cost_one,
+                        ))
+                    } else {
+                        Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
+                    };
+                    let occur = if conjunction_mode {
+                        Occur::Must
+                    } else {
+                        Occur::Should
+                    };
+
+                    terms.push((occur, term_query));
+                }
+
+                Ok(Box::new(BooleanQuery::new(terms)))
             }
             Self::MoreLikeThis {
                 min_doc_frequency,

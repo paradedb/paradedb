@@ -235,6 +235,25 @@ pub fn fuzzy_term(
     }
 }
 
+#[pg_extern(immutable, parallel_safe)]
+pub fn fuzzy_phrase(
+    field: String,
+    value: String,
+    distance: default!(Option<i32>, "NULL"),
+    transposition_cost_one: default!(Option<bool>, "NULL"),
+    prefix: default!(Option<bool>, "NULL"),
+    conjunction_mode: default!(Option<bool>, "NULL"),
+) -> SearchQueryInput {
+    SearchQueryInput::FuzzyPhrase {
+        field,
+        value,
+        distance: distance.map(|n| n as u8),
+        transposition_cost_one,
+        prefix,
+        conjunction_mode,
+    }
+}
+
 #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
 pub fn more_like_this_empty() -> SearchQueryInput {
     panic!("more_like_this must be called with either with_document_id or with_document_fields");

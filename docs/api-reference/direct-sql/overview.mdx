@@ -14,11 +14,13 @@ Throughout this chapter, the examples will assume a test table and index defined
 `paradedb.bm25_search` table directly.
 
 ```sql
+-- create test data
 CALL paradedb.create_bm25_test_table(
     table_name => 'bm25_search',
     schema_name => 'paradedb'
 );
 
+-- create a USING bm25 ParadeDB index on the test data
 CALL paradedb.create_bm25(
     index_name => 'bm25_search',
     table_name => 'bm25_search',
@@ -32,6 +34,9 @@ CALL paradedb.create_bm25(
                        paradedb.field('last_updated_date') ||
                        paradedb.field('latest_available_time')
 );
+
+-- also create a standard btree index on the test data's "category" field
+CREATE INDEX idxbm25_search_category ON paradedb.bm25_search (category);
 ```
 
 ## Introducing the `@@@` Operator
@@ -40,8 +45,8 @@ Postgres defines an operator as a specially-named function that (typically) take
 is the left-hand-side of the operator, and the second argument is the right-hand-side. Additionally, Postgres allows
 for operator and function overloading.
 
-To facilitate directly querying a table using text search queries ParadeDB provides a custom operator, named `@@@`. It has two
-forms:
+To facilitate directly querying a table using text search queries ParadeDB provides a custom operator, named `@@@`. It
+has two forms:
 
 - `@@@(key_field, text)`: Query using a tantivy-compatible query string
 - `@@@(key_field, paradedb.SearchQueryInput)`: Query using a complex text search query created using ParadeDB's various builder functions.
@@ -58,7 +63,7 @@ SELECT * FROM paradedb.bm25_search WHERE id @@@ paradedb.term('description', 'sh
 
 ## Important Considerations
 
-The `@@@` operator means "find all rows in the table that match a text search query". It's designed to answer
+The `@@@` operator means "find all rows matching a full text query condition". It's designed to answer
 such questions as quickly as possible and allow complex SQL queries which also include normal SQL query predicates.
 
 `@@@` interacts well with `ORDER BY`, `OFFSET`/`LIMIT`, and `GROUP BY` clauses as well as standard query operators such

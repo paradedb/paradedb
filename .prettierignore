@@ -15,5 +15,6 @@
 /docs/api-reference/full-text/joins.mdx
 /docs/api-reference/indexing/create_index.mdx
 /docs/api-reference/guides/autocomplete.mdx
+/docs/api-reference/direct-sql/mix-text-and-sql.mdx
 /docs/ingest/quickstart.mdx
 /pg_search/benchmarks/out/

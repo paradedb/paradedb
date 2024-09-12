@@ -163,6 +163,8 @@ impl From<(SearchQueryInput, IndexRelation)> for SearchConfig {
             uuid: ops.get_uuid().unwrap(),
             order_by_field: None,
             order_by_direction: None,
+            conjunction_mode: None,
+            lenient_parsing: None,
         }
     }
 }

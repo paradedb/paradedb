@@ -3,7 +3,7 @@ title: Overview
 ---
 
 The query builder API exposes advanced query objects that are not available to the ParadeQL query syntax.
-These query objects are composable, which allows for arbitrarily fine-grained queries.
+This API can be used for complex queries where the full text search API is not sufficient.
 
 ## Basic Usage
 
@@ -15,4 +15,20 @@ A query string itself is parsed into a query object, and can be used anywhere in
 ```sql
 SELECT * FROM search_idx.search('description:shoes');
 SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'));
+```
+
+## Composable Query Objects
+
+These query objects are composable, which allows for arbitrarily fine-grained queries. For instance, the following query looks
+for documents containing either the term `running` or `shoes` and boosts the relevance of documents matching `shoes`.
+
+```sql
+SELECT * FROM search_idx.search(
+    query => paradedb.boolean(
+        should => ARRAY[
+            paradedb.boost(query => paradedb.parse('description:shoes'), boost => 2.0),
+            paradedb.term(field => 'description', value => 'running')
+        ]
+    )
+);
 ```

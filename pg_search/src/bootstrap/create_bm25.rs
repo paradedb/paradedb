@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
 
+use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 use crate::writer::{SearchFs, WriterDirectory};
 
 use super::format::format_bm25_function;
@@ -229,14 +230,7 @@ fn create_bm25_impl(
         "".to_string()
     };
 
-    let index_oid_query = format!(
-        "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
-        &index_name_suffixed
-    );
-    let index_oid = Spi::get_one::<pg_sys::Oid>(&index_oid_query)
-        .expect("error looking up index in create_bm25")
-        .expect("no oid for index created in create_bm25")
-        .as_u32();
+    let index_oid = index_oid_from_index_name(&index_name_suffixed);
 
     let pg_relation = unsafe {
         PgRelation::open_with_name(&format!(
@@ -471,21 +465,9 @@ CREATE OR REPLACE FUNCTION paradedb.index_size_impl(
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
 fn index_size(index_name: &str) -> Result<i64> {
-    // Fetch the OID of the index using its name
-    let oid_query = format!(
-        "SELECT oid, relfilenode FROM pg_class WHERE relname = '{}_bm25_index' AND relkind = 'i'",
-        index_name
-    );
-
+    let index_oid = index_oid_from_index_name(&format!("{index_name}_bm25_index"));
     let database_oid = crate::MyDatabaseId();
-    let (index_oid, relfilenode) = match Spi::get_two::<pg_sys::Oid, pg_sys::Oid>(&oid_query) {
-        Ok((Some(index_oid), Some(relfilenode))) => (index_oid, relfilenode),
-        Ok((None, _)) => panic!("no oid for index '{index_name}_bm25_index' in schema_bm25"),
-        Ok((_, None)) => {
-            panic!("no relfilenode for index '{index_name}_bm25_index' in schema_bm25")
-        }
-        Err(err) => panic!("error looking up index '{index_name}_bm25_index': {err}"),
-    };
+    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
     // Create a WriterDirectory with the obtained index_oid
     let writer_directory =

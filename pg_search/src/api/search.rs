@@ -134,16 +134,9 @@ unsafe fn snippet(
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
 
-    let index_name = &search_config.index_name;
     let index_oid = &search_config.index_oid;
-    let oid_query =
-        format!("SELECT relfilenode FROM pg_class WHERE oid = {index_oid} AND relkind = 'i'",);
-    let relfilenode = match Spi::get_one::<pg_sys::Oid>(&oid_query) {
-        Ok(Some(relfilenode)) => relfilenode,
-        Ok(None) => panic!("no relfilenode for index '{index_name}' in snippet"),
-        Err(err) => panic!("error looking up index '{index_name}': {err}"),
-    };
     let database_oid = crate::MyDatabaseId();
+    let relfilenode = relfilenode_from_index_oid(*index_oid);
 
     let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
 

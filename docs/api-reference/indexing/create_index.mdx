@@ -233,6 +233,15 @@ CALL paradedb.create_bm25(
   and filtering.
 </ParamField>
 
+### Array Fields
+
+`text_fields`, `numeric_fields`, `boolean_fields`, and `datetime_fields` support array types. For instance, columns of
+type `TEXT[]` can be passed into `text_fields`, and columns of type `INT[]` can be passed into `numeric_fields`.
+
+<Note>
+The only exception are `JSON[]` and `JSONB[]` types, which are not yet supported.
+</Note>
+
 ### Multiple Fields
 
 The `||` operator can be used to index multiple fields.

@@ -7,16 +7,16 @@ The fastest way to install ParadeDB is by pulling the ParadeDB docker image and 
 ```bash
 docker run \
   --name paradedb \
-  -e POSTGRES_USER=<user> \
-  -e POSTGRES_PASSWORD=<password> \
-  -e POSTGRES_DB=<dbname> \
+  -e POSTGRES_USER=myuser \
+  -e POSTGRES_PASSWORD=mypassword \
+  -e POSTGRES_DB=mydatabase \
   -v paradedb_data:/var/lib/postgresql/data/ \
   -p 5432:5432 \
   -d \
   paradedb/paradedb:latest
 ```
 
-You may set `user`, `password`, and `dbname` to whatever values you want — these will be your database
+You may replace `myuser`, `mypassword`, and `mydatabase` with whatever values you want — these will be your database
 connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
 
 To connect to ParadeDB, install the `psql` client and run

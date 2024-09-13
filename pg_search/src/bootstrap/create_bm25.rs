@@ -403,7 +403,7 @@ fn create_bm25_impl(
         .as_u32();
 
     // Add the dependency between the index and schema
-    add_pg_depend_entry(pg_sys::Oid::from(index_oid), pg_sys::Oid::from(schema_oid));
+    add_pg_depend_entry(index_oid, pg_sys::Oid::from(schema_oid));
 
     Spi::run(&format!(
         "SET client_min_messages TO {}",

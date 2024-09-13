@@ -7,7 +7,7 @@ title: JOINs with Text Search
   creating the necessary example data
 </Note>
 
-To demonstrate joins and text search, we need more data. This table represents orders with a foreign key back to the
+To demonstrate joins with text search, we need more data. This table represents orders with a foreign key back to the
 `id` column of `paradedb.bm25_search` (which represents products). We also populate this table with some data:
 
 ```sql
@@ -96,28 +96,32 @@ Yes, yes he did!
 ```
 </Accordion>
 
-## Which items haven't been purchased yet?
+## Find unsold items
 
-To find all the "black" items that haven't been purchased yet
+To find all the "black" items from the "United States" that haven't been purchased yet
 
 ```sql
     SELECT products.*
       FROM paradedb.orders
 RIGHT JOIN paradedb.bm25_search products ON orders.product_id = products.id
      WHERE orders.product_id IS NULL
-      AND products.id @@@ 'metadata.color:black';
+      AND products.id @@@ 'metadata.color:black'
+      AND products.id @@@ 'metadata.location:"United States"';
 ```
 
 <Accordion title="Expected Response">
 ```csv
  id |         description         | rating |  category   | in_stock |                    metadata                     |     created_at      | last_updated_date >
 ----+-----------------------------+--------+-------------+----------+-------------------------------------------------+---------------------+------------------->
- 12 | Innovative wireless earbuds |      5 | Electronics | t        | {"color": "Black", "location": "China"}         | 2023-04-22 10:05:39 | 2023-04-23        >
  16 | High-resolution DSLR        |      4 | Photography | t        | {"color": "Black", "location": "United States"} | 2023-04-21 14:30:19 | 2023-04-23        >
  22 | Fast charging power bank    |      4 | Electronics | t        | {"color": "Black", "location": "United States"} | 2023-04-17 11:35:52 | 2023-04-19        >
- 26 | Portable tripod stand       |      4 | Photography | t        | {"color": "Black", "location": "Canada"}        | 2023-05-07 15:20:48 | 2023-05-09        >
- 32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}        | 2023-04-26 09:34:11 | 2023-04-28        >
- 36 | Lightweight camera bag      |      5 | Photography | f        | {"color": "Black", "location": "China"}         | 2023-04-22 17:10:55 | 2023-04-24        >
-(6 rows)
+(2 rows)
 ```
 </Accordion>
+
+## Summary
+
+The above are simple fabricated examples of how to combine more sophisticated text search queries with JOINs using the
+common concept of products and orders.
+
+While real world data and queries will be different, ParadeDB is able to adapt to varying and complex query plans.

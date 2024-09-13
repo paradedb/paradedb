@@ -7,23 +7,7 @@ title: Partitioned Index
   feature. [Contact us](mailto:sales@paradedb.com) for access.
 </Note>
 
-## Partitioned Index
+## Basic Usage
 
 In Postgres, a partitioned index is an index created over a [partitioned table](https://www.postgresql.org/docs/current/ddl-partitioning.html).
 A BM25 index can be created over a partitioned table in the same way as a normal table.
-
-## Partial Index
-
-The following code block demonstrates how to pass predicates to `create_bm25`
-to construct a [partial index](https://www.postgresql.org/docs/current/indexes-partial.html). Partial
-indexes are useful for reducing index size on disk and improving update speeds over non-indexed rows.
-
-```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field('description'),
-  predicates => 'category = ''Electronics'' AND rating > 2'
-);
-```

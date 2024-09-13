@@ -24,7 +24,7 @@ SELECT * FROM search_idx.search('description:keyboard', stable_sort => true);
 
 ## Custom Ordering
 
-By default, the rows are ordered by their BM25 score but we can order them by any [fast field](/api-reference/indexing/fast_fields) instead by specifying `order_by_field`.
+By default, the rows are ordered by their BM25 score but can be ordered by any [fast field](/api-reference/indexing/fast_fields) instead by specifying `order_by_field`.
 
 The sort order can be changed by specifying `order_by_direction`. The default is `asc`. These arguments can be passed into
 `search`, `score_bm25`, and `snippet`.

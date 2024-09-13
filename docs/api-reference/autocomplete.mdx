@@ -37,25 +37,15 @@ FROM search_idx.search(
 ## Fuzzy Phrase
 
 Suppose the user provides a misspelled phrase like `ruining shoez` when searching for `running shoes`. Because `fuzzy_term` treats `value` as a single token,
-passing the entire phrase to `fuzzy_term` will not yield any matches. Instead, the phrase should be pre-tokenized in the same way as
-the `description` field and fed into a `boolean` query.
+passing the entire phrase to `fuzzy_term` will not yield any matches. Instead, `fuzzy_phrase` should be used. `fuzzy_phrase` tokenizes the query and
+matches documents if any of the tokens match.
 
 ```sql
--- Pre-tokenize "ruining shoez"
-WITH tokenized AS (
-    SELECT token FROM paradedb.tokenize(
-        paradedb.tokenizer('default'),
-        'ruining shoez'
-    )
-)
--- Match a document if any of the tokens match
 SELECT description, rating, category
 FROM search_idx.search(
-    query => paradedb.boolean(
-        should => ARRAY[(
-            SELECT array_agg(paradedb.fuzzy_term(field => 'description', value => token))
-            FROM tokenized
-        )]
+    query => paradedb.phrase(
+        field => 'description',
+        value => 'ruining shoez'
     )
 );
 ```
@@ -70,6 +60,27 @@ FROM search_idx.search(
 (3 rows)
 ```
 </Accordion>
+
+`fuzzy_phrase` can be configured to match documents if all tokens match, which can narrow the result set.
+
+```sql
+SELECT description, rating, category
+FROM search_idx.search(
+    query => paradedb.phrase(
+        field => 'description',
+        value => 'ruining shoez',
+        match_all_terms => true
+    )
+);
+```
+
+<Accordion title="Expected Response">
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
 
 ## Multiple Fuzzy Fields
 

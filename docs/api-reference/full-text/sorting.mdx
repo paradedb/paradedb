@@ -16,7 +16,7 @@ If `false`, scores are not generated and instead results are returned in an un-d
 of this is that the results are returned as quickly as possible. This is useful for queries that are known to return
 many thousands or millions of rows.
 
-`stable_sort` can be passed into `search`, `score_bm25`, and `snippet`.
+`stable_sort` defaults to `false` and can be passed into `search`, `score_bm25`, and `snippet`.
 
 ```sql
 SELECT * FROM search_idx.search('description:keyboard', stable_sort => true);

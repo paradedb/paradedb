@@ -2,6 +2,11 @@
 title: Bucket Aggregations
 ---
 
+<Info>
+  Facets/aggregations are a ParadeDB enterprise feature. [Contact
+  us](mailto:sales@paradedb.com) for access.
+</Info>
+
 ## Histogram
 
 Histogram is a bucket aggregation where buckets are created dynamically based on a specified interval. Each document value is rounded down to its bucket. For example, if you have a price of 18 and an interval of 5, the document will fall into the bucket with the key 15. The formula used for this is: `((val - offset) / interval).floor() * interval + offset`.

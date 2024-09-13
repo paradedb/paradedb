@@ -3,7 +3,7 @@ title: Autocomplete
 ---
 
 In user-facing search, autocomplete refers to the process of suggesting relevant results as the user is typing.
-Several of ParadeDB's search APIs can be used to build and tune a full-fledged autocomplete experience.
+Several of ParadeDB's search APIs can be mixed and matched to build a full-fledged autocomplete experience.
 
 <Note>
 This guide uses the [`mock_items` table](/api-reference/introduction#get-started).
@@ -37,13 +37,13 @@ FROM search_idx.search(
 ## Fuzzy Phrase
 
 Suppose the user provides a misspelled phrase like `ruining shoez` when searching for `running shoes`. Because `fuzzy_term` treats `value` as a single token,
-passing the entire phrase to `fuzzy_term` will not yield any matches. Instead, `fuzzy_phrase` should be used. `fuzzy_phrase` tokenizes the query and
-matches documents if any of the tokens match.
+passing the entire phrase to `fuzzy_term` will not yield any matches. Instead, `fuzzy_phrase` should be used. `fuzzy_phrase` finds documents where
+**any** of the query's tokens are a `fuzzy_term` match.
 
 ```sql
 SELECT description, rating, category
 FROM search_idx.search(
-    query => paradedb.phrase(
+    query => paradedb.fuzzy_phrase(
         field => 'description',
         value => 'ruining shoez'
     )
@@ -61,12 +61,12 @@ FROM search_idx.search(
 ```
 </Accordion>
 
-`fuzzy_phrase` can be configured to match documents if all tokens match, which can narrow the result set.
+For a stricter result set, `fuzzy_phrase` can be configured to match documents if **all** query tokens match.
 
 ```sql
 SELECT description, rating, category
 FROM search_idx.search(
-    query => paradedb.phrase(
+    query => paradedb.fuzzy_phrase(
         field => 'description',
         value => 'ruining shoez',
         match_all_terms => true
@@ -81,31 +81,19 @@ FROM search_idx.search(
  Sleek running shoes |      5 | Footwear
 (1 row)
 ```
+</Accordion>
 
 ## Multiple Fuzzy Fields
 
 Suppose we want to compare a query against both `description` and `category`. The `boolean` query can be used to query across multiple fields.
 
 ```sql
--- Pre-tokenize "ruining shoez"
-WITH tokenized AS (
-    SELECT token FROM paradedb.tokenize(
-        paradedb.tokenizer('default'),
-        'ruining shoez'
-    )
-)
--- Match a document if any of the tokens match
-SELECT description, rating, category FROM search_idx.search(
+SELECT description, rating, category
+FROM search_idx.search(
     query => paradedb.boolean(
         should => ARRAY[
-            (
-                SELECT array_agg(paradedb.fuzzy_term(field => 'description', value => token))
-                FROM tokenized
-            ),
-            (
-                SELECT array_agg(paradedb.fuzzy_term(field => 'category', value => token))
-                FROM tokenized
-            )
+            paradedb.fuzzy_phrase(field => 'description', value => 'ruining shoez'),
+            paradedb.fuzzy_phrase(field => 'category', value => 'ruining shoez')
         ]
     )
 );
@@ -163,28 +151,18 @@ FROM ngrams_idx.search('description:sho');
 ## Ngram Term Set
 
 When querying against an ngrams field, all ngrams of the query must match in order for the document to be considered a match.
-This means that a query like `hsoes` would not match `shoes`, because the `hso` token does not match any of the tokens of `shoes`.
+This means that a query like `hsoes` does not match `shoes`, because the `hso` token does not match any of the tokens of `shoes`.
 
-To match documents where **any** token of the query matches, the tokens can be fed into a `term_set` query.
+To match documents where **any** ngram token of the query matches, the `fuzzy_phrase` query can again be used. Since we are looking for
+exact ngram matches, the `distance` parameter can be lowered to `0`.
 
 ```sql
--- Pre-tokenize "hsoes"
-WITH tokenized AS (
-    SELECT token FROM paradedb.tokenize(
-        paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false),
-        'hsoes'
-    )
-)
--- Match a document if any of the tokens match
 SELECT description, rating, category
 FROM ngrams_idx.search(
-    query => paradedb.term_set(
-        terms => ARRAY[
-            (
-                SELECT array_agg(paradedb.term(field => 'description', value => token))
-                FROM tokenized
-            )
-        ]
+    query => paradedb.fuzzy_phrase(
+        field => 'description',
+        value => 'hsoes',
+        distance => 0
     )
 );
 ```
@@ -199,3 +177,8 @@ FROM ngrams_idx.search(
 (3 rows)
 ```
 </Accordion>
+
+## Further Customization
+
+This guide has demonstrated how the query builder functions like `paradedb.boolean` can be used to compose new, powerful queries types.
+We encourage you to use these functions to experiment with queries that satisfy your use case.

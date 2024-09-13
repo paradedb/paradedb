@@ -29,9 +29,6 @@ CALL paradedb.create_bm25(
 <ParamField body="key_field" required>
   The name of a column in the table that represents a unique identifier for each
   record. Usually, this is the same column that is the primary key of the table.
-  In version 0.7.5 and earlier, only integer IDs were supported. From version
-  0.7.6 onwards, [non-integer IDs are also
-  supported.](https://github.com/paradedb/paradedb/pull/1174).
 </ParamField>
 <ParamField body="schema_name" default="CURRENT SCHEMA">
   The name of the schema, or namespace, of the table.

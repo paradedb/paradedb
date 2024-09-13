@@ -22,7 +22,7 @@ connection credentials. By default, this will start a ParadeDB instance at `http
 To connect to ParadeDB, install the `psql` client and run
 
 ```bash
-psql -h <hostname> -U <user> -d <dbname> -p <port> -W
+docker exec -it paradedb psql -U myuser -d mydatabase -W
 ```
 
 <Note>

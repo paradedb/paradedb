@@ -204,7 +204,7 @@ pub fn relfilenode_from_pg_relation(index_relation: &PgRelation) -> pg_sys::Oid 
     {
         index_relation.rd_node.relNode
     }
-    #[cfg(any(feature = "pg16"))]
+    #[cfg(feature = "pg16")]
     {
         index_relation.rd_locator.relNumber
     }

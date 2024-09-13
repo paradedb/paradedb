@@ -121,3 +121,51 @@ jobs:
             echo "Error: ParadeDB Docker container logs contain an error"
             exit 1
           fi
+
+  test-paradedb-helm-chart:
+    name: Test ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: depot-ubuntu-latest-2
+    strategy:
+      matrix:
+        pg_version: [16]
+
+    steps:
+      - name: Trigger paradedb/charts Test Workflow
+        uses: multinarity/workflow-dispatch@master
+        with:
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          workflow: paradedb-test-eks.yml
+          repo: paradedb/charts
+          ref: main
+
+      - name: Wait for paradedb/charts Test Workflow to Complete
+        run: |
+          workflow_run_id=""
+          while [ -z "$workflow_run_id" ]; do
+            workflow_run_id=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
+              https://api.github.com/repos/paradedb/charts/actions/workflows/paradedb-test-eks.yml/runs?event=workflow_dispatch \
+              | jq -r '.workflow_runs[] | select(.status == "in_progress" or .status == "queued") | .id' | head -n 1)
+            if [ -z "$workflow_run_id" ]; then
+              echo "Waiting for workflow run to start..."
+              sleep 10
+            fi
+          done
+
+          status="in_progress"
+          while [ "$status" != "completed" ]; do
+            status=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
+              https://api.github.com/repos/paradedb/charts/actions/runs/$workflow_run_id \
+              | jq -r '.status')
+            echo "Current status: $status"
+            if [ "$status" != "completed" ]; then
+              sleep 10
+            fi
+          done
+
+          conclusion=$(curl -s -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
+            https://api.github.com/repos/paradedb/charts/actions/runs/$workflow_run_id \
+            | jq -r '.conclusion')
+          echo "Workflow completed with conclusion: $conclusion"
+          if [ "$conclusion" != "success" ]; then
+            exit 1
+          fi

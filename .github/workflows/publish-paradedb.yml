@@ -2,7 +2,7 @@
 #
 # Publish ParadeDB
 # Publish ParadeDB as a Docker image to Docker Hub and as a Helm Chart to paradedb.github.io via our
-# `paradedb/helm-charts` repository. This workflow only runs after a GitHub Release gets created, which
+# `paradedb/charts` repository. This workflow only runs after a GitHub Release gets created, which
 # happens once we merge to `main`.
 
 name: Publish ParadeDB
@@ -109,11 +109,11 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Trigger paradedb/helm-charts Release Workflow
+      - name: Trigger paradedb/charts Release Workflow
         uses: multinarity/workflow-dispatch@master
         with:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          workflow: publish-helm-chart.yml
-          repo: paradedb/helm-charts
+          workflow: paradedb-publish-chart.yml
+          repo: paradedb/charts
           ref: main
           inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'

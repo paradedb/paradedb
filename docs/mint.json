@@ -233,6 +233,9 @@
     },
     "gtm": {
       "tagId": "GTM-KMGRG564"
+    },
+    "koala": {
+      "publicApiKey": "pk_05f8f4ec527669d1e8f88783a4dccdf37407"
     }
   },
   "backgroundImage": "/background.png"

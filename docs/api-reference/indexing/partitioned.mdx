@@ -1,0 +1,23 @@
+---
+title: Partitioned Index
+---
+
+## Partitioned Index
+
+Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature. [Contact us](mailto:sales@paradedb.com) for access.
+
+## Partial Index
+
+The following code block demonstrates how to pass predicates to `create_bm25`
+to construct a [partial index](https://www.postgresql.org/docs/current/indexes-partial.html). Partial
+indexes are useful for reducing index size on disk and improving update speeds over non-indexed rows.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description'),
+  predicates => 'category = ''Electronics'' AND rating > 2'
+);
+```

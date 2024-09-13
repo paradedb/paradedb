@@ -73,6 +73,14 @@ pub enum SearchQueryInput {
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
     },
+    FuzzyPhrase {
+        field: String,
+        value: String,
+        distance: Option<u8>,
+        transposition_cost_one: Option<bool>,
+        prefix: Option<bool>,
+        match_all_terms: Option<bool>,
+    },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
         max_doc_frequency: Option<u64>,
@@ -316,6 +324,50 @@ impl SearchQueryInput {
                         transposition_cost_one,
                     )))
                 }
+            }
+            Self::FuzzyPhrase {
+                field,
+                value,
+                distance,
+                transposition_cost_one,
+                prefix,
+                match_all_terms,
+            } => {
+                let distance = distance.unwrap_or(2);
+                let transposition_cost_one = transposition_cost_one.unwrap_or(true);
+                let match_all_terms = match_all_terms.unwrap_or(false);
+                let prefix = prefix.unwrap_or(false);
+
+                let field = field_lookup
+                    .as_str(&field)
+                    .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
+
+                let mut analyzer = searcher.index().tokenizer_for_field(field)?;
+                let mut stream = analyzer.token_stream(&value);
+                let mut terms = Vec::new();
+
+                while stream.advance() {
+                    let token = stream.token().text.clone();
+                    let term = Term::from_field_text(field, &token);
+                    let term_query: Box<dyn Query> = if prefix {
+                        Box::new(FuzzyTermQuery::new_prefix(
+                            term,
+                            distance,
+                            transposition_cost_one,
+                        ))
+                    } else {
+                        Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
+                    };
+                    let occur = if match_all_terms {
+                        Occur::Must
+                    } else {
+                        Occur::Should
+                    };
+
+                    terms.push((occur, term_query));
+                }
+
+                Ok(Box::new(BooleanQuery::new(terms)))
             }
             Self::MoreLikeThis {
                 min_doc_frequency,

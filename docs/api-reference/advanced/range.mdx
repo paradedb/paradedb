@@ -1,0 +1,26 @@
+---
+title: Range
+---
+
+## Basic Usage
+
+Finds documents containing a term that falls within a specified range of values.
+
+```sql
+SELECT * FROM search_idx.search(
+  query => paradedb.range(
+    field => 'rating',
+    range => '[1,3)'::int4range
+  ),
+  stable_sort => true
+);
+```
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="range" required>
+  A postgres range specifying the range of values to match the field against.
+  Range types include `int4range`, `int8range`, `daterange`, `tsrange`, and
+  `tstzrange`.
+</ParamField>

@@ -36,18 +36,16 @@ LIMIT 3;
 ```
 </Accordion>
 
-Next, let's create a BM25 index called `search_idx` on this table. We'll index the
-`description` and `category` fields and configure the tokenizer on the `description` field.
+Next, let's create a BM25 index called `default_idx` on this table. We'll index the
+`description`, `category`, and `rating` fields.
 
 ```sql
 CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        schema_name => 'public',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) ||
-                       paradedb.field('category'),
-        numeric_fields => paradedb.field('rating')
+  index_name => 'default_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description') || paradedb.field('category'),
+  numeric_fields => paradedb.field('rating')
 );
 ```
 
@@ -62,7 +60,7 @@ or `category` matches `electronics`.
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search(
+FROM default_idx.search(
   '(description:keyboard OR category:electronics) AND rating:>2',
   limit_rows => 5
 );
@@ -86,7 +84,7 @@ Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal pe
 `limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
 
 Similarly, the `rating` column was indexed and the `rating:>2` filter was used instead of the SQL `WHERE` clause
-for [efficient filtering](/api-reference/full-text/bm25#efficient-filtering).
+for [efficient filtering](/api-reference/full-text/filtering).
 </Note>
 
 Next, let's see how ParadeDB handles a phrase query like `bluetooth speaker`. Let's also surface results even
@@ -94,7 +92,7 @@ if there is a word between `bluetooth` and `speaker`.
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search('description:"bluetooth speaker"~1');
+FROM default_idx.search('description:"bluetooth speaker"~1');
 ```
 
 <Accordion title="Expected Response">
@@ -107,41 +105,14 @@ FROM search_idx.search('description:"bluetooth speaker"~1');
 </Accordion>
 
 Note that phrases must be wrapped in double quotes. Also note our use of the `~1` slop operator,
-which tells ParadeDB to return matches even if they are separated by `1` word.
-
-Next, let's match against a partial word like `blue`. To
-do this, we'll create a new index that uses the `ngrams` tokenizer,
-which splits text into chunks of size `n`.
-
-```sql
-CALL paradedb.create_bm25(
-        index_name => 'ngrams_idx',
-        schema_name => 'public',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false)) ||
-                       paradedb.field('category')
-);
-
-SELECT description, rating, category
-FROM ngrams_idx.search('description:blue');
-```
-
-<Accordion title="Expected Response">
-``` csv
-        description        | rating |  category
----------------------------+--------+-------------
- Bluetooth-enabled speaker |      3 | Electronics
-(1 row)
-```
-</Accordion>
+which tells ParadeDB to return matches even if they are separated by one word.
 
 Finally, let's use the `snippet` function to examine the BM25 scores and generate
 highlighted snippets for our results.
 
 ```sql
-SELECT * FROM ngrams_idx.snippet(
-  'description:blue',
+SELECT * FROM default_idx.snippet(
+  'description:bluetooth',
   highlight_field => 'description'
 );
 ```
@@ -150,7 +121,7 @@ SELECT * FROM ngrams_idx.snippet(
 ``` csv
  id |             snippet              | score_bm25
 ----+----------------------------------+------------
- 32 | <b>Blue</b>tooth-enabled speaker |  2.9903657
+ 32 | <b>Bluetooth</b>-enabled speaker |  3.3322046
 (1 row)
 ```
 </Accordion>
@@ -160,8 +131,8 @@ next to the original data:
 
 ```sql
 WITH snippet AS (
-    SELECT * FROM ngrams_idx.snippet(
-      'description:blue',
+    SELECT * FROM default_idx.snippet(
+      'description:bluetooth',
       highlight_field => 'description'
     )
 )
@@ -174,13 +145,12 @@ LEFT JOIN mock_items ON snippet.id = mock_items.id;
 ``` csv
         description        |             snippet              | score_bm25
 ---------------------------+----------------------------------+------------
- Bluetooth-enabled speaker | <b>Blue</b>tooth-enabled speaker |  2.9903657
+ Bluetooth-enabled speaker | <b>Bluetooth</b>-enabled speaker |  3.3322046
 (1 row)
 ```
 </Accordion>
 
-Please refer to our [advanced search queries](/api-reference/full-text/complex) guide for all available
-query types.
+For more on full text search, refer to the [full text search API](/api-reference/full-text/overview) section.
 
 ## Similarity Search
 
@@ -250,7 +220,7 @@ The `score_hybrid` function accepts a BM25 query and a similarity query. It appl
 similarity scores and combines them using a weighted average.
 
 ```sql
-SELECT * FROM search_idx.score_hybrid(
+SELECT * FROM default_idx.score_hybrid(
     bm25_query => 'description:keyboard OR category:electronics',
     similarity_query => '''[1,2,3]'' <-> embedding',
     bm25_weight => 0.9,
@@ -277,7 +247,7 @@ Let's join this result with our `mock_items` table to see the full results of ou
 SELECT m.description, m.category, m.embedding, s.score_hybrid
 FROM mock_items m
 LEFT JOIN (
-    SELECT * FROM search_idx.score_hybrid(
+    SELECT * FROM default_idx.score_hybrid(
         bm25_query => 'description:keyboard OR category:electronics',
         similarity_query => '''[1,2,3]'' <-> embedding',
         bm25_weight => 0.9,

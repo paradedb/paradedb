@@ -92,8 +92,13 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
             // release before a possible panic.
             match writer_client.lock() {
                 Err(err) => {
-                    // This panic is fine, because the lock is broken anyways.
-                    panic!("could not lock client in abort callback: {err}");
+                    // This warning is all we can do because the lock is broken anyways.
+
+                    if cfg!(test) {
+                        panic!("could not lock client in abort callback: {err}")
+                    } else {
+                        pgrx::warning!("could not lock client in abort callback: {err}");
+                    }
                 }
                 Ok(mut client) => {
                     if let Err(err) = client.request(WriterRequest::Abort {
@@ -108,7 +113,14 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
         }
 
         if let Some(err) = error {
-            panic!("{err}")
+            // we're already in a transaction ABORT state and cannot panic again otherwise
+            // Postgres will PANIC, which crashes the whole cluster
+
+            if cfg!(test) {
+                panic!("{err}")
+            } else {
+                pgrx::warning!("{err}")
+            }
         }
     })?;
 

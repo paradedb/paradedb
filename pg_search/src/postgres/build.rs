@@ -24,7 +24,6 @@ use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
-use std::panic::{self, AssertUnwindSafe};
 use tantivy::schema::IndexRecordOption;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -250,7 +249,7 @@ fn do_heap_scan<'a>(
     uuid: String,
 ) -> BuildState {
     let mut state = BuildState::new(uuid);
-    let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+    unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),
@@ -258,7 +257,7 @@ fn do_heap_scan<'a>(
             Some(build_callback),
             &mut state,
         );
-    }));
+    }
     state
 }
 

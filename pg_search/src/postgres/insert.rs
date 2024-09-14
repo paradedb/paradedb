@@ -97,7 +97,7 @@ unsafe fn aminsert_internal(
 
     search_index
         .insert(&writer_client, search_document)
-        .unwrap_or_else(|err| panic!("error inserting document during insert callback: {err:?}"));
+        .unwrap_or_else(|err| panic!("error inserting document during insert callback.  See Postgres log for more information: {err:?}"));
 
     true
 }

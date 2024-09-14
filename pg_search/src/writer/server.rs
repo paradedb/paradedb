@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::{cell::RefCell, io::Cursor};
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 /// A generic server for receiving requests and transfers from a client.
 pub struct Server<'a, T, H>
@@ -122,11 +122,7 @@ where
                             // We also don't want the BackgroundWorker to terminate in this case --
                             // it needs to stay around for future requests
 
-                            if cfg!(test) {
-                                error!("error listening to transfer: {err}")
-                            } else {
-                                pgrx::warning!("error listening to transfer: {err}")
-                            }
+                            warn!("error listening to transfer: {err}")
                         }
                     }
                     ServerRequest::Request(req) => {

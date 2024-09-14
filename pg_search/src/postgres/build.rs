@@ -331,7 +331,7 @@ unsafe fn build_callback_internal(
             search_index
                 .insert(&writer_client, search_document)
                 .unwrap_or_else(|err| {
-                    panic!("error inserting document during build callback: {err:?}")
+                    panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
 
             register_commit_callback(&writer_client, search_index.directory.clone())

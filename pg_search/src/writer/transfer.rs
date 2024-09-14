@@ -26,7 +26,7 @@ use std::os::unix::prelude::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
-use tracing::error;
+use tracing::warn;
 
 #[derive(Deserialize, Serialize)]
 pub enum WriterTransferMessage<T: Serialize> {
@@ -145,18 +145,10 @@ impl<T: Serialize> Drop for WriterTransferProducer<T> {
         //
         // If things go wrong, the best we can do is WARN the user about it
         if let Err(err) = self.write_done_message() {
-            if cfg!(test) {
-                error!("error sending writer transfer done message: {err:?}")
-            } else {
-                pgrx::warning!("error sending writer transfer done message: {err:?}")
-            }
+            warn!("error sending writer transfer done message: {err:?}")
         };
         if let Err(err) = std::fs::remove_file(&pipe_path) {
-            if cfg!(test) {
-                error!("error removing named pipe path {pipe_path:?}: {err:?}");
-            } else {
-                pgrx::warning!("error removing named pipe path {pipe_path:?}: {err:?}");
-            }
+            warn!("error removing named pipe path {pipe_path:?}: {err:?}");
         }
     }
 }

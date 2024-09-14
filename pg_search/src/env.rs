@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
 use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
 use shared::postgres::transaction::{Transaction, TransactionError};
@@ -23,8 +24,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-
-use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
+use tracing::warn;
 
 /// We use this global variable to cache any values that can be re-used
 /// after initialization.
@@ -94,11 +94,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
                 Err(err) => {
                     // This warning is all we can do because the lock is broken anyways.
 
-                    if cfg!(test) {
-                        panic!("could not lock client in abort callback: {err}")
-                    } else {
-                        pgrx::warning!("could not lock client in abort callback: {err}");
-                    }
+                    warn!("could not lock client in abort callback: {err}")
                 }
                 Ok(mut client) => {
                     if let Err(err) = client.request(WriterRequest::Abort {
@@ -116,11 +112,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
             // we're already in a transaction ABORT state and cannot panic again otherwise
             // Postgres will PANIC, which crashes the whole cluster
 
-            if cfg!(test) {
-                panic!("{err}")
-            } else {
-                pgrx::warning!("{err}")
-            }
+            warn!("{err}")
         }
     })?;
 

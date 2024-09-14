@@ -45,7 +45,7 @@ WORKDIR /tmp
 COPY pg_search/Cargo.toml ./
 
 # Intall the pgrx version of pg_search and pg_analytics
-RUN PGRX_VERSION=$(sed -n 's/^pgrx = "=?\([0-9.]*\)"/\1/p' Cargo.toml) && \
+RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
@@ -129,7 +129,7 @@ RUN git clone --branch 0.3.0 https://github.com/timescale/pgvectorscale.git
 WORKDIR /tmp/pgvectorscale/pgvectorscale
 
 # Intall the pgrx version of pgvectorscale
-RUN PGRX_VERSION=$(sed -n 's/^pgrx = "=?\([0-9.]*\)"/\1/p' Cargo.toml) && \
+RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"

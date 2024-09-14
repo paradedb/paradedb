@@ -52,7 +52,7 @@ pub extern "C" fn ambulkdelete(
     if let Some(actual_callback) = callback {
         let should_delete = |ctid_val| unsafe {
             let mut ctid = ItemPointerData::default();
-            pgrx::itemptr::u64_to_item_pointer(ctid_val, &mut ctid);
+            crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
             actual_callback(&mut ctid, callback_state)
         };
         match search_index.delete(&writer_client, should_delete) {

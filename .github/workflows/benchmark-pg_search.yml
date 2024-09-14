@@ -52,10 +52,14 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
+      - name: Extract pgrx version
+        working-directory: pg_search/
+        run: echo "PGRX_VERSION=$(grep '^pgrx = ' Cargo.toml | sed -E 's/pgrx = "(.*)"/\1/')" >> $GITHUB_ENV
+
       - name: Install pgrx & pg_search
         working-directory: pg_search/
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version 0.12.4
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}
           cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 

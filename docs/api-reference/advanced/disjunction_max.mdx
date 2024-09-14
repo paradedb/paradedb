@@ -1,0 +1,23 @@
+---
+title: Disjunction Max
+---
+
+## Basic Usage
+
+Returns documents that match one or more of the specified subqueries. If a document matches multiple criteria, it receives the highest score from those matches, with a slight increase for any additional matches.
+
+```sql
+SELECT * FROM search_idx.search(
+	query => paradedb.disjunction_max(
+		disjuncts => ARRAY[paradedb.parse('description:shoes')]
+	)
+);
+```
+
+<ParamField body="disjuncts" required>
+  Query objects to match against.
+</ParamField>
+<ParamField body="tie_breaker">
+  A tie breaking increment for matching subqueries. Should be a float, i.e.
+  `0.7`.
+</ParamField>

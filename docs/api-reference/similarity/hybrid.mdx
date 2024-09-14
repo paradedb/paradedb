@@ -1,17 +1,11 @@
 ---
-title: Basic Hybrid Search
+title: Hybrid Search
 ---
-
-<Note>
-  **Prerequisite** Before performing full text search over a table, please
-  ensure that you have created both BM25 and HNSW indexes.
-</Note>
 
 ## Overview
 
 Hybrid search, which combines BM25-based full text scores with vector-based
-similarity scores, is especially useful in scenarios where you want to match by both
-exact keywords and semantic meaning.
+similarity scores, is especially useful in scenarios where you want to match by keywords and semantic meaning.
 
 ## Basic Usage
 
@@ -73,9 +67,9 @@ SELECT * FROM search_idx.score_hybrid(
   The maximum number of rows that are considered for ranking using similarity search.
 </ParamField>
 
-## With Advanced Search
+## With Query Builder
 
-[Advanced search functions](/api-reference/full-text/complex) can be passed directly into `bm25_query`:
+[Query builder](/api-reference/advanced) functions can be passed directly into `bm25_query`:
 
 ```sql
 SELECT * FROM search_idx.score_hybrid(

@@ -2,8 +2,52 @@
 title: Overview
 ---
 
-Full text search is a technique that finds entries in a collection of text based on the presence of keywords, phrases, or partial words.
+<Note>
+  **Prerequisite** Before performing full text search over a table, it must
+  first be [indexed](/api-reference/indexing/create_index).
+</Note>
 
-The algorithm used by ParadeDB's full text search is BM25, which stands for Best Matching 25.
-It ranks documents by considering how often a term appears and how unique that term is across all
-documents.
+## Basic Usage
+
+Every BM25 index comes with a `search` function, which returns rows of a table that match a search query. By default, rows are sorted by relevance.
+
+```sql
+SELECT * FROM search_idx.search('<query>');
+```
+
+## Query Language
+
+The query string accepts a mini query language which can be used to construct expressive queries.
+
+Each query must specify which field to search over. In the following example, we are querying for
+`keyboard` against the `description` field.
+
+```sql
+SELECT * FROM search_idx.search('description:keyboard');
+```
+
+## Search Options
+
+`search` accepts additional arguments for [pagination](/api-reference/full-text/pagination) and [sorting](/api-reference/full-text/sorting).
+
+```sql
+SELECT * FROM search_idx.search('description:keyboard', limit_rows => 10);
+```
+
+<ParamField body="limit_rows">
+  The maximum number of rows to return. Defaults to the number of documents in
+  the index. Providing a `limit_rows` can significantly improve query times.
+</ParamField>
+<ParamField body="offset_rows" default={0}>
+  The offset of the result set.
+</ParamField>
+<ParamField body="stable_sort" default={false}>
+  If set to `true`, equally-scored results will be sorted by `key_field`.
+</ParamField>
+<ParamField body="order_by_field">
+  If provided, results will be ordered by this field instead of by relevance.
+</ParamField>
+<ParamField body="order_by_direction" default={"asc"}>
+  Configures whether `order_by_field` orders in ascending or descending order.
+  Ascending is `asc`, descending is `desc`.
+</ParamField>

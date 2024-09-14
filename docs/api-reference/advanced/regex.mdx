@@ -1,0 +1,23 @@
+---
+title: Regex
+---
+
+## Basic Usage
+
+Finds documents containing terms that match a specific regex pattern, enabling pattern-based searching.
+
+```sql
+SELECT * FROM search_idx.search(
+	query => paradedb.regex(
+		field => 'description',
+		pattern => '(hardcover|plush|leather|running|wireless)'
+	)
+);
+```
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="pattern" required>
+  A regex pattern string.
+</ParamField>

@@ -2,7 +2,9 @@
 title: pg_search
 ---
 
-This guide explains how to install the `pg_search` extension inside an existing PostgreSQL database. These
+The `pg_search` extension powers all of ParadeDB's full text search capabilities.
+
+This guide explains how to install `pg_search` inside an existing PostgreSQL database. These
 instructions are for deploying on Linux Debian/Ubuntu. If you are using a different version of Linux, please
 [contact us](mailto:sales@paradedb.com).
 
@@ -90,7 +92,7 @@ Once the extension binary is installed on your system, connect to your Postgres 
 CREATE EXTENSION pg_search;
 ```
 
-That's it! You're all set to use `pg_search` in your database. To get started, we suggest you follow the [quickstart guide](/api-reference/quickstart).
+That's it! You're all set to use `pg_search` in your database. To get started, we suggest you follow the [quickstart guide](/welcome/quickstart).
 
 <Note>
   `pg_search` can be combined with `pgvector` for hybrid search. You can find

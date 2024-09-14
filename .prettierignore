@@ -8,12 +8,13 @@
 **/*.txt
 **/*.zip
 /docker/.docker_cache_dev/
-/docs/api-reference/quickstart.mdx
-/docs/api-reference/full-text/autocomplete.mdx
+/docs/welcome/quickstart.mdx
 /docs/api-reference/full-text/fuzzy.mdx
 /docs/api-reference/full-text/scoring.mdx
 /docs/api-reference/full-text/highlighting.mdx
 /docs/api-reference/full-text/joins.mdx
+/docs/api-reference/indexing/create_index.mdx
 /docs/api-reference/aggregations.mdx
+/docs/api-reference/autocomplete.mdx
 /docs/ingest/quickstart.mdx
 /pg_search/benchmarks/out/

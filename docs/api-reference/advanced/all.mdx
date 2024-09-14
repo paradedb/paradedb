@@ -1,0 +1,13 @@
+---
+title: All
+---
+
+## Basic Usage
+
+`all` indiscriminately matches every document in the index, assigning a uniform score of `1.0` to each.
+
+```sql
+SELECT * FROM search_idx.search(
+    query => paradedb.all()
+);
+```

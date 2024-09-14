@@ -7,6 +7,17 @@ title: JOINs with Text Search
   creating the necessary example data
 </Note>
 
+Combining text search with JOIN operations unlocks powerful querying capabilities in relational databases, even for
+routine tasks like joining products with their orders. This integration allows you to perform sophisticated searches
+across related tables, leveraging full-text search to query complex text fields such as product descriptions or metadata.
+
+By doing so, you can efficiently answer nuanced business questions—like identifying how many "shoes" were sold, checking
+if a specific customer purchased a "keyboard," or finding unsold items matching certain attributes—all within the familiar
+framework of SQL.
+
+By integrating text search with JOINs, you can create more expressive and flexible queries that tap into both structured
+and unstructured data, enhancing your ability to analyze information effectively.
+
 To demonstrate joins with text search, we need more data. This table represents orders with a foreign key back to the
 `id` column of `paradedb.bm25_search` (which represents products). We also populate this table with some data:
 
@@ -121,7 +132,7 @@ RIGHT JOIN paradedb.bm25_search products ON orders.product_id = products.id
 
 ## Summary
 
-The above are simple fabricated examples of how to combine more sophisticated text search queries with JOINs using the
-common concept of products and orders.
+The above are simple fabricated examples of how to combine text search queries with JOINs using the common concept of
+products and orders.
 
-While real world data and queries will be different, ParadeDB is able to adapt to varying and complex query plans.
+While real world data and queries will be different, ParadeDB is able to adapt to varying and complex queries.

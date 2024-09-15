@@ -6,7 +6,8 @@ In user-facing search, autocomplete refers to the process of suggesting relevant
 Several of ParadeDB's search APIs can be mixed and matched to build a full-fledged autocomplete experience.
 
 <Note>
-This guide uses the [`mock_items` table](/api-reference/introduction#get-started).
+  This guide uses the [`mock_items`
+  table](/api-reference/introduction#get-started).
 </Note>
 
 ## Fuzzy Term
@@ -24,14 +25,9 @@ FROM search_idx.search(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
- Generic shoes       |      4 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
 </Accordion>
 
 ## Fuzzy Phrase
@@ -51,14 +47,9 @@ FROM search_idx.search(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
- Generic shoes       |      4 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
 </Accordion>
 
 For a stricter result set, `fuzzy_phrase` can be configured to match documents if **all** query tokens match.
@@ -75,12 +66,9 @@ FROM search_idx.search(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
-(1 row)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  (1 row) ```
 </Accordion>
 
 ## Multiple Fuzzy Fields
@@ -100,14 +88,9 @@ FROM search_idx.search(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
- Generic shoes       |      4 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
 </Accordion>
 
 ## Ngram Term
@@ -138,14 +121,9 @@ FROM ngrams_idx.search('description:sho');
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
- Generic shoes       |      4 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
 </Accordion>
 
 ## Ngram Term Set
@@ -168,14 +146,9 @@ FROM ngrams_idx.search(
 ```
 
 <Accordion title="Expected Response">
-```csv
-     description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
- Generic shoes       |      4 | Footwear
-(3 rows)
-```
+  ```csv description | rating | category
+  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
+  White jogging shoes | 3 | Footwear Generic shoes | 4 | Footwear (3 rows) ```
 </Accordion>
 
 ## Further Customization

@@ -1,0 +1,19 @@
+---
+title: Types of Search
+---
+
+## Full Text Search
+
+Full text search is a technique that finds entries in a collection of text based on the presence of specific keywords and phrases.
+For instance, consider a movie review site that lets users search for movies. Movie titles would benefit from full text search, since users are
+likely looking for exact keywords like `Harry` and `Potter`.
+
+## Similarity Search
+
+Similarity search, on the other hand, matches documents based on semantic meaning. In the movie review site example, movie descriptions may benefit from similarity search.
+Users that query for `the boy who lived` may be looking for `Harry Potter` even though these phrases share no common keywords.
+
+## Hybrid Search
+
+Many modern applications use a combination of full text and similarity search. This process is called [hybrid search](/api-reference/similarity/hybrid).
+Typical hybrid search techniques involve calculating separate full text and similarity scores for the result set and combining the scores into a hybrid score.

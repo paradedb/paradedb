@@ -38,7 +38,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-# Copy Cargo.toml file
+# Copy Cargo.toml because we need to extract the pgrx version
 WORKDIR /tmp
 COPY pg_search/Cargo.toml ./
 
@@ -127,7 +127,7 @@ RUN git clone --branch 0.3.0 https://github.com/timescale/pgvectorscale.git
 WORKDIR /tmp/pgvectorscale/pgvectorscale
 
 # Intall the pgrx version of pgvectorscale
-RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
+RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pgvectorscale | head -n 1 | cut -f2 -dv) && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"

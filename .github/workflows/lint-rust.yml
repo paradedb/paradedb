@@ -38,7 +38,7 @@ jobs:
 
       - name: Extract pgrx version
         working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(grep '^pgrx = ' Cargo.toml | sed -E 's/pgrx = "(.*)"/\1/')" >> $GITHUB_ENV
+        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv )" >> $GITHUB_ENV
 
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}

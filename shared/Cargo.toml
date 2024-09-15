@@ -9,6 +9,7 @@ license = "AGPL-3.0"
 fixtures = ["async-std", "rstest", "soa_derive", "sqlx", "bigdecimal"]
 
 [dependencies]
+parking_lot = "0.12.3"
 pgrx = "0.12.4"
 reqwest = { version = "0.11.27", features = ["blocking"] }
 serde = "1.0.210"

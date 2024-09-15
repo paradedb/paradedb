@@ -21,9 +21,10 @@ use crate::postgres::utils::VisibilityChecker;
 use crate::schema::SearchConfig;
 use crate::writer::{Client, WriterDirectory, WriterRequest};
 use crate::{globals::WriterGlobal, index::SearchIndex};
+use parking_lot::Mutex;
 use pgrx::pg_sys::FunctionCallInfo;
 use pgrx::{prelude::TableIterator, *};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tantivy::TantivyDocument;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";

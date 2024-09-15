@@ -46,8 +46,7 @@ pub extern "C" fn ambulkdelete(
     }
 
     let writer_client = WriterGlobal::client();
-    register_commit_callback(&writer_client, search_index.directory.clone())
-        .expect("could not register commit callbacks for delete operation");
+    register_commit_callback(&writer_client, search_index.directory.clone());
 
     if let Some(actual_callback) = callback {
         let should_delete = |ctid_val| unsafe {

@@ -5222,7 +5222,6 @@ dependencies = [
  "soa_derive",
  "sqlx",
  "tempfile",
- "thiserror",
  "time",
  "tracing",
  "tracing-subscriber",

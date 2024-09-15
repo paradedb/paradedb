@@ -30,7 +30,6 @@ sqlx = { version = "0.7.4", features = [
 ], optional = true }
 bigdecimal = { version = "0.3.1", features = ["serde"], optional = true }
 bytes = "1.7.1"
-thiserror = "1.0.63"
 once_cell = "1.19.0"
 url = "2.5.2"
 walkdir = "2.5.0"

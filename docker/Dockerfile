@@ -121,6 +121,8 @@ FROM builder AS builder-pgvectorscale
 
 ARG TARGETARCH
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
 # Clone the pgvectorscale repository
 WORKDIR /tmp
 RUN git clone --branch 0.3.0 https://github.com/timescale/pgvectorscale.git

@@ -275,6 +275,7 @@ impl SearchIndex {
         writer: &Arc<Mutex<W>>,
         document: SearchDocument,
     ) -> Result<(), SearchIndexError> {
+        // the index is about to change, and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
         // Send the insert requests to the writer server.
@@ -297,6 +298,7 @@ impl SearchIndex {
         writer: &Arc<Mutex<W>>,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
+        // the index is about to change, and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
         let mut deleted: u32 = 0;

@@ -17,10 +17,7 @@
 
 use pgrx::{pg_sys::ItemPointerData, *};
 
-use crate::{
-    env::register_commit_callback, globals::WriterGlobal, index::SearchIndex,
-    writer::WriterDirectory,
-};
+use crate::{globals::WriterGlobal, index::SearchIndex, writer::WriterDirectory};
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -46,7 +43,6 @@ pub extern "C" fn ambulkdelete(
     }
 
     let writer_client = WriterGlobal::client();
-    register_commit_callback(&writer_client, search_index.directory.clone());
 
     if let Some(actual_callback) = callback {
         let should_delete = |ctid_val| unsafe {

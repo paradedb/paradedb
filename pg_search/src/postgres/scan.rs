@@ -21,7 +21,7 @@ use crate::index::SearchIndex;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::{env::needs_commit, writer::WriterDirectory};
+use crate::writer::WriterDirectory;
 use pgrx::itemptr::u64_to_item_pointer;
 use pgrx::*;
 
@@ -120,7 +120,7 @@ pub extern "C" fn amrescan(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(&writer_client, &search_config, needs_commit(index_oid))
+        .search_state(&writer_client, &search_config)
         .expect("SearchState should construct cleanly");
 
     // Save the iterator onto the current memory context.

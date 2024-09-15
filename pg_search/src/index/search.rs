@@ -15,18 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::Result;
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
-use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tantivy::{query::QueryParser, Executor, Index, Searcher};
-use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
-use thiserror::Error;
-use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
-use tracing::trace;
-
 use super::state::SearchState;
 use crate::schema::{
     SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
@@ -36,10 +24,24 @@ use crate::writer::{
     self, SearchDirectoryError, SearchFs, TantivyDirPath, WriterClient, WriterDirectory,
     WriterRequest, WriterTransferPipeFilePath,
 };
+use anyhow::Result;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashMap;
+use std::ptr::addr_of_mut;
+use std::sync::Arc;
+use tantivy::{query::QueryParser, Executor, Index, Searcher};
+use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
+use thiserror::Error;
+use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
+use tracing::trace;
 
 // Must be at least 15,000,000 or Tantivy will panic.
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
+
+pub type SearchIndexCacheType = Lazy<HashMap<WriterDirectory, SearchIndex>>;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -56,8 +58,7 @@ const CACHE_NUM_BLOCKS: usize = 10;
 /// It's also crucial to remember that this cache is NOT shared across different backend
 /// processes. Each PostgreSQL backend process will have its own separate instance of
 /// this cache, tied to its own lifecycle.
-pub static mut SEARCH_INDEX_MEMORY: Lazy<HashMap<WriterDirectory, SearchIndex>> =
-    Lazy::new(HashMap::new);
+static mut SEARCH_INDEX_MEMORY: SearchIndexCacheType = Lazy::new(HashMap::new);
 
 pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
     let num_threads = num_cpus::get();
@@ -73,6 +74,7 @@ pub struct SearchIndex {
     #[serde(skip_serializing)]
     pub underlying_index: Index,
     pub uuid: String,
+    pub is_dirty: bool,
 }
 
 impl SearchIndex {
@@ -134,6 +136,17 @@ impl SearchIndex {
         SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
     }
 
+    /// # Safety
+    ///
+    /// This function is unsafe as it returns a mutable reference to a mutable static global.  It is your
+    /// responsibility to ensure, at the time of calling this function, there are no other outstanding
+    /// references to the returned static global.
+    pub unsafe fn get_cache() -> &'static mut SearchIndexCacheType {
+        addr_of_mut!(SEARCH_INDEX_MEMORY)
+            .as_mut()
+            .expect("global SEARCH_INDEX_MEMORY must not be null")
+    }
+
     pub fn from_disk<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
         let mut new_self: Self = directory.load_index()?;
         let uuid = new_self.uuid.clone();
@@ -173,6 +186,11 @@ impl SearchIndex {
         Ok(())
     }
 
+    /// If this [`SearchIndex]` instance has changes in need of commit *or* abort, return true
+    pub fn is_dirty(&self) -> bool {
+        self.is_dirty
+    }
+
     /// Returns the index size, in bytes, according to tantivy
     pub fn byte_size(&self) -> Result<u64> {
         Ok(self
@@ -193,17 +211,14 @@ impl SearchIndex {
         )
     }
 
-    pub fn search_state<W: WriterClient<WriterRequest>>(
-        &self,
+    pub fn search_state<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
+        &mut self,
         writer: &Arc<Mutex<W>>,
         config: &SearchConfig,
-        needs_commit: bool,
     ) -> Result<SearchState, SearchIndexError> {
         // Commit any inserts or deletes that have occurred during this transaction.
-        if needs_commit {
-            writer.lock().request(WriterRequest::Commit {
-                directory: self.directory.clone(),
-            })?
+        if self.is_dirty {
+            self.commit(writer)?;
         }
 
         // Prepare to perform a search.
@@ -229,11 +244,45 @@ impl SearchIndex {
         Ok(index_writer)
     }
 
+    pub fn commit<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
+        &mut self,
+        writer: &Arc<Mutex<W>>,
+    ) -> Result<(), SearchIndexError> {
+        assert!(
+            self.is_dirty(),
+            "Cannot commit a SearchIndex without an open writer"
+        );
+
+        self.is_dirty = false;
+        writer.lock().request(WriterRequest::Commit {
+            directory: self.directory.clone(),
+        })?;
+        Ok(())
+    }
+
+    pub fn abort<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
+        &mut self,
+        writer: &Arc<Mutex<W>>,
+    ) -> Result<(), SearchIndexError> {
+        assert!(
+            self.is_dirty(),
+            "Cannot abort a SearchIndex without an open writer"
+        );
+
+        self.is_dirty = false;
+        writer.lock().request(WriterRequest::Abort {
+            directory: self.directory.clone(),
+        })?;
+        Ok(())
+    }
+
     pub fn insert<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
         writer: &Arc<Mutex<W>>,
         document: SearchDocument,
     ) -> Result<(), SearchIndexError> {
+        crate::postgres::transaction::init();
+
         // Send the insert requests to the writer server.
         let request = WriterRequest::Insert {
             directory: self.directory.clone(),
@@ -244,6 +293,7 @@ impl SearchIndex {
             self.directory.writer_transfer_pipe_path(true)?;
 
         writer.lock().transfer(pipe_path, request)?;
+        self.is_dirty = true;
 
         Ok(())
     }
@@ -253,6 +303,8 @@ impl SearchIndex {
         writer: &Arc<Mutex<W>>,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
+        crate::postgres::transaction::init();
+
         let mut deleted: u32 = 0;
         let mut not_deleted: u32 = 0;
         let mut ctids_to_delete: Vec<u64> = vec![];
@@ -285,6 +337,7 @@ impl SearchIndex {
             directory: self.directory.clone(),
         };
         writer.lock().request(request)?;
+        self.is_dirty = true;
 
         Ok((deleted, not_deleted))
     }
@@ -360,6 +413,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             directory,
             schema,
             uuid,
+            is_dirty: false,
         })
     }
 }

@@ -137,6 +137,7 @@ impl Writer {
             directory: directory.clone(),
             schema,
             uuid,
+            is_dirty: false,
         };
 
         // Serialize SearchIndex to disk so it can be initialized by other connections.

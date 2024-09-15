@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::env::needs_commit;
 use crate::index::state::SearchState;
 use crate::postgres::utils::VisibilityChecker;
 use crate::schema::SearchConfig;
@@ -219,11 +218,7 @@ unsafe fn create_and_leak_scan_state(
     // Leaking the scan state allows us to avoid a `.collect::<Vec<_>>()` on the search results
     // of `top_docs` down below
     let scan_state = search_index
-        .search_state(
-            writer_client,
-            search_config,
-            needs_commit(search_config.index_oid),
-        )
+        .search_state(writer_client, search_config)
         .expect("could not get scan state");
 
     unsafe {

@@ -334,8 +334,7 @@ unsafe fn build_callback_internal(
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
 
-            register_commit_callback(&writer_client, search_index.directory.clone())
-                .expect("could not register commit callbacks for build operation");
+            register_commit_callback(&writer_client, search_index.directory.clone());
         });
         state.memctx.reset();
 

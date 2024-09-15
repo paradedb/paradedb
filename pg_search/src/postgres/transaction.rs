@@ -26,7 +26,7 @@ use tracing::warn;
 /// This callback must be initialized **once per backend connection**, rather than once when
 /// `pg_search.so` is loaded.  As such calling this function from `_PG_init()` does not work.
 #[inline(always)]
-pub fn init() {
+pub fn register_callback() {
     static mut INITIALIZED: bool = false;
     unsafe {
         if !INITIALIZED {

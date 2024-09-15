@@ -281,7 +281,7 @@ impl SearchIndex {
         writer: &Arc<Mutex<W>>,
         document: SearchDocument,
     ) -> Result<(), SearchIndexError> {
-        crate::postgres::transaction::init();
+        crate::postgres::transaction::register_callback();
 
         // Send the insert requests to the writer server.
         let request = WriterRequest::Insert {
@@ -303,7 +303,7 @@ impl SearchIndex {
         writer: &Arc<Mutex<W>>,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
-        crate::postgres::transaction::init();
+        crate::postgres::transaction::register_callback();
 
         let mut deleted: u32 = 0;
         let mut not_deleted: u32 = 0;

@@ -1,18 +1,14 @@
 ---
-title: Indexing Explained
+title: Overview
 ---
 
-## What is an Index?
+## BM25 Index
 
-In Postgres, indexes are database objects that provide a fast way to look up rows in a table. If you
-imagine a Postgres table as a book, then an index is like the table of contents. Instead of flipping
-through every page to find a chapter, the table of contents stores additional information that can help
-readers find chapters faster.
+The BM25 index enables ParadeDB to perform full text search over a Postgres table. When ParadeDB indexes data, it breaks down text into smaller chunks called tokens, which are then stored in the
+BM25 index.
 
-## ParadeDB Indexes
+This index is strongly consistent, which means that new data is immediately searchable across all connections. Once an index is created, it automatically stays in sync with the underlying table as the data changes.
 
-ParadeDB relies on three new index types to power its search capabilities: the BM25 index for full text search,
-the HNSW index for dense vector search, and the sparse HNSW index for sparse vector search.
+## What is BM25?
 
-Once an index is created, it will automatically stay in sync with the underlying table data, and
-does not need to be re-created unless the table schema changes (for instance, if a column is renamed or deleted).
+Full text search is a technique that finds all relevant entries in a collection of documents based on the presence of keywords and phrases. The algorithm used by ParadeDB’s full text search, BM25, is widely used by modern search engines.

@@ -1,0 +1,59 @@
+---
+title: Term Search
+---
+
+## Basic Usage
+
+Terms must be prefixed by the field name.
+
+```sql
+SELECT * FROM search_idx.search('description:keyboard');
+```
+
+At search time, the query `keyboard` is automatically tokenized in the same way that the `description` field is tokenized.
+
+## Multiple Terms
+
+Multiple terms can be wrapped inside parentheses.
+
+```sql
+SELECT * FROM search_idx.search('description:(shoes keyboard)');
+```
+
+This query matches all documents that contain `shoes`, `keyboard`, or both.
+
+## Negative Term
+
+By prepending a term with `-`, a term can be excluded from the search.
+
+```sql
+SELECT * FROM search_idx.search('description:(shoes -running)');
+```
+
+## Must Term
+
+By prepending a term with `+`, a term can be made required for search.
+
+```sql
+SELECT * FROM search_idx.search('description:(shoes +running)');
+```
+
+## Boolean Operators
+
+`AND`, `OR`, and `NOT` can be used to combine and filter multiple terms.
+
+```sql
+SELECT * FROM search_idx.search('description:keyboard OR category:toy');
+```
+
+Use parentheses to group terms and control the order of operations.
+
+```sql
+SELECT * FROM search_idx.search(
+  '(description:keyboard OR category:toy) AND description:metal'
+);
+```
+
+## Special Characters
+
+The special characters `+` , `^`, ```, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `~`, `!`, `\\`, `\*`, and `SPACE` must be escaped by a`\` inside the query term.

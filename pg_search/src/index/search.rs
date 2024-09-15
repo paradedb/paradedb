@@ -248,10 +248,7 @@ impl SearchIndex {
         &mut self,
         writer: &Arc<Mutex<W>>,
     ) -> Result<(), SearchIndexError> {
-        assert!(
-            self.is_dirty(),
-            "Cannot commit a SearchIndex without an open writer"
-        );
+        assert!(self.is_dirty(), "SearchIndex is not dirty");
 
         self.is_dirty = false;
         writer.lock().request(WriterRequest::Commit {
@@ -264,10 +261,7 @@ impl SearchIndex {
         &mut self,
         writer: &Arc<Mutex<W>>,
     ) -> Result<(), SearchIndexError> {
-        assert!(
-            self.is_dirty(),
-            "Cannot abort a SearchIndex without an open writer"
-        );
+        assert!(self.is_dirty(), "SearchIndex is not dirty");
 
         self.is_dirty = false;
         writer.lock().request(WriterRequest::Abort {

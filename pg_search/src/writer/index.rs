@@ -151,6 +151,8 @@ impl Writer {
             schema,
             uuid,
             is_dirty: false,
+            is_pending_drop: false,
+            is_pending_create: true,
         };
 
         // Serialize SearchIndex to disk so it can be initialized by other connections.

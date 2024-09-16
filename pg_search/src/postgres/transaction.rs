@@ -17,7 +17,10 @@
 
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
+use crate::writer::{ClientError, WriterClient, WriterDirectory, WriterRequest};
+use parking_lot::Mutex;
 use pgrx::{pg_guard, pg_sys};
+use std::sync::Arc;
 use tracing::warn;
 
 /// Initialize a transaction callback that pg_search uses to commit or abort pending tantivy
@@ -48,32 +51,82 @@ unsafe extern "C" fn pg_search_xact_callback(
     match event {
         pg_sys::XactEvent::XACT_EVENT_PRE_COMMIT => {
             let writer = WriterGlobal::client();
-            let cache = unsafe {
-                // SAFETY:  Postgres being single-threaded means we're the only place
-                // trying to access the cache
-                SearchIndex::get_cache()
-            };
-            for search_index in cache.values_mut().filter(|index| index.is_dirty()) {
+            // first, indexes in our cache that are pending a DROP need to be dropped
+            let pending_drops = SearchIndex::get_cache()
+                .values_mut()
+                .filter(|index| index.is_pending_drop())
+                .map(|index| index.directory.clone())
+                .collect::<Vec<_>>();
+
+            for directory in pending_drops {
+                finalize_drop(&writer, &directory)
+                    .expect("finalizing dropping of pending DROP index should succeed");
+
+                // SAFETY:  We don't have an outstanding reference to the SearchIndex cache here
+                // because we collected the pending drop directories into an owned Vec
+                SearchIndex::drop_from_cache(&directory)
+            }
+
+            // next, we can commit any of the other dirty indexes
+            for search_index in SearchIndex::get_cache()
+                .values_mut()
+                .filter(|index| index.is_dirty())
+            {
                 // if this doesn't commit, the transaction will ABORT
                 search_index
                     .commit(&writer)
                     .expect("SearchIndex should commit successfully");
             }
+
+            // finally, any indexes that are marked as pending create are now created because the
+            // transaction is committed
+            for search_index in SearchIndex::get_cache()
+                .values_mut()
+                .filter(|index| index.is_pending_create())
+            {
+                search_index.is_pending_create = false;
+            }
         }
 
         pg_sys::XactEvent::XACT_EVENT_ABORT => {
             let writer = WriterGlobal::client();
-            let cache = unsafe {
-                // SAFETY:  Postgres being single-threaded means we're the only place
-                // trying to access the cache
-                SearchIndex::get_cache()
-            };
-            for search_index in cache.values_mut().filter(|index| index.is_dirty()) {
+
+            // first, indexes in our cache that are pending a CREATE need to be dropped
+            let pending_creates = SearchIndex::get_cache()
+                .values_mut()
+                .filter(|index| index.is_pending_create())
+                .map(|index| index.directory.clone())
+                .collect::<Vec<_>>();
+
+            for directory in pending_creates {
+                if let Err(e) = finalize_drop(&writer, &directory) {
+                    warn!("could not finalize dropping a pending CREATE index: {e}");
+                }
+
+                // SAFETY:  We don't have an outstanding reference to the SearchIndex cache here
+                // because we collected the pending create directories into an owned Vec
+                SearchIndex::drop_from_cache(&directory)
+            }
+
+            // next, we can abort any of the other dirty indexes
+            for search_index in SearchIndex::get_cache()
+                .values_mut()
+                .filter(|index| index.is_dirty())
+            {
                 if let Err(e) = search_index.abort(&writer) {
                     // the abort didn't work, but we can't raise another panic here as that'll
                     // cause postgres to segfault
-                    warn!("could not abort SearchIndex: {}", e)
+                    warn!("could not abort SearchIndex: {e}")
                 }
+            }
+
+            // finally, any index that was pending drop is no longer to be dropped because the
+            // transaction has aborted
+            for search_index in SearchIndex::get_cache()
+                .values_mut()
+                .filter(|index| index.is_pending_drop())
+            {
+                search_index.is_pending_drop = false;
             }
         }
 
@@ -81,4 +134,21 @@ unsafe extern "C" fn pg_search_xact_callback(
             // not an event we care about
         }
     }
+}
+
+fn finalize_drop<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
+    writer: &Arc<Mutex<W>>,
+    directory: &WriterDirectory,
+) -> Result<(), ClientError> {
+    // ask the remote side to drop the index
+    writer.lock().request(WriterRequest::DropIndex {
+        directory: directory.clone(),
+    })?;
+
+    // then tell it to do it now
+    writer.lock().request(WriterRequest::Commit {
+        directory: directory.clone(),
+    })?;
+
+    Ok(())
 }

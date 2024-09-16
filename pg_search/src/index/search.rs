@@ -75,6 +75,8 @@ pub struct SearchIndex {
     pub underlying_index: Index,
     pub uuid: String,
     pub is_dirty: bool,
+    pub is_pending_create: bool,
+    pub is_pending_drop: bool,
 }
 
 impl SearchIndex {
@@ -96,6 +98,9 @@ impl SearchIndex {
         // to load it from disk to use it.
         let new_self_ref = Self::from_disk(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+
+        // flag for later if the creating transaction is aborted
+        new_self_ref.is_pending_create = true;
 
         Ok(new_self_ref)
     }
@@ -181,14 +186,29 @@ impl SearchIndex {
         Self::from_disk(directory)
     }
 
-    unsafe fn drop_from_cache(directory: &WriterDirectory) -> Result<()> {
+    /// Remove the specified `directory` from the internal cache
+    ///
+    /// # Safety
+    ///
+    /// It is the caller's responsibility to ensure they don't have an outstanding mutable reference
+    /// to the internal cache object
+    pub unsafe fn drop_from_cache(directory: &WriterDirectory) {
         SEARCH_INDEX_MEMORY.remove(directory);
-        Ok(())
     }
 
     /// If this [`SearchIndex]` instance has changes in need of commit *or* abort, return true
     pub fn is_dirty(&self) -> bool {
         self.is_dirty
+    }
+
+    /// If this [`SearchIndex`] is newly created, return true
+    pub fn is_pending_create(&self) -> bool {
+        self.is_pending_create
+    }
+
+    /// If this [`SearchIndex`] has been dropped, return true
+    pub fn is_pending_drop(&self) -> bool {
+        self.is_pending_drop
     }
 
     /// Returns the index size, in bytes, according to tantivy
@@ -382,18 +402,21 @@ impl SearchIndex {
     }
 
     pub fn drop_index<W: WriterClient<WriterRequest>>(
+        &mut self,
         writer: &Arc<Mutex<W>>,
         directory: &WriterDirectory,
     ) -> Result<(), SearchIndexError> {
+        // the index is about to be queued to drop and that requires our transaction callbacks be registered
+        crate::postgres::transaction::register_callback();
+
         let request = WriterRequest::DropIndex {
             directory: directory.clone(),
         };
 
         // Request the background writer process to physically drop the index.
         writer.lock().request(request)?;
-
-        // Drop the index from this connection's cache.
-        unsafe { Self::drop_from_cache(directory).map_err(SearchIndexError::from)? }
+        self.is_dirty = true;
+        self.is_pending_drop = true;
 
         Ok(())
     }
@@ -452,6 +475,8 @@ impl<'de> Deserialize<'de> for SearchIndex {
             schema,
             uuid,
             is_dirty: false,
+            is_pending_drop: false,
+            is_pending_create: false,
         })
     }
 }

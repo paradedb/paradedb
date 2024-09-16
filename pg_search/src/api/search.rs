@@ -207,14 +207,12 @@ pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
         // Drop the Tantivy data directory.
         // It's expected that this will be queued to actually perform the delete upon
         // transaction commit.
-        SearchIndex::drop_index(&writer_client, &directory)
-            .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
+        let search_index = SearchIndex::from_disk(&directory)
+            .expect("index directory should be a valid SearchIndex");
 
-        // TODO:  FIX THIS
-        // // The physical delete will happen when the transaction commits, so a commit callback
-        // // must be registered.
-        // register_commit_callback(&writer_client, directory.clone())
-        //     .expect("could not register commit callback for drop index operation");
+        search_index
+            .drop_index(&writer_client, &directory)
+            .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
     }
 }
 

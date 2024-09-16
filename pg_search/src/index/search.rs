@@ -244,11 +244,22 @@ impl SearchIndex {
         Ok(index_writer)
     }
 
+    /// Commit pending index changes to the underlying tantivy index, changing the internal state
+    /// from "dirty" to clean.
+    ///
+    /// # Errors
+    ///
+    /// If the index is not dirty a [`SearchIndexError::IndexNotDirty`] error is returned.
+    ///
+    /// If problems are encountered while performing the commit, those errors as returned to the
+    /// caller.
     pub fn commit<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
         writer: &Arc<Mutex<W>>,
     ) -> Result<(), SearchIndexError> {
-        assert!(self.is_dirty(), "SearchIndex is not dirty");
+        if !self.is_dirty() {
+            return Err(SearchIndexError::IndexNotDirty);
+        }
 
         self.is_dirty = false;
         writer.lock().request(WriterRequest::Commit {
@@ -257,11 +268,22 @@ impl SearchIndex {
         Ok(())
     }
 
+    /// Abort pending index changes to the underlying tantivy index, changing the internal state
+    /// from "dirty" to clean.
+    ///
+    /// # Errors
+    ///
+    /// If the index is not dirty a [`SearchIndexError::IndexNotDirty`] error is returned.
+    ///
+    /// If problems are encountered while performing the commit, those errors as returned to the
+    /// caller.
     pub fn abort<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
         writer: &Arc<Mutex<W>>,
     ) -> Result<(), SearchIndexError> {
-        assert!(self.is_dirty(), "SearchIndex is not dirty");
+        if !self.is_dirty() {
+            return Err(SearchIndexError::IndexNotDirty);
+        }
 
         self.is_dirty = false;
         writer.lock().request(WriterRequest::Abort {
@@ -415,7 +437,6 @@ impl<'de> Deserialize<'de> for SearchIndex {
 }
 
 #[derive(Error, Debug)]
-#[allow(clippy::enum_variant_names)]
 pub enum SearchIndexError {
     #[error(transparent)]
     SchemaError(#[from] SearchIndexSchemaError),
@@ -440,6 +461,9 @@ pub enum SearchIndexError {
 
     #[error(transparent)]
     AnyhowError(#[from] anyhow::Error),
+
+    #[error("Index has no pending changes")]
+    IndexNotDirty,
 }
 
 #[cfg(test)]

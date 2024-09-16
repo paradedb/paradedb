@@ -14,7 +14,7 @@
 
 Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 
-`pg_search` uses Tantivy version 0.22.0.
+`pg_search` uses Tantivy version 0.23.
 
 ### Roadmap
 
@@ -29,6 +29,8 @@ Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 - [x] Datetime fields
 - [x] Aggregations/facets
 - [ ] Distributed search
+
+For a detailed roadmap, see the [ParadeDB Roadmap for 2024 - 2025](https://github.com/orgs/paradedb/discussions/1668).
 
 ## Installation
 

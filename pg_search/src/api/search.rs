@@ -214,7 +214,6 @@ pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
         // The physical delete will happen when the transaction commits, so a commit callback
         // must be registered.
         register_commit_callback(&writer_client, directory.clone())
-            .expect("could not register commit callback for drop index operation");
     }
 }
 

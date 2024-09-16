@@ -97,7 +97,10 @@
           "group": "Concepts",
           "pages": [
             "api-reference/concepts/aggregation",
+            "api-reference/concepts/bm25",
             "api-reference/concepts/faceting",
+            "api-reference/concepts/index",
+            "api-reference/concepts/matching",
             "api-reference/concepts/phrase",
             "api-reference/concepts/search",
             "api-reference/concepts/stemming",
@@ -111,7 +114,6 @@
             {
               "group": "Indexing",
               "pages": [
-                "api-reference/indexing/overview",
                 "api-reference/indexing/create_index",
                 "api-reference/indexing/inspect_index",
                 "api-reference/indexing/delete_index",

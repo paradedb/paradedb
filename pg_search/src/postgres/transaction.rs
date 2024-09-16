@@ -29,6 +29,8 @@ use tracing::warn;
 pub fn register_callback() {
     static mut INITIALIZED: bool = false;
     unsafe {
+        // SAFETY:  Postgres is single-threaded and we're the only ones that can see `INITIALIZED`.
+        // Additionally, the call to RegisterXactCallback is unsafe simply b/c of FFI
         if !INITIALIZED {
             // register a XactCallback, once, for this backend connection where we'll decide to
             // commit or abort pending index changes

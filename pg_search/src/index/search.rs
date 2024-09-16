@@ -251,7 +251,7 @@ impl SearchIndex {
     ///
     /// If the index is not dirty a [`SearchIndexError::IndexNotDirty`] error is returned.
     ///
-    /// If problems are encountered while performing the commit, those errors as returned to the
+    /// If problems are encountered while performing the commit, those errors are returned to the
     /// caller.
     pub fn commit<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
@@ -275,7 +275,7 @@ impl SearchIndex {
     ///
     /// If the index is not dirty a [`SearchIndexError::IndexNotDirty`] error is returned.
     ///
-    /// If problems are encountered while performing the commit, those errors as returned to the
+    /// If problems are encountered while performing the abort, those errors are returned to the
     /// caller.
     pub fn abort<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,

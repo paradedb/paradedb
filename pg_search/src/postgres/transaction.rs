@@ -17,7 +17,7 @@
 
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
-use pgrx::pg_sys;
+use pgrx::{pg_guard, pg_sys};
 use tracing::warn;
 
 /// Initialize a transaction callback that pg_search uses to commit or abort pending tantivy
@@ -38,6 +38,7 @@ pub fn register_callback() {
     }
 }
 
+#[pg_guard]
 unsafe extern "C" fn pg_search_xact_callback(
     event: pg_sys::XactEvent::Type,
     _arg: *mut std::ffi::c_void,

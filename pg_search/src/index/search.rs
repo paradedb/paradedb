@@ -200,15 +200,21 @@ impl SearchIndex {
             .map(|space| space.total().get_bytes())?)
     }
 
-    pub fn query_parser(&self) -> QueryParser {
-        QueryParser::for_index(
+    pub fn query_parser(&self, config: &SearchConfig) -> QueryParser {
+        let mut query_parser = QueryParser::for_index(
             &self.underlying_index,
             self.schema
                 .fields
                 .iter()
                 .map(|search_field| search_field.id.0)
                 .collect::<Vec<_>>(),
-        )
+        );
+
+        if let Some(true) = config.conjunction_mode {
+            query_parser.set_conjunction_by_default();
+        }
+
+        query_parser
     }
 
     pub fn search_state<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
@@ -377,9 +383,8 @@ impl SearchIndex {
 
     pub fn drop_index<W: WriterClient<WriterRequest>>(
         writer: &Arc<Mutex<W>>,
-        index_oid: u32,
+        directory: &WriterDirectory,
     ) -> Result<(), SearchIndexError> {
-        let directory = WriterDirectory::from_index_oid(index_oid);
         let request = WriterRequest::DropIndex {
             directory: directory.clone(),
         };
@@ -388,7 +393,7 @@ impl SearchIndex {
         writer.lock().request(request)?;
 
         // Drop the index from this connection's cache.
-        unsafe { Self::drop_from_cache(&directory).map_err(SearchIndexError::from)? }
+        unsafe { Self::drop_from_cache(directory).map_err(SearchIndexError::from)? }
 
         Ok(())
     }

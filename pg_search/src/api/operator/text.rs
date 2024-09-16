@@ -19,7 +19,7 @@ use crate::api::operator::{
     anyelement_text_opoid, estimate_selectivity, make_search_config_opexpr_node,
     ReturnedNodePointer,
 };
-use crate::postgres::utils::locate_bm25_index;
+use crate::postgres::utils::{locate_bm25_index, relfilenode_from_search_config};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::UNKNOWN_SELECTIVITY;
@@ -104,8 +104,9 @@ pub fn text_restrict(
 
                     let query = String::from_datum((*const_).constvalue, (*const_).constisnull)?;
                     let search_config = SearchConfig::from((query, indexrel));
+                    let relfilenode = relfilenode_from_search_config(&search_config);
 
-                    return estimate_selectivity(heaprelid, &search_config);
+                    return estimate_selectivity(heaprelid, relfilenode, &search_config);
                 }
             }
 

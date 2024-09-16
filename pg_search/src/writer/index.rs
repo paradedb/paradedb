@@ -25,20 +25,23 @@ use crate::{
 use anyhow::{Context, Result};
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
-    HashMap,
+    HashMap, HashSet,
 };
 use tantivy::{schema::Field, Index, IndexWriter};
+use tracing::warn;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct Writer {
     /// Map of index directory path to Tantivy writer instance.
     tantivy_writers: HashMap<WriterDirectory, IndexWriter>,
+    drop_requested: HashSet<WriterDirectory>,
 }
 
 impl Writer {
     pub fn new() -> Self {
         Self {
             tantivy_writers: HashMap::new(),
+            drop_requested: HashSet::new(),
         }
     }
 
@@ -91,9 +94,14 @@ impl Writer {
                 .commit()
                 .context("error committing to tantivy index")?;
         } else {
-            // If the directory doesn't exist, then the index doesn't exist anymore.
-            // Rare, but possible if a previous delete failed. Drop it to free the space.
-            self.drop_index(directory.clone())?;
+            warn!(?directory, "index directory unexepectedly does not exist");
+        }
+
+        if self.drop_requested.contains(&directory) {
+            // The directory has been dropped in this transaction. Now that we're
+            // committing, we must physically delete it.
+            self.drop_requested.remove(&directory);
+            self.drop_index_on_commit(directory)?
         }
         Ok(())
     }
@@ -104,6 +112,11 @@ impl Writer {
         if let Some(writer) = self.tantivy_writers.get_mut(&directory) {
             writer.rollback()?;
         }
+
+        // If the index was dropped in this transaction, we will not actually physically
+        // delete the files, as we've aborted. Remove the directory from the
+        // drop_requested set.
+        self.drop_requested.remove(&directory);
 
         Ok(())
     }
@@ -145,12 +158,21 @@ impl Writer {
         Ok(())
     }
 
-    fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+    /// Physically delete the Tantivy directory. This should only be called on commit.
+    fn drop_index_on_commit(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         if let Some(writer) = self.tantivy_writers.remove(&directory) {
             std::mem::drop(writer);
         };
 
         directory.remove()?;
+        Ok(())
+    }
+
+    /// Handle a request to drop an index. We don't physically delete the files in this
+    /// function in case the transaction is aborted. Instead, we mark the directory for
+    /// deletion upon commit.
+    fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+        self.drop_requested.insert(directory);
         Ok(())
     }
 }
@@ -173,10 +195,6 @@ impl Handler<WriterRequest> for Writer {
                 uuid,
                 key_field_index,
             } => {
-                // If the writer directory exists, remove it. We need a fresh directory to
-                // create an index. This can happen after a VACUUM FULL, where the index needs
-                // to be rebuilt and this method is called again.
-                self.drop_index(directory.clone())?;
                 self.create_index(directory, fields, uuid, key_field_index)?;
                 Ok(())
             }

@@ -51,3 +51,12 @@ SELECT * FROM search_idx.search('description:keyboard', limit_rows => 10);
   Configures whether `order_by_field` orders in ascending or descending order.
   Ascending is `asc`, descending is `desc`.
 </ParamField>
+<ParamField body="lenient_parsing" default={false}>
+  If set to `true`, the query parser will attempt to construct a valid query on
+  a best-effort basis, ignoring invalid components such as missing or
+  non-existent fields.
+</ParamField>
+<ParamField body="conjunction_mode" default={false}>
+  If set to `true`, the search function employs conjunction (AND) logic by
+  default.
+</ParamField>

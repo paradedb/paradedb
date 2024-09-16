@@ -163,6 +163,15 @@
               ]
             },
             {
+              "group": "Query Optimization",
+              "pages": [
+                "api-reference/optimization/overview",
+                "api-reference/optimization/mix-text-and-sql",
+                "api-reference/optimization/joins",
+                "api-reference/optimization/explain"
+              ]
+            },
+            {
               "group": "Faceting",
               "pages": [
                 "api-reference/faceting/overview",

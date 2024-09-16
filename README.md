@@ -36,17 +36,20 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Full-text search with BM25 with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
+  - [ ] Distributed search
 - [ ] Analytics
-  - [x] An analytical query engine over data in Postgres or in any object store or table format with [pg_analytics](https://github.com/paradedb/pg_analytics)
-  - [ ] Column-oriented table access method for fast analytics inside Postgres
-  - [ ] High-volume data/Kafka ingest
+  - [x] Fast analytics via DuckDB over data in object storage (S3, etc.) and open table formats (Iceberg, etc.) with [pg_analytics](https://github.com/paradedb/pg_analytics)
+  - [ ] Fast analytics over data in Postgres tables via DuckDB column-oriented Postgres table access method
+  - [ ] Kafka ingest with [Bento](https://docs.warpstream.com/warpstream/reference/integrations/paradedb)
 - [x] Self-Hosted ParadeDB
   - [x] Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))
   - [x] Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) ([see deployment instructions](https://docs.paradedb.com/deploy/helm))
 - [x] Specialized Workloads
   - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
   - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
-  - [x] Support for basic incremental view maintenance (IVM) via [pg_ivm](https://github.com/sraoss/pg_ivm)
+  - [x] Support for basic incremental view maintenance (IVM) with [pg_ivm](https://github.com/sraoss/pg_ivm)
+
+For a detailed roadmap, see the [ParadeDB Roadmap for 2024 - 2025](https://github.com/orgs/paradedb/discussions/1668).
 
 ## Get Started
 

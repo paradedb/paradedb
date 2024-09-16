@@ -35,7 +35,7 @@ use tantivy::{query::QueryParser, Executor, Index, Searcher};
 use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
-use tracing::trace;
+use tracing::{debug, trace};
 
 // Must be at least 15,000,000 or Tantivy will panic.
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
@@ -315,47 +315,62 @@ impl SearchIndex {
         Ok(())
     }
 
+    /// Using the `should_delete` argument, determine, one-by-one, if a document in this index
+    /// needs to be deleted.
+    ///
+    /// This function is atomic in that it ensures the underlying changes to the tantivy index
+    /// are committed before returning an [`Ok`] response.
     pub fn delete<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
         writer: &Arc<Mutex<W>>,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
-        // the index is about to change, and that requires our transaction callbacks be registered
-        crate::postgres::transaction::register_callback();
-
         let mut deleted: u32 = 0;
         let mut not_deleted: u32 = 0;
         let mut ctids_to_delete: Vec<u64> = vec![];
 
+        let ctid_field = self.schema.ctid_field().id.0;
         for segment_reader in self.searcher().segment_readers() {
             let store_reader = segment_reader
                 .get_store_reader(CACHE_NUM_BLOCKS)
                 .expect("Failed to get store reader");
 
-            for (delete, ctid) in (0..segment_reader.num_docs())
-                .filter_map(|id| store_reader.get(id).ok())
-                .filter_map(|doc: TantivyDocument| {
-                    doc.get_first(self.schema.ctid_field().id.0)
-                        .and_then(|value| value.as_u64())
-                })
-                .map(|ctid_val| (should_delete(ctid_val), ctid_val))
-            {
-                if delete {
-                    ctids_to_delete.push(ctid);
-                    deleted += 1
+            for doc in store_reader.iter::<TantivyDocument>(segment_reader.alive_bitset()) {
+                // if a document failed to deserialize, that's probably a hard error indicating the
+                // index is corrupt.  So return that back to the caller immediately
+                let doc = doc?;
+
+                if let Some(ctid) = doc.get_first(ctid_field).and_then(|ctid| ctid.as_u64()) {
+                    if should_delete(ctid) {
+                        ctids_to_delete.push(ctid);
+                        deleted += 1;
+                    } else {
+                        not_deleted += 1;
+                    }
                 } else {
-                    not_deleted += 1
+                    // NB:  in a perfect world, this shouldn't happen.  But we did have a bug where
+                    // the "ctid" field was not being `STORED`, which caused this
+                    debug!(
+                        "document `{doc:?}` in segment `{}` has no ctid",
+                        segment_reader.segment_id()
+                    );
                 }
             }
         }
 
-        let request = WriterRequest::Delete {
-            field: self.schema.ctid_field().id.0,
-            ctids: ctids_to_delete,
-            directory: self.directory.clone(),
-        };
-        writer.lock().request(request)?;
-        self.is_dirty = true;
+        if !ctids_to_delete.is_empty() {
+            // delete all the docs, by ctid, we determined we should
+            writer.lock().request(WriterRequest::Delete {
+                field: ctid_field,
+                ctids: ctids_to_delete,
+                directory: self.directory.clone(),
+            })?;
+
+            // go ahead and tell tantivy to commit these changes
+            writer.lock().request(WriterRequest::Commit {
+                directory: self.directory.clone(),
+            })?;
+        }
 
         Ok((deleted, not_deleted))
     }

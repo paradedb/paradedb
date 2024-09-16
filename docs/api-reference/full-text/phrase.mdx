@@ -9,7 +9,8 @@ title: Phrase Search
 
 ## Basic Usage
 
-Phrases with spaces must be wrapped inside double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
+Searches for a specific [phrase](/api-reference/concepts/phrase). Phrases must be wrapped inside
+double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
 
 ```sql
 SELECT * FROM search_idx.search('description:"plastic keyboard"');

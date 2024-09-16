@@ -96,11 +96,17 @@
         {
           "group": "Concepts",
           "pages": [
-            "api-reference/concepts/search"
+            "api-reference/concepts/aggregation",
+            "api-reference/concepts/faceting",
+            "api-reference/concepts/phrase",
+            "api-reference/concepts/search",
+            "api-reference/concepts/stemming",
+            "api-reference/concepts/tantivy",
+            "api-reference/concepts/term"
           ]
         },
         {
-          "group": "Features",
+          "group": "Reference",
           "pages": [
             {
               "group": "Indexing",
@@ -167,17 +173,17 @@
               "pages": [
                 "api-reference/similarity/overview",
                 "api-reference/similarity/index",
-                "api-reference/similarity/search",
-                "api-reference/similarity/hybrid"
+                "api-reference/similarity/search"
               ]
             }
           ]
         },
         {
-          "group": "Guides",
+          "group": "Tutorials",
           "pages": [
             "api-reference/guides/overview",
-            "api-reference/guides/autocomplete"
+            "api-reference/guides/autocomplete",
+            "api-reference/guides/hybrid"
           ]
         }
       ]

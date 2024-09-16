@@ -18,9 +18,12 @@
 #![allow(unused_variables, unused_imports)]
 mod fixtures;
 
+use std::path::PathBuf;
+
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use shared::fixtures::utils::pg_search_index_directory_path;
 use sqlx::PgConnection;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {
@@ -726,5 +729,83 @@ fn drop_table_cascades_bm25_schema(mut conn: PgConnection) {
     assert!(
         !schema_exists,
         "BM25 index schema was not dropped after dropping the table"
+    );
+}
+
+#[rstest]
+fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
+    // Create the test table and BM25 index
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut conn);
+
+    // Ensure the expected directory exists.
+    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_bm25_index");
+    assert!(
+        index_dir.exists(),
+        "expected index directory to exist at: {:?}",
+        index_dir
+    );
+
+    // Delete the index.
+    "DROP INDEX index_config_bm25_index CASCADE".execute(&mut conn);
+
+    // Ensure deletion has worked as expected.
+    // Tantivy is a little stubborn about deletion. While the contents of the index
+    // will indeed be cleaned up, lingering Readers cached in connections seem to re-create
+    // certain files if they are found to be deleted. This makes it difficult to completely
+    // clean up the folder, so we will just test if our configuation JSON has been deleted.
+    assert!(
+        !index_dir.join("search-index.json").exists(),
+        "expected index directory to have been deleted at: {:?}",
+        index_dir
+    );
+}
+
+#[rstest]
+fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
+    // Create the test table and BM25 index
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut conn);
+
+    // Ensure the expected directory exists.
+    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_bm25_index");
+    assert!(
+        index_dir.exists(),
+        "expected index directory to exist at: {:?}",
+        index_dir
+    );
+
+    // Delete the index.
+    "DO $$ 
+    BEGIN
+        DROP INDEX index_config_bm25_index CASCADE;
+        RAISE EXCEPTION 'Aborting the transaction intentionally';
+    END $$;"
+        .execute_result(&mut conn)
+        .ok();
+
+    // Ensure index files still exist.
+    assert!(
+        index_dir.join("search-index.json").exists(),
+        "expected index directory to have been not been deleted at: {:?}",
+        index_dir
     );
 }

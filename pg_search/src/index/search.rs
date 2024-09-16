@@ -297,9 +297,8 @@ impl SearchIndex {
 
     pub fn drop_index<W: WriterClient<WriterRequest>>(
         writer: &Arc<Mutex<W>>,
-        index_oid: u32,
+        directory: &WriterDirectory,
     ) -> Result<(), SearchIndexError> {
-        let directory = WriterDirectory::from_index_oid(index_oid);
         let request = WriterRequest::DropIndex {
             directory: directory.clone(),
         };
@@ -308,7 +307,7 @@ impl SearchIndex {
         writer.lock().request(request)?;
 
         // Drop the index from this connection's cache.
-        unsafe { Self::drop_from_cache(&directory).map_err(SearchIndexError::from)? }
+        unsafe { Self::drop_from_cache(directory).map_err(SearchIndexError::from)? }
 
         Ok(())
     }

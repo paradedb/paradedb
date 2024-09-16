@@ -17,6 +17,7 @@
 
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::writer::WriterDirectory;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
@@ -51,7 +52,10 @@ pub unsafe extern "C" fn amcostestimate(
     let page_estimate = {
         assert!(!indexrel.rd_options.is_null());
         let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
-        let directory = WriterDirectory::from_index_oid(indexrel.oid().as_u32());
+        let database_oid = crate::MyDatabaseId();
+        let index_oid = indexrel.oid().as_u32();
+        let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
+        let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
         let search_index = SearchIndex::from_cache(
             &directory,
             &(*options)

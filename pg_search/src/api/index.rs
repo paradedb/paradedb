@@ -21,6 +21,7 @@ use tantivy::schema::*;
 
 use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 use crate::query::SearchQueryInput;
 use crate::schema::ToString;
 use crate::writer::WriterDirectory;
@@ -45,15 +46,13 @@ pub fn schema_bm25(
     name!(normalizer, Option<String>),
 )> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
-    let oid_query = format!(
-        "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
-        bm25_index_name
-    );
-    let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)
-        .expect("error looking up index in schema_bm25")
-        .expect("no oid for index passed to schema_bm25");
 
-    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+    let database_oid = crate::MyDatabaseId();
+    let index_oid = index_oid_from_index_name(&bm25_index_name);
+    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+
+    let directory =
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

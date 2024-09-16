@@ -23,8 +23,8 @@ use core::panic;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use shared::fixtures::utils::pg_search_index_directory_path;
 use sqlx::PgConnection;
-use std::path::PathBuf;
 use tantivy::Index;
 
 #[rstest]
@@ -129,6 +129,10 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
             .fetch_one::<(i32,)>(&mut conn)
             .0;
 
+    let database_oid = "SELECT oid::int4 FROM pg_database WHERE datname = current_database();"
+        .fetch_one::<(i32,)>(&mut conn)
+        .0;
+
     let columns: SimpleProductsTableVec = format!(
         "SELECT * FROM paradedb.bm25_search
         WHERE paradedb.search_with_search_config(
@@ -137,6 +141,7 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
                 'index_name', 'bm25_search_bm25_index',
                 'index_oid', {index_oid},
                 'table_oid', {table_oid},
+                'database_oid', {database_oid},
                 'table_name', 'bm25_search',
                 'schema_name', 'paradedb',
                 'key_field', 'id',
@@ -620,21 +625,11 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     )"
     .execute(&mut conn);
 
-    // Build the index directory path.
-    let index_oid =
-        "SELECT oid::int4 FROM pg_class WHERE relname = 'search_idx_bm25_index' AND relkind = 'i'"
-            .fetch_one::<(i32,)>(&mut conn)
-            .0;
-    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
-    let index_dir_path = PathBuf::from(data_directory)
-        .join("pg_search")
-        .join(index_oid.to_string())
-        .join("tantivy");
-
+    let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx_bm25_index");
     assert!(index_dir_path.exists());
 
     // Get the index metadata
-    let index = Index::open_in_dir(&index_dir_path)?;
+    let index = Index::open_in_dir(index_dir_path.join("tantivy"))?;
     let reader = index.reader()?;
     let searcher = reader.searcher();
     let total_docs = searcher
@@ -1125,18 +1120,7 @@ fn high_limit_rows(mut conn: PgConnection) {
 fn index_size(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
-
-    let index_oid =
-        "SELECT oid::int4 FROM pg_class WHERE relname = 'bm25_search_bm25_index' AND relkind = 'i'"
-            .fetch_one::<(i32,)>(&mut conn)
-            .0;
-
-    let index_dir = PathBuf::from(data_directory)
-        .join("pg_search")
-        .join(index_oid.to_string())
-        .join("tantivy");
-
+    let index_dir = pg_search_index_directory_path(&mut conn, "bm25_search_bm25_index");
     assert!(
         index_dir.exists(),
         "expected index directory to exist at: {:?}",

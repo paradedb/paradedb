@@ -9,13 +9,9 @@ title: License Comparison
   for access.
 </Note>
 
-ParadeDB is dual-licensed under the GNU Affero General Public License 3.0 (AGPLv3) and as commercial license.
-
-The Community License is the AGPL-3.0 license, which permits free use, modification, and distribution of software, provided that distributed, derivative works of the software
-are released under the same license. This provision is called the copyleft provision.
-
-The Enterprise License waives the copyleft requirements of the AGPL-3.0 license and includes the enterprise-only features listed below. It is available under a shelf-hosted
-or BYOC (Bring Your Own Cloud) model. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:sales@paradedb.com).
+ParadeDB is dual-licensed under the GNU Affero General Public License 3.0 and as commercial software. The ParadeDB
+Enterprise license waives the copyleft requirements of the AGPL-3.0 and includes the closed source features listed
+below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:sales@paradedb.com).
 
 ## ParadeDB License Comparison
 
@@ -162,6 +158,28 @@ or BYOC (Bring Your Own Cloud) model. To purchase a ParadeDB Enterprise License,
       }}
     >
       Partitioned indexes
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      IVM indexes*
     </td>
     <td style={{ width: "36%" }}></td>
     <td
@@ -612,6 +630,96 @@ or BYOC (Bring Your Own Cloud) model. To purchase a ParadeDB Enterprise License,
       }}
     >
       ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex", borderBottom: "solid 1px #ddd" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+        fontWeight: "bold",
+      }}
+    >
+      Cluster Management
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td style={{ width: "36%" }}></td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      CloudNativePG Support
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      High Availability
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    ></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex", borderTop: "solid 1px #ddd" }}>
+    <td
+      colSpan="3"
+      style={{
+        width: "100%",
+        textAlign: "left",
+        padding: "10px 0",
+        fontSize: "0.9em",
+        color: "#666",
+      }}
+    >
+      *IVM indexes are BM25 indexes over incrementally-maintained materialized
+      views. They enable creating a BM25 index over the JOIN of two or more
+      tables with fast-changing data.
     </td>
   </tr>
 </table>

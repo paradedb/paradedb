@@ -1025,6 +1025,7 @@ fn fuzzy_phrase(mut conn: PgConnection) {
     assert_eq!(columns.id.len(), 0);
 }
 
+#[rstest]
 fn lenient_config_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

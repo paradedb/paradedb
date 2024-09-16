@@ -37,7 +37,9 @@ pub fn format_bm25_function(
             prefix text DEFAULT NULL,
             max_num_chars integer DEFAULT NULL,
             order_by_field text DEFAULT NULL,
-            order_by_direction text DEFAULT NULL
+            order_by_direction text DEFAULT NULL,
+            lenient_parsing boolean DEFAULT NULL,
+            conjunction_mode boolean DEFAULT NULL
         ) RETURNS {return_type} AS $func$
         BEGIN
             RETURN QUERY SELECT * FROM {function_name}(
@@ -51,7 +53,9 @@ pub fn format_bm25_function(
                 prefix => prefix,
                 max_num_chars => max_num_chars,
                 order_by_field => order_by_field,
-                order_by_direction => order_by_direction
+                order_by_direction => order_by_direction,
+                lenient_parsing => lenient_parsing,
+                conjunction_mode => conjunction_mode
             );
         END
         $func$ LANGUAGE plpgsql;
@@ -67,7 +71,9 @@ pub fn format_bm25_function(
             prefix text DEFAULT NULL,
             max_num_chars integer DEFAULT NULL,
             order_by_field text DEFAULT NULL,
-            order_by_direction text DEFAULT NULL
+            order_by_direction text DEFAULT NULL,
+            lenient_parsing boolean DEFAULT NULL,
+            conjunction_mode boolean DEFAULT NULL
         ) RETURNS {return_type} AS $func$
         DECLARE
             __paradedb_search_config__ JSONB;
@@ -83,7 +89,9 @@ pub fn format_bm25_function(
                 'prefix', prefix,
                 'max_num_chars', max_num_chars,
                 'order_by_field', order_by_field,
-                'order_by_direction', order_by_direction
+                'order_by_direction', order_by_direction,
+                'lenient_parsing', lenient_parsing,
+                'conjunction_mode', conjunction_mode
             );
             {function_body};
         END

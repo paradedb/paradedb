@@ -1,0 +1,30 @@
+---
+title: Query Term Conjunction
+---
+
+## Basic Usage
+
+The `conjunction_mode` parameter controls the default boolean logic applied to query terms. When not specified, the search function employs disjunction (OR) logic.
+Setting `conjunction_mode` to `true` switches the default logic to conjunction (AND).
+
+```sql
+SELECT * FROM <index_name>.search(
+  '<query>',
+  conjunction_mode => true
+);
+```
+
+<Accordion title="Example Usage">
+
+```sql
+-- Search with conjunction_mode set to true (AND logic applied)
+SELECT * FROM search_idx.search(
+  'description:keyboard rating:>2',
+  conjunction_mode => true
+);
+
+-- Equivalent query using the explicit AND operator
+SELECT \* FROM search_idx.search('description:keyboard AND rating:>2');
+```
+
+</Accordion>

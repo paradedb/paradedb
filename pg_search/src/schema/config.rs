@@ -38,6 +38,8 @@ pub struct SearchConfig {
     pub uuid: String,
     pub order_by_field: Option<String>,
     pub order_by_direction: Option<String>,
+    pub lenient_parsing: Option<bool>,
+    pub conjunction_mode: Option<bool>,
 }
 
 impl SearchConfig {
@@ -161,6 +163,8 @@ impl From<(SearchQueryInput, IndexRelation)> for SearchConfig {
             uuid: ops.get_uuid().unwrap(),
             order_by_field: None,
             order_by_direction: None,
+            conjunction_mode: None,
+            lenient_parsing: None,
         }
     }
 }

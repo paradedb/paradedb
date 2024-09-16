@@ -17,19 +17,6 @@ this function does the following:
 3. Calculates the weighted mean of the normalized scores
 
 ```sql
-SELECT * FROM <index_name>.score_hybrid(
-  bm25_query => '<bm25_query>',
-  similarity_query => '<similarity_query>',
-  bm25_weight => <bm25_weight>,
-  similarity_weight => <similarity_weight>,
-  bm25_limit_n => <bm25_limit_n>,
-  similarity_limit_n => <similarity_limit_n>
-);
-```
-
-<Accordion title="Example Usage">
-
-```sql
 SELECT * FROM search_idx.score_hybrid(
     bm25_query => 'description:keyboard OR category:electronics',
     similarity_query => '''[1,2,3]'' <-> embedding',
@@ -37,8 +24,6 @@ SELECT * FROM search_idx.score_hybrid(
     similarity_weight => 0.1
 );
 ```
-
-</Accordion>
 
 <ParamField body="index_name" required>
   The name of the BM25 index associated with this table. For instance, if you

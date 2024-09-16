@@ -4,7 +4,7 @@ title: Create an Index
 
 ## Basic Usage
 
-The following code block creates an index called `search_idx` over multiple columns of the `mock_items` table.
+The following code block creates a [BM25 index](/api-reference/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
 ```sql
 CALL paradedb.create_bm25(
   index_name => 'search_idx',

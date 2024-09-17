@@ -144,7 +144,7 @@ jobs:
         working-directory: pg_search/
         run: |
           # Variables (we disable telemetry to avoid skewing the user metrics with CI runs)
-          BASE_RELEASE="0.6.0"
+          BASE_RELEASE="0.10.0"
           PARADEDB_TELEMETRY=false
 
           echo ""

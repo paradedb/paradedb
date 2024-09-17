@@ -26,11 +26,7 @@
 
 [ParadeDB](https://paradedb.com) is an Elasticsearch alternative built on Postgres. We're modernizing the features of Elasticsearch's product suite, starting with real-time search and analytics.
 
-## Status
-
-ParadeDB is currently in Public Beta. Star and watch this repository to get notified of updates.
-
-### Roadmap
+## Roadmap
 
 - [x] Search
   - [x] Full-text search with BM25 with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)

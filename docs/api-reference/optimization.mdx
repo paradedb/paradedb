@@ -1,0 +1,28 @@
+---
+title: Query Optimization
+---
+
+## The `@@@` Operator
+
+Passing a [limit](/api-reference/full-text/pagination#limit) into the [`search` function](/api-reference/full-text/overview) is the fastest way to return the top `N` documents from the index. 
+However, this function is not optimized for returning large values of `N`.
+
+The `@@@` operator means "find **all rows** matching a full text query." It's designed to return large numbers of rows as quickly as possible and interacts well with `ORDER BY`, `OFFSET`/`LIMIT`, and `GROUP BY` clauses as well as standard query operators such
+as `AND`, `OR`, and `NOT`.
+
+`@@@` **does not** perform any ordering, offsets or limits. These are now operations that need to be added to the overall query with `ORDER BY`, `OFFSET`, and `LIMIT`. 
+`@@@` also does not return scores. If scores are required, `score_bm25` should be used.
+
+## Basic Usage
+
+The left-hand side of `@@@` must be the key field. The right-hand side accepts either a [full text query string](api-reference/full-text/overview) or a [query builder function](/api-reference/advanced/overview).
+
+```sql
+-- Query string
+SELECT * FROM mock_items 
+WHERE id @@@ 'description:shoe';
+
+-- Query builder function
+SELECT * FROM mock_items 
+WHERE id @@@ paradedb.term('description', 'shoe');
+```

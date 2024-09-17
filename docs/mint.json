@@ -163,15 +163,6 @@
               ]
             },
             {
-              "group": "Query Optimization",
-              "pages": [
-                "api-reference/optimization/overview",
-                "api-reference/optimization/mix-text-and-sql",
-                "api-reference/optimization/joins",
-                "api-reference/optimization/explain"
-              ]
-            },
-            {
               "group": "Faceting",
               "pages": [
                 "api-reference/faceting/overview",
@@ -186,7 +177,8 @@
                 "api-reference/similarity/index",
                 "api-reference/similarity/search"
               ]
-            }
+            },
+            "api-reference/optimization"
           ]
         },
         {
@@ -194,7 +186,8 @@
           "pages": [
             "api-reference/guides/overview",
             "api-reference/guides/autocomplete",
-            "api-reference/guides/hybrid"
+            "api-reference/guides/hybrid",
+            "api-reference/guides/joins"
           ]
         }
       ]

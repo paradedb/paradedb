@@ -146,7 +146,7 @@ jobs:
               echo 'The full diff between both schemas is:'
               echo
               echo '```diff'
-              cat ~/diff.sql
+              cat ~/diff.patch
               echo '```'
               echo EOF
             } >> "$GITHUB_ENV"

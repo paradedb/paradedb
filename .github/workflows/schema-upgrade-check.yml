@@ -123,7 +123,11 @@ jobs:
         run: |
           pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
           cat ~/diff.sql
-          cat ~/diff.sql >> $GITHUB_OUTPUT
+          {
+            echo 'DIFF<<EOF'
+            cat ~/diff.sql
+            echo EOF
+          } >> "$GITHUB_ENV"
 
       - name: Attach diff to PR
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && env.DIFF != ''
@@ -136,7 +140,7 @@ jobs:
               repo: context.repo.repo,
               body: 'A schema difference was detected:
                      ```sql
-                     ${{ steps.schema_diff.outputs.* }}
+                     ${{ env.DIFF }}
                      ```
                     '
             })

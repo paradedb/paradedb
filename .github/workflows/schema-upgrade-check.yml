@@ -89,7 +89,7 @@ jobs:
       - name: Install pg-schema-diff and its required dependencies
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          sudo apt install clang llvm
+          sudo apt install clang llvm diffutils
           cargo install --git https://github.com/zombodb/pg-schema-diff.git
 
       - name: Extract pgrx version & Install cargo-pgrx
@@ -132,7 +132,7 @@ jobs:
           diff ~/old.sql ~/this.sql > ~/diff.patch
           cat ~/diff.sql
 
-          if [[ -s ~/diff.sql ]]; then
+          if [ -s ~/diff.sql ]; then
             {
               echo 'DIFF<<EOF'
               echo 'A schema difference was detected.'
@@ -151,6 +151,9 @@ jobs:
               echo EOF
             } >> "$GITHUB_ENV"
           fi
+
+          # always succeed
+          true
 
       - name: Attach diff to PR
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && env.DIFF != ''

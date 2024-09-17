@@ -178,7 +178,15 @@
                 "api-reference/similarity/search"
               ]
             },
-            "api-reference/optimization"
+            {
+              "group": "Optimization",
+              "pages": [
+                "api-reference/optimization/overview",
+                "api-reference/optimization/joins",
+                "api-reference/optimization/pagination",
+                "api-reference/optimization/sorting"
+              ]
+            }
           ]
         },
         {
@@ -186,8 +194,7 @@
           "pages": [
             "api-reference/guides/overview",
             "api-reference/guides/autocomplete",
-            "api-reference/guides/hybrid",
-            "api-reference/guides/joins"
+            "api-reference/guides/hybrid"
           ]
         }
       ]

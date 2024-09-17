@@ -130,9 +130,9 @@ jobs:
         run: |
           pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
           diff ~/old.sql ~/this.sql > ~/diff.patch
-          cat ~/diff.sql
 
-          if [ -s ~/diff.sql ]; then
+          if test -s ~/diff.sql; then
+            echo generating github comment message
             {
               echo 'DIFF<<EOF'
               echo 'A schema difference was detected.'
@@ -157,8 +157,6 @@ jobs:
 
       - name: Attach diff to PR
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && env.DIFF != ''
-        env:
-          COMMENT_BODY: ${{ env.DIFF }}
         uses: actions/github-script@v6
         with:
           script: |

@@ -144,12 +144,19 @@ jobs:
               echo '```sql'
               cat ~/diff.sql
               echo '```'
-              echo
-              echo 'The full diff between both schemas is:'
-              echo
-              echo '```diff'
-              cat ~/diff.patch
-              echo '```'
+
+              #
+              # cargo-pgrx schema doesn't output its generated schema in a stable format
+              # so including the entire diff is garbage.  We still generate it, tho, because
+              # cargo-pgrx will improve someday, and when it does we can uncomment these lines
+              #
+
+              # echo
+              # echo 'The full diff between both schemas is:'
+              # echo
+              # echo '```diff'
+              # cat ~/diff.patch
+              # echo '```'
               echo EOF
             } >> "$GITHUB_ENV"
           fi

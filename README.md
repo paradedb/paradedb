@@ -35,19 +35,10 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 - [x] Search
   - [x] Full-text search with BM25 with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
-  - [x] Hybrid search
   - [ ] Distributed search
 - [ ] Analytics
-  - [x] Fast analytics over data in cloud object storage (S3, etc.) and open table formats (Iceberg, etc.) via DuckDB foreign data wrapper with [pg_analytics](https://github.com/paradedb/pg_analytics)
-  - [ ] Fast analytics over data in Postgres tables via DuckDB column-oriented table access method
-  - [ ] Kafka ingest with [Bento](https://docs.warpstream.com/warpstream/reference/integrations/paradedb)
-- [x] Self-Hosted ParadeDB
-  - [x] Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))
-  - [x] Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) ([see deployment instructions](https://docs.paradedb.com/deploy/helm))
-- [x] Specialized Workloads
-  - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
-  - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
-  - [x] Support for basic incremental view maintenance (IVM) with [pg_ivm](https://github.com/sraoss/pg_ivm)
+  - [x] Fast analytics over data lakes (i.e. S3) and table formats (i.e. Iceberg) with [pg_analytics](https://github.com/paradedb/pg_analytics)
+  - [ ] Column-oriented Postgres table access method
 
 For a detailed roadmap, see the [ParadeDB Roadmap for 2024 - 2025](https://github.com/orgs/paradedb/discussions/1668).
 
@@ -57,7 +48,12 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 
 ## Deploying ParadeDB
 
-ParadeDB and its extensions are available as commercial software for installation on self-hosted Postgres deployment and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
+ParadeDB and its extensions can be deployed in one of two ways:
+
+- Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))
+- Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) ([see deployment instructions](https://docs.paradedb.com/deploy/helm))
+
+For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
 
 ### Extensions
 

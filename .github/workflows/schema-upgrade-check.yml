@@ -99,7 +99,7 @@ jobs:
       - name: Switch to base rev
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          git checkout v0.9.0 # ${{ github.event.pull_request.base.ref }}
+          git checkout ${{ github.event.pull_request.base.ref }}
 
       - name: Extract pgrx version & Install cargo-pgrx for base rev (pgrx version could be different)
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -120,6 +120,6 @@ jobs:
           sudo apt install clang llvm
           cargo install --git https://github.com/zombodb/pg-schema-diff.git
 
-      - name: Run diff
+      - name: Generate schema diff
         run: |
           pg-schema-diff diff ~/old.sql ~/this.sql

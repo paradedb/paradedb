@@ -187,6 +187,11 @@ pub extern "C" fn pg_search_shutdown_worker(_arg: pg_sys::Datum) {
         .unwrap_or_else(|e| log!("error shutting down bm25 writer from background worker: {e:?}"));
 }
 
+#[pg_extern]
+pub fn hi_mom(input: String) -> bool {
+    input == "hi mom"
+}
+
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.
 #[cfg(test)]

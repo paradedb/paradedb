@@ -97,12 +97,14 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
+          cat ~/this.sql
 
       - name: Generate Schema from base rev
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           git checkout ${{ github.event.pull_request.base.ref }}
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
+          cat ~/old.sql
 
       - name: Install pg-schema-diff
         run: |

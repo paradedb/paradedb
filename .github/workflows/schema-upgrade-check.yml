@@ -1,4 +1,4 @@
-# workflows/test-pg_search.yml
+# workflows/schema-upgrade-check.yml
 #
 # Determine if a commit introduces an extension schema change
 
@@ -11,7 +11,7 @@ on:
       - dev
       - main
     paths:
-      - ".github/workflows/test-pg_search.yml"
+      - ".github/workflows/schema-upgrade-check.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
   push:

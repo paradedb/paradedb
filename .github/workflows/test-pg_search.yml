@@ -212,6 +212,13 @@ jobs:
           #   echo "Starting Postgres..."
           #   cargo pgrx start pg${{ matrix.pg_version }}
           # fi
+          echo ""
+          echo "Building pg_search..."
+          cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+
+          echo ""
+          echo "Starting Postgres..."
+          cargo pgrx start pg${{ matrix.pg_version }}
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 

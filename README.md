@@ -38,7 +38,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Hybrid search
   - [ ] Distributed search
 - [ ] Analytics
-  - [x] Fast analytics via DuckDB over data in object storage (S3, etc.) and open table formats (Iceberg, etc.) with [pg_analytics](https://github.com/paradedb/pg_analytics)
+  - [x] Fast analytics over data in object storage (S3, etc.) and open table formats (Iceberg, etc.) via DuckDB foreign data wrapper with [pg_analytics](https://github.com/paradedb/pg_analytics)
   - [ ] Fast analytics over data in Postgres tables via DuckDB column-oriented Postgres table access method
   - [ ] Kafka ingest with [Bento](https://docs.warpstream.com/warpstream/reference/integrations/paradedb)
 - [x] Self-Hosted ParadeDB

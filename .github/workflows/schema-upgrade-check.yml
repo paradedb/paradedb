@@ -82,6 +82,12 @@ jobs:
           rustup component add llvm-tools-preview
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
+      - name: Install pg-schema-diff and its required dependencies
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
+          sudo apt install clang llvm
+          cargo install --git https://github.com/zombodb/pg-schema-diff.git
+
       - name: Extract pgrx version & Install cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
@@ -95,36 +101,27 @@ jobs:
         run: |
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
 
-      - name: Switch to base rev
+      - name: Switch to base rev and do it again (installing different pgrx if necessary)
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
+          # switch to the base rev
           git checkout ${{ github.event.pull_request.base.ref }}
 
-      - name: Extract pgrx version & Install cargo-pgrx for base rev (pgrx version could be different)
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
+          # see if we need a different cargo-pgrx and install it if so
           THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
           if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
             cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force
             cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
 
-      - name: Generate Schema from base rev
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
+          # generate schema
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
-
-      - name: Install pg-schema-diff
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          sudo apt install clang llvm
-          cargo install --git https://github.com/zombodb/pg-schema-diff.git
 
       - name: Generate schema diff
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
-          echo "export DIFF=$(cat ~/diff.sql)" >> $GITHUB_ENV
+          echo "DIFF=$(cat ~/diff.sql)" >> $GITHUB_ENV
           cat ~/diff.sql
 
       - name: Attach diff to PR

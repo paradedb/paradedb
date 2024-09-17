@@ -6,7 +6,7 @@ title: Overview
 
 While the [`search` function](/api-reference/full-text/overview) is useful for simple full text search queries, it is **not optimized** for
 
-- Return hundreds of thousands or millions of documents as quickly as possible
+- Returning hundreds of thousands or millions of documents as quickly as possible
 - Usage in complex SQL queries with other "plain SQL" `WHERE` or `JOIN` clauses
 
 For more complex queries, we recommend using the `@@@` operator. The `@@@` operator means "find **all rows** matching a full text query." It's designed to return large numbers of rows as quickly as possible and interacts well with `ORDER BY`, `OFFSET`/`LIMIT`, and `GROUP BY` clauses as well as standard query operators such

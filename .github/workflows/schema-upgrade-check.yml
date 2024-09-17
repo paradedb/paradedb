@@ -55,77 +55,92 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Rust
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: dtolnay/rust-toolchain@stable
+      #      - name: Install Rust
+      #        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #        uses: dtolnay/rust-toolchain@stable
+      #
+      #      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
+      #      # save the cache on the 'dev' branch, but load it on all branches.
+      #      - name: Install Rust Cache
+      #        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #        uses: Swatinem/rust-cache@v2
+      #        with:
+      #          prefix-key: "v1"
+      #          shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
+      #          cache-targets: true
+      #          cache-on-failure: true
+      #          cache-all-crates: true
+      #          save-if: ${{ github.ref == 'refs/heads/dev' }}
+      #
+      #      - name: Install & Configure Supported PostgreSQL Version
+      #        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #        run: |
+      #          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+      #          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+      #          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+      #          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+      #          rustup component add llvm-tools-preview
+      #          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+      #
+      #      - name: Install pg-schema-diff and its required dependencies
+      #        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #        run: |
+      #          sudo apt install clang llvm
+      #          cargo install --git https://github.com/zombodb/pg-schema-diff.git
+      #
+      #      - name: Extract pgrx version & Install cargo-pgrx
+      #        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #        run: |
+      #          PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+      #          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
+      #          cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION}
+      #          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+      #
+      #      - name: Generate Schema from this rev
+      #        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #        run: |
+      #          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
+      #
+      #      - name: Switch to base rev and do it again (installing different pgrx if necessary)
+      #        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #        run: |
+      #          # switch to the base rev
+      #          git checkout ${{ github.event.pull_request.base.ref }}
+      #
+      #          # see if we need a different cargo-pgrx and install it if so
+      #          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+      #          if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
+      #            # install cargo-pgrx
+      #            cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force
+      #
+      #            # initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
+      #            cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+      #          fi
+      #
+      #          # generate schema
+      #          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
+      #
+      #      - name: Generate schema diff
+      #        id: schema_diff
+      #        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #        run: |
+      #          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
+      #          cat ~/diff.sql
+      #          {
+      #            echo 'DIFF<<EOF'
+      #            cat ~/diff.sql
+      #            echo EOF
+      #          } >> "$GITHUB_ENV"
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
-      - name: Install Rust Cache
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
-          cache-targets: true
-          cache-on-failure: true
-          cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
-
-      - name: Install & Configure Supported PostgreSQL Version
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      - name: make some stuff
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && env.DIFF != ''
         run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
-          rustup component add llvm-tools-preview
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-
-      - name: Install pg-schema-diff and its required dependencies
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          sudo apt install clang llvm
-          cargo install --git https://github.com/zombodb/pg-schema-diff.git
-
-      - name: Extract pgrx version & Install cargo-pgrx
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION}
-          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-
-      - name: Generate Schema from this rev
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
-
-      - name: Switch to base rev and do it again (installing different pgrx if necessary)
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          # switch to the base rev
-          git checkout ${{ github.event.pull_request.base.ref }}
-
-          # see if we need a different cargo-pgrx and install it if so
-          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-          if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
-            cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force
-            cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          fi
-
-          # generate schema
-          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
-
-      - name: Generate schema diff
-        id: schema_diff
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
-          cat ~/diff.sql
           {
             echo 'DIFF<<EOF'
-            cat ~/diff.sql
+            echo '```sql'
+            echo 'A schema difference was detected:'
+            echo " 'hi there, mom' "
+            echo '```'
             echo EOF
           } >> "$GITHUB_ENV"
 
@@ -138,9 +153,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: 'A schema difference was detected:
-                     ```sql
-                     ${{ env.DIFF }}
-                     ```
-                    '
+              body: `${{ env.DIFF }}`
             })

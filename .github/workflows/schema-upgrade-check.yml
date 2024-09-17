@@ -127,7 +127,7 @@ jobs:
       - name: Generate schema diffs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
+          pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql
           (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
 
       - name: Generate commit message

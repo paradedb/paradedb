@@ -145,6 +145,8 @@ jobs:
 
       - name: Attach diff to PR
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && env.DIFF != ''
+        env:
+          COMMENT_BODY: ${{ env.DIFF }}
         uses: actions/github-script@v6
         with:
           script: |
@@ -152,5 +154,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: ${{ env.DIFF }}
+              body: process.env.DIFF
             })

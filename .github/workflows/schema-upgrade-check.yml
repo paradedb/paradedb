@@ -128,12 +128,26 @@ jobs:
         id: schema_diff
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
+          pg-schema-diff diff ~/old.sql ~/this.sql > ~/upgrade-diff.sql
+          diff ~/old.sql ~/this.sql > ~/diff.patch
           cat ~/diff.sql
+
           if [[ -s ~/diff.sql ]]; then
             {
               echo 'DIFF<<EOF'
+              echo 'A schema difference was detected.'
+              echo
+              echo 'A suggested "upgrade.sql" script entry might be:'
+              echo
+              echo '```sql'
+              cat ~/upgrade-diff.sql
+              echo '```'
+              echo
+              echo 'The full diff between both schemas is:'
+              echo
+              echo '```diff'
               cat ~/diff.sql
+              echo '```'
               echo EOF
             } >> "$GITHUB_ENV"
           fi

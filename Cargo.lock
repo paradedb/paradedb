@@ -5210,7 +5210,6 @@ dependencies = [
  "humansize",
  "libc",
  "mockall",
- "once_cell",
  "os_info",
  "parking_lot",
  "pgrx",

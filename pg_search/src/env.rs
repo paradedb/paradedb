@@ -15,13 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use shared::postgres::transaction::Transaction;
-use std::panic::AssertUnwindSafe;
-use std::{ffi::CStr, path::PathBuf, sync::Arc};
-use tracing::warn;
+use std::{ffi::CStr, path::PathBuf};
 
 /// We use this global variable to cache any values that can be re-used
 /// after initialization.
@@ -44,48 +40,4 @@ pub fn postgres_data_dir_path() -> PathBuf {
             PathBuf::from(data_dir)
         })
         .clone()
-}
-
-pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
-    writer: &Arc<Mutex<W>>,
-    directory: WriterDirectory,
-) {
-    let writer_client = Clone::clone(writer);
-    let commit_directory = directory.clone();
-    Transaction::call_once_on_precommit(
-        directory.clone().index_oid,
-        AssertUnwindSafe(move || {
-            // This lock must happen in an enclosing block so it is dropped and
-            // release before a possible panic.
-            if let Err(err) = writer_client.lock().request(WriterRequest::Commit {
-                directory: commit_directory,
-            }) {
-                panic!("error with request to writer in commit callback: {err}");
-            }
-        }),
-    );
-
-    let writer_client = Clone::clone(writer);
-    let abort_directory = directory.clone();
-    Transaction::call_once_on_abort(
-        directory.clone().index_oid,
-        AssertUnwindSafe(move || {
-            {
-                // This lock must happen in an enclosing block so it is dropped and
-                // release before a possible panic.
-                if let Err(err) = writer_client.lock().request(WriterRequest::Abort {
-                    directory: abort_directory,
-                }) {
-                    // we're already in a transaction ABORT state and cannot panic again otherwise
-                    // Postgres will PANIC, which crashes the whole cluster
-
-                    warn!("error with request to writer in abort callback: {err}");
-                }
-            }
-        }),
-    );
-}
-
-pub fn needs_commit(index_oid: u32) -> bool {
-    Transaction::needs_commit(index_oid)
 }

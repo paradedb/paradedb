@@ -18,8 +18,8 @@
 use pgrx::{pg_sys::ItemPointerData, *};
 
 use crate::{
-    env::register_commit_callback, globals::WriterGlobal, index::SearchIndex,
-    postgres::utils::relfilenode_from_index_oid, writer::WriterDirectory,
+    globals::WriterGlobal, index::SearchIndex, postgres::utils::relfilenode_from_index_oid,
+    writer::WriterDirectory,
 };
 
 #[pg_guard]
@@ -51,7 +51,6 @@ pub extern "C" fn ambulkdelete(
     }
 
     let writer_client = WriterGlobal::client();
-    register_commit_callback(&writer_client, search_index.directory.clone());
 
     if let Some(actual_callback) = callback {
         let should_delete = |ctid_val| unsafe {

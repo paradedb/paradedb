@@ -22,8 +22,7 @@ use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::writer::WriterDirectory;
-use pgrx::itemptr::u64_to_item_pointer;
+use crate::{env::needs_commit, writer::WriterDirectory};
 use pgrx::*;
 
 type SearchResultIter = SearchResults;
@@ -162,7 +161,7 @@ pub extern "C" fn amgettuple(
     match iter.next() {
         Some((scored, _)) => {
             let tid = unsafe { &mut (*scan).xs_heaptid };
-            u64_to_item_pointer(scored.ctid, tid);
+            crate::postgres::utils::u64_to_item_pointer(scored.ctid, tid);
 
             true
         }
@@ -185,7 +184,7 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
     let mut cnt = 0i64;
     for (scored, _) in iter {
         let mut tid = pg_sys::ItemPointerData::default();
-        u64_to_item_pointer(scored.ctid, &mut tid);
+        crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut tid);
 
         unsafe {
             // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been

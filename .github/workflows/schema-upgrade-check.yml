@@ -118,11 +118,12 @@ jobs:
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
       - name: Generate schema diff
+        id: schema_diff
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
-          echo "DIFF=$(cat ~/diff.sql)" >> $GITHUB_ENV
           cat ~/diff.sql
+          cat ~/diff.sql >> $GITHUB_OUTPUT
 
       - name: Attach diff to PR
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && env.DIFF != ''
@@ -135,7 +136,7 @@ jobs:
               repo: context.repo.repo,
               body: 'A schema difference was detected:
                      ```sql
-                     ${{ env.DIFF }}
+                     ${{ steps.schema_diff.outputs.* }}
                      ```
                     '
             })

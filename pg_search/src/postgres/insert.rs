@@ -22,6 +22,8 @@ use crate::writer::WriterDirectory;
 use crate::{env::register_commit_callback, globals::WriterGlobal};
 use pgrx::*;
 
+use super::utils::relfilenode_from_index_oid;
+
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
@@ -82,7 +84,12 @@ unsafe fn aminsert_internal(
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let tupdesc = index_relation_ref.tuple_desc();
     let index_name = index_relation_ref.name();
-    let directory = WriterDirectory::from_index_oid(index_relation_ref.oid().as_u32());
+
+    let index_oid = index_relation_ref.oid().as_u32();
+    let relfilenode = relfilenode_from_index_oid(index_oid);
+    let database_oid = crate::MyDatabaseId();
+
+    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
     let search_index = SearchIndex::from_cache(&directory, uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let search_document =
@@ -92,12 +99,11 @@ unsafe fn aminsert_internal(
             });
 
     let writer_client = WriterGlobal::client();
-    register_commit_callback(&writer_client, search_index.directory.clone())
-        .expect("could not register commit callbacks for insert operation");
+    register_commit_callback(&writer_client, search_index.directory.clone());
 
     search_index
         .insert(&writer_client, search_document)
-        .unwrap_or_else(|err| panic!("error inserting document during insert callback: {err:?}"));
+        .unwrap_or_else(|err| panic!("error inserting document during insert callback.  See Postgres log for more information: {err:?}"));
 
     true
 }

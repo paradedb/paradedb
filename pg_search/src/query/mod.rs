@@ -462,11 +462,17 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(query))
             }
-            Self::Parse { query_string } => {
-                Ok(Box::new(parser.parse_query(&query_string).map_err(
-                    |err| QueryError::ParseError(err, query_string),
-                )?))
-            }
+            Self::Parse { query_string } => match config.lenient_parsing {
+                Some(true) => {
+                    let (parsed_query, _) = parser.parse_query_lenient(&query_string);
+                    Ok(Box::new(parsed_query))
+                }
+                _ => {
+                    Ok(Box::new(parser.parse_query(&query_string).map_err(
+                        |err| QueryError::ParseError(err, query_string),
+                    )?))
+                }
+            },
             Self::Phrase {
                 field,
                 phrases,

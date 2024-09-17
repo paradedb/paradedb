@@ -7,12 +7,7 @@ title: Fuzzy Phrase
 ## Basic Usage
 
 `fuzzy_phrase` is like `fuzzy_term` but for query phrases that are comprised of multiple tokens.
-`fuzzy_phrase` finds documents that match against **any one** of the query tokens.
-
-<Note>
-  Setting `match_all_terms` to `true` makes it so that **all** query tokens must
-  match in order for a document to be considered a match.
-</Note>
+Unlike a typical phrase query, `fuzzy_phrase` finds documents that are a fuzzy match against **any one** of the query tokens.
 
 ```sql
 SELECT * FROM search_idx.search(
@@ -49,3 +44,16 @@ SELECT * FROM search_idx.search(
   When set to `true`, **all** tokens of the query have to match in order for a
   document to be considered a match.
 </ParamField>
+
+Setting `match_all_terms` to `true` makes it so that **all** query tokens must
+match in order for a document to be considered a match.
+
+```sql
+SELECT * FROM search_idx.search(
+    query => paradedb.fuzzy_phrase(
+        field => 'description',
+        value => 'ruining shoez',
+        match_all_terms => true
+    )
+);
+```

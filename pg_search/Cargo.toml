@@ -31,6 +31,7 @@ json5 = "0.4.1"
 libc = "0.2.158"
 memoffset = "0.9.1"
 once_cell = "1.19.0"
+parking_lot = "0.12.3"
 tokenizers = { version = "0.9.4", path = "../tokenizers" }
 pgrx = "0.12.4"
 reqwest = "0.11.27"

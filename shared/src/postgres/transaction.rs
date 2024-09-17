@@ -16,14 +16,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use pgrx::{register_xact_callback, PgXactCallbackEvent};
+use std::sync::Arc;
 use std::{
     collections::HashSet,
     panic::{RefUnwindSafe, UnwindSafe},
-    sync::{Arc, Mutex, PoisonError},
 };
-use thiserror::Error;
-use tracing::error;
 
 type TransactionCallbackCache = Lazy<Arc<Mutex<HashSet<u32>>>>;
 
@@ -39,34 +38,33 @@ static TRANSACTION_CALL_ONCE_ON_ABORT_CACHE: TransactionCallbackCache =
 pub struct Transaction {}
 
 impl Transaction {
-    pub fn needs_commit(id: u32) -> Result<bool, TransactionError> {
-        let cache = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.lock()?;
-        Ok(cache.contains(&id))
+    pub fn needs_commit(id: u32) -> bool {
+        TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE
+            .lock()
+            .contains(&id)
     }
 
-    pub fn clear_commit_abort_caches(id: u32) -> Result<(), TransactionError> {
+    pub fn clear_commit_abort_caches(id: u32) {
         TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE
             .clone()
             .lock()
-            .expect("could not acquire lock in register transaction precommit callback")
             .remove(&id);
         TRANSACTION_CALL_ONCE_ON_ABORT_CACHE
             .clone()
-            .lock()?
+            .lock()
             .remove(&id);
         TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE
             .clone()
-            .lock()?
+            .lock()
             .remove(&id);
-        Ok(())
     }
 
-    pub fn call_once_on_precommit<F>(id: u32, callback: F) -> Result<(), TransactionError>
+    pub fn call_once_on_precommit<F>(id: u32, callback: F)
     where
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
         // Clone the cache here for use inside the closure.
-        let mut cache = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.lock()?;
+        let mut cache = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.lock();
 
         if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
@@ -77,7 +75,6 @@ impl Transaction {
                 TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE
                     .clone()
                     .lock()
-                    .expect("could not acquire lock in register transaction precommit callback")
                     .remove(&cloned_id);
 
                 // Actually call the callback.
@@ -86,63 +83,45 @@ impl Transaction {
 
             cache.insert(id);
         }
-
-        Ok(())
     }
 
-    pub fn call_once_on_commit<F>(id: u32, callback: F) -> Result<(), TransactionError>
+    pub fn call_once_on_commit<F>(id: u32, callback: F)
     where
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
-        let mut cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock()?;
+        let mut cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock();
         if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
             let cloned_id = id;
             register_xact_callback(PgXactCallbackEvent::Commit, move || {
                 // Clear the caches so callbacks can be registered on next transaction.
-                Self::clear_commit_abort_caches(cloned_id)
-                    .expect("could not acquire lock in register transaction commit callback");
+                Self::clear_commit_abort_caches(cloned_id);
+
                 // Actually call the callback.
                 callback();
             });
 
             cache.insert(id);
         }
-
-        Ok(())
     }
 
-    pub fn call_once_on_abort<F>(id: u32, callback: F) -> Result<(), TransactionError>
+    pub fn call_once_on_abort<F>(id: u32, callback: F)
     where
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
-        let mut cache = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.lock()?;
+        let mut cache = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.lock();
         if !cache.contains(&id) {
             // Now using `cache_clone` inside the closure.
             let cloned_id = id;
             register_xact_callback(PgXactCallbackEvent::Abort, move || {
                 // Clear the caches so callbacks can be registered on next transaction.
-                Self::clear_commit_abort_caches(cloned_id)
-                    .expect("could not acquire lock in register transaction abort callback");
+                Self::clear_commit_abort_caches(cloned_id);
+
                 // Actually call the callback.
                 callback();
             });
 
             cache.insert(id);
         }
-
-        Ok(())
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum TransactionError {
-    #[error("could not acquire lock in transaction callback")]
-    AcquireLock,
-}
-
-impl<T> From<PoisonError<T>> for TransactionError {
-    fn from(_: PoisonError<T>) -> Self {
-        TransactionError::AcquireLock
     }
 }

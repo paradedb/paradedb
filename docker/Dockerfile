@@ -9,13 +9,10 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.80.0
-ARG PGRX_VERSION=0.12.4
-ARG PGRX_VERSION_PG_VECTOR_SCALE=0.11.4
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     RUST_VERSION=${RUST_VERSION} \
-    PGRX_VERSION=${PGRX_VERSION} \
     PGRX_VERSION_PG_VECTOR_SCALE=${PGRX_VERSION_PG_VECTOR_SCALE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
@@ -41,9 +38,17 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
+# Copy Cargo.toml because we need to extract the pgrx version
+WORKDIR /tmp
+COPY pg_search/Cargo.toml ./
+
 # Intall the pgrx version of pg_search and pg_analytics
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
+    echo "PGRX_VERSION=$PGRX_VERSION" && \
+    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+RUN rm -rf /tmp/Cargo.toml
 
 ######################
 # pg_search
@@ -114,16 +119,22 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 
 FROM builder AS builder-pgvectorscale
 
-# Intall the pgrx version of pgvectorscale
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_VECTOR_SCALE}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 ARG TARGETARCH
 
-# Build the extension
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
+# Clone the pgvectorscale repository
 WORKDIR /tmp
 RUN git clone --branch 0.3.0 https://github.com/timescale/pgvectorscale.git
 WORKDIR /tmp/pgvectorscale/pgvectorscale
+
+# Intall the pgrx version of pgvectorscale
+RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pgvectorscale | head -n 1 | cut -f2 -dv) && \
+    echo "PGRX_VERSION=$PGRX_VERSION" && \
+    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+# Build the extension
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         # Required for pgvectorscale to compile on x86_64/amd64
         RUSTFLAGS="-C target-feature=+avx2,+fma" cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"; \

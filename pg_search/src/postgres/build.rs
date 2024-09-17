@@ -19,12 +19,11 @@ use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::row_to_search_document;
+use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
-use std::panic::{self, AssertUnwindSafe};
 use tantivy::schema::IndexRecordOption;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -55,6 +54,8 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
+    let database_oid = crate::MyDatabaseId();
+    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
@@ -221,7 +222,8 @@ pub extern "C" fn ambuild(
     }
 
     let writer_client = WriterGlobal::client();
-    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+    let directory =
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
 
     SearchIndex::create_index(
         &writer_client,
@@ -250,7 +252,7 @@ fn do_heap_scan<'a>(
     uuid: String,
 ) -> BuildState {
     let mut state = BuildState::new(uuid);
-    let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+    unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),
@@ -258,7 +260,7 @@ fn do_heap_scan<'a>(
             Some(build_callback),
             &mut state,
         );
-    }));
+    }
     state
 }
 
@@ -315,7 +317,11 @@ unsafe fn build_callback_internal(
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
             let index_oid = index_relation_ref.oid();
-            let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+            let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+            let database_oid = crate::MyDatabaseId();
+
+            let directory =
+                WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
                 .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
             let search_document =
@@ -332,11 +338,10 @@ unsafe fn build_callback_internal(
             search_index
                 .insert(&writer_client, search_document)
                 .unwrap_or_else(|err| {
-                    panic!("error inserting document during build callback: {err:?}")
+                    panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
 
-            register_commit_callback(&writer_client, search_index.directory.clone())
-                .expect("could not register commit callbacks for build operation");
+            register_commit_callback(&writer_client, search_index.directory.clone());
         });
         state.memctx.reset();
 

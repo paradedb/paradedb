@@ -98,14 +98,22 @@ fn anyelement_jsonb_opoid() -> pg_sys::Oid {
     }
 }
 
-fn estimate_selectivity(heaprelid: pg_sys::Oid, search_config: &SearchConfig) -> Option<f64> {
+fn estimate_selectivity(
+    heaprelid: pg_sys::Oid,
+    relfilenode: pg_sys::Oid,
+    search_config: &SearchConfig,
+) -> Option<f64> {
     let reltuples = unsafe { PgRelation::open(heaprelid).reltuples().unwrap_or(1.0) as f64 };
     if !reltuples.is_normal() || reltuples.is_sign_negative() {
         // we can't estimate against a non-normal or negative estimate of heap tuples
         return None;
     }
 
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+    let directory = WriterDirectory::from_oids(
+        search_config.database_oid,
+        search_config.index_oid,
+        relfilenode.as_u32(),
+    );
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
@@ -188,7 +196,7 @@ unsafe fn make_search_config_opexpr_node(
 
     // copy that node into the current memory context and return it
     let node = PgMemoryContexts::CurrentMemoryContext
-        .copy_ptr_into(&mut newopexpr, size_of::<pg_sys::OpExpr>());
+        .copy_ptr_into(&mut newopexpr, std::mem::size_of::<pg_sys::OpExpr>());
 
     ReturnedNodePointer(NonNull::new(node.cast()))
 }

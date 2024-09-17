@@ -90,79 +90,104 @@
       ]
     },
     {
-      "group": "API",
+      "group": "Search",
       "pages": [
         "api-reference/introduction",
         {
-          "group": "Indexing",
+          "group": "Concepts",
           "pages": [
-            "api-reference/indexing/overview",
-            "api-reference/indexing/create_index",
-            "api-reference/indexing/inspect_index",
-            "api-reference/indexing/delete_index",
-            "api-reference/indexing/partitioned",
-            "api-reference/indexing/partial",
-            "api-reference/indexing/tokenizers",
-            "api-reference/indexing/token_filters",
-            "api-reference/indexing/fast_fields",
-            "api-reference/indexing/record"
+            "api-reference/concepts/aggregation",
+            "api-reference/concepts/bm25",
+            "api-reference/concepts/faceting",
+            "api-reference/concepts/index",
+            "api-reference/concepts/matching",
+            "api-reference/concepts/phrase",
+            "api-reference/concepts/search",
+            "api-reference/concepts/stemming",
+            "api-reference/concepts/tantivy",
+            "api-reference/concepts/term"
           ]
         },
         {
-          "group": "Full Text Search",
+          "group": "Reference",
           "pages": [
-            "api-reference/full-text/overview",
-            "api-reference/full-text/term",
-            "api-reference/full-text/phrase",
-            "api-reference/full-text/json",
-            "api-reference/full-text/filtering",
-            "api-reference/full-text/pagination",
-            "api-reference/full-text/scoring",
-            "api-reference/full-text/highlighting",
-            "api-reference/full-text/sorting",
-            "api-reference/full-text/boosting"
+            {
+              "group": "Indexing",
+              "pages": [
+                "api-reference/indexing/create_index",
+                "api-reference/indexing/inspect_index",
+                "api-reference/indexing/delete_index",
+                "api-reference/indexing/partitioned",
+                "api-reference/indexing/partial",
+                "api-reference/indexing/tokenizers",
+                "api-reference/indexing/token_filters",
+                "api-reference/indexing/fast_fields",
+                "api-reference/indexing/record"
+              ]
+            },
+            {
+              "group": "Full Text Search",
+              "pages": [
+                "api-reference/full-text/overview",
+                "api-reference/full-text/term",
+                "api-reference/full-text/phrase",
+                "api-reference/full-text/json",
+                "api-reference/full-text/filtering",
+                "api-reference/full-text/pagination",
+                "api-reference/full-text/scoring",
+                "api-reference/full-text/highlighting",
+                "api-reference/full-text/sorting",
+                "api-reference/full-text/boosting"
+              ]
+            },
+            {
+              "group": "Query Builder",
+              "pages": [
+                "api-reference/advanced/overview",
+                "api-reference/advanced/all",
+                "api-reference/advanced/boolean",
+                "api-reference/advanced/boost",
+                "api-reference/advanced/const",
+                "api-reference/advanced/disjunction_max",
+                "api-reference/advanced/empty",
+                "api-reference/advanced/exists",
+                "api-reference/advanced/fuzzy_term",
+                "api-reference/advanced/fuzzy_phrase",
+                "api-reference/advanced/more_like_this",
+                "api-reference/advanced/phrase",
+                "api-reference/advanced/phrase_prefix",
+                "api-reference/advanced/range",
+                "api-reference/advanced/regex",
+                "api-reference/advanced/term",
+                "api-reference/advanced/term_set"
+              ]
+            },
+            {
+              "group": "Faceting",
+              "pages": [
+                "api-reference/faceting/overview",
+                "api-reference/faceting/metric",
+                "api-reference/faceting/bucket"
+              ]
+            },
+            {
+              "group": "Similarity Search",
+              "pages": [
+                "api-reference/similarity/overview",
+                "api-reference/similarity/index",
+                "api-reference/similarity/search"
+              ]
+            }
           ]
         },
         {
-          "group": "Query Builder",
+          "group": "Tutorials",
           "pages": [
-            "api-reference/advanced/overview",
-            "api-reference/advanced/all",
-            "api-reference/advanced/boolean",
-            "api-reference/advanced/boost",
-            "api-reference/advanced/const",
-            "api-reference/advanced/disjunction_max",
-            "api-reference/advanced/empty",
-            "api-reference/advanced/exists",
-            "api-reference/advanced/fuzzy_term",
-            "api-reference/advanced/fuzzy_phrase",
-            "api-reference/advanced/more_like_this",
-            "api-reference/advanced/phrase",
-            "api-reference/advanced/phrase_prefix",
-            "api-reference/advanced/range",
-            "api-reference/advanced/regex",
-            "api-reference/advanced/term",
-            "api-reference/advanced/term_set"
+            "api-reference/guides/overview",
+            "api-reference/guides/autocomplete",
+            "api-reference/guides/hybrid"
           ]
-        },
-        {
-          "group": "Faceting",
-          "pages": [
-            "api-reference/faceting/overview",
-            "api-reference/faceting/metric",
-            "api-reference/faceting/bucket"
-          ]
-        },
-        {
-          "group": "Similarity Search",
-          "pages": [
-            "api-reference/similarity/overview",
-            "api-reference/similarity/index",
-            "api-reference/similarity/search",
-            "api-reference/similarity/hybrid"
-          ]
-        },
-        "api-reference/autocomplete"
+        }
       ]
     },
     {

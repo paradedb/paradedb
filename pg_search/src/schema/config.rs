@@ -27,6 +27,7 @@ pub struct SearchConfig {
     pub index_name: String,
     pub index_oid: u32,
     pub table_oid: u32,
+    pub database_oid: u32,
     pub key_field: String,
     pub offset_rows: Option<usize>,
     pub limit_rows: Option<usize>,
@@ -38,6 +39,8 @@ pub struct SearchConfig {
     pub uuid: String,
     pub order_by_field: Option<String>,
     pub order_by_direction: Option<String>,
+    pub lenient_parsing: Option<bool>,
+    pub conjunction_mode: Option<bool>,
 }
 
 impl SearchConfig {
@@ -150,6 +153,7 @@ impl From<(SearchQueryInput, IndexRelation)> for SearchConfig {
             index_name: indexrel.name().to_string(),
             index_oid: indexrel.oid().as_u32(),
             table_oid: indexrel.heap_relation().unwrap().oid().as_u32(),
+            database_oid: crate::MyDatabaseId(),
             key_field: ops.get_key_field().unwrap().to_string(),
             offset_rows: None,
             limit_rows: None,
@@ -161,6 +165,8 @@ impl From<(SearchQueryInput, IndexRelation)> for SearchConfig {
             uuid: ops.get_uuid().unwrap(),
             order_by_field: None,
             order_by_direction: None,
+            conjunction_mode: None,
+            lenient_parsing: None,
         }
     }
 }

@@ -17,9 +17,10 @@
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use tantivy::{query::QueryParser, Executor, Index, Searcher};
 use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
 use thiserror::Error;
@@ -82,7 +83,7 @@ impl SearchIndex {
         uuid: String,
         key_field_index: usize,
     ) -> Result<&'static mut Self, SearchIndexError> {
-        writer.lock()?.request(WriterRequest::CreateIndex {
+        writer.lock().request(WriterRequest::CreateIndex {
             directory: directory.clone(),
             fields,
             uuid: uuid.clone(),
@@ -181,15 +182,21 @@ impl SearchIndex {
             .map(|space| space.total().get_bytes())?)
     }
 
-    pub fn query_parser(&self) -> QueryParser {
-        QueryParser::for_index(
+    pub fn query_parser(&self, config: &SearchConfig) -> QueryParser {
+        let mut query_parser = QueryParser::for_index(
             &self.underlying_index,
             self.schema
                 .fields
                 .iter()
                 .map(|search_field| search_field.id.0)
                 .collect::<Vec<_>>(),
-        )
+        );
+
+        if let Some(true) = config.conjunction_mode {
+            query_parser.set_conjunction_by_default();
+        }
+
+        query_parser
     }
 
     pub fn search_state<W: WriterClient<WriterRequest>>(
@@ -200,7 +207,7 @@ impl SearchIndex {
     ) -> Result<SearchState, SearchIndexError> {
         // Commit any inserts or deletes that have occurred during this transaction.
         if needs_commit {
-            writer.lock()?.request(WriterRequest::Commit {
+            writer.lock().request(WriterRequest::Commit {
                 directory: self.directory.clone(),
             })?
         }
@@ -242,7 +249,7 @@ impl SearchIndex {
         let WriterTransferPipeFilePath(pipe_path) =
             self.directory.writer_transfer_pipe_path(true)?;
 
-        writer.lock()?.transfer(pipe_path, request)?;
+        writer.lock().transfer(pipe_path, request)?;
 
         Ok(())
     }
@@ -283,25 +290,24 @@ impl SearchIndex {
             ctids: ctids_to_delete,
             directory: self.directory.clone(),
         };
-        writer.lock()?.request(request)?;
+        writer.lock().request(request)?;
 
         Ok((deleted, not_deleted))
     }
 
     pub fn drop_index<W: WriterClient<WriterRequest>>(
         writer: &Arc<Mutex<W>>,
-        index_oid: u32,
+        directory: &WriterDirectory,
     ) -> Result<(), SearchIndexError> {
-        let directory = WriterDirectory::from_index_oid(index_oid);
         let request = WriterRequest::DropIndex {
             directory: directory.clone(),
         };
 
         // Request the background writer process to physically drop the index.
-        writer.lock()?.request(request)?;
+        writer.lock().request(request)?;
 
         // Drop the index from this connection's cache.
-        unsafe { Self::drop_from_cache(&directory).map_err(SearchIndexError::from)? }
+        unsafe { Self::drop_from_cache(directory).map_err(SearchIndexError::from)? }
 
         Ok(())
     }
@@ -313,7 +319,7 @@ impl SearchIndex {
         let request = WriterRequest::Vacuum {
             directory: self.directory.clone(),
         };
-        writer.lock()?.request(request)?;
+        writer.lock().request(request)?;
         Ok(())
     }
 }
@@ -364,6 +370,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
 }
 
 #[derive(Error, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum SearchIndexError {
     #[error(transparent)]
     SchemaError(#[from] SearchIndexSchemaError),
@@ -378,9 +385,6 @@ pub enum SearchIndexError {
     TantivyError(#[from] tantivy::error::TantivyError),
 
     #[error(transparent)]
-    TransactionError(#[from] shared::postgres::transaction::TransactionError),
-
-    #[error(transparent)]
     IOError(#[from] std::io::Error),
 
     #[error(transparent)]
@@ -389,17 +393,8 @@ pub enum SearchIndexError {
     #[error(transparent)]
     WriterDirectoryError(#[from] SearchDirectoryError),
 
-    #[error("mutex lock on writer client failed: {0}")]
-    WriterClientRace(String),
-
     #[error(transparent)]
     AnyhowError(#[from] anyhow::Error),
-}
-
-impl<T> From<PoisonError<T>> for SearchIndexError {
-    fn from(err: PoisonError<T>) -> Self {
-        SearchIndexError::WriterClientRace(format!("{}", err))
-    }
 }
 
 #[cfg(test)]

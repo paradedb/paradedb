@@ -4,13 +4,14 @@ title: Term Search
 
 ## Basic Usage
 
-Terms must be prefixed by the field name.
+Searches for the presence of a specific [term](/api-reference/concepts/term). Terms must be prefixed by the field name.
 
 ```sql
 SELECT * FROM search_idx.search('description:keyboard');
 ```
 
-At search time, the query `keyboard` is automatically tokenized in the same way that the `description` field is tokenized.
+If the provided term can be tokenized further, the tokenization is automatically applied at search time using the same tokenizer
+as the prefixed field.
 
 ## Multiple Terms
 

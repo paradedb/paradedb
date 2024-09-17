@@ -49,3 +49,30 @@ fn json_datatype(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 }
+
+#[rstest]
+fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
+    // ensure that we can index top-level json arrays that are strings.
+    // Prior to 82fb7126ce6d2368cf19dd4dc6e28915afc5cf1e (PR #1618, <=v0.9.4) this didn't work
+
+    r#"
+    call paradedb.drop_bm25('crash');
+    drop table if exists crash cascade;
+    
+    create table crash
+    (
+        id serial8,
+        j  jsonb
+    );
+    
+    INSERT INTO crash (j) SELECT '["one-element-string-array"]' FROM generate_series(1, 10000);
+    
+    call paradedb.create_bm25(
+            table_name => 'crash',
+            index_name => 'crash',
+            key_field => 'id',
+            json_fields => paradedb.field('j', indexed => true, fast => true)
+         );
+    "#
+    .execute(&mut conn);
+}

@@ -51,6 +51,9 @@ jobs:
       - name: Checkout Git Repository
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
+        # we need to whole repo b/c we switch revs later on
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

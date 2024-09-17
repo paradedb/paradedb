@@ -162,10 +162,10 @@ pub fn boost(boost: f32, query: SearchQueryInput) -> SearchQueryInput {
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn const_score(const_score_value: f32, query: SearchQueryInput) -> SearchQueryInput {
+pub fn const_score(score: f32, query: SearchQueryInput) -> SearchQueryInput {
     SearchQueryInput::ConstScore {
         query: Box::new(query),
-        score: const_score_value,
+        score,
     }
 }
 

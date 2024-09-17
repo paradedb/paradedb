@@ -20,7 +20,7 @@ on:
 
 # because we may post a comment to the PR
 permissions:
-  contents: write
+  issues: write
 
 concurrency:
   group: schema-upgrade-check-pg_search-${{ github.head_ref || github.ref }}

@@ -17,17 +17,87 @@
 
 use crate::index::state::SearchState;
 use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
+use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::writer::{Client, WriterDirectory, WriterRequest};
 use crate::{globals::WriterGlobal, index::SearchIndex};
 use parking_lot::Mutex;
 use pgrx::pg_sys::FunctionCallInfo;
 use pgrx::{prelude::TableIterator, *};
+use serde_json::json;
 use std::sync::Arc;
 use tantivy::TantivyDocument;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
+
+#[allow(clippy::too_many_arguments)]
+#[pg_extern(name = "search")]
+fn search_with_text(
+    query: String,
+    offset_rows: Option<i32>,
+    limit_rows: Option<i32>,
+    alias: Option<String>,
+    stable_sort: Option<bool>,
+    highlight_field: Option<String>,
+    postfix: Option<String>,
+    prefix: Option<String>,
+    max_num_chars: Option<i32>,
+    order_by_field: Option<String>,
+    order_by_direction: Option<String>,
+    lenient_parsing: Option<bool>,
+    conjunction_mode: Option<bool>,
+) -> JsonB {
+    JsonB(json!({
+        "query": super::index::parse(query),
+        "offset_rows": offset_rows,
+        "limit_rows": limit_rows,
+        "alias": alias,
+        "stable_sort": stable_sort,
+        "highlight_field": highlight_field,
+        "postfix": postfix,
+        "prefix": prefix,
+        "max_num_chars": max_num_chars,
+        "order_by_field": order_by_field,
+        "order_by_direction": order_by_direction,
+        "lenient_parsing": lenient_parsing,
+        "conjunction_mode": conjunction_mode,
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[pg_extern(name = "search")]
+fn search_with_query_input(
+    query: SearchQueryInput,
+    offset_rows: Option<i32>,
+    limit_rows: Option<i32>,
+    alias: Option<String>,
+    stable_sort: Option<bool>,
+    highlight_field: Option<String>,
+    postfix: Option<String>,
+    prefix: Option<String>,
+    max_num_chars: Option<i32>,
+    order_by_field: Option<String>,
+    order_by_direction: Option<String>,
+    lenient_parsing: Option<bool>,
+    conjunction_mode: Option<bool>,
+) -> JsonB {
+    JsonB(json!({
+        "query": query,
+        "offset_rows": offset_rows,
+        "limit_rows": limit_rows,
+        "alias": alias,
+        "stable_sort": stable_sort,
+        "highlight_field": highlight_field,
+        "postfix": postfix,
+        "prefix": prefix,
+        "max_num_chars": max_num_chars,
+        "order_by_field": order_by_field,
+        "order_by_direction": order_by_direction,
+        "lenient_parsing": lenient_parsing,
+        "conjunction_mode": conjunction_mode,
+    }))
+}
 
 #[pg_extern(name = "rank_bm25")]
 pub fn rank_bm25(_key: AnyElement, _alias: default!(Option<String>, "NULL")) -> f32 {

@@ -22,7 +22,7 @@ use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::{env::needs_commit, writer::WriterDirectory};
+use crate::writer::WriterDirectory;
 use pgrx::*;
 
 type SearchResultIter = SearchResults;

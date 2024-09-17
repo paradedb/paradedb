@@ -84,7 +84,6 @@ jobs:
 
       - name: Extract pgrx version & Install cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
         run: |
           PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
           echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
@@ -95,7 +94,6 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
-          cat ~/this.sql
 
       - name: Switch to base rev
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -104,7 +102,6 @@ jobs:
 
       - name: Extract pgrx version & Install cargo-pgrx for base rev (pgrx version could be different)
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
         run: |
           THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
           if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
@@ -116,13 +113,32 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
-          cat ~/old.sql
 
       - name: Install pg-schema-diff
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           sudo apt install clang llvm
           cargo install --git https://github.com/zombodb/pg-schema-diff.git
 
       - name: Generate schema diff
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          pg-schema-diff diff ~/old.sql ~/this.sql
+          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
+          echo "export DIFF=$(cat ~/diff.sql)" >> $GITHUB_ENV
+          cat ~/diff.sql
+
+      - name: Attach diff to PR
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && env.DIFF != ''
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'A schema difference was detected:
+                     ```sql
+                     ${{ env.DIFF }}
+                     ```
+                    '
+            })

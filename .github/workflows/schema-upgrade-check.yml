@@ -18,6 +18,10 @@ on:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
 
+# because we may post a comment to the PR
+permissions:
+  contents: write
+
 concurrency:
   group: schema-upgrade-check-pg_search-${{ github.head_ref || github.ref }}
   cancel-in-progress: true

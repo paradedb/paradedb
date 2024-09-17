@@ -133,7 +133,6 @@ jobs:
       #          } >> "$GITHUB_ENV"
 
       - name: make some stuff
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && env.DIFF != ''
         run: |
           {
             echo 'DIFF<<EOF'

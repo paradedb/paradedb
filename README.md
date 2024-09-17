@@ -105,7 +105,7 @@ ALTER SYSTEM SET paradedb.pg_analytics_telemetry TO 'off';
 
 ### Helm Chart
 
-ParadeDB is also available for Kubernetes via our Helm chart. You can find our Helm chart in the [ParadeDB Helm Chart GitHub repository](https://github.com/paradedb/helm-charts) or download it directly from [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
+ParadeDB is also available for Kubernetes via our Helm chart. You can find our Helm chart in the [ParadeDB Helm Chart GitHub repository](https://github.com/paradedb/charts) or download it directly from [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
 ### ParadeDB Cloud
 

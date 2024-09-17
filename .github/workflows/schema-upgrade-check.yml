@@ -125,12 +125,14 @@ jobs:
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
       - name: Generate schema diff
-        id: schema_diff
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql
           diff ~/old.sql ~/this.sql > ~/diff.patch
 
+      - name: Generate commit message
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
           if test -s ~/diff.sql; then
             echo generating github comment message
             {

@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::env::{needs_commit, register_commit_callback};
 use crate::index::state::SearchState;
 use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
 use crate::schema::SearchConfig;
@@ -208,12 +207,12 @@ pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
         // Drop the Tantivy data directory.
         // It's expected that this will be queued to actually perform the delete upon
         // transaction commit.
-        SearchIndex::drop_index(&writer_client, &directory)
-            .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
+        let search_index = SearchIndex::from_disk(&directory)
+            .expect("index directory should be a valid SearchIndex");
 
-        // The physical delete will happen when the transaction commits, so a commit callback
-        // must be registered.
-        register_commit_callback(&writer_client, directory.clone())
+        search_index
+            .drop_index(&writer_client, &directory)
+            .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
     }
 }
 
@@ -236,11 +235,7 @@ unsafe fn create_and_leak_scan_state(
     // Leaking the scan state allows us to avoid a `.collect::<Vec<_>>()` on the search results
     // of `top_docs` down below
     let scan_state = search_index
-        .search_state(
-            writer_client,
-            search_config,
-            needs_commit(search_config.index_oid),
-        )
+        .search_state(writer_client, search_config)
         .expect("could not get scan state");
 
     unsafe {

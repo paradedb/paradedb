@@ -123,7 +123,7 @@ pub extern "C" fn amrescan(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(&writer_client, &search_config, needs_commit(index_oid))
+        .search_state(&writer_client, &search_config)
         .expect("SearchState should construct cleanly");
 
     // Save the iterator onto the current memory context.

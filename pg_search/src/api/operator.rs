@@ -118,7 +118,7 @@ fn estimate_selectivity(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(&writer_client, search_config, false)
+        .search_state(&writer_client, search_config)
         .expect("SearchState creation should not fail");
     let estimate = state.estimate_docs().unwrap_or(1) as f64;
 

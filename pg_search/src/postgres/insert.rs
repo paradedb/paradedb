@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
 use crate::writer::WriterDirectory;
-use crate::{env::register_commit_callback, globals::WriterGlobal};
 use pgrx::*;
 
 use super::utils::relfilenode_from_index_oid;
@@ -99,7 +99,6 @@ unsafe fn aminsert_internal(
             });
 
     let writer_client = WriterGlobal::client();
-    register_commit_callback(&writer_client, search_index.directory.clone());
 
     search_index
         .insert(&writer_client, search_document)

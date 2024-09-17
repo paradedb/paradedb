@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -340,8 +339,6 @@ unsafe fn build_callback_internal(
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
-
-            register_commit_callback(&writer_client, search_index.directory.clone());
         });
         state.memctx.reset();
 

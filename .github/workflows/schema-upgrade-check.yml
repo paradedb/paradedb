@@ -87,7 +87,7 @@ jobs:
         working-directory: pg_search/
         run: |
           PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION}
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Generate Schema from this rev
@@ -96,12 +96,12 @@ jobs:
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
           cat ~/this.sql
 
-      - name: Extract pgrx version & Install cargo-pgrx for previous rev
+      - name: Extract pgrx version & Install cargo-pgrx for previous rev (pgrx version could be different)
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
           PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION}
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Generate Schema from base rev

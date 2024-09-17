@@ -87,6 +87,7 @@ jobs:
         working-directory: pg_search/
         run: |
           PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
           cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION}
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
@@ -105,9 +106,11 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION} --force
-          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+          if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
+            cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force
+            cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          fi
 
       - name: Generate Schema from base rev
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

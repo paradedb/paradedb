@@ -93,6 +93,7 @@ fn hybrid_deprecated(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[allow(clippy::excessive_precision)]
 fn reciprocal_rank_fusion(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     r#"

@@ -12,7 +12,7 @@ pub enum Qual {
     },
     And(Vec<Qual>),
     Or(Vec<Qual>),
-    Not(Qual),
+    Not(Box<Qual>),
 }
 
 impl Qual {
@@ -74,7 +74,7 @@ pub unsafe fn extract_quals(node: *mut pg_sys::Node) -> Option<Qual> {
             match (*boolexpr).boolop {
                 pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
                 pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
-                pg_sys::BoolExprType::NOT_EXPR => Some(Qual::Not(quals.pop()?)),
+                pg_sys::BoolExprType::NOT_EXPR => Some(Qual::Not(Box::new(quals.pop()?))),
                 _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
             }
         }

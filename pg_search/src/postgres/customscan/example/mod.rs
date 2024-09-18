@@ -17,7 +17,6 @@
 
 mod qual_inspect;
 
-use crate::env::needs_commit;
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
@@ -332,6 +331,7 @@ impl CustomScan for Example {
             index_name: state.custom_state.index_name.clone(),
             index_oid: indexrelid,
             table_oid: state.custom_state.heaprelid().as_u32(),
+            database_oid: crate::MyDatabaseId(),
             key_field: state.custom_state.key_field.clone(),
             offset_rows: None,
             limit_rows: None,
@@ -343,19 +343,26 @@ impl CustomScan for Example {
             uuid: state.custom_state.index_uuid.clone(),
             order_by_field: None,
             order_by_direction: None,
+            lenient_parsing: None,
+            conjunction_mode: None,
         };
 
         // Create the index and scan state
-        let directory = WriterDirectory::from_index_oid(indexrelid);
+        let directory = WriterDirectory::from_oids(
+            crate::MyDatabaseId(),
+            indexrelid,
+            crate::postgres::utils::relfilenode_from_index_oid(indexrelid).as_u32(),
+        );
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
         let writer_client = WriterGlobal::client();
 
         let search_state = search_index
-            .search_state(&writer_client, &search_config, needs_commit(indexrelid))
+            .search_state(&writer_client, &search_config)
             .expect("`SearchState` should have been constructed correctly");
 
-        state.custom_state.search_results = search_state.search_minimal(SearchIndex::executor());
+        state.custom_state.search_results =
+            search_state.search_minimal(false, SearchIndex::executor());
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut TupleTableSlot {

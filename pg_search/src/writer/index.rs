@@ -146,6 +146,7 @@ impl Writer {
 
         let new_self = SearchIndex {
             reader: SearchIndex::reader(&underlying_index)?,
+            writer: None,
             underlying_index,
             directory: directory.clone(),
             schema,

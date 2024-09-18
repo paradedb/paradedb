@@ -15,6 +15,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+<<<<<<< Updated upstream
+=======
+use anyhow::Result;
+use once_cell::sync::Lazy;
+use pgrx::{direct_function_call, pg_sys, IntoDatum};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
+use tantivy::{query::QueryParser, Executor, Index, Searcher};
+use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
+use thiserror::Error;
+use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
+use tracing::trace;
+
+>>>>>>> Stashed changes
 use super::state::SearchState;
 use crate::schema::{
     SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
@@ -65,12 +80,35 @@ pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
     Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
 });
 
+struct LockHelper(i64);
+
+impl LockHelper {
+    fn acquire<T>(&self, func: impl FnOnce() -> T) -> T {
+        unsafe {
+            direct_function_call::<()>(pg_sys::pg_advisory_lock_int8, &[self.0.into_datum()]);
+            pgrx::warning!("locked");
+        }
+        func()
+    }
+
+    fn release<T>(&self, func: impl FnOnce() -> T) -> T {
+        let result = func();
+        unsafe {
+            direct_function_call::<()>(pg_sys::pg_advisory_unlock_int8, &[self.0.into_datum()]);
+            pgrx::warning!("unlocked");
+        }
+        result
+    }
+}
+
 #[derive(Serialize)]
 pub struct SearchIndex {
     pub schema: SearchIndexSchema,
     pub directory: WriterDirectory,
     #[serde(skip_serializing)]
     pub reader: IndexReader,
+    #[serde(skip_serializing)]
+    pub writer: Option<IndexWriter>,
     #[serde(skip_serializing)]
     pub underlying_index: Index,
     pub uuid: String,
@@ -270,6 +308,7 @@ impl SearchIndex {
         Ok(index_writer)
     }
 
+<<<<<<< Updated upstream
     /// Commit pending index changes to the underlying tantivy index, changing the internal state
     /// from "dirty" to clean.
     ///
@@ -331,14 +370,54 @@ impl SearchIndex {
             directory: self.directory.clone(),
             document: document.clone(),
         };
+=======
+    pub fn commit(&mut self) -> Result<()> {
+        match self.writer.take() {
+            None => Err(SearchIndexError::NoActiveTantivyWriter)?,
+            Some(mut writer) => {
+                pgrx::warning!("committing writer");
+>>>>>>> Stashed changes
 
-        let WriterTransferPipeFilePath(pipe_path) =
-            self.directory.writer_transfer_pipe_path(true)?;
+                LockHelper(42).release(|| writer.commit())?;
+                Ok(())
+            }
+        }
+    }
 
+<<<<<<< Updated upstream
         writer.lock().transfer(pipe_path, request)?;
         self.is_dirty = true;
+=======
+    pub fn abort(&mut self) -> Result<()> {
+        match self.writer.take() {
+            None => Err(SearchIndexError::NoActiveTantivyWriter)?,
+            Some(mut writer) => {
+                pgrx::warning!("aborting writer");
+>>>>>>> Stashed changes
 
-        Ok(())
+                LockHelper(42).release(|| writer.rollback())?;
+                Ok(())
+            }
+        }
+    }
+
+    pub fn insert(&mut self, document: SearchDocument) -> Result<bool, SearchIndexError> {
+        let mut created_writer = false;
+        let writer = {
+            if self.writer.is_none() {
+                pgrx::warning!("creating writer");
+                self.writer = Some(
+                    LockHelper(42)
+                        .acquire(|| self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET))?,
+                );
+                created_writer = true;
+            }
+
+            self.writer.as_mut().unwrap()
+        };
+
+        writer.add_document(document.into())?;
+        Ok(created_writer)
     }
 
     /// Using the `should_delete` argument, determine, one-by-one, if a document in this index
@@ -461,6 +540,102 @@ impl<'de> Deserialize<'de> for SearchIndex {
         let mut underlying_index =
             Index::open_in_dir(tantivy_dir_path).expect("failed to open index");
 
+        // #[derive(Clone)]
+        // struct AdvisoryLockDirectory {
+        //     index_oid: u32,
+        //     mmap: tantivy::directory::MmapDirectory,
+        // }
+        //
+        // impl Debug for AdvisoryLockDirectory {
+        //     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        //         write!(f, "AdvisoryLockDirectory({})", self.index_oid)
+        //     }
+        // }
+        //
+        // impl Directory for AdvisoryLockDirectory {
+        //     //
+        //     // delegate all of these to our underlying MmapDirectory
+        //     //
+        //
+        //     fn get_file_handle(
+        //         &self,
+        //         path: &Path,
+        //     ) -> std::result::Result<Arc<dyn FileHandle>, OpenReadError> {
+        //         self.mmap.get_file_handle(path)
+        //     }
+        //
+        //     fn open_read(&self, path: &Path) -> std::result::Result<FileSlice, OpenReadError> {
+        //         self.mmap.open_read(path)
+        //     }
+        //
+        //     fn delete(&self, path: &Path) -> std::result::Result<(), DeleteError> {
+        //         self.mmap.delete(path)
+        //     }
+        //
+        //     fn exists(&self, path: &Path) -> std::result::Result<bool, OpenReadError> {
+        //         self.mmap.exists(path)
+        //     }
+        //
+        //     fn open_write(&self, path: &Path) -> std::result::Result<WritePtr, OpenWriteError> {
+        //         self.mmap.open_write(path)
+        //     }
+        //
+        //     fn atomic_read(&self, path: &Path) -> std::result::Result<Vec<u8>, OpenReadError> {
+        //         self.mmap.atomic_read(path)
+        //     }
+        //
+        //     fn atomic_write(&self, path: &Path, data: &[u8]) -> std::io::Result<()> {
+        //         self.mmap.atomic_write(path, data)
+        //     }
+        //
+        //     fn sync_directory(&self) -> std::io::Result<()> {
+        //         self.mmap.sync_directory()
+        //     }
+        //
+        //     fn watch(&self, watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
+        //         self.mmap.watch(watch_callback)
+        //     }
+        //
+        //     //
+        //     // our custom implementation
+        //     //
+        //
+        //     fn acquire_lock(&self, lock: &Lock) -> std::result::Result<DirectoryLock, LockError> {
+        //         use pgrx::IntoDatum;
+        //         extern "C" {
+        //             fn pg_advisory_xact_lock_int4(fcinfo: FunctionCallInfo) -> Datum;
+        //             fn pg_advisory_xact_lock_shared_int4(fcinfo: FunctionCallInfo) -> Datum;
+        //         }
+        //
+        //         unsafe {
+        //             if lock.is_blocking {
+        //                 eprintln!("getting blocking lock");
+        //                 direct_function_call_as_datum_internal(
+        //                     pg_advisory_xact_lock_int4,
+        //                     &[(self.index_oid as i32).into_datum()],
+        //                 );
+        //             } else {
+        //                 eprintln!("getting shared lock");
+        //                 direct_function_call_as_datum_internal(
+        //                     pg_advisory_xact_lock_shared_int4,
+        //                     &[(self.index_oid as i32).into_datum()],
+        //                 );
+        //             }
+        //         }
+        //
+        //         eprintln!("   got it");
+        //
+        //         self.mmap.acquire_lock(lock)
+        //     }
+        // }
+        //
+        // let mut underlying_index = Index::open(AdvisoryLockDirectory {
+        //     index_oid: 42,
+        //     mmap: tantivy::directory::MmapDirectory::open(tantivy_dir_path)
+        //         .expect("tantivy_dir_path should be a valid MmapDirectory path"),
+        // })
+        // .expect("Index should be a openable");
+
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);
 
@@ -470,6 +645,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
         // Construct the SearchIndex.
         Ok(SearchIndex {
             reader,
+            writer: None,
             underlying_index,
             directory,
             schema,
@@ -496,6 +672,15 @@ pub enum SearchIndexError {
     TantivyError(#[from] tantivy::error::TantivyError),
 
     #[error(transparent)]
+<<<<<<< Updated upstream
+=======
+    TransactionError(#[from] shared::postgres::transaction::TransactionError),
+
+    #[error("No active tantivy IndexWriter to commit")]
+    NoActiveTantivyWriter,
+
+    #[error(transparent)]
+>>>>>>> Stashed changes
     IOError(#[from] std::io::Error),
 
     #[error(transparent)]
@@ -510,6 +695,46 @@ pub enum SearchIndexError {
     #[error("Index has no pending changes")]
     IndexNotDirty,
 }
+//
+// unsafe fn direct_function_call_as_datum_internal(
+//     func: unsafe extern "C" fn(pg_sys::FunctionCallInfo) -> pg_sys::Datum,
+//     args: &[Option<pg_sys::Datum>],
+// ) -> Option<pg_sys::Datum> {
+//     let nargs: i16 = args
+//         .len()
+//         .try_into()
+//         .expect("too many args passed to function");
+//     let fcinfo = libc::malloc(
+//         std::mem::size_of::<pg_sys::FunctionCallInfoBaseData>()
+//             + std::mem::size_of::<pg_sys::NullableDatum>() * args.len(),
+//     )
+//     .cast::<pg_sys::FunctionCallInfoBaseData>();
+//
+//     (*fcinfo).flinfo = std::ptr::null_mut();
+//     (*fcinfo).context = std::ptr::null_mut();
+//     (*fcinfo).resultinfo = std::ptr::null_mut();
+//     (*fcinfo).fncollation = pg_sys::InvalidOid;
+//     (*fcinfo).isnull = false;
+//     (*fcinfo).nargs = nargs;
+//
+//     let args_ptr: *mut pg_sys::NullableDatum = std::ptr::addr_of_mut!((*fcinfo).args).cast();
+//     // This block is necessary for soundness. This way, we confine the slice's lifetime
+//     // to the bounds of mutating the arguments. We later will call a function on the fcinfo,
+//     // so we want all `&mut T` to be out-of-scope by the time we do that.
+//     {
+//         let arg_slice = std::slice::from_raw_parts_mut(args_ptr, args.len());
+//         for (n_datum, arg) in arg_slice.iter_mut().zip(args) {
+//             n_datum.isnull = arg.is_none();
+//             n_datum.value = arg.unwrap_or(pg_sys::Datum::from(0));
+//         }
+//     }
+//
+//     let result = func(fcinfo);
+//     let result = if (*fcinfo).isnull { None } else { Some(result) };
+//
+//     libc::free(fcinfo.cast());
+//     result
+// }
 
 #[cfg(test)]
 mod tests {

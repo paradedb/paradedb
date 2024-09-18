@@ -83,6 +83,7 @@ unsafe fn aminsert_internal(
 ) -> bool {
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let tupdesc = index_relation_ref.tuple_desc();
+<<<<<<< Updated upstream
     let index_name = index_relation_ref.name();
 
     let index_oid = index_relation_ref.oid().as_u32();
@@ -90,19 +91,33 @@ unsafe fn aminsert_internal(
     let database_oid = crate::MyDatabaseId();
 
     let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
+=======
+    let directory = WriterDirectory::from_index_oid(index_relation_ref.oid().as_u32());
+>>>>>>> Stashed changes
     let search_index = SearchIndex::from_cache(&directory, uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let search_document =
         row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
             .unwrap_or_else(|err| {
+                let index_name = index_relation_ref.name();
                 panic!("error creating index entries for index '{index_name}': {err}",)
             });
 
+<<<<<<< Updated upstream
     let writer_client = WriterGlobal::client();
 
     search_index
         .insert(&writer_client, search_document)
         .unwrap_or_else(|err| panic!("error inserting document during insert callback.  See Postgres log for more information: {err:?}"));
+=======
+    let created_writer = search_index
+        .insert(search_document)
+        .unwrap_or_else(|err| panic!("error inserting document during insert callback: {err:?}"));
+>>>>>>> Stashed changes
+
+    if created_writer {
+        register_commit_callback(search_index);
+    }
 
     true
 }

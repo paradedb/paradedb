@@ -332,6 +332,7 @@ unsafe fn build_callback_internal(
                         );
                     });
 
+<<<<<<< Updated upstream
             let writer_client = WriterGlobal::client();
 
             search_index
@@ -339,6 +340,19 @@ unsafe fn build_callback_internal(
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
+=======
+            if state.count % 10000 == 0 {
+                pgrx::warning!("indexing row #{}", state.count);
+            }
+            let created_writer = search_index
+                .insert(search_document)
+                .expect("document insert should succeed");
+
+            if created_writer {
+                pgrx::warning!("created writer");
+                register_commit_callback(search_index);
+            }
+>>>>>>> Stashed changes
         });
         state.memctx.reset();
 

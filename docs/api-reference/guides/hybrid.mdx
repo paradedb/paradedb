@@ -2,65 +2,44 @@
 title: Hybrid Search
 ---
 
-## Overview
+ParadeDB's full text and similarity search APIs can be combined in the same query to execute [hybrid search](/api-reference/concepts/search#hybrid-search).
 
-Hybrid search, which combines BM25-based full text scores with vector-based
-similarity scores, is especially useful in scenarios where you want to match by keywords and semantic meaning.
+<Note>
+This guide uses the [`mock_items` table](/api-reference/introduction#get-started). It assumes that the entire 
+[quickstart](/welcome/quickstart) tutorial has been completed, including the vector search section.
+</Note>
 
 ## Basic Usage
 
-To calculate a row's hybrid score, ParadeDB introduces a `score_hybrid` function. Under the hood,
-this function does the following:
+In this guide, we will implement a hybrid search algorithm commonly known as reciprocal rank fusion. This algorithm:
 
-1. Calculates the BM25 and similarity scores for the respective queries
-2. Applies minmax normalization to both scores, which sets the lowest score to `0` and the highest score to `1`
-3. Calculates the weighted mean of the normalized scores
+1. Calculates a BM25 and similarity score for the top `n` documents.
+2. Ranks documents by their BM25 and similarity scores separately. The highest-ranked document for each score receives an `r` of `1`.
+3. Calculates a reciprocal rank for each score as `1/(k + r)`, where `k` is a constant. `k` is usually set to `60`.
+4. Calculates each document's reciprocal rank fusion score as the sum of the BM25 and similarity reciprocal rank scores.
 
-```sql
-SELECT * FROM search_idx.score_hybrid(
-    bm25_query => 'description:keyboard OR category:electronics',
-    similarity_query => '''[1,2,3]'' <-> embedding',
-    bm25_weight => 0.9,
-    similarity_weight => 0.1
-);
-```
-
-<ParamField body="index_name" required>
-  The name of the BM25 index associated with this table. For instance, if you
-  ran `CREATE INDEX my_index ON my_table USING bm25 ((my_table.*))`, the index
-  name would be `'my_index'`.
-</ParamField>
-<ParamField body="bm25_query" required>
-  The full text search query string. For instance, `'description:keyboard'`.
-</ParamField>
-<ParamField body="similarity_query" required>
-  The similarity query string. For instance, `'''[1,2,3]'' <-> embedding'`.
-  Note that double single quotes are used to escape the single quote inside the string.
-</ParamField>
-<ParamField body="bm25_weight" default={0.5}>
-  The weight applied to the BM25 score. It is recommended that this weight and the similarity weight
-  add up to `1`.
-</ParamField>
-<ParamField body="similarity_weight" default={0.5}>
-  The weight applied to the similarity score. It is recommended that this weight and the BM25 weight
-  add up to `1`.
-</ParamField>
-<ParamField body="bm25_limit_n" default={100}>
-  The maximum number of rows that are considered for ranking using BM25.
-</ParamField>
-<ParamField body="similarity_limit_n" default={100}>
-  The maximum number of rows that are considered for ranking using similarity search.
-</ParamField>
-
-## With Query Builder
-
-[Query builder](/api-reference/advanced) functions can be passed directly into `bm25_query`:
+To implement this in SQL, we can write the following query:
 
 ```sql
-SELECT * FROM search_idx.score_hybrid(
-    bm25_query => paradedb.disjunction_max(disjuncts => ARRAY[paradedb.parse('description:shoes')]),
-    similarity_query => '''[1,2,3]'' <-> embedding',
-    bm25_weight => 0.9,
-    similarity_weight => 0.1
-);
+WITH semantic_search AS (
+    SELECT id, RANK () OVER (ORDER BY embedding <=> %(embedding)s) AS rank
+    FROM documents
+    ORDER BY embedding <=> %(embedding)s
+    LIMIT 20
+),
+keyword_search AS (
+    SELECT id, RANK () OVER (ORDER BY ts_rank_cd(to_tsvector('english', content), query) DESC)
+    FROM documents, plainto_tsquery('english', %(query)s) query
+    WHERE to_tsvector('english', content) @@ query
+    ORDER BY ts_rank_cd(to_tsvector('english', content), query) DESC
+    LIMIT 20
+)
+SELECT
+    COALESCE(semantic_search.id, keyword_search.id) AS id,
+    COALESCE(1.0 / (%(k)s + semantic_search.rank), 0.0) +
+    COALESCE(1.0 / (%(k)s + keyword_search.rank), 0.0) AS score
+FROM semantic_search
+FULL OUTER JOIN keyword_search ON semantic_search.id = keyword_search.id
+ORDER BY score DESC
+LIMIT 5
 ```

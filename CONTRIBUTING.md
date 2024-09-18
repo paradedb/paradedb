@@ -3,6 +3,36 @@
 Welcome! We're excited that you're interested in contributing to ParadeDB and want
 to make the process as smooth as possible.
 
+## Claiming and Working on Issues
+
+### How to Claim an Issue
+
+1. Before claiming an issue, ensure that:
+
+   - It's not already assigned to someone else
+   - There are no comments indicating ongoing work
+
+2. To claim an unassigned issue, simply comment `/take` on the issue.
+   This will automatically assign the issue to you.
+
+### Unable to Make Progress?
+
+If you find yourself unable to make progress on an assigned issue:
+
+1. Unassign yourself:
+
+   - Use the `unassign me` link at the top of the issue page
+
+2. Seek help:
+
+   - If you're stuck, don't hesitate to ask for help in the issue comments
+   - Explain what you've tried and where you're having difficulties
+
+3. Allow others to contribute:
+   - By unassigning yourself, you open the opportunity for others to work on the issue
+
+Remember, our goal is to maintain an efficient workflow and foster collaboration. If you're unable to continue work on an issue, it's best to unassign yourself promptly so that others can pick up where you left off.
+
 ## Technical Info
 
 Before submitting a pull request, please review this document, which outlines what

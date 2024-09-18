@@ -531,5 +531,6 @@ extension_sql!(
     ON sql_drop
     EXECUTE FUNCTION paradedb.drop_bm25_event_trigger();
     "#
-    name = "create_drop_bm25_event_trigger"
+    name = "create_drop_bm25_event_trigger",
+    requires = [ delete_bm25_index_by_oid ]
 );

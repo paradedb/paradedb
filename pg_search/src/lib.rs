@@ -50,7 +50,11 @@ const DEFAULT_STARTUP_COST: f64 = 10.0;
 
 pgrx::pg_module_magic!();
 
-extension_sql!("GRANT ALL ON SCHEMA paradedb TO PUBLIC;" name = "paradedb_grant_all");
+extension_sql!(
+    "GRANT ALL ON SCHEMA paradedb TO PUBLIC;",
+    name = "paradedb_grant_all",
+    finalize
+);
 
 static mut TRACE_HOOK: shared::trace::TraceHook = shared::trace::TraceHook;
 

@@ -20,7 +20,7 @@ mod qual_inspect;
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
-use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,

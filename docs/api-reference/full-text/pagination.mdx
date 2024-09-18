@@ -1,0 +1,21 @@
+---
+title: Pagination
+---
+
+## Limit
+
+The `search`, `score_bm25`, and `snippet` functions accept a `limit_rows` option which pushes limits down to the search query. Using `limit_rows`
+instead of the SQL `LIMIT` clause can significantly improve query performance.
+
+```sql
+SELECT * FROM search_idx.search('description:shoes', limit_rows => 2);
+```
+
+## Offset
+
+Similarly, `offset_rows` efficiently pushes down offsets to the search query and should be used instead of
+the SQL `OFFSET` clause.
+
+```sql
+SELECT * FROM search_idx.search('description:shoes', offset_rows => 2);
+```

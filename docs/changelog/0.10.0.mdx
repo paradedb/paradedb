@@ -1,0 +1,109 @@
+---
+title: 0.10.0
+---
+
+## Upgrading `pg_search`
+
+Upgrading to `pg_search` `0.10.0` from **any prior version** requires dropping the `pg_search` extension using `DROP EXTENSION pg_search CASCADE;` and re-creating it with `CREATE EXTENSION pg_search;`. `ALTER EXTENSION pg_search UPDATE;` is not supported for this release.
+
+Dropping the extension will also drop everything in your schema that has a dependency on the `pg_search` extension or the `paradedb` schema, including existing BM25 indexes. As a result, all BM25 indexes need to be re-created using `CALL paradedb.create_bm25(...)`.
+
+The primary reason for this is that we've changed where we physically store the underlying indexes on disk. This change resolves a situation where an index from database A could overwrite an index from database B that also happen to share the same internal OID ([#1651](https://github.com/paradedb/paradedb/pull/1651)). Additionally, we've improved the representation of our internal document id field ("ctid"), which leads to smaller indexes ([#1584](https://github.com/paradedb/paradedb/pull/1584)).
+Unfortunately, neither of these changes are backwards compatible. Our intent is that this will be the last release causing on-disk breaking changes.
+
+## Breaking Changes 🚨
+
+### New File Paths
+
+As mentioned above, a big breaking change is that we now store index files in a different location on disk. The location is still relative to the `$PGDATA` directory, but is now organized by database id, index id, and the index's assigned "file number".
+
+Primarily, this ensures databases won't inadvertently overwrite each other's indexes. Secondarily, it allows `pg_search` to better interoperate with transaction handling around `CALL paradedb.create_bm25()` and `CALL paradedb.drop_bm25()`.
+
+### Compact Internal IDs
+
+We now more compactly store "ctid" values in the index. This is a breaking change as v0.10.0's understanding of this
+field is not compatible with prior versions.
+
+On large indexes (>10G) we've seen about a 2% savings in disk storage. The savings will be even greater for larger
+indexes.
+
+### Cleanup after `DROP INDEX`
+
+Prior to `0.10.0`, dropping a BM25 index would not remove the old index files from disk. As of `0.10.0`, the physical index files are deleted during `CALL paradedb.drop_bm25()`. This also extends to the `DROP INDEX` statement, and other statements that may lead to dropping an index, such as `DROP SCHEMA` and `DROP TABLE`.
+
+### Object Dependencies
+
+`pg_search` now creates internal dependencies between the SCHEMA and INDEX `pg_search` creates (in both directions). The result is that if one object is dropped, the other will be too. Doing so ensures database objects are cleanly removed during schema modifications.
+
+### One Index Per Table
+
+Until now, `pg_search` has allowed creating multiple BM25 indexes on a table.
+
+However, when searching it wasn't always guaranteed the specified index would actually be used. As of `0.10.0`, only one BM25 index can be created per table.
+
+### `paradedb.fuzzy_term` Argument Defaults
+
+While minor, it's worth noting that the default `prefix` argument to the `paradedb.fuzzy_term()` function has changed to `false`. This change could impact search results of queries using this function. The new behavior, by default, matches more documents.
+
+## Stability Improvements 💪
+
+### `JSON` Fields Don't Crash
+
+Tables with a column of type `json` would cause a crash during indexing if they were used in the set of `json_fields => ` during `CALL paradedb.create_bm25()`. This has been resolved.
+
+### Background Worker Doesn't Terminate Unexpectedly
+
+The background worker responsible for performing index write operations is now more resilient to unexpected errors. It was possible for it to exit early in some situations, which could then lead to a client backend crashing.
+
+### Improved `COMMIT`/`ABORT` Handling
+
+`0.10.0` improves the code around COMMIT and ABORT, resolving issues where a `COMMIT` wouldn't always happen after an `ABORT`.
+
+### Vacuums Remove Dead Rows
+
+`0.9.3` introduced a bug where `VACUUM` wouldn't remove dead rows. This has also been resolved.
+
+### Improved Locking Primitives
+
+Similar to above, our internal locking structures are now more resilient to unexpected errors. This is an improvement for the code along with user-facing error propagation.
+
+## New Features 🎉
+
+### Improved Query Planner Integration
+
+`pg_search` now supports more Postgres query plan types and provides greatly improved query cost estimations.
+
+With this, our pseudo-secret `@@@` operator is now ready for direct use.
+
+The [documentation](/api-reference/optimization/overview) covers its usage, but it's worth mentioning that using the `@@@` operator in a WHERE clause, as opposed to SELECTing directly from `idxname.search(...)`, can lean to drastically improved query execution times in situations where scores (or the effects of scoring on ordering) are not necessary.
+
+The `@@@` operator also allows combining standard SQL `WHERE` clause predicates with advanced text-search queries. Additionally, it's our recommended way of working with `JOIN`ed tables where one (or both) sides of the `JOIN` require some kind of text-search filtering.
+
+### Tokenization Configuration
+
+It's now possible to configure token filters like lowercase and stemmers for any tokenizer.
+
+### Introduce `fuzzy_phrase` Query
+
+The `fuzzy_phrase` query is a new query builder function that makes it easier to perform fuzzy search over phrase queries.
+
+### Lenient and Conjunction Configs
+
+Added lenient query parsing and conjunction configs to the `search` function.
+
+### PostGIS support
+
+ParadeDB's [`Dockerfile`](https://github.com/paradedb/paradedb/blob/dev/docker/Dockerfile) now includes support for [PostGIS](https://postgis.net).
+
+## Documentation 📚
+
+We've completely overhauled our documentation. Please refer to them for more details on new features in this release.
+
+## New Contributors 👋
+
+- [@aalexandrov](https://github.com/aalexandrov) made their first contribution in [#1583](https://github.com/paradedb/paradedb/pull/1583)
+- [@wendyzhan05](https://github.com/wendyzhan05) made their first contribution in [#1617](https://github.com/paradedb/paradedb/pull/1617)
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.10.0).

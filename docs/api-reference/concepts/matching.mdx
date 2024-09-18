@@ -1,0 +1,5 @@
+---
+title: Matching
+---
+
+A query is considered a match for a document if the terms or phrases specified in the query are found within the document's indexed content. This matching process involves tokenizing both the query and the document text, then comparing these tokens using the [inverted index](/api-reference/concepts/index). If the tokens from the query correspond to tokens in the document's index entries, the document is deemed a match.

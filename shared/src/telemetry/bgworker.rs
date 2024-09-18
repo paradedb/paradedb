@@ -20,12 +20,12 @@ use crate::telemetry::controller::{TelemetryController, TelemetrySender};
 use crate::telemetry::postgres::PostgresDirectoryStore;
 use crate::telemetry::posthog::PosthogStore;
 use anyhow::{anyhow, Result};
+use parking_lot::Mutex;
 use pgrx::bgworkers::{self, BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum};
 use std::ffi::CStr;
 use std::path::PathBuf;
 use std::process;
-use std::sync::Mutex;
 use std::time::Duration;
 use tracing::debug;
 
@@ -195,7 +195,7 @@ impl BgWorkerTelemetryConfig {
         // Users aren't supposed to delete the default 'postgres' database, so we'll connect to that.
         // If for some reason it doesn't exist, the telemetry worker will crash,
         // but other extension operations will be unaffected.
-        let mut has_connected_to_spi = CONNECTED_TO_SPI.lock().unwrap();
+        let mut has_connected_to_spi = CONNECTED_TO_SPI.lock();
 
         if !(*has_connected_to_spi) {
             // This must be the only time in the background worker that you call

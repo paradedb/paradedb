@@ -1,0 +1,38 @@
+---
+title: JSON Search
+---
+
+## Basic Usage
+
+Use `.` to search over text values nested inside JSON. For instance, the following query would search over a field with values like `{"metadata": {"color": "white"}}`.
+
+```sql
+SELECT * FROM search_idx.search('metadata.color:white');
+```
+
+When dealing with JSON arrays, the array elements are “flattened” so that each element can be searched individually. This means that if a JSON array is encountered, each element in the array is treated as a separate value and indexed accordingly. For example, given the following JSON structure:
+
+```json
+{
+  "metadata": {
+    "colors": ["red", "green", "blue"]
+  }
+}
+```
+
+The JSON array in the colors field is flattened to emit separate terms for each color. This allows for individual search queries like:
+
+```sql
+'metadata.colors:red'
+'metadata.colors:green'
+'metadata.colors:blue'
+```
+
+Each of these queries would correctly match the document containing the JSON array.
+
+<Note>
+  Searching for integers in a nested JSON structure is **not** supported. For example:
+  ```sql
+  SELECT * FROM <index_name>.search('metadata.attributes:4');
+  ```
+</Note>

@@ -1,0 +1,26 @@
+---
+title: Record
+---
+
+## Basic Usage
+
+The `record` option specifies how much information is recorded with an indexed field. By default, all fields use `position`.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description', record => 'freq')
+);
+```
+
+<ParamField body="basic">Records only the document IDs.</ParamField>
+<ParamField body="freq">
+  Records the document IDs as well as term frequency. This is useful for BM25
+  scoring.
+</ParamField>
+<ParamField body="position">
+  Records the document ID, term frequency and positions of occurrences. Required
+  to run a phrase query.
+</ParamField>

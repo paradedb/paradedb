@@ -17,7 +17,6 @@
 
 pub mod github;
 pub mod gucs;
-pub mod postgres;
 pub mod telemetry;
 pub mod trace;
 

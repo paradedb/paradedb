@@ -1,0 +1,44 @@
+---
+title: Fuzzy Term
+---
+
+<Note>Highlighting is not currently supported for `fuzzy_term`.</Note>
+
+## Basic Usage
+
+`fuzzy_term` finds results that approximately match the query [term](/api-reference/concepts/term),
+allowing for minor typos in the input.
+
+<Note>
+  `value` is treated as a token. Use `fuzzy_phrase` to perform fuzzy search over
+  a phrase containing multiple tokens.
+</Note>
+
+```sql
+SELECT * FROM search_idx.search(
+	query => paradedb.fuzzy_term(field => 'description', value => 'wolo')
+);
+```
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="value" required>
+  Defines the term you are searching for within the specified field, using fuzzy
+  logic based on Levenshtein distance to find similar terms.
+</ParamField>
+<ParamField body="distance" default={2}>
+  The maximum Levenshtein distance (i.e. single character edits) allowed to
+  consider a term in the index as a match for the query term. Maximum value is
+  `2`.
+</ParamField>
+<ParamField body="transpose_cost_one" default={true}>
+  When set to `true`, transpositions (swapping two adjacent characters) as a
+  single edit in the Levenshtein distance calculation, while `false` considers
+  it two separate edits (a deletion and an insertion).
+</ParamField>
+<ParamField body="prefix" default={false}>
+  When set to `true`, the initial substring (prefix) of the query term is
+  exempted from the fuzzy edit distance calculation, while false includes the
+  entire string in the calculation.
+</ParamField>

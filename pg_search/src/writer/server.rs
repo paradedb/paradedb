@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::{cell::RefCell, io::Cursor};
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 /// A generic server for receiving requests and transfers from a client.
 pub struct Server<'a, T, H>
@@ -112,7 +112,17 @@ where
                         if let Err(err) = incoming.respond(Self::response_ok()) {
                             error!("server error responding to transfer: {err}");
                         } else if let Err(err) = self.listen_transfer(pipe_path) {
-                            error!("error listening to transfer: {err}")
+                            // if a transfer message fails we can't report that back to the user
+                            // over the pipe, so we log it as a postgres WARNING.
+                            //
+                            // The client will get some kind of "Broken Pipe" error since the
+                            // error has closed it early, which is sufficient to signal it that
+                            // there's a problem and it needs to ABORT the current transaction.
+                            //
+                            // We also don't want the BackgroundWorker to terminate in this case --
+                            // it needs to stay around for future requests
+
+                            warn!("error listening to transfer: {err}")
                         }
                     }
                     ServerRequest::Request(req) => {

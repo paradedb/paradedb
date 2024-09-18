@@ -1,0 +1,48 @@
+---
+title: Postgres
+---
+
+The easiest way to copy data from another Postgres into ParadeDB is with the `pg_dump` and `pg_restore` utilities. These are installed by default when you
+install `psql`.
+
+## Create a Dump
+
+Run `pg_dump` to create a copy of your database.
+
+<Note>
+  Replace `host`, `username`, and `dbname` with your existing database
+  credentials.
+</Note>
+
+```ini
+pg_dump -Fc --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    <dbname> > old_db.dump
+```
+
+If your database is large, this can take some time. You can speed this up by dumping specific tables.
+
+```ini
+pg_dump -Fc --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    -t <table_name_1> -t <table_name_2>
+    <dbname> > old_db.dump
+```
+
+## Restore the Dump
+
+Run `pg_restore` to load this data into ParadeDB.
+
+<Note>
+  Replace `host`, `username`, and `dbname` with your ParadeDB credentials.
+</Note>
+
+```ini
+pg_restore --verbose --clean --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    -d <dbname> \
+    old_db.dump
+```

@@ -43,7 +43,7 @@ fn defult_tokenizer(mut conn: PgConnection) {
 
 #[rstest]
 fn tokenizer_filters(mut conn: PgConnection) {
-    // Test en_stem tokenizer with deafult layers (lowercase => true, remove_long => 255).
+    // Test en_stem tokenizer with default layers (lowercase => true, remove_long => 255).
     let rows: Vec<(String, i32)> = r#"
     SELECT * FROM paradedb.tokenize(
       paradedb.tokenizer('en_stem'), 

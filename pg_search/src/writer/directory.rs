@@ -81,36 +81,92 @@ pub trait SearchFs {
     }
 }
 
+/// The file location for a pg_search index is:
+/// $data_directory/pg_search/$database_oid/$index_oid/$relfilenode
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct WriterDirectory {
+    pub database_oid: u32,
     pub index_oid: u32,
+    pub relfilenode: u32,
     pub postgres_data_dir_path: PathBuf,
 }
 
 impl WriterDirectory {
     /// Useful in a connection process, where the database oid is available in the environment.
-    pub fn from_index_oid(index_oid: u32) -> Self {
+    pub fn from_oids(database_oid: u32, index_oid: u32, relfilenode: u32) -> Self {
         Self {
+            database_oid,
             index_oid,
-            postgres_data_dir_path: env::postgres_data_dir_path(),
+            relfilenode,
+            postgres_data_dir_path: Self::postgres_data_dir_path(),
         }
+    }
+
+    pub fn relfile_paths(database_oid: u32, index_oid: u32) -> Result<Vec<Self>> {
+        // We are going to ask Postgres for the data_dir_path here, so its important
+        // to note that this function will cause a runtime in certain contexts,
+        // like within background processes.
+        let postgres_data_dir_path = Self::postgres_data_dir_path();
+        let index_dir_path =
+            postgres_data_dir_path.join(Self::index_dir_path(database_oid, index_oid));
+
+        if index_dir_path.exists() {
+            fs::read_dir(&index_dir_path)
+                .map_err(|err| {
+                    anyhow::Error::from(err).context(format!("index path: {index_dir_path:?}"))
+                })?
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.path().is_dir())
+                .map(|entry| entry.file_name())
+                .filter_map(|name| name.to_str().and_then(|s| s.parse::<u32>().ok()))
+                .map(|relfilenode| {
+                    Ok(Self {
+                        database_oid,
+                        index_oid,
+                        relfilenode,
+                        postgres_data_dir_path: postgres_data_dir_path.clone(),
+                    })
+                })
+                .collect()
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    /// Construct the directory path up to the $index_oid component.
+    /// The returned path is relative to the postgres_data_dir_path.
+    /// There may be multiple $relfilenode children of the $index_oid folder
+    /// during vacuum / index rebuilds.
+    fn index_dir_path(database_oid: u32, index_oid: u32) -> PathBuf {
+        PathBuf::from(SEARCH_DIR_NAME)
+            .join(database_oid.to_string())
+            .join(index_oid.to_string())
+    }
+
+    fn postgres_data_dir_path() -> PathBuf {
+        env::postgres_data_dir_path()
     }
 
     /// The root path for the directory tree.
     /// An important note for formatting this path. We face a limitation on the length of any
     /// file path used by our extension (relative to the Postgres DATA_DIRECTORY).
+    ///
+    /// It's also important to note that this functionis called in contexts that cannot
+    /// ask Postgres for the data_dir_path, so we must use the one already intialized
+    /// on the WriterDirectory instance.
     fn search_index_dir_path(
         &self,
         ensure_exists: bool,
     ) -> Result<SearchIndexDirPath, SearchDirectoryError> {
-        let search_index_dir_path = &self
+        let search_index_dir_path = self
             .postgres_data_dir_path
-            .join(SEARCH_DIR_NAME)
-            .join(self.index_oid.to_string());
+            .join(Self::index_dir_path(self.database_oid, self.index_oid))
+            .join(self.relfilenode.to_string());
 
         if ensure_exists {
-            Self::ensure_dir(search_index_dir_path)?;
+            Self::ensure_dir(&search_index_dir_path)?;
         }
+
         Ok(SearchIndexDirPath(search_index_dir_path.to_path_buf()))
     }
 
@@ -255,7 +311,7 @@ impl SearchFs for WriterDirectory {
     fn remove(&self) -> Result<(), SearchDirectoryError> {
         let SearchIndexDirPath(index_path) = self.search_index_dir_path(false)?;
         if index_path.exists() {
-            Self::remove_dir_all_recursive(&index_path)?
+            Self::remove_dir_all_recursive(&index_path)?;
         }
         Ok(())
     }

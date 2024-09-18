@@ -1,0 +1,12 @@
+---
+title: Boosting
+---
+
+## Basic Usage
+
+The `^` operator is used to boost the scores of individual fields. Boosting is helpful for tuning
+the relevance scores of results. In the following query, `category` is weighted twice as heavily as `description`.
+
+```sql
+SELECT * FROM search_idx.search('description:shoes OR category:electronics^2');
+```

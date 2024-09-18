@@ -7,6 +7,7 @@ Postgres has a rich ecosystem of extensions. To keep the size of the ParadeDB Do
 - `pg_search` for full text search
 - `pg_analytics` for fast queries over data lakes
 - `pgvector` for vector search
+- `postgis` for geospatial search
 - `pg_ivm` for incremental materialized views
 - `pg_cron` for cron jobs
 
@@ -27,7 +28,7 @@ The process for installing an extension varies by extension. Generally speaking,
 - Run `CREATE EXTENSION <extension name>`
 
 We recommend installing third party extensions from prebuilt binaries to keep the image size small. As an
-example, let's install [PostGIS](https://github.com/postgis/postgis), an extension for geospatial data.
+example, let's install [pg_partman](https://github.com/pgpartman/pg_partman), an extension for managing table partition sets.
 
 ### Install Prebuilt Binaries
 
@@ -41,12 +42,12 @@ docker exec -it --user root paradedb bash
   This command assumes that your ParadeDB container name is `paradedb`.
 </Note>
 
-Next, install the [prebuilt binaries](https://postgis.net/documentation/getting_started/install_ubuntu/).
+Next, install the [prebuilt binaries](https://pkgs.org/search/?q=partman).
 Most popular Postgres extensions can be installed with `apt-get install`.
 
 ```bash
 apt-get update
-apt-get install -y --no-install-recommends postgis postgresql-16-postgis-3
+apt-get install -y --no-install-recommends postgresql-16-partman
 ```
 
 <Note>
@@ -57,14 +58,19 @@ apt-get install -y --no-install-recommends postgis postgresql-16-postgis-3
 
 ### Add to `shared_preload_libraries`
 
-PostGIS does not need to be added to `shared_preload_libraries` in `postgresql.conf`, so we skip this step.
-
 <Accordion title = "Modifying shared_preload_libraries">
+
 If you are installing an extension which requires this step, you can do so
-via the following command, replacing `<extension_name>` by your extension's name:
+via the following command, replacing `<extension_name>` with your extension's name:
 
 ```bash
-sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,<extension_name>'/" /var/lib/postgresql/data/postgresql.conf`
+sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,<extension_name>'/" /var/lib/postgresql/data/postgresql.conf
+```
+
+For `pg_partman`, the command is:
+
+```bash
+sed -i "/^shared_preload_libraries/s/'\([^']*\)'/'\1,pg_partman_bgw'/" /var/lib/postgresql/data/postgresql.conf
 ```
 
 </Accordion>
@@ -76,7 +82,9 @@ Postgres must be restarted afterwards. We recommend simply restarting the Docker
 Connect to ParadeDB via `psql` and create the extension.
 
 ```sql
-CREATE EXTENSION postgis;
+CREATE EXTENSION pg_partman;
 ```
 
-PostGIS is now ready to use!
+`pg_partman` is now ready to use!
+
+Note that this is a simple example of installing `pg_partman`. The full list of settings and optional dependencies can be found in the [official installation instructions](https://github.com/pgpartman/pg_partman?tab=readme-ov-file#installation).

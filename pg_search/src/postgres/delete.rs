@@ -18,7 +18,7 @@
 use pgrx::{pg_sys::ItemPointerData, *};
 
 use crate::{
-    env::register_commit_callback, globals::WriterGlobal, index::SearchIndex,
+    globals::WriterGlobal, index::SearchIndex, postgres::utils::relfilenode_from_index_oid,
     writer::WriterDirectory,
 };
 
@@ -33,7 +33,12 @@ pub extern "C" fn ambulkdelete(
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
-    let directory = WriterDirectory::from_index_oid(index_relation.oid().as_u32());
+
+    let index_oid = index_relation.oid().as_u32();
+    let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
+    let database_oid = crate::MyDatabaseId();
+
+    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -46,13 +51,11 @@ pub extern "C" fn ambulkdelete(
     }
 
     let writer_client = WriterGlobal::client();
-    register_commit_callback(&writer_client, search_index.directory.clone())
-        .expect("could not register commit callbacks for delete operation");
 
     if let Some(actual_callback) = callback {
         let should_delete = |ctid_val| unsafe {
             let mut ctid = ItemPointerData::default();
-            pgrx::itemptr::u64_to_item_pointer(ctid_val, &mut ctid);
+            crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
             actual_callback(&mut ctid, callback_state)
         };
         match search_index.delete(&writer_client, should_delete) {

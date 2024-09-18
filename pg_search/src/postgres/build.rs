@@ -15,16 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::row_to_search_document;
+use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
-use std::panic::{self, AssertUnwindSafe};
 use tantivy::schema::IndexRecordOption;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -55,6 +53,21 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
+    let database_oid = crate::MyDatabaseId();
+    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+
+    // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
+    for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
+        if existing_index.oid() == index_oid {
+            // the index we're about to build already exists on the table.
+            // we're likely here as a result of REINDEX
+            continue;
+        }
+
+        if is_bm25_index(&existing_index) {
+            panic!("a relation may only have one `USING bm25` index");
+        }
+    }
 
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
@@ -208,7 +221,8 @@ pub extern "C" fn ambuild(
     }
 
     let writer_client = WriterGlobal::client();
-    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+    let directory =
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
 
     SearchIndex::create_index(
         &writer_client,
@@ -237,7 +251,7 @@ fn do_heap_scan<'a>(
     uuid: String,
 ) -> BuildState {
     let mut state = BuildState::new(uuid);
-    let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+    unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),
@@ -245,7 +259,7 @@ fn do_heap_scan<'a>(
             Some(build_callback),
             &mut state,
         );
-    }));
+    }
     state
 }
 
@@ -301,15 +315,21 @@ unsafe fn build_callback_internal(
         state.memctx.switch_to(|_| {
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
-            let index_name = index_relation_ref.name();
             let index_oid = index_relation_ref.oid();
-            let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+            let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+            let database_oid = crate::MyDatabaseId();
+
+            let directory =
+                WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
                 .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
             let search_document =
                 row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)
                     .unwrap_or_else(|err| {
-                        panic!("error creating index entries for index '{index_name}': {err}",)
+                        panic!(
+                            "error creating index entries for index '{}': {err}",
+                            index_relation_ref.name()
+                        );
                     });
 
             let writer_client = WriterGlobal::client();
@@ -317,12 +337,20 @@ unsafe fn build_callback_internal(
             search_index
                 .insert(&writer_client, search_document)
                 .unwrap_or_else(|err| {
-                    panic!("error inserting document during build callback: {err:?}")
+                    panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
-
-            register_commit_callback(&writer_client, search_index.directory.clone())
-                .expect("could not register commit callbacks for build operation");
         });
         state.memctx.reset();
+
+        // important to count the number of items we've indexed for proper statistics updates,
+        // especially after CREATE INDEX has finished
+        state.count += 1;
+    }
+}
+
+fn is_bm25_index(indexrel: &PgRelation) -> bool {
+    unsafe {
+        // SAFETY:  we ensure that `indexrel.rd_indam` is non null and can be dereferenced
+        !indexrel.rd_indam.is_null() && (*indexrel.rd_indam).ambuild == Some(ambuild)
     }
 }

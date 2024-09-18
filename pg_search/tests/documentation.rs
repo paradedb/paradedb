@@ -80,52 +80,6 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
     r#"
-    CALL paradedb.create_bm25(
-            index_name => 'ngrams_idx',
-            schema_name => 'public',
-            table_name => 'mock_items',
-            key_field => 'id',
-            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false)) || paradedb.field('category')
-    );
-    "#.execute(&mut conn);
-    let rows: Vec<(String, i32, String)> = r#"
-    SELECT description, rating, category
-    FROM ngrams_idx.search('description:blue', stable_sort => true);
-    "#
-    .fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
-
-    let rows: Vec<(i32, String, f32)> = r#"
-        SELECT * FROM ngrams_idx.snippet(
-        'description:blue', 
-        highlight_field => 'description'
-    )
-    "#
-    .fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].0, 32);
-    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
-    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
-
-    let rows: Vec<(String, String, f32)> = r#"
-    WITH snippet AS (
-        SELECT * FROM ngrams_idx.snippet(
-        'description:blue', 
-        highlight_field => 'description'
-        )
-    )
-    SELECT description, snippet, score_bm25
-    FROM snippet
-    LEFT JOIN mock_items ON snippet.id = mock_items.id
-    "#
-    .fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
-    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
-    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
-
-    r#"
     CREATE EXTENSION vector;
     ALTER TABLE mock_items ADD COLUMN embedding vector(3);
     "#
@@ -223,6 +177,66 @@ fn quickstart(mut conn: PgConnection) {
     assert_relative_eq!(rows[2].3, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[3].3, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[4].3, 0.1, epsilon = 1e-6);
+}
+
+/// The quickstart guide in our docs shows the `ngram_idx` happening between creating a basic index
+/// and doing a similarity search.  As we only allow one index on a table at a time, we need to test
+/// this bit separately
+#[rstest]
+fn quickstart_ngram_idx(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    )
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+            index_name => 'ngrams_idx',
+            schema_name => 'public',
+            table_name => 'mock_items',
+            key_field => 'id',
+            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false)) || paradedb.field('category')
+    );
+    "#.execute(&mut conn);
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM ngrams_idx.search('description:blue', stable_sort => true);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
+
+    let rows: Vec<(i32, String, f32)> = r#"
+        SELECT * FROM ngrams_idx.snippet(
+        'description:blue', 
+        highlight_field => 'description'
+    )
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 32);
+    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
+    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
+
+    let rows: Vec<(String, String, f32)> = r#"
+    WITH snippet AS (
+        SELECT * FROM ngrams_idx.snippet(
+        'description:blue', 
+        highlight_field => 'description'
+        )
+    )
+    SELECT description, snippet, score_bm25
+    FROM snippet
+    LEFT JOIN mock_items ON snippet.id = mock_items.id
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
+    assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");
+    assert_relative_eq!(rows[0].2, 2.9903657, epsilon = 1e-6);
 }
 
 #[rstest]

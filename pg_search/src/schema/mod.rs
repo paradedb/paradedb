@@ -28,7 +28,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use tantivy::schema::{
     DateOptions, Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema,
-    TextFieldIndexing, TextOptions, FAST, INDEXED,
+    TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -577,7 +577,12 @@ impl SearchIndexSchema {
             }
 
             let id: SearchFieldId = match &config {
-                SearchFieldConfig::Ctid => builder.add_u64_field(name.as_ref(), INDEXED | FAST),
+                SearchFieldConfig::Ctid => {
+                    // INDEXED because we might want to search the u64 version of a ctid
+                    // FAST because we return this field directly through our various searching methods
+                    // STORED because our VACUUM process decodes full documents while scanning the index
+                    builder.add_u64_field(name.as_ref(), INDEXED | FAST | STORED)
+                }
                 _ => match field_type {
                     SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
                     SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
@@ -716,5 +721,32 @@ impl AsFieldType<String> for SearchIndexSchema {
                 let field_type = self.schema.get_field_entry(field).field_type().clone();
                 (field_type, field)
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
+
+    #[test]
+    fn assert_ctid_attributes() {
+        let fields = vec![(
+            SearchFieldName("dummy_key_field".into()),
+            SearchFieldConfig::Numeric {
+                indexed: true,
+                fast: true,
+                stored: true,
+            },
+            SearchFieldType::U64,
+        )];
+        let schema = SearchIndexSchema::new(fields, 0).expect("schema should be valid");
+
+        let ctid_field = schema.ctid_field().id.0;
+        let ctid_field_entry = schema.schema.get_field_entry(ctid_field);
+
+        // the `ctid` field must be all of these
+        assert!(ctid_field_entry.is_indexed());
+        assert!(ctid_field_entry.is_fast());
+        assert!(ctid_field_entry.is_stored());
     }
 }

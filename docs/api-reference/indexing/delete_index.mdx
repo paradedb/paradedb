@@ -1,0 +1,22 @@
+---
+title: Delete an Index
+---
+
+## Basic Usage
+
+The following command deletes a BM25 index, as well as its associated schema and query functions.
+It's important to use `paradedb.drop_bm25` instead of `DROP INDEX` to ensure that all index-related resources are cleaned up.
+
+```sql
+CALL paradedb.drop_bm25(
+  index_name => 'search_idx',
+  schema_name => 'public'
+);
+```
+
+<ParamField body="index_name" required>
+  The name of the index you wish to delete.
+</ParamField>
+<ParamField body="schema_name" default="CURRENT SCHEMA">
+  The name of the schema that the index was created in.
+</ParamField>

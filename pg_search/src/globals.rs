@@ -15,14 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use once_cell::sync::Lazy;
-use pgrx::{PGRXSharedMemory, PgLwLock};
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
-
 use crate::writer::{self, WriterRequest};
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+use pgrx::{PGRXSharedMemory, PgLwLock};
+use std::{net::SocketAddr, sync::Arc};
 
 // This is global shared state for the writer background worker.
 pub static WRITER_GLOBAL: PgLwLock<WriterGlobal> = PgLwLock::new();

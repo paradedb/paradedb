@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::writer::{ClientError, Handler, Writer, WriterClient, WriterRequest};
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 pub struct TestClient {
     writer: Writer,

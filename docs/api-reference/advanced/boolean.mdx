@@ -1,0 +1,52 @@
+---
+title: Boolean
+---
+
+## Basic Usage
+
+Boolean queries filter documents based on the logical relationships defined by their subqueries, considering:
+
+- Documents that satisfy all `must` conditions.
+- Documents that satisfy none of the `must_not` conditions.
+- Documents that satisfy at least one condition from either `must` or `should`.
+
+Boolean queries are a powerful way to combine the results of several different queries.
+
+```sql
+SELECT * FROM search_idx.search(
+    query => paradedb.boolean(
+	    should => ARRAY[
+		    paradedb.parse('description:shoes'),
+		    paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
+		    paradedb.term(field => 'description', value => 'speaker'),
+		    paradedb.fuzzy_term(field => 'description', value => 'wolo')
+	    ]
+    )
+);
+```
+
+<ParamField body="must">
+  A query object or an `ARRAY` of query objects as conditions which must be
+  matched.
+</ParamField>
+<ParamField body="must_not">
+  A query object or an `ARRAY` of query objects as conditions which must not be
+  matched.
+</ParamField>
+<ParamField body="should">
+  A query object or an `ARRAY` of query objects as conditions of which at least
+  one must be matched.
+</ParamField>
+
+In order for a boolean query to return a result, one of `must` or `should` must be provided.
+`must_not` acts as a mask and does not produce a result set. For instance, in order to find
+all rows from `mock_items` where `description` does not contain `shoes`, `paradedb.all()` should be used:
+
+```sql
+SELECT * FROM search_idx.search(
+  query => paradedb.boolean(
+    should => paradedb.all(),
+    must_not => paradedb.parse('description:shoes')
+  )
+);
+```

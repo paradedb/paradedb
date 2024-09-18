@@ -1,6 +1,7 @@
+use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::{Level, Subscriber};
 use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -68,7 +69,7 @@ impl EreportLogger {
     }
 
     fn flush_logs(&self) {
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock();
         while let Some((level, log)) = buffer.pop_front() {
             match level {
                 Level::TRACE => pgrx::debug1!("{log}"),
@@ -81,7 +82,7 @@ impl EreportLogger {
     }
 
     fn buffer_log(&self, level: Level, log: String) {
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock();
         buffer.push_back((level, log));
     }
 }

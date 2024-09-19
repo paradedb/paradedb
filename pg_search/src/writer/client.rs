@@ -15,11 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::globals::WRITER_GLOBAL;
-
 use super::{transfer::WriterTransferProducer, ServerRequest, WriterClient};
 use serde::Serialize;
-use std::{marker::PhantomData, net::SocketAddr, panic, path::Path};
+use std::{marker::PhantomData, net::SocketAddr, path::Path, str::FromStr};
 use thiserror::Error;
 
 pub struct Client<T: Serialize> {
@@ -60,14 +58,17 @@ impl<T: Serialize> Client<T> {
     }
 
     pub fn from_global() -> Self {
-        let lock = panic::catch_unwind(|| WRITER_GLOBAL.share());
+        // let lock = panic::catch_unwind(|| WRITER_GLOBAL.share());
 
-        let addr = match lock {
-            Ok(lock) => lock.addr(),
-            Err(_) => {
-                panic!("Could not get lock on writer. Have you added the extension to the shared preload library list?");
-            }
-        };
+        // let addr = match lock {
+        //     Ok(lock) => lock.addr(),
+        //     Err(_) => {
+        //         panic!("Could not get lock on writer. Have you added the extension to the shared preload library list?");
+        //     }
+        // };
+
+        // fake addr until we remove this code
+        let addr = SocketAddr::from_str("127.0.0.1:8080").unwrap();
 
         Self::new(addr)
     }

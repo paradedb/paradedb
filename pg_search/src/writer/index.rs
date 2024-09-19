@@ -23,12 +23,86 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
-use std::collections::{
-    hash_map::Entry::{Occupied, Vacant},
-    HashMap, HashSet,
+use std::sync::Arc;
+use std::{
+    collections::{
+        hash_map::Entry::{Occupied, Vacant},
+        HashMap, HashSet,
+    },
+    path::Path,
 };
-use tantivy::{schema::Field, Index, IndexWriter};
+use std::{fs, io, result};
+use tantivy::directory::{
+    DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback, WatchHandle,
+    WritePtr,
+};
+use tantivy::{
+    directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
+    IndexSettings,
+};
+use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, IndexWriter};
 use tracing::warn;
+
+#[derive(Debug)]
+pub struct UnlockedDirectory(MmapDirectory);
+
+impl UnlockedDirectory {
+    pub fn open(directory_path: impl AsRef<Path>) -> Result<Self> {
+        if !directory_path.as_ref().exists() {
+            fs::create_dir_all(&directory_path).expect("must be able to create index directory")
+        }
+        Ok(Self(MmapDirectory::open(directory_path)?))
+    }
+}
+
+impl DirectoryClone for UnlockedDirectory {
+    fn box_clone(&self) -> Box<dyn Directory> {
+        self.0.box_clone()
+    }
+}
+
+impl Directory for UnlockedDirectory {
+    fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
+        self.0.get_file_handle(path)
+    }
+
+    fn open_read(&self, path: &Path) -> result::Result<FileSlice, OpenReadError> {
+        self.0.open_read(path)
+    }
+
+    fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
+        self.0.open_write(path)
+    }
+
+    fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+        self.0.atomic_write(path, data)
+    }
+
+    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        self.0.atomic_read(path)
+    }
+
+    fn delete(&self, path: &Path) -> result::Result<(), DeleteError> {
+        self.0.delete(path)
+    }
+
+    fn exists(&self, path: &Path) -> Result<bool, OpenReadError> {
+        self.0.exists(path)
+    }
+
+    fn acquire_lock(&self, _lock: &Lock) -> result::Result<DirectoryLock, LockError> {
+        // self.0.acquire_lock(lock)
+        Ok(DirectoryLock::from(Box::new(())))
+    }
+
+    fn watch(&self, watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
+        self.0.watch(watch_callback)
+    }
+
+    fn sync_directory(&self) -> io::Result<()> {
+        self.0.sync_directory()
+    }
+}
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct Writer {
@@ -58,7 +132,7 @@ impl Writer {
         }
     }
 
-    fn insert(
+    pub fn insert(
         &mut self,
         directory: WriterDirectory,
         document: SearchDocument,
@@ -70,7 +144,7 @@ impl Writer {
         Ok(())
     }
 
-    fn delete(
+    pub fn delete(
         &mut self,
         directory: WriterDirectory,
         ctid_field: &Field,
@@ -84,7 +158,7 @@ impl Writer {
         Ok(())
     }
 
-    fn commit(&mut self, directory: WriterDirectory) -> Result<()> {
+    pub fn commit(&mut self, directory: WriterDirectory) -> Result<()> {
         if directory.exists()? {
             let writer = self.get_writer(directory.clone())?;
             writer
@@ -106,7 +180,7 @@ impl Writer {
         Ok(())
     }
 
-    fn abort(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+    pub fn abort(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         // If the transaction was aborted, we should roll back the writer to the last commit.
         // Otherwise, partially written data could stick around for the next transaction.
         if let Some(writer) = self.tantivy_writers.get_mut(&directory) {
@@ -121,7 +195,7 @@ impl Writer {
         Ok(())
     }
 
-    fn vacuum(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+    pub fn vacuum(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         let writer = self.get_writer(directory)?;
         writer.garbage_collect_files().wait()?;
         Ok(())
@@ -137,10 +211,9 @@ impl Writer {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
-        let mut underlying_index = Index::builder()
-            .schema(schema.schema.clone())
-            .create_in_dir(tantivy_dir_path)
-            .expect("failed to create index");
+        let tantivy_dir = UnlockedDirectory::open(tantivy_dir_path)?;
+        let mut underlying_index =
+            Index::create(tantivy_dir, schema.schema.clone(), IndexSettings::default())?;
 
         SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
 
@@ -173,7 +246,7 @@ impl Writer {
     /// Handle a request to drop an index. We don't physically delete the files in this
     /// function in case the transaction is aborted. Instead, we mark the directory for
     /// deletion upon commit.
-    fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+    pub fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         self.drop_requested.insert(directory);
         Ok(())
     }

@@ -21,8 +21,8 @@ use crate::schema::{
     SearchIndexSchema, SearchIndexSchemaError,
 };
 use crate::writer::{
-    self, SearchDirectoryError, SearchFs, TantivyDirPath, WriterClient, WriterDirectory,
-    WriterRequest, WriterTransferPipeFilePath,
+    self, SearchDirectoryError, SearchFs, TantivyDirPath, UnlockedDirectory, Writer, WriterClient,
+    WriterDirectory, WriterRequest,
 };
 use anyhow::Result;
 use once_cell::sync::Lazy;
@@ -65,6 +65,8 @@ pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
     Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
 });
 
+static mut SEARCH_WRITER: Lazy<Writer> = Lazy::new(|| Writer::new());
+
 #[derive(Serialize)]
 pub struct SearchIndex {
     pub schema: SearchIndexSchema,
@@ -81,18 +83,14 @@ pub struct SearchIndex {
 
 impl SearchIndex {
     pub fn create_index<W: WriterClient<WriterRequest>>(
-        writer: &Arc<Mutex<W>>,
+        _writer: &Arc<Mutex<W>>,
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         uuid: String,
         key_field_index: usize,
     ) -> Result<&'static mut Self, SearchIndexError> {
-        writer.lock().request(WriterRequest::CreateIndex {
-            directory: directory.clone(),
-            fields,
-            uuid: uuid.clone(),
-            key_field_index,
-        })?;
+        let writer = unsafe { Self::get_writer() };
+        writer.create_index(directory.clone(), fields, uuid, key_field_index)?;
 
         // As the new index instance was created in a background process, we need
         // to load it from disk to use it.
@@ -139,6 +137,12 @@ impl SearchIndex {
 
     unsafe fn into_cache(self) {
         SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
+    }
+
+    pub unsafe fn get_writer() -> &'static mut Writer {
+        addr_of_mut!(SEARCH_WRITER)
+            .as_mut()
+            .expect("global SEARCH_INDEX_MEMORY must not be null")
     }
 
     /// # Safety
@@ -281,16 +285,15 @@ impl SearchIndex {
     /// caller.
     pub fn commit<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
-        writer: &Arc<Mutex<W>>,
+        _writer: &Arc<Mutex<W>>,
     ) -> Result<(), SearchIndexError> {
+        let writer = unsafe { Self::get_writer() };
         if !self.is_dirty() {
             return Err(SearchIndexError::IndexNotDirty);
         }
 
         self.is_dirty = false;
-        writer.lock().request(WriterRequest::Commit {
-            directory: self.directory.clone(),
-        })?;
+        writer.commit(self.directory.clone())?;
         Ok(())
     }
 
@@ -305,37 +308,28 @@ impl SearchIndex {
     /// caller.
     pub fn abort<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
-        writer: &Arc<Mutex<W>>,
+        _writer: &Arc<Mutex<W>>,
     ) -> Result<(), SearchIndexError> {
+        let writer = unsafe { Self::get_writer() };
         if !self.is_dirty() {
             return Err(SearchIndexError::IndexNotDirty);
         }
 
         self.is_dirty = false;
-        writer.lock().request(WriterRequest::Abort {
-            directory: self.directory.clone(),
-        })?;
+        writer.abort(self.directory.clone())?;
         Ok(())
     }
 
     pub fn insert<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
-        writer: &Arc<Mutex<W>>,
+        _writer: &Arc<Mutex<W>>,
         document: SearchDocument,
     ) -> Result<(), SearchIndexError> {
         // the index is about to change, and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
-        // Send the insert requests to the writer server.
-        let request = WriterRequest::Insert {
-            directory: self.directory.clone(),
-            document: document.clone(),
-        };
-
-        let WriterTransferPipeFilePath(pipe_path) =
-            self.directory.writer_transfer_pipe_path(true)?;
-
-        writer.lock().transfer(pipe_path, request)?;
+        let writer = unsafe { Self::get_writer() };
+        writer.insert(self.directory.clone(), document)?;
         self.is_dirty = true;
 
         Ok(())
@@ -348,7 +342,7 @@ impl SearchIndex {
     /// are committed before returning an [`Ok`] response.
     pub fn delete<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         &mut self,
-        writer: &Arc<Mutex<W>>,
+        _writer: &Arc<Mutex<W>>,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
         let mut deleted: u32 = 0;
@@ -385,17 +379,11 @@ impl SearchIndex {
         }
 
         if !ctids_to_delete.is_empty() {
-            // delete all the docs, by ctid, we determined we should
-            writer.lock().request(WriterRequest::Delete {
-                field: ctid_field,
-                ctids: ctids_to_delete,
-                directory: self.directory.clone(),
-            })?;
+            let writer = unsafe { Self::get_writer() };
 
-            // go ahead and tell tantivy to commit these changes
-            writer.lock().request(WriterRequest::Commit {
-                directory: self.directory.clone(),
-            })?;
+            writer.delete(self.directory.clone(), &ctid_field, &ctids_to_delete)?;
+
+            writer.commit(self.directory.clone())?;
         }
 
         Ok((deleted, not_deleted))
@@ -403,18 +391,16 @@ impl SearchIndex {
 
     pub fn drop_index<W: WriterClient<WriterRequest>>(
         &mut self,
-        writer: &Arc<Mutex<W>>,
+        _writer: &Arc<Mutex<W>>,
         directory: &WriterDirectory,
     ) -> Result<(), SearchIndexError> {
         // the index is about to be queued to drop and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
-        let request = WriterRequest::DropIndex {
-            directory: directory.clone(),
-        };
+        let writer = unsafe { Self::get_writer() };
 
-        // Request the background writer process to physically drop the index.
-        writer.lock().request(request)?;
+        writer.drop_index(directory.clone())?;
+
         self.is_dirty = true;
         self.is_pending_drop = true;
 
@@ -423,12 +409,10 @@ impl SearchIndex {
 
     pub fn vacuum<W: WriterClient<WriterRequest>>(
         &mut self,
-        writer: &Arc<Mutex<W>>,
+        _writer: &Arc<Mutex<W>>,
     ) -> Result<(), SearchIndexError> {
-        let request = WriterRequest::Vacuum {
-            directory: self.directory.clone(),
-        };
-        writer.lock().request(request)?;
+        let writer = unsafe { Self::get_writer() };
+        writer.vacuum(self.directory.clone())?;
         Ok(())
     }
 }
@@ -460,14 +444,16 @@ impl<'de> Deserialize<'de> for SearchIndex {
             .tantivy_dir_path(true)
             .expect("tantivy directory path should be valid");
 
-        let mut underlying_index =
-            Index::open_in_dir(tantivy_dir_path).expect("index should be openable");
+        let tantivy_dir = UnlockedDirectory::open(tantivy_dir_path)
+            .expect("need a valid path to open a tantivy index");
+        let mut underlying_index = Index::open(tantivy_dir).expect("index should be openable");
 
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);
 
-        let reader = Self::reader(&underlying_index)
-            .unwrap_or_else(|_| panic!("failed to create index reader while retrieving index"));
+        let reader = Self::reader(&underlying_index).unwrap_or_else(|err| {
+            panic!("failed to create index reader while retrieving index: {err}")
+        });
 
         // Construct the SearchIndex.
         Ok(SearchIndex {

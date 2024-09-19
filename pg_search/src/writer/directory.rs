@@ -61,6 +61,7 @@ pub trait SearchFs {
     fn tantivy_dir_path(&self, ensure_exists: bool)
         -> Result<TantivyDirPath, SearchDirectoryError>;
     // Return and ensure the existence of the writer pipe file path.
+    #[allow(unused)]
     fn writer_transfer_pipe_path(
         &self,
         ensure_exists: bool,

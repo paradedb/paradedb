@@ -73,7 +73,7 @@ pub fn text_support(arg: Internal) -> ReturnedNodePointer {
                             String::from_datum((*const_).constvalue, (*const_).constisnull)
                                 .expect("query must not be NULL");
 
-                        let query = SearchQueryInput::FieldedParse {
+                        let query = SearchQueryInput::ParseWithField {
                             field: field.to_string(),
                             query_string,
                         };

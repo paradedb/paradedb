@@ -130,6 +130,9 @@ impl CustomScan for Example {
         }
 
         unsafe {
+            if builder.base_restrict_info().is_null() {
+                return None;
+            }
             let rte = builder.args().rte();
 
             // first, we only work on plain relations
@@ -241,20 +244,17 @@ impl CustomScan for Example {
         explainer: &mut Explainer,
     ) {
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(state.projection_tupdesc()) };
-        let mut projections = String::new();
-
-        for att in tupdesc {
-            if !projections.is_empty() {
-                projections.push_str(", ");
-            }
-            projections.push_str(att.name());
-        }
 
         explainer.add_text("Table", state.custom_state.heaprelname());
         explainer.add_text("Index", &state.custom_state.index_name);
-        (!projections.is_empty()).then(|| explainer.add_text("Projections", &projections));
-        let pretty_json = serde_json::to_string_pretty(&state.custom_state.search_config.query)
-            .expect("query should serialize to json");
+
+        let query = &state.custom_state.search_config.query;
+        let pretty_json = if explainer.is_verbose() {
+            serde_json::to_string_pretty(&query)
+        } else {
+            serde_json::to_string(&query)
+        }
+        .expect("query should serialize to json");
         explainer.add_text("Tantivy Query", &pretty_json);
     }
 

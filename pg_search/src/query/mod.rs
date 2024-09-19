@@ -102,7 +102,7 @@ pub enum SearchQueryInput {
     Parse {
         query_string: String,
     },
-    FieldedParse {
+    ParseWithField {
         field: String,
         query_string: String,
     },
@@ -484,7 +484,7 @@ impl SearchQueryInput {
                     )?))
                 }
             },
-            Self::FieldedParse {
+            Self::ParseWithField {
                 field,
                 query_string,
             } => {

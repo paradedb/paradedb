@@ -29,6 +29,10 @@ impl Explainer {
         NonNull::new(state).map(|state| Self { state })
     }
 
+    pub fn is_verbose(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).verbose }
+    }
+
     pub fn add_text(&mut self, key: &str, value: &str) {
         unsafe {
             pg_sys::ExplainPropertyText(key.as_pg_cstr(), value.as_pg_cstr(), self.state.as_ptr());

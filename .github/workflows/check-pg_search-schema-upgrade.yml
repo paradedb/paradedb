@@ -1,6 +1,6 @@
-# workflows/check-schema-upgrade-pg_search.yml
+# workflows/check-pg_search-schema-upgrade.yml
 #
-# Check Schema Upgrade pg_search
+# Check pg_search Schema Upgrade pg_search
 # Determine if a commit introduces an extension schema change for pg_search.
 
 name: Check Schema Upgrade pg_search
@@ -13,7 +13,7 @@ on:
       - main
       - eebbrr/detect-schema-change # TODO: Remove once done testing
     paths:
-      - ".github/workflows/check-schema-upgrade-pg_search.yml"
+      - ".github/workflows/check-pg_search-schema-upgrade.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
   workflow_dispatch:
@@ -23,13 +23,13 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: check-schema-upgrade-pg_search-${{ github.head_ref || github.ref }}
+  group: check-pg_search-schema-upgrade-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check-schema-upgrade-pg_search:
+  check-pg_search-schema-upgrade:
     name: Check for Schema Change
-    runs-on: depot-ubuntu-latest-2
+    runs-on: depot-ubuntu-latest-8
     if: github.event.pull_request.draft == false
     env:
       pg_version: 13 # Required by pg-schema-diff
@@ -81,9 +81,9 @@ jobs:
       - name: Generate Schema from this git rev
         run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/this.sql
 
-      - name: Switch to base rev and do it again (installing different pgrx if necessary)
+      - name: Switch to Base g rev and Generate Schema Again
         run: |
-          #Sswitch to the base git rev
+          # Switch to the base git rev
           git checkout ${{ github.event.pull_request.base.ref }}
 
           # See if we need a different cargo-pgrx and install it if so
@@ -105,6 +105,7 @@ jobs:
           (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
 
       - name: Generate Commit Message
+        id: generate_commit_message
         run: |
           if test -s ~/diff.sql; then
             echo "Generating GitHub comment message"
@@ -132,13 +133,17 @@ jobs:
               # echo '```'
               echo EOF
             } >> "$GITHUB_ENV"
-          fi
 
-          # Always succeed
-          true
+            # Set a flag to indicate a schema difference was detected
+            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "No schema difference detected"
+            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Attach Schema Diff to PR
         uses: actions/github-script@v6
+        if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
         with:
           script: |
             github.rest.issues.createComment({

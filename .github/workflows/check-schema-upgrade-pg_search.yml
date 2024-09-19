@@ -11,8 +11,9 @@ on:
     branches:
       - dev
       - main
+      - eebbrr/detect-schema-change # TODO: Remove once done testing
     paths:
-      - ".github/workflows/schema-upgrade-check.yml"
+      - ".github/workflows/check-schema-upgrade-pg_search.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
   workflow_dispatch:
@@ -27,21 +28,17 @@ concurrency:
 
 jobs:
   check-schema-upgrade-pg_search:
-    name: Does this commit introduce a schema change?
-    runs-on: ${{ matrix.runner }}
+    name: Check for Schema Change
+    runs-on: depot-ubuntu-latest-2
     if: github.event.pull_request.draft == false
-    strategy:
-      matrix:
-        include:
-          - runner: depot-ubuntu-latest-2
-            pg_version: 13
-            arch: amd64
+    env:
+      pg_version: 13 # Required by pg-schema-diff
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history
+          fetch-depth: 0 # Fetch the entire history
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -62,43 +59,45 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ env.pg_version }}/ /usr/lib/postgresql/${{ env.pg_version }}/ /var/lib/postgresql/${{ env.pg_version }}/
           rustup component add llvm-tools-preview
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
           sudo apt install clang llvm diffutils
           cargo install --git https://github.com/zombodb/pg-schema-diff.git
 
-      - name: Extract pgrx version & Install cargo-pgrx
+      - name: Extract pgrx Version & Install cargo-pgrx
         run: |
           PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
           cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION}
-          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+
+          # Save the pgrx version for comparison later
+          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
-        run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
+        run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/this.sql
 
       - name: Switch to base rev and do it again (installing different pgrx if necessary)
         run: |
-          # switch to the base rev
+          #Sswitch to the base git rev
           git checkout ${{ github.event.pull_request.base.ref }}
 
-          # see if we need a different cargo-pgrx and install it if so
+          # See if we need a different cargo-pgrx and install it if so
           THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
           if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
-            # install cargo-pgrx
+            # Install cargo-pgrx
             cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force
 
-            # initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
-            cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+            # Initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
+            cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
           fi
 
-          # generate schema
-          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
+          # Generate schema
+          cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/old.sql
 
       - name: Generate Schema Diffs
         run: |
@@ -108,7 +107,7 @@ jobs:
       - name: Generate Commit Message
         run: |
           if test -s ~/diff.sql; then
-            echo generating github comment message
+            echo "Generating GitHub comment message"
             {
               echo 'DIFF<<EOF'
               echo 'A schema difference was detected.'
@@ -135,10 +134,10 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
 
-          # always succeed
+          # Always succeed
           true
 
-      - name: Attach diff to PR
+      - name: Attach Schema Diff to PR
         uses: actions/github-script@v6
         with:
           script: |

@@ -230,9 +230,13 @@ async fn test_ephemeral_postgres() -> Result<()> {
         "SELECT description FROM mock_items.search('description:shoes')".fetch(&mut source_conn);
 
     // Wait for the replication to complete
-    std::thread::sleep(std::time::Duration::from_secs(1));
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items.search('description:shoes')".fetch(&mut target_conn);
+        "SELECT description FROM mock_items.search('description:shoes')".fetch_retry(
+            &mut target_conn,
+            5,
+            1000,
+            |result| result.len() > 0,
+        );
 
     assert_eq!(source_results.len(), 1);
     assert_eq!(target_results.len(), 1);
@@ -247,10 +251,13 @@ async fn test_ephemeral_postgres() -> Result<()> {
             .fetch(&mut source_conn);
 
     // Wait for the replication to complete
-    std::thread::sleep(std::time::Duration::from_secs(1));
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items.search('description:\"running shoes\"')"
-            .fetch(&mut target_conn);
+        "SELECT description FROM mock_items.search('description:\"running shoes\"')".fetch_retry(
+            &mut target_conn,
+            5,
+            1000,
+            |result| result.len() > 0,
+        );
 
     assert_eq!(source_results.len(), 1);
     assert_eq!(target_results.len(), 1);
@@ -264,10 +271,13 @@ async fn test_ephemeral_postgres() -> Result<()> {
         "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'"
             .fetch(&mut source_conn);
 
-    std::thread::sleep(std::time::Duration::from_secs(1));
     let target_results: Vec<(i32,)> =
-        "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'"
-            .fetch(&mut target_conn);
+        "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
+            &mut target_conn,
+            5,
+            1000,
+            |result| result.len() > 0,
+        );
 
     assert_eq!(source_results.len(), 1);
     assert_eq!(target_results.len(), 1);
@@ -281,10 +291,13 @@ async fn test_ephemeral_postgres() -> Result<()> {
         "SELECT description FROM mock_items WHERE description = 'Red sports shoes'"
             .fetch(&mut source_conn);
 
-    std::thread::sleep(std::time::Duration::from_secs(1));
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE description = 'Red sports shoes'"
-            .fetch(&mut target_conn);
+        "SELECT description FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
+            &mut target_conn,
+            5,
+            1000,
+            |result| result.len() > 0,
+        );
 
     assert_eq!(source_results.len(), 0);
     assert_eq!(target_results.len(), 0);
@@ -436,12 +449,14 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
     VALUES ('Green hiking shoes', 'Footwear', true, '16:00:00', '2024-07-11', '{}', '2024-07-11 16:00:00', 3)"
     .execute(&mut source_conn);
 
-    // Wait for the replication to complete
-    std::thread::sleep(std::time::Duration::from_secs(1));
-
     // Verify the insert is replicated to the target database and can be searched using pg_search
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items.search('description:shoes')".fetch(&mut target_conn);
+        "SELECT description FROM mock_items.search('description:shoes')".fetch_retry(
+            &mut target_conn,
+            5,
+            1000,
+            |result| result.len() > 0,
+        );
 
     assert_eq!(target_results.len(), 1);
     assert_eq!(target_results[0].0, "Green hiking shoes");

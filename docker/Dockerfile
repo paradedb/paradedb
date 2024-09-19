@@ -271,14 +271,8 @@ RUN apt-get update && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Change the uid of the postgres user to 26, for CloudNativePG compatibility
-RUN usermod -u 26 postgres \
-    && chown -R 26:999 /var/lib/postgresql \
-    && chown -R 26:999 /var/run/postgresql \
-    && chmod -R 700 /var/lib/postgresql
-
 # Switch back to the postgres user, with the new uid
-USER 26
+USER postgres
 
 # Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh

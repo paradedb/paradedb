@@ -3,7 +3,7 @@
 # Check pg_search Schema Upgrade pg_search
 # Determine if a commit introduces an extension schema change for pg_search.
 
-name: Check Schema Upgrade pg_search
+name: Check pg_search Schema Upgrade
 
 on:
   pull_request:
@@ -11,7 +11,6 @@ on:
     branches:
       - dev
       - main
-      - eebbrr/detect-schema-change # TODO: Remove once done testing
     paths:
       - ".github/workflows/check-pg_search-schema-upgrade.yml"
       - "pg_search/**"
@@ -28,7 +27,7 @@ concurrency:
 
 jobs:
   check-pg_search-schema-upgrade:
-    name: Check for Schema Change
+    name: Post Schema Change to PR
     runs-on: depot-ubuntu-latest-8
     if: github.event.pull_request.draft == false
     env:
@@ -81,7 +80,7 @@ jobs:
       - name: Generate Schema from this git rev
         run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/this.sql
 
-      - name: Switch to Base g rev and Generate Schema Again
+      - name: Switch to Base git rev and Generate Schema Again
         run: |
           # Switch to the base git rev
           git checkout ${{ github.event.pull_request.base.ref }}

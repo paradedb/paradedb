@@ -235,7 +235,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
             &mut target_conn,
             5,
             1000,
-            |result| result.len() > 0,
+            |result| !result.is_empty(),
         );
 
     assert_eq!(source_results.len(), 1);
@@ -256,7 +256,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
             &mut target_conn,
             5,
             1000,
-            |result| result.len() > 0,
+            |result| !result.is_empty(),
         );
 
     assert_eq!(source_results.len(), 1);
@@ -276,7 +276,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
             &mut target_conn,
             5,
             1000,
-            |result| result.len() > 0,
+            |result| !result.is_empty(),
         );
 
     assert_eq!(source_results.len(), 1);
@@ -296,7 +296,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
             &mut target_conn,
             5,
             1000,
-            |result| result.len() > 0,
+            |result| !result.is_empty(),
         );
 
     assert_eq!(source_results.len(), 0);
@@ -455,7 +455,7 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
             &mut target_conn,
             5,
             1000,
-            |result| result.len() > 0,
+            |result| !result.is_empty(),
         );
 
     assert_eq!(target_results.len(), 1);

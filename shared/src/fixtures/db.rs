@@ -110,17 +110,15 @@ where
                 sqlx::query_as::<_, T>(self.as_ref())
                     .fetch_all(&mut *connection)
                     .await
-                    .map_err(|err| anyhow::Error::from(err))
+                    .map_err(anyhow::Error::from)
             }) {
                 Ok(result) => {
                     if validate(&result) {
                         return result;
+                    } else if attempt < retries - 1 {
+                        block_on(async_std::task::sleep(Duration::from_millis(delay_ms)));
                     } else {
-                        if attempt < retries - 1 {
-                            block_on(async_std::task::sleep(Duration::from_millis(delay_ms)));
-                        } else {
-                            return vec![];
-                        }
+                        return vec![];
                     }
                 }
                 Err(_) if attempt < retries - 1 => {

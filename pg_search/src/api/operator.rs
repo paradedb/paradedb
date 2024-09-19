@@ -88,7 +88,7 @@ fn anyelement_query_input_opoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_jsonb_opoid() -> pg_sys::Oid {
+pub fn anyelement_jsonb_opoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regoperatorin,
@@ -169,9 +169,9 @@ unsafe fn make_search_config_opexpr_node(
 
     let keys = &(*indexrel.rd_index).indkey;
     let keys = keys.values.as_slice(keys.dim1 as usize);
-    if keys[0] != varattno {
-        panic!("left-hand side of the @@@ operator must match the first column of the only `USING bm25` index");
-    }
+
+    // the Var's attribute number must always be the first field from the index definition
+    (*var).varattno = keys[0];
 
     // fabricate a `SearchConfig` from the above relation and query string
     // and get it serialized into a JSONB Datum

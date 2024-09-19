@@ -17,26 +17,28 @@
 
 mod qual_inspect;
 
+use crate::api::operator::anyelement_jsonb_opoid;
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::example::qual_inspect::extract_quals;
+use crate::postgres::customscan::example::qual_inspect::{can_use_quals, extract_quals, Qual};
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::port::executor_h::ExecProject;
 use crate::postgres::customscan::{node, CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::VisibilityChecker;
-use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
+use crate::GUCS;
 use pgrx::pg_sys::{table_slot_callbacks, CustomPath, EState, TupleTableSlot};
-use pgrx::{is_a, name_data_to_str, pg_sys, FromDatum, IntoDatum, PgList, PgRelation, PgTupleDesc};
+use pgrx::{is_a, name_data_to_str, pg_sys, IntoDatum, PgList, PgRelation, PgTupleDesc};
+use shared::gucs::GlobalGucSettings;
 use std::ffi::CStr;
 
 #[derive(Default)]
@@ -50,7 +52,7 @@ pub struct ExampleScanState {
     index_oid: pg_sys::Oid,
     index_uuid: String,
     key_field: String,
-    tantivy_query: String,
+    search_config: SearchConfig,
     search_results: SearchResults,
 
     visibility_checker: Option<VisibilityChecker>,
@@ -112,17 +114,9 @@ impl PrivateData {
         }
     }
 
-    fn quals(
-        &self,
-    ) -> impl Iterator<Item = (Option<*mut pg_sys::Var>, Option<*mut pg_sys::Const>)> + '_ {
-        let mut range = (2..self.0.len()).step_by(2);
-        std::iter::from_fn(move || unsafe {
-            let i = range.next()?;
-            let var = node::<pg_sys::Var>(self.0.get_ptr(i)?.cast(), pg_sys::NodeTag::T_Var);
-            let const_ =
-                node::<pg_sys::Const>(self.0.get_ptr(i + 1)?.cast(), pg_sys::NodeTag::T_Const);
-            Some((var, const_))
-        })
+    fn quals(&self) -> Option<Qual> {
+        let base_restrict_info = self.0.get_ptr(2)?;
+        unsafe { extract_quals(base_restrict_info, anyelement_jsonb_opoid()) }
     }
 }
 
@@ -131,6 +125,10 @@ impl CustomScan for Example {
     type State = ExampleScanState;
 
     fn callback(mut builder: CustomPathBuilder) -> Option<CustomPath> {
+        if !GUCS.enable_custom_scan() {
+            return None;
+        }
+
         unsafe {
             let rte = builder.args().rte();
 
@@ -145,52 +143,27 @@ impl CustomScan for Example {
 
             // and that relation must have a `USING bm25` index
             let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
-            // let mut quals = Vec::new();
 
             //
             // look for quals we can support
             //
-            let quals = extract_quals(builder.base_restrict_info().cast());
-            pgrx::warning!("{quals:#?}");
-            // for ri in builder.base_restrict_info().iter_ptr() {
-            //     if let Some(clause) =
-            //         node::<pg_sys::OpExpr>((*ri).clause.cast(), pg_sys::NodeTag::T_OpExpr)
-            //     {
-            //         // this is just hacky code for testing.
-            //         //
-            //         // matches:  text_field = 'string value'
-            //         if (*clause).opno == pg_sys::Oid::from(pg_sys::TextEqualOperator) {
-            //             let args = PgList::<pg_sys::Node>::from_pg((*clause).args);
-            //             if args.len() == 2 {
-            //                 let first = args.get_ptr(0).unwrap();
-            //                 let second = args.get_ptr(1).unwrap();
-            //
-            //                 if let (Some(first), Some(second)) = (
-            //                     node::<pg_sys::Var>(first.cast(), pg_sys::NodeTag::T_Var),
-            //                     node::<pg_sys::Const>(second.cast(), pg_sys::NodeTag::T_Const),
-            //                 ) {
-            //                     if (*second).consttype == pg_sys::TEXTOID {
-            //                         quals.push((first, second))
-            //                     }
-            //                 }
-            //             }
-            //         }
-            //     }
-            // }
+            if can_use_quals(
+                builder.base_restrict_info().cast(),
+                anyelement_jsonb_opoid(),
+            )
+            .is_some()
+            {
+                builder = builder
+                    .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
+                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast());
 
-            // if !quals.is_empty() {
-            //     builder = builder
-            //         .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
-            //         .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast());
-            //
-            //     for (var, const_val) in quals {
-            //         builder = builder
-            //             .add_private_data(var.cast())
-            //             .add_private_data(const_val.cast());
-            //     }
-            //
-            //     return Some(builder.set_flag(Flags::Projection).build());
-            // }
+                let restrict_info = builder.base_restrict_info();
+                builder = builder.add_private_data(restrict_info.cast());
+
+                // TODO:  I think we need to calculate costs and row estimates here too?
+
+                return Some(builder.set_flag(Flags::Projection).build());
+            }
         }
 
         None
@@ -232,33 +205,9 @@ impl CustomScan for Example {
             let heaprel = pg_sys::relation_open(heaprelid, pg_sys::AccessShareLock as _);
             let tupdesc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
 
-            let tantivy_query = &mut builder.custom_state().tantivy_query;
-            for (var, const_) in private_data.quals() {
-                let var = var.expect("node should be a `Var`");
-                let const_ = const_.expect("node should be a `Const`");
+            let quals = private_data.quals().expect("should have a Qual structure");
 
-                let attname = tupdesc
-                    .get((*var).varattno as usize - 1)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "heap relation should have an attribute with number {}",
-                            (*var).varattno
-                        )
-                    })
-                    .name();
-                let value =
-                    <&str>::from_datum((*const_).constvalue, (*const_).constisnull).unwrap();
-
-                if !tantivy_query.is_empty() {
-                    tantivy_query.push_str(" AND ");
-                }
-
-                tantivy_query.push_str(attname);
-                tantivy_query.push_str(":(");
-                tantivy_query.push_str(value);
-                tantivy_query.push(')');
-            }
-
+            builder.custom_state().search_config = SearchConfig::from(quals);
             builder.custom_state().heaprel = Some(heaprel);
             builder.custom_state().snapshot = Some(pg_sys::GetActiveSnapshot());
             builder.custom_state().visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
@@ -266,6 +215,7 @@ impl CustomScan for Example {
                 pg_sys::GetActiveSnapshot(),
             ));
 
+            // TODO:  figure out scoring a different way
             // look for columns named "score_bm25" of type FLOAT4
             for (i, entry) in builder.target_list().iter_ptr().enumerate() {
                 let entry = entry.as_ref().expect("`TargetEntry` should not be null");
@@ -303,7 +253,9 @@ impl CustomScan for Example {
         explainer.add_text("Table", state.custom_state.heaprelname());
         explainer.add_text("Index", &state.custom_state.index_name);
         (!projections.is_empty()).then(|| explainer.add_text("Projections", &projections));
-        explainer.add_text("Tantivy Query", &state.custom_state.tantivy_query);
+        let pretty_json = serde_json::to_string_pretty(&state.custom_state.search_config.query)
+            .expect("query should serialize to json");
+        explainer.add_text("Tantivy Query", &pretty_json);
     }
 
     fn begin_custom_scan(
@@ -325,27 +277,8 @@ impl CustomScan for Example {
         }
 
         let indexrelid = state.custom_state.index_oid.as_u32();
-        #[rustfmt::skip]
-        let search_config = SearchConfig {
-            query: SearchQueryInput::Parse {query_string: state.custom_state.tantivy_query.clone()},
-            index_name: state.custom_state.index_name.clone(),
-            index_oid: indexrelid,
-            table_oid: state.custom_state.heaprelid().as_u32(),
-            database_oid: crate::MyDatabaseId(),
-            key_field: state.custom_state.key_field.clone(),
-            offset_rows: None,
-            limit_rows: None,
-            max_num_chars: None,
-            highlight_field: None,
-            prefix: None,
-            postfix: None,
-            stable_sort: Some(false),   // for speed!
-            uuid: state.custom_state.index_uuid.clone(),
-            order_by_field: None,
-            order_by_direction: None,
-            lenient_parsing: None,
-            conjunction_mode: None,
-        };
+        let search_config = &mut state.custom_state.search_config;
+        search_config.stable_sort = Some(false);
 
         // Create the index and scan state
         let directory = WriterDirectory::from_oids(
@@ -358,7 +291,7 @@ impl CustomScan for Example {
         let writer_client = WriterGlobal::client();
 
         let search_state = search_index
-            .search_state(&writer_client, &search_config)
+            .search_state(&writer_client, search_config)
             .expect("`SearchState` should have been constructed correctly");
 
         state.custom_state.search_results =

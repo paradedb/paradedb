@@ -38,8 +38,16 @@ use thiserror::Error;
 pub enum SearchQueryInput {
     All,
     Boolean {
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         must: Vec<SearchQueryInput>,
+
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         should: Vec<SearchQueryInput>,
+
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         must_not: Vec<SearchQueryInput>,
     },
     Boost {
@@ -92,6 +100,10 @@ pub enum SearchQueryInput {
         document_id: Option<tantivy::schema::OwnedValue>,
     },
     Parse {
+        query_string: String,
+    },
+    FieldedParse {
+        field: String,
         query_string: String,
     },
     Phrase {
@@ -472,6 +484,18 @@ impl SearchQueryInput {
                     )?))
                 }
             },
+            Self::FieldedParse {
+                field,
+                query_string,
+            } => {
+                let query_string = format!("{field}:({query_string})");
+                Self::Parse { query_string }.into_tantivy_query(
+                    field_lookup,
+                    parser,
+                    searcher,
+                    config,
+                )
+            }
             Self::Phrase {
                 field,
                 phrases,

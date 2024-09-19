@@ -23,7 +23,8 @@ use crate::postgres::utils::{locate_bm25_index, relfilenode_from_search_config};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::UNKNOWN_SELECTIVITY;
-use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
+use pgrx::pg_sys::planner_rt_fetch;
+use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList, PgRelation};
 
 /// This is the function behind the `@@@(anyelement, text)` operator. Since we transform those to
 /// use `@@@(anyelement, jsonb`), this function won't be called in normal circumstances, but it
@@ -58,11 +59,24 @@ pub fn text_support(arg: Internal) -> ReturnedNodePointer {
                         let var = lhs.cast::<pg_sys::Var>();
                         let const_ = rhs.cast::<pg_sys::Const>();
 
+                        // the field name comes from the lhs of the @@@ operator, which is a `pg_sys::Var` node
+                        let rte = planner_rt_fetch((*var).varno as pg_sys::Index, (*srs).root);
+                        let heaprel = PgRelation::open((*rte).relid);
+                        let tupdesc = heaprel.tuple_desc();
+                        let attribute = tupdesc
+                            .get((*var).varattno as usize - 1)
+                            .expect("Var.varattno must exist in the relation");
+                        let field = attribute.name();
+
                         // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
                         let query_string =
                             String::from_datum((*const_).constvalue, (*const_).constisnull)
                                 .expect("query must not be NULL");
-                        let query = SearchQueryInput::Parse { query_string };
+
+                        let query = SearchQueryInput::FieldedParse {
+                            field: field.to_string(),
+                            query_string,
+                        };
                         return make_search_config_opexpr_node(srs, &mut input_args, var, query);
                     }
                 }

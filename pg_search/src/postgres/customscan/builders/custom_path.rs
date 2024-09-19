@@ -63,6 +63,10 @@ pub struct CustomPathBuilder {
     custom_path_node: pg_sys::CustomPath,
 
     custom_paths: PgList<pg_sys::Path>,
+
+    /// `custom_private` can be used to store the custom path's private data. Private data should be
+    /// stored in a form that can be handled by nodeToString, so that debugging routines that attempt
+    /// to print the custom path will work as designed.
     custom_private: PgList<pg_sys::Node>,
 }
 

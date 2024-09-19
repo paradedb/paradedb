@@ -25,7 +25,7 @@ use crate::schema::{SearchDocument, SearchFieldConfig, SearchFieldType};
 use crate::{postgres::types::TantivyValueError, schema::SearchFieldName};
 pub use client::{Client, ClientError};
 pub use directory::*;
-pub use index::Writer;
+pub use index::{UnlockedDirectory, Writer};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub use server::{Server, ServerError};
 use std::path::Path;
@@ -86,8 +86,10 @@ pub trait Handler<T: DeserializeOwned> {
 }
 
 pub trait WriterClient<T: Serialize> {
+    #[allow(unused)]
     fn request(&mut self, request: T) -> Result<(), ClientError>;
 
+    #[allow(unused)]
     fn transfer<P: AsRef<Path>>(&mut self, pipe_path: P, request: T) -> Result<(), ClientError>;
 }
 

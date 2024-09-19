@@ -137,18 +137,17 @@ unsafe extern "C" fn pg_search_xact_callback(
 }
 
 fn finalize_drop<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
-    writer: &Arc<Mutex<W>>,
+    _writer: &Arc<Mutex<W>>,
     directory: &WriterDirectory,
 ) -> Result<(), ClientError> {
-    // ask the remote side to drop the index
-    writer.lock().request(WriterRequest::DropIndex {
-        directory: directory.clone(),
-    })?;
+    let writer = unsafe { SearchIndex::get_writer() };
 
-    // then tell it to do it now
-    writer.lock().request(WriterRequest::Commit {
-        directory: directory.clone(),
-    })?;
+    writer
+        .drop_index(directory.clone())
+        .expect("must be able to finalize drop");
+    writer
+        .commit(directory.clone())
+        .expect("commit must work in finalize drop");
 
     Ok(())
 }

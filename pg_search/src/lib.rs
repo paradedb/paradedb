@@ -84,10 +84,6 @@ pub unsafe extern "C" fn _PG_init() {
     // Set up the writer bgworker shared state.
     pg_shmem_init!(WRITER_GLOBAL);
 
-    // We call this in a helper function to the bgworker initialization
-    // can be used in test suites.
-    setup_background_workers();
-
     setup_telemetry_background_worker(shared::telemetry::ParadeExtension::PgSearch);
 
     // Register our tracing / logging hook, so that we can ensure that the logger

@@ -1,24 +1,30 @@
-name: Assign Issue via 'take' Comment
+# workflows/assign-github-issue.yml
+#
+# Assign GitHub Issue
+# Automatically assign an issue to the commenter if they use the '/take' command.
+
+name: Assign GitHub Issue
 
 on:
   issue_comment:
     types: [created]
 
+# Required to assign the issue to the commenter
 permissions:
   issues: write
 
+concurrency:
+  group: assign-github-issue-${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
-  issue_assign:
-    runs-on: ubuntu-latest
-    if: |
-      !github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/take')
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.event.issue.number }}
-      cancel-in-progress: true
+  assign-github-issue:
+    name: Assign GitHub Issue to Commente
+    runs-on: depot-ubuntu-latest-2
+    if: !github.event.issue.pull_request && contains(github.event.comment.body, '/take')
 
     steps:
-      - name: Check if commenter can be assigned
+      - name: Check if Commenter Can Be Assigned
         id: check_assignee
         run: |
           HTTP_CODE=$(curl -X GET \
@@ -33,7 +39,7 @@ jobs:
             echo "can_assign=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Assign issue
+      - name: Assign GitHub Issue
         if: steps.check_assignee.outputs.can_assign == 'true'
         run: |
           curl -X POST \
@@ -44,7 +50,7 @@ jobs:
 
           echo "Issue #${{ github.event.issue.number }} assigned to ${{ github.event.comment.user.login }}"
 
-      - name: Comment if assignment failed
+      - name: Notify of Assignment Failure
         if: steps.check_assignee.outputs.can_assign == 'false'
         uses: actions/github-script@v6
         with:

@@ -16,11 +16,10 @@ from a maintainer to pick an issue.
 
 1. Before claiming an issue, ensure that:
 
-   - It's not already assigned to someone else
-   - There are no comments indicating ongoing work
+- It's not already assigned to someone else
+- There are no comments indicating ongoing work
 
-2. To claim an unassigned issue, simply comment `/take` on the issue.
-   This will automatically assign the issue to you.
+2. To claim an unassigned issue, simply comment `/take` on the issue. This will automatically assign the issue to you.
 
 If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ). If you no longer wish to
 work on the issue(s) you self-assigned, please use the `unassign me` link at the top of the issue(s) page to release it.

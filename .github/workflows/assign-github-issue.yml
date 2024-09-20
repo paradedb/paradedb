@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   assign-github-issue:
-    name: Assign GitHub Issue to Commente
+    name: Assign GitHub Issue to Commenter
     runs-on: depot-ubuntu-latest-2
     if: !github.event.issue.pull_request && contains(github.event.comment.body, '/take')
 

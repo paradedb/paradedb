@@ -355,7 +355,6 @@ impl CustomScan for Example {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        pgrx::warning!("rescan");
         let indexrelid = state.custom_state.index_oid.as_u32();
         let search_config = &mut state.custom_state.search_config;
         search_config.stable_sort = Some(false);

@@ -17,9 +17,11 @@
 
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
+use crate::GUCS;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 use rustc_hash::FxHashMap;
+use shared::gucs::GlobalGucSettings;
 use std::collections::hash_map::Entry;
 
 pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
@@ -65,6 +67,10 @@ pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
     rte: *mut pg_sys::RangeTblEntry,
 ) {
     unsafe {
+        if !GUCS.enable_custom_scan() {
+            return;
+        }
+
         if let Some(path) = CS::callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte)) {
             pg_sys::add_path(
                 rel,

@@ -184,19 +184,26 @@ impl SearchState {
             collector::ChannelCollector::new(sender, self.config.key_field.clone(), include_key);
         let searcher = self.searcher.clone();
         let query = self.query.clone();
+        let schema = self.schema.schema.clone();
+        let need_scores = self.config.need_scores;
+
         std::thread::spawn(move || {
             searcher
                 .search_with_executor(
                     query.as_ref(),
                     &collector,
                     executor,
-                    tantivy::query::EnableScoring::Enabled {
-                        searcher: &searcher,
-                        statistics_provider: &searcher,
-                    }, // tantivy::query::EnableScoring::Disabled {
-                       //     schema: &schema,
-                       //     searcher_opt: Some(&searcher),
-                       // },
+                    if need_scores {
+                        tantivy::query::EnableScoring::Enabled {
+                            searcher: &searcher,
+                            statistics_provider: &searcher,
+                        }
+                    } else {
+                        tantivy::query::EnableScoring::Disabled {
+                            schema: &schema,
+                            searcher_opt: Some(&searcher),
+                        }
+                    },
                 )
                 .expect("failed to search")
         });

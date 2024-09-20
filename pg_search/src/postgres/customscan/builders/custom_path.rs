@@ -75,7 +75,7 @@ impl Debug for CustomPathBuilder {
         f.debug_struct("CustomPathBuilder")
             .field("args", &self.args)
             .field("flags", &self.flags)
-            .field("path", &self.flags)
+            .field("path", &self.custom_path_node)
             .field(
                 "custom_paths",
                 &self

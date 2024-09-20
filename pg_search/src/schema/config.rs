@@ -36,11 +36,17 @@ pub struct SearchConfig {
     pub prefix: Option<String>,
     pub postfix: Option<String>,
     pub stable_sort: Option<bool>,
+    #[serde(default = "default_as_false")]
+    pub need_scores: bool,
     pub uuid: String,
     pub order_by_field: Option<String>,
     pub order_by_direction: Option<String>,
     pub lenient_parsing: Option<bool>,
     pub conjunction_mode: Option<bool>,
+}
+
+fn default_as_false() -> bool {
+    false
 }
 
 impl SearchConfig {
@@ -162,6 +168,7 @@ impl From<(SearchQueryInput, IndexRelation)> for SearchConfig {
             prefix: None,
             postfix: None,
             stable_sort: Some(false), // for speed
+            need_scores: false,
             uuid: ops.get_uuid().unwrap(),
             order_by_field: None,
             order_by_direction: None,

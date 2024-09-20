@@ -218,17 +218,14 @@ impl CustomScan for Example {
                 pg_sys::GetActiveSnapshot(),
             ));
 
-            // TODO:  figure out scoring a different way
-            // look for columns named "score_bm25" of type FLOAT4
+            let score_funcoid = score_support::score_funcoid();
             for (i, entry) in builder.target_list().iter_ptr().enumerate() {
                 let entry = entry.as_ref().expect("`TargetEntry` should not be null");
                 let expr = entry.expr;
 
-                if is_a(expr.cast(), pg_sys::NodeTag::T_Const) {
-                    let const_: *mut pg_sys::Const = expr.cast();
-                    if (*const_).consttype == pg_sys::FLOAT4OID
-                        && CStr::from_ptr(entry.resname) == c"score_bm25"
-                    {
+                if is_a(expr.cast(), pg_sys::NodeTag::T_FuncExpr) {
+                    let func: *mut pg_sys::FuncExpr = expr.cast();
+                    if (*func).funcid == score_funcoid {
                         builder.custom_state().score_field_indices.push(i);
                     }
                 }
@@ -390,6 +387,47 @@ fn tts_ops_name(slot: *mut pg_sys::TupleTableSlot) -> &'static str {
             "BufferHeap"
         } else {
             "Unknown"
+        }
+    }
+}
+
+mod score_support {
+    use pgrx::callconv::{Arg, ArgAbi};
+    use pgrx::pgrx_sql_entity_graph::metadata::{
+        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    };
+    use pgrx::{direct_function_call, pg_extern, pg_sys, IntoDatum};
+
+    pub struct OpaqueRecordArg;
+
+    unsafe impl<'fcx> ArgAbi<'fcx> for OpaqueRecordArg {
+        unsafe fn unbox_arg_unchecked(arg: Arg<'_, 'fcx>) -> Self {
+            OpaqueRecordArg
+        }
+    }
+
+    unsafe impl SqlTranslatable for OpaqueRecordArg {
+        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
+            Ok(SqlMapping::As("record".into()))
+        }
+
+        fn return_sql() -> Result<Returns, ReturnsError> {
+            Ok(Returns::One(SqlMapping::As("record".into())))
+        }
+    }
+
+    #[pg_extern(name = "score", volatile, parallel_safe)]
+    fn score_from_relation(_relation_reference: OpaqueRecordArg) -> f32 {
+        panic!("pardedb.score() function used in an invalid context")
+    }
+
+    pub(super) fn score_funcoid() -> pg_sys::Oid {
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"paradedb.score(record)".into_datum()],
+            )
+            .expect("the `paradedb.score(record) type should exist")
         }
     }
 }

@@ -75,7 +75,7 @@ pub fn MyDatabaseId() -> u32 {
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     if !pg_sys::process_shared_preload_libraries_in_progress {
-        ereport!(PgLogLevel::ERROR, PgSqlErrorCode::ERRCODE_RAISE_EXCEPTION, "pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to the shared_preload_libraries configuration in the postgresql.conf file and restart Postgres.");
+        error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
     }
 
     postgres::options::init();

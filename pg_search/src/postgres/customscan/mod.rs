@@ -100,6 +100,8 @@ pub trait CustomScan: Default + Sized {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+
+    fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 }
 
 pub trait MarkRestoreCapable: CustomScan {

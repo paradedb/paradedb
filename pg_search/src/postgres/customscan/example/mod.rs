@@ -279,26 +279,7 @@ impl CustomScan for Example {
             );
         }
 
-        let indexrelid = state.custom_state.index_oid.as_u32();
-        let search_config = &mut state.custom_state.search_config;
-        search_config.stable_sort = Some(false);
-
-        // Create the index and scan state
-        let directory = WriterDirectory::from_oids(
-            crate::MyDatabaseId(),
-            indexrelid,
-            crate::postgres::utils::relfilenode_from_index_oid(indexrelid).as_u32(),
-        );
-        let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
-            .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-        let writer_client = WriterGlobal::client();
-
-        let search_state = search_index
-            .search_state(&writer_client, search_config)
-            .expect("`SearchState` should have been constructed correctly");
-
-        state.custom_state.search_results =
-            search_state.search_minimal(false, SearchIndex::executor());
+        Example::rescan_custom_scan(state)
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
@@ -371,6 +352,30 @@ impl CustomScan for Example {
                 pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
             }
         }
+    }
+
+    fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        pgrx::warning!("rescan");
+        let indexrelid = state.custom_state.index_oid.as_u32();
+        let search_config = &mut state.custom_state.search_config;
+        search_config.stable_sort = Some(false);
+
+        // Create the index and scan state
+        let directory = WriterDirectory::from_oids(
+            crate::MyDatabaseId(),
+            indexrelid,
+            crate::postgres::utils::relfilenode_from_index_oid(indexrelid).as_u32(),
+        );
+        let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+            .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+        let writer_client = WriterGlobal::client();
+
+        let search_state = search_index
+            .search_state(&writer_client, search_config)
+            .expect("`SearchState` should have been constructed correctly");
+
+        state.custom_state.search_results =
+            search_state.search_minimal(false, SearchIndex::executor());
     }
 }
 

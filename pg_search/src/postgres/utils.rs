@@ -213,8 +213,7 @@ impl VisibilityChecker {
             let (found, htup) = self.check_page_vis(self.last_buffer);
             pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
 
-            let result = found.then(|| func(htup, self.last_buffer));
-            result
+            found.then(|| func(htup, self.last_buffer))
         }
     }
 

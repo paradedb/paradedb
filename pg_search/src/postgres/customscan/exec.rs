@@ -61,7 +61,8 @@ pub extern "C" fn end_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanS
 /// Rewind the current scan to the beginning and prepare to rescan the relation.
 #[pg_guard]
 pub extern "C" fn rescan_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
-    todo!("rescan_custom_scan")
+    let mut custom_state = custom_state(node);
+    unsafe { CS::rescan_custom_scan(custom_state.as_mut()) }
 }
 
 /// Save the current scan position so that it can subsequently be restored by the RestrPosCustomScan

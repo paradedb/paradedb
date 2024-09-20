@@ -36,7 +36,6 @@ use crate::postgres::utils::VisibilityChecker;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use crate::GUCS;
-use pgrx::pg_sys::{table_slot_callbacks, CustomPath, EState, TupleTableSlot};
 use pgrx::{is_a, name_data_to_str, pg_sys, IntoDatum, PgList, PgRelation, PgTupleDesc};
 use shared::gucs::GlobalGucSettings;
 use std::ffi::CStr;
@@ -124,7 +123,7 @@ impl CustomScan for Example {
     const NAME: &'static CStr = c"ParadeDB Example Scan";
     type State = ExampleScanState;
 
-    fn callback(mut builder: CustomPathBuilder) -> Option<CustomPath> {
+    fn callback(mut builder: CustomPathBuilder) -> Option<pg_sys::CustomPath> {
         if !GUCS.enable_custom_scan() {
             return None;
         }
@@ -260,7 +259,7 @@ impl CustomScan for Example {
 
     fn begin_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        estate: *mut EState,
+        estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
         unsafe {
@@ -270,7 +269,7 @@ impl CustomScan for Example {
                 estate,
                 &mut state.csstate.ss,
                 tupdesc,
-                table_slot_callbacks(state.custom_state.heaprel()),
+                pg_sys::table_slot_callbacks(state.custom_state.heaprel()),
             );
             pg_sys::ExecInitResultTypeTL(&mut state.csstate.ss.ps);
             pg_sys::ExecAssignProjectionInfo(&mut state.csstate.ss.ps, tupdesc);
@@ -298,7 +297,7 @@ impl CustomScan for Example {
             search_state.search_minimal(false, SearchIndex::executor());
     }
 
-    fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut TupleTableSlot {
+    fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         loop {
             match state.custom_state.search_results.next() {
                 // we've returned all the matching results

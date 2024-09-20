@@ -15,12 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::port::tuptable_h::ExecClearTuple;
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     uint16, AttrNumber, Datum, ExprContext, ExprState, MemoryContextSwitchTo, ProjectionInfo,
     TupleTableSlot, TTS_FLAG_EMPTY,
 };
+use std::ptr::addr_of_mut;
 
 /// ```c
 /// static inline TupleTableSlot *
@@ -52,15 +52,16 @@ use pgrx::pg_sys::{
 /// ```
 pub unsafe fn ExecProject(projInfo: *mut ProjectionInfo) -> *mut TupleTableSlot {
     let econtext = (*projInfo).pi_exprContext;
-    let state = &mut (*projInfo).pi_state;
-    let slot = state.resultslot;
+    let state = addr_of_mut!((*projInfo).pi_state);
+    let slot = (*state).resultslot;
     let mut isnull = false;
 
-    ExecClearTuple(slot);
+    pg_sys::ExecClearTuple(slot);
 
+    // TODO:  why does using the `pg_sys::` version crash?
     ExecEvalExprSwitchContext(state, econtext, &mut isnull);
 
-    (*slot).tts_flags &= !TTS_FLAG_EMPTY as uint16;
+    (*slot).tts_flags &= !(TTS_FLAG_EMPTY as uint16);
     (*slot).tts_nvalid = (*(*slot).tts_tupleDescriptor).natts as AttrNumber;
 
     slot

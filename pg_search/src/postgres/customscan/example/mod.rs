@@ -28,7 +28,6 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::example::qual_inspect::{can_use_quals, extract_quals, Qual};
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::port::executor_h::ExecProject;
 use crate::postgres::customscan::{node, CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
@@ -39,6 +38,7 @@ use crate::GUCS;
 use pgrx::{is_a, name_data_to_str, pg_sys, IntoDatum, PgList, PgRelation, PgTupleDesc};
 use shared::gucs::GlobalGucSettings;
 use std::ffi::CStr;
+use std::ptr::{addr_of, addr_of_mut};
 
 #[derive(Default)]
 pub struct Example;
@@ -164,7 +164,8 @@ impl CustomScan for Example {
 
                 // TODO:  I think we need to calculate costs and row estimates here too?
 
-                return Some(builder.set_flag(Flags::Projection).build());
+                builder = builder.set_flag(Flags::Projection);
+                return Some(builder.build());
             }
         }
 
@@ -267,12 +268,15 @@ impl CustomScan for Example {
 
             pg_sys::ExecInitScanTupleSlot(
                 estate,
-                &mut state.csstate.ss,
+                addr_of_mut!(state.csstate.ss),
                 tupdesc,
                 pg_sys::table_slot_callbacks(state.custom_state.heaprel()),
             );
-            pg_sys::ExecInitResultTypeTL(&mut state.csstate.ss.ps);
-            pg_sys::ExecAssignProjectionInfo(&mut state.csstate.ss.ps, tupdesc);
+            pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
+            pg_sys::ExecAssignProjectionInfo(
+                addr_of_mut!(state.csstate.ss.ps),
+                (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+            );
         }
 
         let indexrelid = state.custom_state.index_oid.as_u32();
@@ -305,23 +309,29 @@ impl CustomScan for Example {
 
                 // need to fetch the returned ctid from the heap and perform projection
                 Some((scored, _)) => {
+                    let scanslot = state.scanslot();
                     let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
                     let heaprelid = state.custom_state.heaprelid();
-                    // let scanslot = state.scanslot();
                     let slot = state.custom_state.visibility_checker().exec_if_visible(
                         scored.ctid,
-                        move |mut htup, buffer| unsafe {
+                        move |htup, buffer| unsafe {
                             (*bslot).base.base.tts_tableOid = heaprelid;
+                            (*bslot).base.tupdata = htup;
                             (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
-                            pg_sys::ExecStoreBufferHeapTuple(&mut htup, bslot.cast(), buffer)
+                            pg_sys::ExecStoreBufferHeapTuple(
+                                addr_of_mut!((*bslot).base.tupdata),
+                                bslot.cast(),
+                                buffer,
+                            )
                         },
                     );
 
                     match slot {
                         // project the slot and return it
                         Some(slot) => unsafe {
+                            let bslot = slot as *mut pg_sys::BufferHeapTupleTableSlot;
                             state.set_projection_scanslot(slot);
-                            let slot = ExecProject(state.projection_info());
+                            let slot = pg_sys::ExecProject(state.projection_info());
 
                             for i in &state.custom_state.score_field_indices {
                                 let i = *i;
@@ -360,6 +370,22 @@ impl CustomScan for Example {
             unsafe {
                 pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
             }
+        }
+    }
+}
+
+fn tts_ops_name(slot: *mut pg_sys::TupleTableSlot) -> &'static str {
+    unsafe {
+        if std::ptr::eq((*slot).tts_ops, addr_of!(pg_sys::TTSOpsVirtual)) {
+            "Virtual"
+        } else if std::ptr::eq((*slot).tts_ops, addr_of!(pg_sys::TTSOpsHeapTuple)) {
+            "Heap"
+        } else if std::ptr::eq((*slot).tts_ops, addr_of!(pg_sys::TTSOpsMinimalTuple)) {
+            "Minimal"
+        } else if std::ptr::eq((*slot).tts_ops, addr_of!(pg_sys::TTSOpsBufferHeapTuple)) {
+            "BufferHeap"
+        } else {
+            "Unknown"
         }
     }
 }

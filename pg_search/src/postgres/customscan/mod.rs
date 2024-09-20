@@ -33,7 +33,6 @@ mod scan;
 
 pub mod example;
 mod explainer;
-mod port;
 
 use crate::postgres::customscan::dsm::{
     estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,

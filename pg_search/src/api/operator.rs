@@ -152,7 +152,7 @@ unsafe fn make_search_config_opexpr_node(
         location: (*(*srs).fcall).location,
     };
 
-    let (relid, varattno) = find_var_relation(var, (*srs).root);
+    let (relid, _varattno) = find_var_relation(var, (*srs).root);
     if relid == pg_sys::Oid::INVALID {
         panic!("could not determine relation for var");
     }

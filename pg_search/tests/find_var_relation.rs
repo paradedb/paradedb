@@ -93,7 +93,6 @@ fn test_plain_relation(mut conn: PgConnection) {
     r#"
         CREATE TABLE test_plain_relation(id serial8, t text);
         INSERT INTO test_plain_relation(t) VALUES ('beer wine cheese');
-        INSERT INTO test_plain_relation(t) VALUES ('beer cheese');
         CALL paradedb.create_bm25(
             index_name => 'test_plain_relation',
             table_name => 'test_plain_relation',

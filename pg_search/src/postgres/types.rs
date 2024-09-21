@@ -42,59 +42,40 @@ impl TantivyValue {
     }
 
     pub unsafe fn try_into_datum(self, oid: PgOid) -> Result<Datum, TantivyValueError> {
-        Ok(match &oid {
-            PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => bool::try_from(self).unwrap().into_datum().unwrap(),
-                PgBuiltInOids::INT2OID => i16::try_from(self).unwrap().into_datum().unwrap(),
-                PgBuiltInOids::INT4OID => i32::try_from(self).unwrap().into_datum().unwrap(),
-                PgBuiltInOids::INT8OID => i64::try_from(self).unwrap().into_datum().unwrap(),
-                PgBuiltInOids::OIDOID => Oid::from(u32::try_from(self).unwrap())
-                    .into_datum()
-                    .unwrap(),
-                PgBuiltInOids::FLOAT4OID => f32::try_from(self).unwrap().into_datum().unwrap(),
-                PgBuiltInOids::FLOAT8OID => f64::try_from(self).unwrap().into_datum().unwrap(),
-                PgBuiltInOids::NUMERICOID => pgrx::AnyNumeric::try_from(self)
-                    .unwrap()
-                    .into_datum()
-                    .unwrap(),
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                    String::try_from(self).unwrap().into_datum().unwrap()
-                }
-                PgBuiltInOids::JSONOID => pgrx::datum::JsonString::try_from(self)
-                    .unwrap()
-                    .into_datum()
-                    .unwrap(),
-                PgBuiltInOids::JSONBOID => {
-                    pgrx::JsonB::try_from(self).unwrap().into_datum().unwrap()
-                }
-                PgBuiltInOids::DATEOID => pgrx::datum::Date::try_from(self)
-                    .unwrap()
-                    .into_datum()
-                    .unwrap(),
-                PgBuiltInOids::TIMESTAMPOID => pgrx::datum::Timestamp::try_from(self)
-                    .unwrap()
-                    .into_datum()
-                    .unwrap(),
-                PgBuiltInOids::TIMESTAMPTZOID => pgrx::datum::TimestampWithTimeZone::try_from(self)
-                    .unwrap()
-                    .into_datum()
-                    .unwrap(),
-                PgBuiltInOids::TIMEOID => pgrx::datum::Time::try_from(self)
-                    .unwrap()
-                    .into_datum()
-                    .unwrap(),
-                PgBuiltInOids::TIMETZOID => pgrx::datum::TimeWithTimeZone::try_from(self)
-                    .unwrap()
-                    .into_datum()
-                    .unwrap(),
-                PgBuiltInOids::UUIDOID => pgrx::datum::Uuid::try_from(self)
-                    .unwrap()
-                    .into_datum()
-                    .unwrap(),
-                _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
-            },
-            _ => return Err(TantivyValueError::InvalidOid),
-        })
+        match &oid {
+            PgOid::BuiltIn(builtin) => {
+                let datum = match builtin {
+                    PgBuiltInOids::BOOLOID => bool::try_from(self)?.into_datum(),
+                    PgBuiltInOids::INT2OID => i16::try_from(self)?.into_datum(),
+                    PgBuiltInOids::INT4OID => i32::try_from(self)?.into_datum(),
+                    PgBuiltInOids::INT8OID => i64::try_from(self)?.into_datum(),
+                    PgBuiltInOids::OIDOID => Oid::from(u32::try_from(self)?).into_datum(),
+                    PgBuiltInOids::FLOAT4OID => f32::try_from(self)?.into_datum(),
+                    PgBuiltInOids::FLOAT8OID => f64::try_from(self)?.into_datum(),
+                    PgBuiltInOids::NUMERICOID => pgrx::AnyNumeric::try_from(self)?.into_datum(),
+                    PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
+                        String::try_from(self)?.into_datum()
+                    }
+                    PgBuiltInOids::JSONOID => pgrx::datum::JsonString::try_from(self)?.into_datum(),
+                    PgBuiltInOids::JSONBOID => pgrx::JsonB::try_from(self)?.into_datum(),
+                    PgBuiltInOids::DATEOID => pgrx::datum::Date::try_from(self)?.into_datum(),
+                    PgBuiltInOids::TIMESTAMPOID => {
+                        pgrx::datum::Timestamp::try_from(self)?.into_datum()
+                    }
+                    PgBuiltInOids::TIMESTAMPTZOID => {
+                        pgrx::datum::TimestampWithTimeZone::try_from(self)?.into_datum()
+                    }
+                    PgBuiltInOids::TIMEOID => pgrx::datum::Time::try_from(self)?.into_datum(),
+                    PgBuiltInOids::TIMETZOID => {
+                        pgrx::datum::TimeWithTimeZone::try_from(self)?.into_datum()
+                    }
+                    PgBuiltInOids::UUIDOID => pgrx::datum::Uuid::try_from(self)?.into_datum(),
+                    _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
+                };
+                datum.ok_or_else(|| TantivyValueError::DatumConversionError)
+            }
+            _ => Err(TantivyValueError::InvalidOid),
+        }
     }
 
     fn json_value_to_tantivy_value(value: Value) -> Vec<TantivyValue> {
@@ -257,7 +238,11 @@ impl fmt::Display for TantivyValue {
                 write!(f, "{}", datetime.into_primitive())
             }
             tantivy::schema::OwnedValue::Bytes(bytes) => {
-                write!(f, "{}", String::from_utf8(bytes.clone()).unwrap())
+                write!(
+                    f,
+                    "{}",
+                    String::from_utf8(bytes.clone()).expect("bytes should be valid utf-8")
+                )
             }
             tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
             _ => panic!("tantivy owned value not supported"),
@@ -1025,4 +1010,7 @@ pub enum TantivyValueError {
 
     #[error("Cannot convert TantivyValue to type {0}")]
     UnsupportedIntoConversion(String),
+
+    #[error("Failed to convert tantivy value to datum")]
+    DatumConversionError,
 }

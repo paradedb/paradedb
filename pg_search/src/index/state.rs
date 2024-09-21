@@ -324,8 +324,12 @@ impl FFType {
         let value = match self {
             FFType::Text(ff) => {
                 let mut s = String::new();
-                let ord = ff.term_ords(doc).next().unwrap();
-                ff.ord_to_str(ord, &mut s).expect("no string for term ord");
+                let ord = ff
+                    .term_ords(doc)
+                    .next()
+                    .expect("term ord should be retrievable");
+                ff.ord_to_str(ord, &mut s)
+                    .expect("string should be retrievable for term ord");
                 TantivyValue(s.into())
             }
             FFType::I64(ff) => TantivyValue(ff.get_val(doc).into()),
@@ -346,7 +350,10 @@ impl FFType {
         let value = match self {
             FFType::Text(ff) => {
                 // just use the first term ord here.  that's enough to do a tie-break quickly
-                let ord = ff.term_ords(doc).next().unwrap();
+                let ord = ff
+                    .term_ords(doc)
+                    .next()
+                    .expect("term ord should be retrievable");
                 TantivyValue(ord.into())
             }
             other => other.value(doc),

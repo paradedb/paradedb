@@ -38,7 +38,7 @@ impl Db {
         // Use a timestamp as a unique identifier.
         let path = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("current time should be retrievable")
             .as_micros()
             .to_string();
 
@@ -63,7 +63,9 @@ impl Drop for Db {
     fn drop(&mut self) {
         let db_name = self.context.db_name.to_string();
         async_std::task::spawn(async move {
-            Postgres::cleanup_test(db_name.as_str()).await.unwrap();
+            Postgres::cleanup_test(db_name.as_str())
+                .await
+                .expect("dropping test database should succeed");
         });
     }
 }
@@ -74,7 +76,10 @@ where
 {
     fn execute(self, connection: &mut PgConnection) {
         block_on(async {
-            connection.execute(self.as_ref()).await.unwrap();
+            connection
+                .execute(self.as_ref())
+                .await
+                .expect("query execution should succeed");
         })
     }
 
@@ -217,7 +222,7 @@ pub trait DisplayAsync: Stream<Item = Result<Bytes, sqlx::Error>> + Sized {
         let mut stream = Box::pin(self);
 
         while let Some(chunk) = block_on(stream.as_mut().next()) {
-            let chunk = chunk.unwrap();
+            let chunk = chunk.expect("chunk should be valid for DisplayAsync");
             csv_str.push_str(&String::from_utf8_lossy(&chunk));
         }
 

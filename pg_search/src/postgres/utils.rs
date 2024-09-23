@@ -19,6 +19,7 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
 use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
+use pgrx::pg_sys::Buffer;
 use pgrx::*;
 
 /// Finds and returns the first `USING bm25` index on the specified relation, or [`None`] if there
@@ -160,6 +161,27 @@ impl Drop for VisibilityChecker {
     }
 }
 
+#[allow(improper_ctypes)]
+#[allow(non_snake_case)]
+extern "C" {
+    fn ReleaseAndReadBuffer(
+        buffer: Buffer,
+        relation: pg_sys::Relation,
+        blockNum: pg_sys::BlockNumber,
+    ) -> Buffer;
+
+    fn LockBuffer(buffer: Buffer, mode: ::core::ffi::c_int);
+    fn heap_hot_search_buffer(
+        tid: pg_sys::ItemPointer,
+        relation: pg_sys::Relation,
+        buffer: Buffer,
+        snapshot: pg_sys::Snapshot,
+        heapTuple: pg_sys::HeapTuple,
+        all_dead: *mut bool,
+        first_call: bool,
+    ) -> bool;
+}
+
 impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relid` in whatever the current snapshot happens to be at the time this function is called.
@@ -206,14 +228,15 @@ impl VisibilityChecker {
 
             let blockno = item_pointer_get_block_number(&self.ipd);
 
-            self.last_buffer =
-                pg_sys::ReleaseAndReadBuffer(self.last_buffer, self.relation, blockno);
+            pg_sys::ffi::pg_guard_ffi_boundary(|| {
+                self.last_buffer = ReleaseAndReadBuffer(self.last_buffer, self.relation, blockno);
 
-            pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
-            let (found, htup) = self.check_page_vis(self.last_buffer);
-            let result = found.then(|| func(htup, self.last_buffer));
-            pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
-            result
+                LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
+                let (found, htup) = self.check_page_vis(self.last_buffer);
+                let result = found.then(|| func(htup, self.last_buffer));
+                LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+                result
+            })
         }
     }
 
@@ -223,7 +246,7 @@ impl VisibilityChecker {
 
             // Check if heaptuple is visible
             // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
-            let found = pg_sys::heap_hot_search_buffer(
+            let found = heap_hot_search_buffer(
                 &mut self.ipd,
                 self.relation,
                 buffer,

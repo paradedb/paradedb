@@ -298,10 +298,19 @@ impl CustomScan for Example {
                     let slot = state.custom_state.visibility_checker().exec_if_visible(
                         scored.ctid,
                         move |htup, buffer| unsafe {
+                            #[allow(improper_ctypes)]
+                            extern "C" {
+                                fn ExecStoreBufferHeapTuple(
+                                    tuple: pg_sys::HeapTuple,
+                                    slot: *mut pg_sys::TupleTableSlot,
+                                    buffer: pg_sys::Buffer,
+                                ) -> *mut pg_sys::TupleTableSlot;
+                            }
+
                             (*bslot).base.base.tts_tableOid = heaprelid;
                             (*bslot).base.tupdata = htup;
                             (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
-                            pg_sys::ExecStoreBufferHeapTuple(
+                            ExecStoreBufferHeapTuple(
                                 addr_of_mut!((*bslot).base.tupdata),
                                 bslot.cast(),
                                 buffer,
@@ -316,21 +325,23 @@ impl CustomScan for Example {
                             state.set_projection_scanslot(slot);
                             let slot = pg_sys::ExecProject(state.projection_info());
 
-                            let values = std::slice::from_raw_parts_mut(
-                                (*slot).tts_values,
-                                (*slot).tts_nvalid as usize,
-                            );
-                            let nulls = std::slice::from_raw_parts_mut(
-                                (*slot).tts_isnull,
-                                (*slot).tts_nvalid as usize,
-                            );
+                            if state.custom_state.need_scores() {
+                                let values = std::slice::from_raw_parts_mut(
+                                    (*slot).tts_values,
+                                    (*slot).tts_nvalid as usize,
+                                );
+                                let nulls = std::slice::from_raw_parts_mut(
+                                    (*slot).tts_isnull,
+                                    (*slot).tts_nvalid as usize,
+                                );
 
-                            for i in &state.custom_state.score_field_indices {
-                                let i = *i;
+                                for i in &state.custom_state.score_field_indices {
+                                    let i = *i;
 
-                                if i < (*slot).tts_nvalid as usize {
-                                    values[i] = scored.bm25.into_datum().unwrap();
-                                    nulls[i] = false;
+                                    if i < (*slot).tts_nvalid as usize {
+                                        values[i] = scored.bm25.into_datum().unwrap();
+                                        nulls[i] = false;
+                                    }
                                 }
                             }
                             return slot;

@@ -18,12 +18,12 @@
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList, PgMemoryContexts};
 use std::fmt::{Debug, Formatter};
+use std::ptr::addr_of_mut;
 
 pub struct Args {
     pub cscan: *mut pg_sys::CustomScan,
 }
 
-#[derive(Default)]
 #[repr(C)]
 pub struct CustomScanStateWrapper<CS: CustomScan> {
     pub csstate: pg_sys::CustomScanState,
@@ -104,7 +104,7 @@ impl<CS: CustomScan> CustomScanStateBuilder<CS> {
         unsafe { PgList::from_pg((*self.args.cscan).scan.plan.targetlist) }
     }
 
-    pub fn build(self) -> CustomScanStateWrapper<CS> {
+    pub fn build(self) -> *mut CustomScanStateWrapper<CS> {
         let scan_state = pg_sys::ScanState {
             ps: pg_sys::PlanState {
                 type_: pg_sys::NodeTag::T_CustomScanState,
@@ -113,8 +113,10 @@ impl<CS: CustomScan> CustomScanStateBuilder<CS> {
             ..Default::default()
         };
 
-        CustomScanStateWrapper {
-            csstate: pg_sys::CustomScanState {
+        unsafe {
+            let cssw = pg_sys::palloc(size_of::<CustomScanStateWrapper<CS>>())
+                .cast::<CustomScanStateWrapper<CS>>();
+            (*cssw).csstate = pg_sys::CustomScanState {
                 ss: scan_state,
                 flags: 0,
                 custom_ps: std::ptr::null_mut(),
@@ -122,8 +124,11 @@ impl<CS: CustomScan> CustomScanStateBuilder<CS> {
                 methods: PgMemoryContexts::CurrentMemoryContext
                     .leak_and_drop_on_delete(CS::exec_methods()),
                 slotOps: std::ptr::null_mut(),
-            },
-            custom_state: self.custom_state,
+            };
+
+            addr_of_mut!((*cssw).custom_state).write(self.custom_state);
+
+            cssw
         }
     }
 }

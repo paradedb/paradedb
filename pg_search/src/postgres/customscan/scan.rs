@@ -17,7 +17,7 @@
 
 use crate::postgres::customscan::builders::custom_state::CustomScanStateBuilder;
 use crate::postgres::customscan::CustomScan;
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys};
 
 /// Allocate a CustomScanState for this CustomScan. The actual allocation will often be larger than
 /// required for an ordinary CustomScanState, because many providers will wish to embed that as the
@@ -30,8 +30,5 @@ pub extern "C" fn create_custom_scan_state<CS: CustomScan>(
     cscan: *mut pg_sys::CustomScan,
 ) -> *mut pg_sys::Node {
     let builder = CustomScanStateBuilder::new(cscan);
-    let scan_state = CS::create_custom_scan_state(builder);
-    PgMemoryContexts::CurrentMemoryContext
-        .leak_and_drop_on_delete(scan_state)
-        .cast()
+    CS::create_custom_scan_state(builder).cast()
 }

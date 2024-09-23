@@ -81,7 +81,7 @@ pub trait CustomScan: Default + Sized {
 
     fn create_custom_scan_state(
         builder: CustomScanStateBuilder<Self>,
-    ) -> CustomScanStateWrapper<Self>;
+    ) -> *mut CustomScanStateWrapper<Self>;
 
     fn explain_custom_scan(
         state: &CustomScanStateWrapper<Self>,

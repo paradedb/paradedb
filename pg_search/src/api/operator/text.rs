@@ -73,7 +73,7 @@ pub fn text_support(arg: Internal) -> ReturnedNodePointer {
                             let resname = CStr::from_ptr((*te).resname);
                             resname
                                 .to_str()
-                                .expect("rename should not have an embedded null byte")
+                                .expect("resname must be valid UTF8")
                                 .to_string()
                         } else {
                             let relid = (*rte).relid;

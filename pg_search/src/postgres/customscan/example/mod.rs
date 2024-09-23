@@ -62,6 +62,11 @@ impl CustomScanState for ExampleScanState {}
 
 impl ExampleScanState {
     #[inline(always)]
+    pub fn need_scores(&self) -> bool {
+        !self.score_field_indices.is_empty()
+    }
+
+    #[inline(always)]
     pub fn snapshot(&self) -> pg_sys::Snapshot {
         self.snapshot.unwrap()
     }
@@ -178,7 +183,7 @@ impl CustomScan for Example {
 
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self>,
-    ) -> CustomScanStateWrapper<Self> {
+    ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
             let private_data = PrivateData(builder.private_data());
             let heaprelid = private_data
@@ -224,6 +229,7 @@ impl CustomScan for Example {
                 let expr = entry.expr;
 
                 if is_a(expr.cast(), pg_sys::NodeTag::T_FuncExpr) {
+                    pgrx::warning!("found score");
                     let func: *mut pg_sys::FuncExpr = expr.cast();
                     if (*func).funcid == score_funcoid {
                         builder.custom_state().score_field_indices.push(i);
@@ -311,19 +317,19 @@ impl CustomScan for Example {
                             state.set_projection_scanslot(slot);
                             let slot = pg_sys::ExecProject(state.projection_info());
 
+                            let values = std::slice::from_raw_parts_mut(
+                                (*slot).tts_values,
+                                (*slot).tts_nvalid as usize,
+                            );
+                            let nulls = std::slice::from_raw_parts_mut(
+                                (*slot).tts_isnull,
+                                (*slot).tts_nvalid as usize,
+                            );
+
                             for i in &state.custom_state.score_field_indices {
                                 let i = *i;
 
                                 if i < (*slot).tts_nvalid as usize {
-                                    let values = std::slice::from_raw_parts_mut(
-                                        (*slot).tts_values,
-                                        (*slot).tts_nvalid as usize,
-                                    );
-                                    let nulls = std::slice::from_raw_parts_mut(
-                                        (*slot).tts_isnull,
-                                        (*slot).tts_nvalid as usize,
-                                    );
-
                                     values[i] = scored.bm25.into_datum().unwrap();
                                     nulls[i] = false;
                                 }
@@ -339,11 +345,12 @@ impl CustomScan for Example {
         }
     }
 
-    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // TODO:  anything to do here?
-    }
+    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // get the VisibilityChecker dropped
+        state.custom_state.visibility_checker.take();
+
         if let Some(heaprel) = state.custom_state.heaprel.take() {
             unsafe {
                 pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
@@ -353,8 +360,11 @@ impl CustomScan for Example {
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         let indexrelid = state.custom_state.index_oid.as_u32();
+        let need_scores = state.custom_state.need_scores();
         let search_config = &mut state.custom_state.search_config;
+
         search_config.stable_sort = Some(false);
+        search_config.need_scores = need_scores;
 
         // Create the index and scan state
         let directory = WriterDirectory::from_oids(
@@ -418,7 +428,7 @@ mod score_support {
 
     #[pg_extern(name = "score", volatile, parallel_safe)]
     fn score_from_relation(_relation_reference: OpaqueRecordArg) -> f32 {
-        panic!("pardedb.score() function used in an invalid context")
+        f32::NAN
     }
 
     pub(super) fn score_funcoid() -> pg_sys::Oid {

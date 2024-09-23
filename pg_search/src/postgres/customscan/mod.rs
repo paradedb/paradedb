@@ -31,8 +31,8 @@ mod hook;
 mod path;
 mod scan;
 
-pub mod example;
 mod explainer;
+pub mod triple_at_scan;
 
 use crate::postgres::customscan::dsm::{
     estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,

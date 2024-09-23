@@ -97,7 +97,7 @@ pub unsafe extern "C" fn _PG_init() {
     #[allow(deprecated)]
     pgrx::hooks::register_hook(&mut TRACE_HOOK);
 
-    customscan::register_rel_pathlist(customscan::example::Example);
+    customscan::register_rel_pathlist(customscan::triple_at_scan::TripleAtScan);
 }
 
 #[pg_guard]

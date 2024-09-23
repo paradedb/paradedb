@@ -136,23 +136,7 @@ unsafe fn make_search_config_opexpr_node(
     var: *mut pg_sys::Var,
     query: SearchQueryInput,
 ) -> ReturnedNodePointer {
-    // we're about to fabricate a new pg_sys::OpExpr node to return
-    // that represents the `@@@(anyelement, jsonb)` operator
-    let mut newopexpr = pg_sys::OpExpr {
-        xpr: pg_sys::Expr {
-            type_: pg_sys::NodeTag::T_OpExpr,
-        },
-        opno: anyelement_jsonb_opoid(),
-        opfuncid: anyelement_jsonb_procoid(),
-        opresulttype: pg_sys::BOOLOID,
-        opretset: false,
-        opcollid: pg_sys::DEFAULT_COLLATION_OID,
-        inputcollid: pg_sys::DEFAULT_COLLATION_OID,
-        args: std::ptr::null_mut(),
-        location: (*(*srs).fcall).location,
-    };
-
-    let (relid, _varattno) = find_var_relation(var, (*srs).root);
+    let (relid, _varattno, targetlist) = find_var_relation(var, (*srs).root);
     if relid == pg_sys::Oid::INVALID {
         panic!("could not determine relation for var");
     }
@@ -170,11 +154,28 @@ unsafe fn make_search_config_opexpr_node(
     let keys = &(*indexrel.rd_index).indkey;
     let keys = keys.values.as_slice(keys.dim1 as usize);
 
-    // the Var's attribute number must always be the first field from the index definition
-    // TODO:  this is bugged.  We need a varattno from the same RTE/TE where we found
-    //        the one we were looking for that points to the "key_field" of the index, which
-    //        don't have until after we looked it up.  #hmm
-    (*var).varattno = keys[0];
+    if let Some(targetlist) = targetlist {
+        // if we have a targetlist, find the first field of the index definition in it -- its location
+        // in the target list becomes the var's attno
+        let mut found = false;
+        for (i, te) in targetlist.iter_ptr().enumerate() {
+            if te.is_null() {
+                continue;
+            }
+            if (*te).resorigcol == keys[0] {
+                (*var).varattno = (i + 1) as _;
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            panic!("index's first column is not in the var's targetlist");
+        }
+    } else {
+        // the Var's attribute number must always be the first field from the index definition
+        (*var).varattno = keys[0];
+    }
 
     // fabricate a `SearchConfig` from the above relation and query string
     // and get it serialized into a JSONB Datum
@@ -198,14 +199,22 @@ unsafe fn make_search_config_opexpr_node(
     // and assign it to the original argument list
     input_args.replace_ptr(1, jsonb_const.cast());
 
+    // we're about to fabricate a new pg_sys::OpExpr node to return
+    // that represents the `@@@(anyelement, jsonb)` operator
+    let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
+    newopexpr.opno = anyelement_jsonb_opoid();
+    newopexpr.opfuncid = anyelement_jsonb_procoid();
+    newopexpr.opresulttype = pg_sys::BOOLOID;
+    newopexpr.opcollid = pg_sys::DEFAULT_COLLATION_OID;
+    newopexpr.inputcollid = (*(*srs).fcall).inputcollid;
+    newopexpr.location = (*(*srs).fcall).location;
+
     // then assign that list to our new OpExpr node
     newopexpr.args = input_args.as_ptr();
 
-    // copy that node into the current memory context and return it
-    let node = PgMemoryContexts::CurrentMemoryContext
-        .copy_ptr_into(&mut newopexpr, std::mem::size_of::<pg_sys::OpExpr>());
+    let newopexpr = newopexpr.into_pg();
 
-    ReturnedNodePointer(NonNull::new(node.cast()))
+    ReturnedNodePointer(NonNull::new(newopexpr.cast()))
 }
 
 /// Given a [`pg_sys::Var`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
@@ -219,13 +228,17 @@ unsafe fn make_search_config_opexpr_node(
 unsafe fn find_var_relation(
     var: *mut pg_sys::Var,
     root: *mut pg_sys::PlannerInfo,
-) -> (pg_sys::Oid, pg_sys::AttrNumber) {
+) -> (
+    pg_sys::Oid,
+    pg_sys::AttrNumber,
+    Option<PgList<pg_sys::TargetEntry>>,
+) {
     let query = (*root).parse;
     let rte = pg_sys::rt_fetch((*var).varno as pg_sys::Index, (*query).rtable);
 
     match (*rte).rtekind {
         // the Var comes from a relation
-        pg_sys::RTEKind::RTE_RELATION => ((*rte).relid, (*var).varattno),
+        pg_sys::RTEKind::RTE_RELATION => ((*rte).relid, (*var).varattno, None),
 
         // the Var comes from a subquery, so dig into its target list and find the original
         // table it comes from along with its original column AttributeNumber
@@ -234,7 +247,7 @@ unsafe fn find_var_relation(
             let te = targetlist
                 .get_ptr((*var).varattno as usize - 1)
                 .expect("var should exist in subquery TargetList");
-            ((*te).resorigtbl, (*te).resorigcol)
+            ((*te).resorigtbl, (*te).resorigcol, Some(targetlist))
         }
 
         // the Var comes from a CTE, so lookup that CTE and find it in the CTE's target list
@@ -285,7 +298,7 @@ unsafe fn find_var_relation(
                 .get_ptr((*var).varattno as usize - 1)
                 .expect("var should exist in cte TargetList");
 
-            ((*te).resorigtbl, (*te).resorigcol)
+            ((*te).resorigtbl, (*te).resorigcol, Some(targetlist))
         }
         _ => panic!("unsupported RTEKind: {}", (*rte).rtekind),
     }

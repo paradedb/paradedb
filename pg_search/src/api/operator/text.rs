@@ -59,23 +59,8 @@ pub fn text_support(arg: Internal) -> ReturnedNodePointer {
                         let const_ = rhs.cast::<pg_sys::Const>();
 
                         // the field name comes from the lhs of the @@@ operator
-                        let (heaprelid, varattno) = find_var_relation(var, (*srs).root);
-                        let heaprel = PgRelation::open(heaprelid);
-                        let tupdesc = heaprel.tuple_desc();
-                        let attribute = tupdesc
-                            .get(varattno as usize - 1)
-                            .expect("varattno must exist in the relation");
-                        let field = attribute.name().to_string();
 
-                        // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
-                        let query_string =
-                            String::from_datum((*const_).constvalue, (*const_).constisnull)
-                                .expect("query must not be NULL");
-
-                        let query = SearchQueryInput::ParseWithField {
-                            field: field.to_string(),
-                            query_string,
-                        };
+                        let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
                         return make_search_config_opexpr_node(srs, &mut input_args, var, query);
                     }
                 }
@@ -109,10 +94,8 @@ pub fn text_restrict(
                 let var = lhs.cast::<pg_sys::Var>();
                 let const_ = rhs.cast::<pg_sys::Const>();
 
-                let (heaprelid, _) = find_var_relation(var, info);
+                let (heaprelid, query) = make_query_from_var_and_const(info, var, const_);
                 let indexrel = locate_bm25_index(heaprelid)?;
-
-                let query = String::from_datum((*const_).constvalue, (*const_).constisnull)?;
                 let search_config = SearchConfig::from((query, indexrel));
                 let relfilenode = relfilenode_from_search_config(&search_config);
 
@@ -131,4 +114,28 @@ pub fn text_restrict(
     }
 
     selectivity
+}
+
+unsafe fn make_query_from_var_and_const(
+    root: *mut pg_sys::PlannerInfo,
+    var: *mut pg_sys::Var,
+    const_: *mut pg_sys::Const,
+) -> (pg_sys::Oid, SearchQueryInput) {
+    let (heaprelid, varattno, _) = find_var_relation(var, root);
+    let heaprel = PgRelation::open(heaprelid);
+    let tupdesc = heaprel.tuple_desc();
+    let attribute = tupdesc
+        .get(varattno as usize - 1)
+        .expect("varattno must exist in the relation");
+    let field = attribute.name().to_string();
+
+    // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
+    let query_string = String::from_datum((*const_).constvalue, (*const_).constisnull)
+        .expect("query must not be NULL");
+
+    let query = SearchQueryInput::ParseWithField {
+        field: field.to_string(),
+        query_string,
+    };
+    (heaprelid, query)
 }

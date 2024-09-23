@@ -126,7 +126,7 @@ pub fn search_config_restrict(
                 let var = lhs.cast::<pg_sys::Var>();
                 let const_ = rhs.cast::<pg_sys::Const>();
 
-                let (heaprelid, _) = find_var_relation(var, info);
+                let (heaprelid, _, _) = find_var_relation(var, info);
                 let indexrel = locate_bm25_index(heaprelid)?;
                 let relfilenode = relfilenode_from_pg_relation(&indexrel);
 

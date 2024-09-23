@@ -27,9 +27,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::triple_at_scan::qual_inspect::{
-    can_use_quals, extract_quals, Qual,
-};
+use crate::postgres::customscan::pdbscan::qual_inspect::{can_use_quals, extract_quals, Qual};
 use crate::postgres::customscan::{node, CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
@@ -43,10 +41,10 @@ use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
 
 #[derive(Default)]
-pub struct TripleAtScan;
+pub struct PdbScan;
 
 #[derive(Default)]
-pub struct TripleAtScanState {
+pub struct PdbScanState {
     snapshot: Option<pg_sys::Snapshot>,
     heaprel: Option<pg_sys::Relation>,
     index_name: String,
@@ -60,9 +58,9 @@ pub struct TripleAtScanState {
     score_field_indices: Vec<usize>,
 }
 
-impl CustomScanState for TripleAtScanState {}
+impl CustomScanState for PdbScanState {}
 
-impl TripleAtScanState {
+impl PdbScanState {
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
         !self.score_field_indices.is_empty()
@@ -126,9 +124,9 @@ impl PrivateData {
     }
 }
 
-impl CustomScan for TripleAtScan {
+impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
-    type State = TripleAtScanState;
+    type State = PdbScanState;
 
     fn callback(mut builder: CustomPathBuilder) -> Option<pg_sys::CustomPath> {
         if !GUCS.enable_custom_scan() {
@@ -283,7 +281,7 @@ impl CustomScan for TripleAtScan {
             );
         }
 
-        TripleAtScan::rescan_custom_scan(state)
+        PdbScan::rescan_custom_scan(state)
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {

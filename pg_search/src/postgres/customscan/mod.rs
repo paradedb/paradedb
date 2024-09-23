@@ -32,7 +32,7 @@ mod path;
 mod scan;
 
 mod explainer;
-pub mod triple_at_scan;
+pub mod pdbscan;
 
 use crate::postgres::customscan::dsm::{
     estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,

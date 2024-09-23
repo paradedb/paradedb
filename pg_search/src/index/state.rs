@@ -30,7 +30,7 @@ use tantivy::{snippet::SnippetGenerator, Executor};
 /// An iterator of the different styles of search results we can return
 pub enum SearchResults {
     AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
-    FastPath(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
+    FastPath(std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>),
 }
 
 impl Iterator for SearchResults {
@@ -141,9 +141,11 @@ impl SearchState {
             //
             // this we can use a channel to stream the results and also elide doing key lookups.
             // this is our "fast path"
-            (None, false, None) => {
-                SearchResults::FastPath(self.search_via_channel(executor, include_key).into_iter())
-            }
+            (None, false, None) => SearchResults::FastPath(
+                self.search_via_channel(executor, include_key)
+                    .into_iter()
+                    .flatten(),
+            ),
 
             // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
             // including retrieving the key field
@@ -155,7 +157,7 @@ impl SearchState {
         &self,
         executor: &'static Executor,
         include_key: bool,
-    ) -> crossbeam::channel::Receiver<(SearchIndexScore, DocAddress)> {
+    ) -> crossbeam::channel::Receiver<Vec<(SearchIndexScore, DocAddress)>> {
         let (sender, receiver) = crossbeam::channel::unbounded();
         let collector =
             collector::ChannelCollector::new(sender, self.config.key_field.clone(), include_key);
@@ -384,14 +386,14 @@ mod collector {
     /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
     /// each segment, in parallel, as tantivy find each doc.
     pub struct ChannelCollector {
-        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+        sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
         key_field_name: String,
         include_key: bool,
     }
 
     impl ChannelCollector {
         pub fn new(
-            sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+            sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
             key_field_name: String,
             include_key: bool,
         ) -> Self {
@@ -422,6 +424,7 @@ mod collector {
                 ctid_ff,
                 key_ff,
                 sender: self.sender.clone(),
+                fruit: Vec::new(),
             })
         }
 
@@ -438,7 +441,8 @@ mod collector {
         segment_ord: SegmentOrdinal,
         ctid_ff: FFType,
         key_ff: Option<FFType>,
-        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+        sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
+        fruit: Vec<(SearchIndexScore, DocAddress)>,
     }
 
     impl SegmentCollector for ChannelSegmentCollector {
@@ -457,14 +461,18 @@ mod collector {
                     sort_asc: false,
                 };
 
-                // if send fails that likely means the receiver was dropped so we have nowhere
-                // to send the result.  That's okay
-                self.sender.send((scored, doc_address)).ok();
+                self.fruit.push((scored, doc_address))
             }
         }
 
-        fn harvest(self) {
-            // noop
+        fn harvest(mut self) -> Self::Fruit {
+            // ordering by ctid helps to avoid random heap access, at least for the docs that
+            // were found in this segment
+            self.fruit.sort_by_key(|(scored, _)| scored.ctid);
+
+            // if send fails that likely means the receiver was dropped so we have nowhere
+            // to send the result.  That's okay
+            self.sender.send(self.fruit).ok();
         }
     }
 }

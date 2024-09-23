@@ -9,6 +9,8 @@ install `psql`.
 
 Run `pg_dump` to create a copy of your database.
 
+Below, we use the "custom" format (`-Fc`) for both `pg_dump` and `pg_restore`. Please review the [Postgres `pg_dump` documentation](https://www.postgresql.org/docs/current/app-pgdump.html) for other options that may be more appropriate for your environment.
+
 <Note>
   Replace `host`, `username`, and `dbname` with your existing database
   credentials.
@@ -44,5 +46,6 @@ pg_restore --verbose --clean --no-acl --no-owner \
     -h <host> \
     -U <username> \
     -d <dbname> \
+    -Fc \
     old_db.dump
 ```

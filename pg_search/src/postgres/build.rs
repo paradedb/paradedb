@@ -263,20 +263,6 @@ fn do_heap_scan<'a>(
     state
 }
 
-#[cfg(feature = "pg12")]
-#[pg_guard]
-unsafe extern "C" fn build_callback(
-    index: pg_sys::Relation,
-    htup: pg_sys::HeapTuple,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    _tuple_is_alive: bool,
-    state: *mut std::os::raw::c_void,
-) {
-    let htup = htup.as_ref().expect("HeapTuple pointer should not be null");
-    build_callback_internal(htup.t_self, values, isnull, state, index);
-}
-
 #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 unsafe extern "C" fn build_callback(

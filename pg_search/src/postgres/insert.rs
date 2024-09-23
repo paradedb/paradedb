@@ -52,7 +52,7 @@ pub unsafe extern "C" fn aminsert(
     aminsert_internal(index_relation, values, isnull, heap_tid, &uuid)
 }
 
-#[cfg(any(feature = "pg12", feature = "pg13"))]
+#[cfg(feature = "pg13")]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,

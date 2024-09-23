@@ -229,7 +229,6 @@ impl CustomScan for Example {
                 let expr = entry.expr;
 
                 if is_a(expr.cast(), pg_sys::NodeTag::T_FuncExpr) {
-                    pgrx::warning!("found score");
                     let func: *mut pg_sys::FuncExpr = expr.cast();
                     if (*func).funcid == score_funcoid {
                         builder.custom_state().score_field_indices.push(i);

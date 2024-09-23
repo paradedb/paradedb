@@ -23,9 +23,7 @@ use crate::postgres::utils::{locate_bm25_index, relfilenode_from_search_config};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::UNKNOWN_SELECTIVITY;
-use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList, PgRelation};
-use std::ffi::CStr;
 
 /// This is the function behind the `@@@(anyelement, text)` operator. Since we transform those to
 /// use `@@@(anyelement, jsonb`), this function won't be called in normal circumstances, but it
@@ -60,30 +58,14 @@ pub fn text_support(arg: Internal) -> ReturnedNodePointer {
                         let var = lhs.cast::<pg_sys::Var>();
                         let const_ = rhs.cast::<pg_sys::Const>();
 
-                        // the field name comes from the lhs of the @@@ operator, which is a `pg_sys::Var` node
-                        let rte = planner_rt_fetch((*var).varno as pg_sys::Index, (*srs).root);
-                        let field = if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
-                            let subquery = (*rte).subquery;
-                            let targetlist =
-                                PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
-
-                            let te = targetlist
-                                .get_ptr((*var).varattno as usize - 1)
-                                .expect("var.varattno must exist in the subquery");
-                            let resname = CStr::from_ptr((*te).resname);
-                            resname
-                                .to_str()
-                                .expect("resname must be valid UTF8")
-                                .to_string()
-                        } else {
-                            let relid = (*rte).relid;
-                            let heaprel = PgRelation::open(relid);
-                            let tupdesc = heaprel.tuple_desc();
-                            let attribute = tupdesc
-                                .get((*var).varattno as usize - 1)
-                                .expect("Var.varattno must exist in the relation");
-                            attribute.name().to_string()
-                        };
+                        // the field name comes from the lhs of the @@@ operator
+                        let (heaprelid, varattno) = find_var_relation(var, (*srs).root);
+                        let heaprel = PgRelation::open(heaprelid);
+                        let tupdesc = heaprel.tuple_desc();
+                        let attribute = tupdesc
+                            .get(varattno as usize - 1)
+                            .expect("varattno must exist in the relation");
+                        let field = attribute.name().to_string();
 
                         // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
                         let query_string =

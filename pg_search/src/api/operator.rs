@@ -171,6 +171,9 @@ unsafe fn make_search_config_opexpr_node(
     let keys = keys.values.as_slice(keys.dim1 as usize);
 
     // the Var's attribute number must always be the first field from the index definition
+    // TODO:  this is bugged.  We need a varattno from the same RTE/TE where we found
+    //        the one we were looking for that points to the "key_field" of the index, which
+    //        don't have until after we looked it up.  #hmm
     (*var).varattno = keys[0];
 
     // fabricate a `SearchConfig` from the above relation and query string

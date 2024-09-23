@@ -52,3 +52,14 @@ AND orders.order_id @@@ 'customer_name:john';
 (1 row)
 ```
 </Accordion>
+
+## Join Index
+
+A Postgres [B-tree index](https://www.postgresql.org/docs/current/indexes-types.html#INDEXES-TYPES-BTREE) can significantly improve join performance. By indexing the
+column(s) used in the join condition, Postgres can quickly locate rows in the "many" side of the join without performing a full table scan.
+
+For example, the following code block creates an index on the column in the `orders` table used in the join condition.
+
+```sql
+CREATE INDEX ON orders(product_id);
+```

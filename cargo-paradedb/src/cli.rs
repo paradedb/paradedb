@@ -14,30 +14,41 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 use clap::Parser;
+use std::env;
 
 const DEFAULT_BENCH_ESLOGS_TABLE: &str = "benchmark_eslogs";
 const DEFAULT_BENCH_ESLOGS_INDEX_NAME: &str = "benchmark_eslogs_pg_search";
 
-/// A wrapper struct for subcommands.
-#[derive(Parser)]
-#[command(version, about, long_about = None, bin_name = "cargo")]
+#[derive(Debug, Parser)]
+#[command(bin_name = "cargo-paradedb")]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum Commands {
+    Paradedb(ParadedbCommands),
+}
+
+#[derive(Debug, clap::Parser)]
+pub struct ParadedbCommands {
     #[command(subcommand)]
     pub subcommand: Subcommand,
 }
 
 // Top-level commands for the cargo-paradedb tool.
-#[derive(clap::Subcommand)]
+#[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {
     Install,
     Bench(CorpusArgs),
+    PgaBench(PgaBenchArgs),
 }
 
 // A wrapper struct for a subcommand under 'cargo paradedb bench' which
 // select a corpus to generate/run.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, clap::Parser)]
 pub struct CorpusArgs {
     #[command(subcommand)]
     pub corpus: Corpus,
@@ -52,17 +63,30 @@ pub enum Corpus {
 }
 
 /// A wrapper struct for the command to run on the eslogs corpus.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, clap::Parser)]
 pub struct EsLogsArgs {
     #[command(subcommand)]
     pub command: EsLogsCommand,
 }
 
 /// A wrapper struct for the command to run on the hits corpus.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, clap::Parser)]
 pub struct HitsArgs {
     #[command(subcommand)]
     pub command: HitsCommand,
+}
+
+/// Wrapper for pg_analytics benchmark subcommands.
+#[derive(Debug, clap::Parser)]
+pub struct PgaBenchArgs {
+    #[command(subcommand)]
+    pub command: PgaBenchCommand,
+}
+
+/// Runs pg_analytics benchmark sub-commands
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum PgaBenchCommand {
+    ParquetRunAll,
 }
 
 /// The command to run on the eslogs corpus.
@@ -194,26 +218,22 @@ pub enum HitsCommand {
     },
 }
 
+impl Cli {
+    pub fn parse_args() -> Self {
+        let args: Vec<String> = env::args().collect();
+        tracing::info!("Collected args: {:#?}", args);
+
+        tracing::trace!("Entering parse_args method");
+
+        // Parse all arguments without skipping
+        let parsed = Self::parse();
+        tracing::debug!("Parsed result: {:#?}", parsed);
+        parsed
+    }
+}
+
 impl Default for Cli {
     fn default() -> Self {
-        // Usually, clap CLI tools can just use `Self::parse()` to initialize a
-        // struct with the CLI arguments... but seeing as this will be run as a
-        // cargo subcommand, we need to do some extra work.
-        //
-        // Because we're running e.g. "cargo paradedb install"... clap will think
-        // that "paradedb" is the first argument that was passed to the binary.
-        // Instead we want "install" to be the first argument, with "paradedb"
-        // ignored. For this reason, we'll manually collect and process the CLI
-        // arguments ourselves.
-        //
-        // We check to see if the argument at index 1 is "paradedb"...
-        // as the argument at index 0 is always the path to the binary executable.
-        // If "paradedb" is found, we'll parse the arguments starting at index 1.
-        // Otherwise, we'll use Self::parse() like usual.
-        let args = std::env::args().collect::<Vec<String>>();
-        match args.get(1) {
-            Some(arg) if arg == "paradedb" => Self::parse_from(&args[1..]),
-            _ => Self::parse(),
-        }
+        Self::parse_args()
     }
 }

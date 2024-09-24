@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::benchmark::Benchmark;
+use crate::benchmark::{pga_bench_parquet, pgs_bench_sanity};
 use crate::tables::{benchlogs::EsLog, PathReader};
 use anyhow::{bail, Result};
 use cmd_lib::{run_cmd, run_fun};
@@ -190,7 +190,7 @@ pub async fn bench_eslogs_build_search_index(
         );"
     );
 
-    Benchmark {
+    pgs_bench_sanity::Benchmark {
         group_name: "Search Index".into(),
         function_name: "bench_eslogs_build_search_index".into(),
         // First, drop any existing index to ensure a clean environment.
@@ -208,7 +208,7 @@ pub async fn bench_eslogs_query_search_index(
     limit: u64,
     url: String,
 ) -> Result<()> {
-    Benchmark {
+    pgs_bench_sanity::Benchmark {
         group_name: "Search Query".into(),
         function_name: "bench_eslogs_query_search_index".into(),
         setup_query: None,
@@ -225,7 +225,7 @@ pub async fn bench_eslogs_build_gin_index(table: String, index: String, url: Str
     let create_query =
         format!("CREATE INDEX {index} ON {table} USING gin ((to_tsvector('english', message)));");
 
-    Benchmark {
+    pgs_bench_sanity::Benchmark {
         group_name: "GIN TSQuery/TSVector Index".into(),
         function_name: "bench_eslogs_build_gin_index".into(),
         setup_query: Some(drop_query),
@@ -242,7 +242,7 @@ pub async fn bench_eslogs_query_gin_index(
     limit: u64,
     url: String,
 ) -> Result<()> {
-    Benchmark {
+    pgs_bench_sanity::Benchmark {
         group_name: "GIN TSQuery/TSVector Query".into(),
         function_name: "bench_eslogs_query_gin_index".into(),
         setup_query: None,
@@ -268,7 +268,7 @@ pub async fn bench_eslogs_build_parquet_table(table: String, url: String) -> Res
         "#
     );
 
-    Benchmark {
+    pgs_bench_sanity::Benchmark {
         group_name: "Parquet Table".into(),
         function_name: "bench_eslogs_build_parquet_table".into(),
         // First, drop any existing table to ensure a clean environment.
@@ -281,7 +281,7 @@ pub async fn bench_eslogs_build_parquet_table(table: String, url: String) -> Res
 }
 
 pub async fn bench_eslogs_count_parquet_table(table: String, url: String) -> Result<()> {
-    Benchmark {
+    pgs_bench_sanity::Benchmark {
         group_name: "Parquet Table".into(),
         function_name: "bench_eslogs_build_parquet_table".into(),
         setup_query: None, // First, drop any existing index to ensure a clean environment.
@@ -346,7 +346,7 @@ pub async fn bench_eslogs_build_elastic_table(
 
     // Print benchmark results.
     let end_time = SystemTime::now();
-    Benchmark::print_results(start_time, end_time);
+    pgs_bench_sanity::Benchmark::print_results(start_time, end_time);
 
     Ok(())
 }
@@ -398,5 +398,10 @@ pub async fn bench_eslogs_query_elastic_table(
 
     group.finish();
 
+    Ok(())
+}
+
+pub fn bench_parquet_run_all() -> Result<()> {
+    pga_bench_parquet::run_all_bench();
     Ok(())
 }

@@ -16,3 +16,6 @@ inherits = "release"
 debug = true
 lto = "thin"
 codegen-units = 32
+
+[patch.crates-io]
+testcontainers = { package = "testcontainers", git = "https://github.com/shamb0/testcontainers-rs.git", rev = "b05c13d" }

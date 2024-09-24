@@ -4,6 +4,14 @@ version = "0.9.3"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["pg16"]
+pg12 = ["pgrx/pg12", "pgrx-tests/pg12"]
+pg13 = ["pgrx/pg13", "pgrx-tests/pg13"]
+pg14 = ["pgrx/pg14", "pgrx-tests/pg14"]
+pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
+pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
+pg_test = []
 
 [dependencies]
 anyhow = "1.0.81"
@@ -11,7 +19,7 @@ async-std = "1.12.0"
 chrono = { version = "0.4.34", features = ["clock", "alloc", "serde"] }
 clap = { version = "4.5.4", features = ["derive", "env"] }
 cmd_lib = "1.9.3"
-criterion = { version = "0.5.1", features = ["async_std"] }
+criterion = { version = "0.4", features = ["async_tokio"] }
 dotenvy = "0.15.7"
 futures = "0.3.30"
 glob = "0.3.1"
@@ -23,11 +31,34 @@ serde_json = "1.0.115"
 sqlx = { version = "0.7.4", features = [
   "postgres",
   "runtime-async-std",
+  "time",
+  "bigdecimal",
+  "uuid",
   "chrono",
 ] }
 tempfile = "3.10.1"
 tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-
-[dev-dependencies]
-rstest = "0.18.2"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "time"] }
+datafusion = { version = "37.1.0" }
+tokio = { version = "1.0", features = ["full"] }
+bytes = { version = "1.7.1" }
+prettytable = { version = "0.10.0" }
+time = { version = "0.3.34", features = ["serde", "macros", "local-offset"] }
+pgrx = { version = "0.12.1" }
+pgrx-tests = "0.12.4"
+rand = { version = "0.8.5" }
+approx = { version = "0.5.1" }
+bigdecimal = { version = "0.3.1", features = ["serde"] }
+soa_derive = { version = "0.13.0" }
+aws-config = { version = "1.5.6" }
+aws-sdk-s3 = { version = "1.49.0" }
+serde_arrow = { version = "0.11.7", features = ["arrow-51"] }
+testcontainers = { version = "0.22.0" }
+testcontainers-modules = { version = "0.10.0", features = ["localstack"] }
+rstest = { version = "0.19.0" }
+duckdb = { git = "https://github.com/paradedb/duckdb-rs.git", features = [
+  "bundled",
+  "extensions-full",
+], rev = "e532dd6" }
+cargo_metadata = { version = "0.18.0" }
+camino = { version = "1.0.7", features = ["serde1"] }

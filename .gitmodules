@@ -1,0 +1,4 @@
+[submodule "pg_analytics/downloads"]
+	path = pg_analytics/downloads
+	url = https://github.com/shamb0/pg_analytics.git
+	branch = shamb0/cargo-paradedb-extn-bench-pga-proto

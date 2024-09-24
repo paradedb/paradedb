@@ -34,11 +34,50 @@ fn defult_tokenizer(mut conn: PgConnection) {
     assert_eq!(rows, vec![("hello".into(), 0), ("world".into(), 1)]);
 
     let res = r#"
-    SELECT * FROM paradedb.tokenize(paradedb.tokenize('de'), 'hello world');
+    SELECT * FROM paradedb.tokenize(paradedb.tokenizer('de'), 'hello world');
     "#
     .execute_result(&mut conn);
 
     assert!(res.is_err());
+}
+
+#[rstest]
+fn tokenizer_filters(mut conn: PgConnection) {
+    // Test en_stem tokenizer with default layers (lowercase => true, remove_long => 255).
+    let rows: Vec<(String, i32)> = r#"
+    SELECT * FROM paradedb.tokenize(
+      paradedb.tokenizer('en_stem'), 
+      'Hello, hello, ladiesandgentlemen!'
+    );
+    "#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(
+        rows,
+        vec![
+            ("hello".into(), 0),
+            ("hello".into(), 1),
+            ("ladiesandgentlemen".into(), 2)
+        ]
+    );
+
+    // Test en_stem optimizer with explicit layers.
+    let rows: Vec<(String, i32)> = r#"
+    SELECT * FROM paradedb.tokenize(
+      paradedb.tokenizer('en_stem', lowercase => false, remove_long => 15),
+      'Hello, hello, ladiesandgentlemen!'
+    );
+    "#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(
+        rows,
+        vec![
+            ("Hello".into(), 0),
+            ("hello".into(), 1),
+            // ladiesandgentlemen is filtered out because it is too long
+        ]
+    );
 }
 
 #[rstest]

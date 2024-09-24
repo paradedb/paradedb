@@ -28,3 +28,26 @@ fn vacuum_full(mut conn: PgConnection) {
 
     "VACUUM FULL".execute(&mut conn);
 }
+
+#[rstest]
+fn create_and_drop_builtin_index(mut conn: PgConnection) {
+    // Test to ensure that dropping non-search indexes works correctly, as our event
+    // trigger will need to skip indexes we didn't create.
+
+    "CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL)".execute(&mut conn);
+
+    "CREATE INDEX test_table_value_idx ON test_table(value)".execute(&mut conn);
+
+    "DROP INDEX test_table_value_idx CASCADE".execute(&mut conn);
+
+    let index_count = "SELECT COUNT(*) FROM pg_indexes WHERE indexname = 'test_table_value_idx'"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0;
+
+    assert_eq!(
+        index_count, 0,
+        "Index should no longer exist after dropping with CASCADE"
+    );
+
+    "DROP TABLE IF EXISTS test_table CASCADE".execute(&mut conn);
+}

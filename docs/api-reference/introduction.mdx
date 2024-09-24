@@ -1,0 +1,38 @@
+---
+title: Introduction
+---
+
+## Overview
+
+ParadeDB uses PostgreSQL operators and functions to enable full text and similarity search over Postgres tables.
+To develop a feel for the API, we recommend going through the [quickstart](/welcome/quickstart) first.
+
+## Get Started
+
+All code blocks in this section reference a table called `mock_items` and a BM25 index called `search_idx`.
+We recommend creating these relations in your database to follow along.
+
+To create `mock_items`, simply run the `paradedb.create_bm25_test_table` procedure.
+
+```sql
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+```
+
+To create `search_idx`, run the following procedure. The [indexing](/api-reference/indexing) section provides details on how this
+statement works.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description') || paradedb.field('category'),
+  numeric_fields => paradedb.field('rating'),
+  boolean_fields => paradedb.field('in_stock'),
+  datetime_fields => paradedb.field('created_at'),
+  json_fields => paradedb.field('metadata')
+);
+```

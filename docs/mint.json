@@ -53,8 +53,8 @@
   },
   "anchors": [
     {
-      "name": "API",
-      "icon": "code",
+      "name": "Search",
+      "icon": "binoculars",
       "url": "api-reference"
     },
     {
@@ -73,51 +73,129 @@
       "url": "changelog"
     }
   ],
-  "versions": ["v0.9.3"],
+  "versions": ["v0.10.1"],
   "navigation": [
     {
       "group": "Welcome",
       "pages": [
         "welcome/introduction",
+        {
+          "group": "Getting Started",
+          "pages": [
+            "welcome/install",
+            "welcome/quickstart"
+          ]
+        },
         "welcome/support"
       ]
     },
     {
-      "group": "API",
+      "group": "Search",
       "pages": [
-        "api-reference/quickstart",
+        "api-reference/introduction",
         {
-          "group": "Full Text Search",
+          "group": "Concepts",
           "pages": [
-            "api-reference/full-text/overview",
-            "api-reference/full-text/index",
-            "api-reference/full-text/bm25",
-            "api-reference/full-text/complex",
-            "api-reference/full-text/scoring",
-            "api-reference/full-text/highlighting",
-            "api-reference/full-text/joins"
-          ]
-        },
-        "api-reference/aggregations",
-        {
-          "group": "Dense Vector Search",
-          "pages": [
-            "api-reference/dense/overview",
-            "api-reference/dense/index",
-            "api-reference/dense/search"
+            "api-reference/concepts/aggregation",
+            "api-reference/concepts/bm25",
+            "api-reference/concepts/faceting",
+            "api-reference/concepts/index",
+            "api-reference/concepts/matching",
+            "api-reference/concepts/phrase",
+            "api-reference/concepts/search",
+            "api-reference/concepts/stemming",
+            "api-reference/concepts/tantivy",
+            "api-reference/concepts/term"
           ]
         },
         {
-          "group": "Sparse Vector Search",
+          "group": "Reference",
           "pages": [
-            "api-reference/sparse/overview",
-            "api-reference/sparse/index",
-            "api-reference/sparse/search"
+            {
+              "group": "Indexing",
+              "pages": [
+                "api-reference/indexing/create_index",
+                "api-reference/indexing/inspect_index",
+                "api-reference/indexing/delete_index",
+                "api-reference/indexing/partitioned",
+                "api-reference/indexing/partial",
+                "api-reference/indexing/tokenizers",
+                "api-reference/indexing/token_filters",
+                "api-reference/indexing/fast_fields",
+                "api-reference/indexing/record"
+              ]
+            },
+            {
+              "group": "Full Text Search",
+              "pages": [
+                "api-reference/full-text/overview",
+                "api-reference/full-text/term",
+                "api-reference/full-text/phrase",
+                "api-reference/full-text/json",
+                "api-reference/full-text/filtering",
+                "api-reference/full-text/pagination",
+                "api-reference/full-text/scoring",
+                "api-reference/full-text/highlighting",
+                "api-reference/full-text/sorting",
+                "api-reference/full-text/boosting"
+              ]
+            },
+            {
+              "group": "Query Builder",
+              "pages": [
+                "api-reference/advanced/overview",
+                "api-reference/advanced/all",
+                "api-reference/advanced/boolean",
+                "api-reference/advanced/boost",
+                "api-reference/advanced/const",
+                "api-reference/advanced/disjunction_max",
+                "api-reference/advanced/empty",
+                "api-reference/advanced/exists",
+                "api-reference/advanced/fuzzy_term",
+                "api-reference/advanced/fuzzy_phrase",
+                "api-reference/advanced/more_like_this",
+                "api-reference/advanced/phrase",
+                "api-reference/advanced/phrase_prefix",
+                "api-reference/advanced/range",
+                "api-reference/advanced/regex",
+                "api-reference/advanced/term",
+                "api-reference/advanced/term_set"
+              ]
+            },
+            {
+              "group": "Faceting",
+              "pages": [
+                "api-reference/faceting/overview",
+                "api-reference/faceting/metric",
+                "api-reference/faceting/bucket"
+              ]
+            },
+            {
+              "group": "Similarity Search",
+              "pages": [
+                "api-reference/similarity/overview",
+                "api-reference/similarity/index",
+                "api-reference/similarity/search"
+              ]
+            },
+            {
+              "group": "Optimization",
+              "pages": [
+                "api-reference/optimization/overview",
+                "api-reference/optimization/joins",
+                "api-reference/optimization/pagination",
+                "api-reference/optimization/sorting"
+              ]
+            }
           ]
         },
         {
-          "group": "Hybrid Search",
-          "pages": ["api-reference/hybrid/basic"]
+          "group": "Tutorials",
+          "pages": [
+            "api-reference/guides/overview",
+            "api-reference/guides/autocomplete",
+            "api-reference/guides/hybrid"
+          ]
         }
       ]
     },
@@ -144,6 +222,7 @@
             "ingest/object_stores/s3"
           ]
         },
+        "ingest/postgres",
         {
           "group": "Configuration",
           "pages": [
@@ -173,6 +252,9 @@
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.10.1",
+        "changelog/0.10.0",
+        "changelog/0.9.4",
         "changelog/0.9.3",
         "changelog/0.9.2",
         "changelog/0.9.1",
@@ -224,6 +306,9 @@
     },
     "gtm": {
       "tagId": "GTM-KMGRG564"
+    },
+    "koala": {
+      "publicApiKey": "pk_05f8f4ec527669d1e8f88783a4dccdf37407"
     }
   },
   "backgroundImage": "/background.png"

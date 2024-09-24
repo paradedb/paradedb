@@ -20,17 +20,17 @@ use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use std::sync::Arc;
-use tantivy::collector::TopDocs;
+use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
 use tantivy::schema::FieldType;
-use tantivy::{query::Query, DocAddress, DocId, Score, Searcher};
-use tantivy::{Executor, SnippetGenerator};
+use tantivy::{query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyError};
+use tantivy::{snippet::SnippetGenerator, Executor};
 
 /// An iterator of the different styles of search results we can return
 pub enum SearchResults {
     AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
-    FastPath(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
+    FastPath(std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>),
 }
 
 impl Iterator for SearchResults {
@@ -75,7 +75,7 @@ pub struct SearchState {
 impl SearchState {
     pub fn new(search_index: &SearchIndex, config: &SearchConfig) -> Self {
         let schema = search_index.schema.clone();
-        let mut parser = search_index.query_parser();
+        let mut parser = search_index.query_parser(config);
         let searcher = search_index.searcher();
         let query = config
             .query
@@ -131,7 +131,7 @@ impl SearchState {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_minimal(&self, executor: &'static Executor) -> SearchResults {
+    pub fn search_minimal(&self, include_key: bool, executor: &'static Executor) -> SearchResults {
         match (
             self.config.limit_rows,
             self.config.stable_sort.unwrap_or(true),
@@ -141,9 +141,11 @@ impl SearchState {
             //
             // this we can use a channel to stream the results and also elide doing key lookups.
             // this is our "fast path"
-            (None, false, None) => {
-                SearchResults::FastPath(self.search_via_channel(executor, false).into_iter())
-            }
+            (None, false, None) => SearchResults::FastPath(
+                self.search_via_channel(executor, include_key)
+                    .into_iter()
+                    .flatten(),
+            ),
 
             // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
             // including retrieving the key field
@@ -155,7 +157,7 @@ impl SearchState {
         &self,
         executor: &'static Executor,
         include_key: bool,
-    ) -> crossbeam::channel::Receiver<(SearchIndexScore, DocAddress)> {
+    ) -> crossbeam::channel::Receiver<Vec<(SearchIndexScore, DocAddress)>> {
         let (sender, receiver) = crossbeam::channel::unbounded();
         let collector =
             collector::ChannelCollector::new(sender, self.config.key_field.clone(), include_key);
@@ -236,6 +238,55 @@ impl SearchState {
             .expect("failed to search")
             .into_iter()
     }
+
+    pub fn estimate_docs(&self) -> Option<usize> {
+        let readers = self.searcher.segment_readers();
+        let (ordinal, largest_reader) = readers
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, reader)| reader.num_docs())?;
+
+        let collector = tantivy::collector::Count;
+        let schema = self.schema.schema.clone();
+        let weight = match self
+            .query
+            .as_ref()
+            .weight(tantivy::query::EnableScoring::Disabled {
+                schema: &schema,
+                searcher_opt: Some(&self.searcher),
+            }) {
+            // created the Weight, no problem
+            Ok(weight) => weight,
+
+            // got an error trying to create the weight.  This *likely* means
+            // the query requires scoring, so try again with scoring enabled.
+            // I've seen this with the `MoreLikeThis` query type.
+            //
+            // NB:  we could just return `None` here and let the caller deal with it?
+            //      a deciding factor might be if users complain that query planning
+            //      is too slow when they use constructs like `MoreLikeThis`
+            Err(TantivyError::InvalidArgument(_)) => self
+                .query
+                .as_ref()
+                .weight(tantivy::query::EnableScoring::Enabled {
+                    searcher: &self.searcher,
+                    statistics_provider: &self.searcher,
+                })
+                .expect("creating a Weight from a Query should not fail"),
+
+            // something completely unexpected happen, so just panic
+            Err(e) => panic!("{:?}", e),
+        };
+
+        let count = collector
+            .collect_segment(weight.as_ref(), ordinal as SegmentOrdinal, largest_reader)
+            .expect("counting docs in the largest segment should not fail")
+            .max(1); // want to assume at least 1 matching document
+        let segment_doc_proportion =
+            largest_reader.num_docs() as f64 / self.searcher.num_docs() as f64;
+
+        Some((count as f64 / segment_doc_proportion).ceil() as usize)
+    }
 }
 
 /// Helper for working with different "fast field" types as if they're all one type
@@ -275,8 +326,12 @@ impl FFType {
         let value = match self {
             FFType::Text(ff) => {
                 let mut s = String::new();
-                let ord = ff.term_ords(doc).next().unwrap();
-                ff.ord_to_str(ord, &mut s).expect("no string for term ord");
+                let ord = ff
+                    .term_ords(doc)
+                    .next()
+                    .expect("term ord should be retrievable");
+                ff.ord_to_str(ord, &mut s)
+                    .expect("string should be retrievable for term ord");
                 TantivyValue(s.into())
             }
             FFType::I64(ff) => TantivyValue(ff.get_val(doc).into()),
@@ -297,7 +352,10 @@ impl FFType {
         let value = match self {
             FFType::Text(ff) => {
                 // just use the first term ord here.  that's enough to do a tie-break quickly
-                let ord = ff.term_ords(doc).next().unwrap();
+                let ord = ff
+                    .term_ords(doc)
+                    .next()
+                    .expect("term ord should be retrievable");
                 TantivyValue(ord.into())
             }
             other => other.value(doc),
@@ -328,14 +386,14 @@ mod collector {
     /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
     /// each segment, in parallel, as tantivy find each doc.
     pub struct ChannelCollector {
-        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+        sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
         key_field_name: String,
         include_key: bool,
     }
 
     impl ChannelCollector {
         pub fn new(
-            sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+            sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
             key_field_name: String,
             include_key: bool,
         ) -> Self {
@@ -366,6 +424,7 @@ mod collector {
                 ctid_ff,
                 key_ff,
                 sender: self.sender.clone(),
+                fruit: Vec::new(),
             })
         }
 
@@ -382,7 +441,8 @@ mod collector {
         segment_ord: SegmentOrdinal,
         ctid_ff: FFType,
         key_ff: Option<FFType>,
-        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+        sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
+        fruit: Vec<(SearchIndexScore, DocAddress)>,
     }
 
     impl SegmentCollector for ChannelSegmentCollector {
@@ -400,14 +460,19 @@ mod collector {
                     order_by: None,
                     sort_asc: false,
                 };
-                self.sender
-                    .send((scored, doc_address))
-                    .expect("channel should be open")
+
+                self.fruit.push((scored, doc_address))
             }
         }
 
-        fn harvest(self) {
-            // noop
+        fn harvest(mut self) -> Self::Fruit {
+            // ordering by ctid helps to avoid random heap access, at least for the docs that
+            // were found in this segment
+            self.fruit.sort_by_key(|(scored, _)| scored.ctid);
+
+            // if send fails that likely means the receiver was dropped so we have nowhere
+            // to send the result.  That's okay
+            self.sender.send(self.fruit).ok();
         }
     }
 }

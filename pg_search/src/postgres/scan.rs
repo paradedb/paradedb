@@ -18,9 +18,11 @@
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
+use crate::postgres::utils::relfilenode_from_index_oid;
+use crate::postgres::ScanStrategy;
+use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::{env::needs_commit, writer::WriterDirectory};
-use pgrx::itemptr::u64_to_item_pointer;
+use crate::writer::WriterDirectory;
 use pgrx::*;
 
 type SearchResultIter = SearchResults;
@@ -46,59 +48,95 @@ pub extern "C" fn amrescan(
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
-    // Ensure there's at least one key provided for the search.
-    if nkeys == 0 {
-        panic!("no ScanKeys provided");
+    fn key_to_config(indexrel: pg_sys::Relation, key: &pg_sys::ScanKeyData) -> SearchConfig {
+        match ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized") {
+            ScanStrategy::SearchConfigJson => unsafe {
+                let search_config = SearchConfig::from_jsonb(
+                    JsonB::from_datum(key.sk_argument, false)
+                        .expect("ScanKey.sk_argument must not be null"),
+                )
+                .expect("`ScanKey.sk_argument` should be a valid `SearchConfig`");
+
+                // assert that the index from the `SearchConfig` is the **same** index as the one Postgres
+                // has decided to use for this IndexScan.  If it's not, we cannot continue.
+                //
+                // As we disallow creating multiple `USING bm25` indexes on a given table, this should never
+                // happen, but it's hard to know what the state of existing databases are out there in the wild
+                let postgres_index_oid = (*indexrel).rd_id;
+                let our_index_id = search_config.index_oid;
+                assert_eq!(
+                    postgres_index_oid,
+                    pg_sys::Oid::from(our_index_id),
+                    "SearchConfig jsonb index doesn't match the index in the current IndexScan"
+                );
+                search_config
+            },
+
+            ScanStrategy::TextQuery => unsafe {
+                let query = String::from_datum(key.sk_argument, false)
+                    .expect("ScanKey.sk_argument must not be null");
+                let indexrel = PgRelation::from_pg(indexrel);
+                SearchConfig::from((query, indexrel))
+            },
+
+            ScanStrategy::SearchQueryInput => unsafe {
+                let query = SearchQueryInput::from_datum(key.sk_argument, false)
+                    .expect("ScanKey.sk_argument must not be null");
+                let indexrel = PgRelation::from_pg(indexrel);
+                SearchConfig::from((query, indexrel))
+            },
+        }
     }
 
-    // Convert the raw pointer to a safe wrapper. This action takes ownership of the object
-    // pointed to by the raw pointer in a safe way.
-    let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
+    let (indexrel, keys) = unsafe {
+        // SAFETY:  assert the pointers we're going to use are non-null
+        assert!(!scan.is_null());
+        assert!(!(*scan).indexRelation.is_null());
+        assert!(!keys.is_null());
+        assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
 
-    // Convert the raw keys into a slice for easier access.
-    let nkeys = nkeys as usize;
-    let keys = unsafe { std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys) };
+        let indexrel = (*scan).indexRelation;
+        let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
 
-    // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
-    let config_jsonb = unsafe {
-        JsonB::from_datum(keys[0].sk_argument, false)
-            .expect("failed to convert query to tuple of strings")
+        (indexrel, keys)
     };
 
-    let search_config =
-        SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
+    // build a Boolean "must" clause of all the ScanKeys
+    let mut search_config = key_to_config(indexrel, &keys[0]);
+    for key in &keys[1..] {
+        let key = key_to_config(indexrel, key);
+
+        search_config.query = SearchQueryInput::Boolean {
+            must: vec![search_config.query, key.query],
+            should: vec![],
+            must_not: vec![],
+        };
+    }
 
     // Create the index and scan state
-    let index_oid = unsafe { (*scan.indexRelation).rd_id.as_u32() };
-    let directory = WriterDirectory::from_index_oid(index_oid);
+    let index_oid = search_config.index_oid;
+    let relfilenode = relfilenode_from_index_oid(index_oid);
+    let database_oid = search_config.database_oid;
+    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
+
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+        .expect("index should be valid for SearchIndex::from_cache");
     let writer_client = WriterGlobal::client();
-
-    let leaked_results_iter = unsafe {
-        // we need to leak both the `SearchState` we're about to create and the result iterator from
-        // the search function.  The result iterator needs to be leaked so we can use it across the
-        // IAM API calls, and the SearchState needs to be leaked because that iterator borrows from it
-        // so it needs to be in a known memory address prior to performing a search.
-        let state = search_index
-            .search_state(&writer_client, &search_config, needs_commit(index_oid))
-            .unwrap();
-        let state = PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state);
-
-        // SAFETY:  `leak_and_drop_on_delete()` gave us a non-null, aligned pointer to the SearchState
-        let results_iter: SearchResultIter = state
-            .as_ref()
-            .unwrap()
-            .search_minimal(SearchIndex::executor());
-
-        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(results_iter)
-    };
+    let state = search_index
+        .search_state(&writer_client, &search_config)
+        .expect("SearchState should construct cleanly");
 
     // Save the iterator onto the current memory context.
-    scan.opaque = leaked_results_iter.cast();
-
-    // Return scan state back management to Postgres.
-    scan.into_pg();
+    unsafe {
+        // SAFETY:  We asserted above that `scan` is non-null
+        (*scan).opaque = {
+            let results_iter: SearchResultIter =
+                state.search_minimal(false, SearchIndex::executor());
+            PgMemoryContexts::CurrentMemoryContext
+                .leak_and_drop_on_delete(results_iter)
+                .cast()
+        }
+    }
 }
 
 #[pg_guard]
@@ -109,23 +147,53 @@ pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
-    let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
         // amrescan, which is always called prior to this function
-        scan.opaque.cast::<SearchResultIter>().as_mut()
+        (*scan).opaque.cast::<SearchResultIter>().as_mut()
     }
-    .expect("no scandesc state");
+    .expect("no scan.opaque state");
 
-    scan.xs_recheck = false;
+    unsafe {
+        (*scan).xs_recheck = false;
+    }
 
     match iter.next() {
         Some((scored, _)) => {
-            let tid = &mut scan.xs_heaptid;
-            u64_to_item_pointer(scored.ctid, tid);
+            let tid = unsafe { &mut (*scan).xs_heaptid };
+            crate::postgres::utils::u64_to_item_pointer(scored.ctid, tid);
 
             true
         }
         None => false,
     }
+}
+
+#[pg_guard]
+pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
+    assert!(!tbm.is_null());
+    assert!(!scan.is_null());
+
+    let iter = unsafe {
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
+        // amrescan, which is always called prior to this function
+        (*scan).opaque.cast::<SearchResultIter>().as_mut()
+    }
+    .expect("no scan.opaque state");
+
+    let mut cnt = 0i64;
+    for (scored, _) in iter {
+        let mut tid = pg_sys::ItemPointerData::default();
+        crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut tid);
+
+        unsafe {
+            // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
+            // initialized as a stack-allocated ItemPointerData
+            pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
+        }
+
+        cnt += 1;
+    }
+
+    cnt
 }

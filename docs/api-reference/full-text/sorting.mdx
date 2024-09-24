@@ -1,0 +1,38 @@
+---
+title: Sorting
+---
+
+## Tiebreaking
+
+By default, search results are ordered in descending order by their BM25 score. If multiple results have identical BM25 scores, the `key_field` is used as a tie-breaker.
+This behavior can be controlled with the `stable_sort` parameter.
+
+If `true`, equally-scored or ordered results will be sub-sorted by their `key_field`. As a
+consequence of score evaluation and sorting, query times will be slower. This is useful for testing or anytime where
+results need to be deterministic but the score itself is not necessary. See the `<index_name>.score_bm25()` function
+for retrieving document scores.
+
+If `false`, scores are not generated and instead results are returned in an un-deterministic index order. The benefit
+of this is that the results are returned as quickly as possible. This is useful for queries that are known to return
+many thousands or millions of rows.
+
+`stable_sort` defaults to `true` and can be passed into `search`, `score_bm25`, and `snippet`.
+
+```sql
+SELECT * FROM search_idx.search('description:keyboard', stable_sort => false);
+```
+
+## Custom Ordering
+
+By default, the rows are ordered by their BM25 score but can be ordered by any [fast field](/api-reference/indexing/fast_fields) instead by specifying `order_by_field`.
+
+The sort order can be changed by specifying `order_by_direction`. The default is `asc`. These arguments can be passed into
+`search`, `score_bm25`, and `snippet`.
+
+```sql
+SELECT * FROM search_idx.search(
+  'description:keyboard',
+  order_by_field => 'rating',
+  order_by_direction => 'asc' | 'desc'
+)
+```

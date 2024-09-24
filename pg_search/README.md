@@ -10,11 +10,11 @@
 
 `pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`.
 
-`pg_search` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 12+.
+`pg_search` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+.
 
 Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 
-`pg_search` uses Tantivy version 0.22.0.
+`pg_search` uses Tantivy version 0.23.
 
 ### Roadmap
 
@@ -29,6 +29,8 @@ Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 - [x] Datetime fields
 - [x] Aggregations/facets
 - [ ] Distributed search
+
+For a detailed roadmap, see the [ParadeDB Roadmap for 2024 - 2025](https://github.com/orgs/paradedb/discussions/1668).
 
 ## Installation
 
@@ -154,7 +156,7 @@ This will return:
 Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal performance, we recommend always using
 `limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
 
-Similarly, the `rating:>2` filter was used instead of the SQL `WHERE` clause for [efficient filtering](https://docs.paradedb.com/api/full-text/bm25#efficient-filtering).
+Similarly, the `rating:>2` filter was used instead of the SQL `WHERE` clause for [efficient filtering](https://docs.paradedb.com/api-reference/full-text/filtering).
 
 Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](https://docs.paradedb.com) and [quickstart](https://docs.paradedb.com/api/quickstart) for a more thorough overview of `pg_search`'s query support.
 
@@ -196,7 +198,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
-cargo install --locked cargo-pgrx --version 0.12.1
+cargo install --locked cargo-pgrx --version 0.12.4
 
 # macOS arm64
 cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config

@@ -1,0 +1,59 @@
+---
+title: Fuzzy Phrase
+---
+
+<Note>Highlighting is not currently supported for `fuzzy_phrase`.</Note>
+
+## Basic Usage
+
+`fuzzy_phrase` is like `fuzzy_term` but for query phrases that are comprised of multiple tokens.
+Unlike a typical phrase query, `fuzzy_phrase` finds documents that are a fuzzy match against **any one** of the query tokens.
+
+```sql
+SELECT * FROM search_idx.search(
+    query => paradedb.fuzzy_phrase(
+        field => 'description',
+        value => 'ruining shoez'
+    )
+);
+```
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="value" required>
+  Defines the phrase you are searching for within the specified field. This
+  phrase is automatically tokenized in the same way as `field`.
+</ParamField>
+<ParamField body="distance" default={2}>
+  The maximum Levenshtein distance (i.e. single character edits) allowed to
+  consider a term in the index as a match for the query term. Maximum value is
+  `2`.
+</ParamField>
+<ParamField body="transpose_cost_one" default={true}>
+  When set to `true`, transpositions (swapping two adjacent characters) as a
+  single edit in the Levenshtein distance calculation, while `false` considers
+  it two separate edits (a deletion and an insertion).
+</ParamField>
+<ParamField body="prefix" default={false}>
+  When set to `true`, the initial substring (prefix) of the query term is
+  exempted from the fuzzy edit distance calculation, while false includes the
+  entire string in the calculation.
+</ParamField>
+<ParamField body="match_all_terms" default={false}>
+  When set to `true`, **all** tokens of the query have to match in order for a
+  document to be considered a match.
+</ParamField>
+
+Setting `match_all_terms` to `true` makes it so that **all** query tokens must
+match in order for a document to be considered a match.
+
+```sql
+SELECT * FROM search_idx.search(
+    query => paradedb.fuzzy_phrase(
+        field => 'description',
+        value => 'ruining shoez',
+        match_all_terms => true
+    )
+);
+```

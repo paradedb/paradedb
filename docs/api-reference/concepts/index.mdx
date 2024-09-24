@@ -1,0 +1,22 @@
+---
+title: Indexing
+---
+
+## Overview
+
+In Postgres, an index is a database structure that enhances the speed of data retrieval operations on a table. By creating an index on one or more columns, Postgres can quickly locate and access the required data without scanning every row in the table.
+Proper use of indexes can significantly improve query performance, but it's important to use them judiciously, as they can add overhead to write operations like `INSERT`, `UPDATE`, and `DELETE`.
+
+## Inverted Index
+
+An inverted index is a fundamental data structure used in full text search to enable efficient retrieval of documents
+containing specific terms. Unlike a traditional index that maps documents to the terms they contain, an inverted index flips
+this relationship by mapping each term to the list of documents where it appears. The construction of an inverted index involves
+tokenizing the text and then creating a lookup table that associates these terms with their corresponding document identifiers.
+When a search query is executed, the inverted index is used to quickly retrieve all documents that match the search terms.
+
+## BM25 Index
+
+The BM25 index is the name given to the inverted index that enables ParadeDB to perform full text search over a
+Postgres table. This index is strongly consistent, which means that new data is immediately searchable across all connections.
+Once this index is created, it automatically stays in sync with the underlying table as the data changes.

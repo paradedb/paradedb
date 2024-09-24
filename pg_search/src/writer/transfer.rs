@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::writer::ServerError;
 use interprocess::os::unix::fifo_file;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -25,9 +26,7 @@ use std::os::unix::prelude::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
-use tracing::error;
-
-use crate::writer::ServerError;
+use tracing::warn;
 
 #[derive(Deserialize, Serialize)]
 pub enum WriterTransferMessage<T: Serialize> {
@@ -139,11 +138,17 @@ impl<T: Serialize> Write for WriterTransferProducer<T> {
 impl<T: Serialize> Drop for WriterTransferProducer<T> {
     fn drop(&mut self) {
         let pipe_path = self.pipe_path.clone();
+
+        // panicking during drop() is considered bad and with pgrx
+        // it's particularly bad as it can raise Postgres ERRORs
+        // after we've already found ourselves in a transaction ABORT state
+        //
+        // If things go wrong, the best we can do is WARN the user about it
         if let Err(err) = self.write_done_message() {
-            error!("error sending writer transfer done message: {err:?}")
+            warn!("error sending writer transfer done message: {err:?}")
         };
         if let Err(err) = std::fs::remove_file(&pipe_path) {
-            error!("error removing named pipe path {pipe_path:?}: {err:?}");
+            warn!("error removing named pipe path {pipe_path:?}: {err:?}");
         }
     }
 }

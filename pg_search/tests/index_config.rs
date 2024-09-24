@@ -18,9 +18,12 @@
 #![allow(unused_variables, unused_imports)]
 mod fixtures;
 
+use std::path::PathBuf;
+
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use shared::fixtures::utils::pg_search_index_directory_path;
 use sqlx::PgConnection;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {
@@ -640,4 +643,169 @@ fn partitioned_index(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with partitioned table"),
         Err(err) => assert_eq!(err.to_string(), "error returned from database: Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature. Contact support@paradedb.com for access."),
     };
+}
+
+#[rstest]
+fn drop_schema_cascades_index(mut conn: PgConnection) {
+    // Test that dropping a schema cascades to drop the index as well
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut conn);
+
+    // Drop the schema and ensure the index is also dropped
+    "DROP SCHEMA index_config CASCADE".execute(&mut conn);
+
+    let index_exists =
+        "SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'index_config_bm25_index');"
+            .fetch_one::<(bool,)>(&mut conn)
+            .0;
+
+    assert!(
+        !index_exists,
+        "BM25 index was not dropped after dropping schema"
+    );
+}
+
+#[rstest]
+fn drop_index_cascades_schema(mut conn: PgConnection) {
+    // Test that dropping an index cascades to drop the schema as well
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut conn);
+
+    // Drop the index and ensure the schema is also dropped
+    "DROP INDEX public.index_config_bm25_index CASCADE".execute(&mut conn);
+
+    let schema_exists =
+        "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'index_config');"
+            .fetch_one::<(bool,)>(&mut conn)
+            .0;
+
+    assert!(
+        !schema_exists,
+        "Schema was not dropped after dropping index"
+    );
+}
+
+#[rstest]
+fn drop_table_cascades_bm25_schema(mut conn: PgConnection) {
+    // Create the test table and BM25 index
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut conn);
+
+    // Drop the table and check if the index schema is dropped
+    "DROP TABLE public.index_config CASCADE;".execute(&mut conn);
+
+    let schema_exists =
+        "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'index_config');"
+            .fetch_one::<(bool,)>(&mut conn)
+            .0;
+
+    assert!(
+        !schema_exists,
+        "BM25 index schema was not dropped after dropping the table"
+    );
+}
+
+#[rstest]
+fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
+    // Create the test table and BM25 index
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut conn);
+
+    // Ensure the expected directory exists.
+    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_bm25_index");
+    assert!(
+        index_dir.exists(),
+        "expected index directory to exist at: {:?}",
+        index_dir
+    );
+
+    // Delete the index.
+    "DROP INDEX index_config_bm25_index CASCADE".execute(&mut conn);
+
+    // Ensure deletion has worked as expected.
+    // Tantivy is a little stubborn about deletion. While the contents of the index
+    // will indeed be cleaned up, lingering Readers cached in connections seem to re-create
+    // certain files if they are found to be deleted. This makes it difficult to completely
+    // clean up the folder, so we will just test if our configuation JSON has been deleted.
+    assert!(
+        !index_dir.join("search-index.json").exists(),
+        "expected index directory to have been deleted at: {:?}",
+        index_dir
+    );
+}
+
+#[rstest]
+fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
+    // Create the test table and BM25 index
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description')
+    )"
+    .execute(&mut conn);
+
+    // Ensure the expected directory exists.
+    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_bm25_index");
+    assert!(
+        index_dir.exists(),
+        "expected index directory to exist at: {:?}",
+        index_dir
+    );
+
+    // Delete the index.
+    "DO $$ 
+    BEGIN
+        DROP INDEX index_config_bm25_index CASCADE;
+        RAISE EXCEPTION 'Aborting the transaction intentionally';
+    END $$;"
+        .execute_result(&mut conn)
+        .ok();
+
+    // Ensure index files still exist.
+    assert!(
+        index_dir.join("search-index.json").exists(),
+        "expected index directory to have been not been deleted at: {:?}",
+        index_dir
+    );
 }

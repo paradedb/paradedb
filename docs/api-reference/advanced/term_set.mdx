@@ -1,0 +1,28 @@
+---
+title: Term Set
+---
+
+<Note>
+  BM25 scoring is not enabled for TermSet queries. As a result, the scores
+  returned may not be accurate. This behavior reflects the underlying
+  implementation in Tantivy.
+</Note>
+
+## Basic Usage
+
+Matches documents containing any [term](/api-reference/concepts/term) from a specified set.
+
+```sql
+SELECT * FROM search_idx.search(
+	query => paradedb.term_set(
+	    terms => ARRAY[
+	        paradedb.term(field => 'description', value => 'shoes'),
+	        paradedb.term(field => 'description', value => 'novel')
+	    ]
+	)
+);
+```
+
+<ParamField body="terms" required>
+  An `ARRAY` of `paradedb.term` query objects.
+</ParamField>

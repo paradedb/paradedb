@@ -23,8 +23,8 @@ use core::panic;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use shared::fixtures::utils::pg_search_index_directory_path;
 use sqlx::PgConnection;
-use std::path::PathBuf;
 use tantivy::Index;
 
 #[rstest]
@@ -129,14 +129,19 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
             .fetch_one::<(i32,)>(&mut conn)
             .0;
 
+    let database_oid = "SELECT oid::int4 FROM pg_database WHERE datname = current_database();"
+        .fetch_one::<(i32,)>(&mut conn)
+        .0;
+
     let columns: SimpleProductsTableVec = format!(
         "SELECT * FROM paradedb.bm25_search
-        WHERE paradedb.search_tantivy(
+        WHERE paradedb.search_with_search_config(
             id,
             jsonb_build_object(
                 'index_name', 'bm25_search_bm25_index',
                 'index_oid', {index_oid},
                 'table_oid', {table_oid},
+                'database_oid', {database_oid},
                 'table_name', 'bm25_search',
                 'schema_name', 'paradedb',
                 'key_field', 'id',
@@ -378,76 +383,6 @@ fn uuid(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn hybrid(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-    r#"
-    CREATE EXTENSION vector;
-    ALTER TABLE paradedb.bm25_search ADD COLUMN embedding vector(3);
-
-    UPDATE paradedb.bm25_search m
-    SET embedding = ('[' ||
-    ((m.id + 1) % 10 + 1)::integer || ',' ||
-    ((m.id + 2) % 10 + 1)::integer || ',' ||
-    ((m.id + 3) % 10 + 1)::integer || ']')::vector;
-
-    CREATE INDEX on paradedb.bm25_search
-    USING hnsw (embedding vector_l2_ops)"#
-        .execute(&mut conn);
-
-    // Test with string query.
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.score_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.score_hybrid(
-            bm25_query => 'description:keyboard OR category:electronics',
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
-
-    // New score_hybrid function
-    // Test with query object.
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.score_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.score_hybrid(
-            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
-
-    // Test with string query.
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.score_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.score_hybrid(
-            bm25_query => 'description:keyboard OR category:electronics',
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
-}
-
-#[rstest]
 fn multi_tree(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
@@ -457,7 +392,7 @@ fn multi_tree(mut conn: PgConnection) {
 			    paradedb.parse('description:shoes'),
 			    paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
 			    paradedb.term(field => 'description', value => 'speaker'),
-			    paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1)
+			    paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1, prefix => true)
 		    ]
 	    ),
 	    stable_sort => true
@@ -620,21 +555,11 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     )"
     .execute(&mut conn);
 
-    // Build the index directory path.
-    let index_oid =
-        "SELECT oid::int4 FROM pg_class WHERE relname = 'search_idx_bm25_index' AND relkind = 'i'"
-            .fetch_one::<(i32,)>(&mut conn)
-            .0;
-    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
-    let index_dir_path = PathBuf::from(data_directory)
-        .join("pg_search")
-        .join(index_oid.to_string())
-        .join("tantivy");
-
+    let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx_bm25_index");
     assert!(index_dir_path.exists());
 
     // Get the index metadata
-    let index = Index::open_in_dir(&index_dir_path)?;
+    let index = Index::open_in_dir(index_dir_path.join("tantivy"))?;
     let reader = index.reader()?;
     let searcher = reader.searcher();
     let total_docs = searcher
@@ -755,11 +680,10 @@ async fn json_array_mixed_data(mut conn: PgConnection) {
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![42]);
 
-    // Searching for numbers in an array isn't supported by Tantivy. No result will be returned.
     let columns: SimpleProductsTableVec =
         "SELECT * FROM bm25_search.search('metadata.attributes:4', stable_sort => true)"
             .fetch_collect(&mut conn);
-    assert!(columns.id.is_empty());
+    assert_eq!(columns.id, vec![42]);
 
     let columns: SimpleProductsTableVec =
         "SELECT * FROM bm25_search.search('metadata.attributes:true', stable_sort => true)"
@@ -1077,15 +1001,12 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
         "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
-    // When the predicate column is dropped, partial index will be dropped, but the schema will remain.
-    // This behavior is the same as normal postgres index.
-    "ALTER TABLE paradedb.test_partial_index DROP COLUMN category;".execute(&mut conn);
+    // When the predicate column is dropped with CASCADE, the index and the corresponding
+    // schema are both dropped.
+    "ALTER TABLE paradedb.test_partial_index DROP COLUMN category CASCADE;".execute(&mut conn);
     let rows: Vec<(String,)> =
         "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
-    let rows: Vec<(String,)> =
-        "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
 
     // We need to comment this test out for now, because we've had to change the implementation
     // of paradedb.drop_bm25 to rely on the index OID, which is used to determine the file path
@@ -1129,18 +1050,7 @@ fn high_limit_rows(mut conn: PgConnection) {
 fn index_size(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let data_directory = "SHOW data_directory;".fetch_one::<(String,)>(&mut conn).0;
-
-    let index_oid =
-        "SELECT oid::int4 FROM pg_class WHERE relname = 'bm25_search_bm25_index' AND relkind = 'i'"
-            .fetch_one::<(i32,)>(&mut conn)
-            .0;
-
-    let index_dir = PathBuf::from(data_directory)
-        .join("pg_search")
-        .join(index_oid.to_string())
-        .join("tantivy");
-
+    let index_dir = pg_search_index_directory_path(&mut conn, "bm25_search_bm25_index");
     assert!(
         index_dir.exists(),
         "expected index directory to exist at: {:?}",

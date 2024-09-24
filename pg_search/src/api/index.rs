@@ -21,6 +21,7 @@ use tantivy::schema::*;
 
 use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 use crate::query::SearchQueryInput;
 use crate::schema::ToString;
 use crate::writer::WriterDirectory;
@@ -45,15 +46,13 @@ pub fn schema_bm25(
     name!(normalizer, Option<String>),
 )> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
-    let oid_query = format!(
-        "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
-        bm25_index_name
-    );
-    let index_oid = Spi::get_one::<pg_sys::Oid>(&oid_query)
-        .expect("error looking up index in schema_bm25")
-        .expect("no oid for index passed to schema_bm25");
 
-    let directory = WriterDirectory::from_index_oid(index_oid.as_u32());
+    let database_oid = crate::MyDatabaseId();
+    let index_oid = index_oid_from_index_name(&bm25_index_name);
+    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+
+    let directory =
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -235,6 +234,25 @@ pub fn fuzzy_term(
     }
 }
 
+#[pg_extern(immutable, parallel_safe)]
+pub fn fuzzy_phrase(
+    field: String,
+    value: String,
+    distance: default!(Option<i32>, "NULL"),
+    transposition_cost_one: default!(Option<bool>, "NULL"),
+    prefix: default!(Option<bool>, "NULL"),
+    match_all_terms: default!(Option<bool>, "NULL"),
+) -> SearchQueryInput {
+    SearchQueryInput::FuzzyPhrase {
+        field,
+        value,
+        distance: distance.map(|n| n as u8),
+        transposition_cost_one,
+        prefix,
+        match_all_terms,
+    }
+}
+
 #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
 pub fn more_like_this_empty() -> SearchQueryInput {
     panic!("more_like_this must be called with either with_document_id or with_document_fields");
@@ -397,13 +415,21 @@ pub fn range_numeric(field: String, range: Range<pgrx::AnyNumeric>) -> SearchQue
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(n.try_into().unwrap())),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(n.try_into().unwrap())),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
+                    n.try_into().expect("numeric should be a valid f64"),
+                )),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
+                    n.try_into().expect("numeric should be a valid f64"),
+                )),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(n.try_into().unwrap())),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(n.try_into().unwrap())),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
+                    n.try_into().expect("numeric should be a valid f64"),
+                )),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
+                    n.try_into().expect("numeric should be a valid f64"),
+                )),
             },
         },
     }
@@ -428,30 +454,38 @@ macro_rules! datetime_range_fn {
                     lower_bound: match lower {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(n)
+                                .expect("n should be a valid TantivyValue representation")
+                                .tantivy_schema_value())
                                 .as_datetime()
-                                .unwrap()
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                         RangeBound::Exclusive(n) => Bound::Excluded(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(n)
+                                .expect("n should be a valid TantivyValue representation")
+                                .tantivy_schema_value())
                                 .as_datetime()
-                                .unwrap()
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                     },
                     upper_bound: match upper {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(n)
+                                .expect("n should be a valid TantivyValue representation")
+                                .tantivy_schema_value())
                                 .as_datetime()
-                                .unwrap()
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                         RangeBound::Exclusive(n) => Bound::Excluded(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(n)
+                                .expect("n should be a valid TantivyValue representation")
+                                .tantivy_schema_value())
                                 .as_datetime()
-                                .unwrap()
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                     },
@@ -481,7 +515,7 @@ macro_rules! term_fn {
                 SearchQueryInput::Term {
                     field,
                     value: TantivyValue::try_from(value)
-                        .unwrap()
+                        .expect("value should be a valid TantivyValue representation")
                         .tantivy_schema_value(),
                 }
             } else {

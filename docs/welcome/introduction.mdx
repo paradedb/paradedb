@@ -26,40 +26,21 @@ ParadeDB is a good fit for:
 - Full-text, similarity, or hybrid search over large volumes of operational data with zero ETL
 - Building rich search experiences with analytical queries and facets
 
-## Get Started
-
-The fastest way to create an instance is by pulling the ParadeDB docker image and running it locally.
-
-```bash
-docker run \
-  --name paradedb \
-  -e POSTGRES_USER=<user> \
-  -e POSTGRES_PASSWORD=<password> \
-  -e POSTGRES_DB=<dbname> \
-  -v paradedb_data:/var/lib/postgresql/data/ \
-  -p 5432:5432 \
-  -d \
-  paradedb/paradedb:latest
-```
-
-You may set `user`, `password`, and `dbname` to whatever values you want — these will be your database
-connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
-
-To connect to ParadeDB, install a Postgres client like `psql` and run
-
-```bash
-psql -h <hostname> -U <user> -d <dbname> -p <port> -W
-```
-
 ## Next Steps
 
 You're now ready to jump into our guides.
 
 <CardGroup cols={2}>
-  <Card title="API" icon="code" href="/api-reference/quickstart">
-    Quickstart for full text and hybrid search.
+  <Card title="Getting Started" icon="forward-fast" href="/welcome/install">
+    Get started with ParadeDB in under five minutes.
+  </Card>
+  <Card title="API" icon="code" href="/api-reference/introduction">
+    API reference for full text, similarity, and hybrid search.
   </Card>
   <Card title="Ingest" icon="merge" href="/ingest/quickstart">
     Ingest data from object stores with zero ETL.
+  </Card>
+  <Card title="Deploy" icon="server" href="/deploy">
+    Deploy ParadeDB and configure replication.
   </Card>
 </CardGroup>

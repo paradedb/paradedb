@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::arrow::schema_to_batch;
+use anyhow::Result;
 use async_std::prelude::Stream;
 use async_std::stream::StreamExt;
 use async_std::task::block_on;
@@ -26,7 +27,7 @@ use sqlx::{
     testing::{TestArgs, TestContext, TestSupport},
     ConnectOptions, Decode, Executor, FromRow, PgConnection, Postgres, Type,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct Db {
     context: TestContext<Postgres>,
@@ -37,7 +38,7 @@ impl Db {
         // Use a timestamp as a unique identifier.
         let path = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("current time should be retrievable")
             .as_micros()
             .to_string();
 
@@ -62,7 +63,9 @@ impl Drop for Db {
     fn drop(&mut self) {
         let db_name = self.context.db_name.to_string();
         async_std::task::spawn(async move {
-            Postgres::cleanup_test(db_name.as_str()).await.unwrap();
+            Postgres::cleanup_test(db_name.as_str())
+                .await
+                .expect("dropping test database should succeed");
         });
     }
 }
@@ -73,7 +76,10 @@ where
 {
     fn execute(self, connection: &mut PgConnection) {
         block_on(async {
-            connection.execute(self.as_ref()).await.unwrap();
+            connection
+                .execute(self.as_ref())
+                .await
+                .expect("query execution should succeed");
         })
     }
 
@@ -90,8 +96,43 @@ where
             sqlx::query_as::<_, T>(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()))
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
         })
+    }
+
+    fn fetch_retry<T>(
+        self,
+        connection: &mut PgConnection,
+        retries: u32,
+        delay_ms: u64,
+        validate: fn(&[T]) -> bool,
+    ) -> Vec<T>
+    where
+        T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+    {
+        for attempt in 0..retries {
+            match block_on(async {
+                sqlx::query_as::<_, T>(self.as_ref())
+                    .fetch_all(&mut *connection)
+                    .await
+                    .map_err(anyhow::Error::from)
+            }) {
+                Ok(result) => {
+                    if validate(&result) {
+                        return result;
+                    } else if attempt < retries - 1 {
+                        block_on(async_std::task::sleep(Duration::from_millis(delay_ms)));
+                    } else {
+                        return vec![];
+                    }
+                }
+                Err(_) if attempt < retries - 1 => {
+                    block_on(async_std::task::sleep(Duration::from_millis(delay_ms)));
+                }
+                Err(e) => panic!("Fetch attempt {}/{} failed: {}", attempt + 1, retries, e),
+            }
+        }
+        panic!("Exhausted retries for query '{}'", self.as_ref());
     }
 
     fn fetch_dynamic(self, connection: &mut PgConnection) -> Vec<PgRow> {
@@ -99,7 +140,7 @@ where
             sqlx::query(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()))
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
         })
     }
 
@@ -122,7 +163,7 @@ where
             let rows = sqlx::query(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()));
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()));
             schema_to_batch(schema, &rows).expect("could not convert rows to RecordBatch")
         })
     }
@@ -135,7 +176,7 @@ where
             sqlx::query_scalar(self.as_ref())
                 .fetch_all(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()))
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
         })
     }
 
@@ -147,7 +188,7 @@ where
             sqlx::query_as::<_, T>(self.as_ref())
                 .fetch_one(connection)
                 .await
-                .unwrap_or_else(|_| panic!("error in query '{}'", self.as_ref()))
+                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
         })
     }
 
@@ -181,7 +222,7 @@ pub trait DisplayAsync: Stream<Item = Result<Bytes, sqlx::Error>> + Sized {
         let mut stream = Box::pin(self);
 
         while let Some(chunk) = block_on(stream.as_mut().next()) {
-            let chunk = chunk.unwrap();
+            let chunk = chunk.expect("chunk should be valid for DisplayAsync");
             csv_str.push_str(&String::from_utf8_lossy(&chunk));
         }
 

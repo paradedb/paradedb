@@ -2,7 +2,9 @@
 title: pg_search
 ---
 
-This guide explains how to install the `pg_search` extension inside an existing PostgreSQL database. These
+The `pg_search` extension powers all of ParadeDB's full text search capabilities.
+
+This guide explains how to install `pg_search` inside an existing PostgreSQL database. These
 instructions are for deploying on Linux Debian/Ubuntu. If you are using a different version of Linux, please
 [contact us](mailto:sales@paradedb.com).
 
@@ -32,45 +34,45 @@ are using a different version of Postgres or a different operating system, you w
 ```bash Ubuntu 24.04
 # Available Postgres version are 14, 15, 16
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.3/postgresql-16-pg-search_0.9.3-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.1/postgresql-16-pg-search_0.10.1-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash Ubuntu 22.04
 # Available Postgres version are 14, 15, 16
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.3/postgresql-16-pg-search_0.9.3-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_search.deb
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.1/postgresql-16-pg-search_0.10.1-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash Debian 12
 # Available Postgres version are 14, 15, 16
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.3/postgresql-16-pg-search_0.9.3-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.1/postgresql-16-pg-search_0.10.1-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash RHEL 9
 # Available Postgres version are 14, 15, 16
 # Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.3/pg_search_16-0.9.3-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.1/pg_search_16-0.10.1-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 
 ```bash RHEL 8
 # Available Postgres version are 14, 15, 16
 # Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.9.3/pg_search_16-0.9.3-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_search.rpm
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.1/pg_search_16-0.10.1-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 
 </CodeGroup>
 
-Note: You can replace `v0.9.3` with the `pg_search` version you wish to install, and `16` with the version of Postgres you are using.
+Note: You can replace `v0.10.1` with the `pg_search` version you wish to install, and `16` with the version of Postgres you are using.
 
 ## Building from Source
 
-Please follow these [instructions](https://github.com/paradedb/paradedb/tree/v0.9.3/pg_search#installation).
+Please follow these [instructions](https://github.com/paradedb/paradedb/tree/v0.10.1/pg_search#installation).
 
 # Update `postgresql.conf`
 
@@ -90,7 +92,7 @@ Once the extension binary is installed on your system, connect to your Postgres 
 CREATE EXTENSION pg_search;
 ```
 
-That's it! You're all set to use `pg_search` in your database. To get started, we suggest you follow the [quickstart guide](/api-reference/quickstart).
+That's it! You're all set to use `pg_search` in your database. To get started, we suggest you follow the [quickstart guide](/welcome/quickstart).
 
 <Note>
   `pg_search` can be combined with `pgvector` for hybrid search. You can find

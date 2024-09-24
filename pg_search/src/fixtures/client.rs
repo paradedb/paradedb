@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::writer::{ClientError, Handler, Writer, WriterClient, WriterRequest};
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 pub struct TestClient {
     writer: Writer,
@@ -43,9 +44,10 @@ impl TestClient {
 impl WriterClient<WriterRequest> for TestClient {
     fn request(&mut self, request: WriterRequest) -> Result<(), ClientError> {
         // Serialize the data to emulate the real transfer process.
-        let serialized_request = bincode::serialize(&request).unwrap();
-        let deserialized_request: WriterRequest =
-            bincode::deserialize(&serialized_request).unwrap();
+        let serialized_request = bincode::serialize(&request)
+            .expect("request should be serializable for TestClient::request");
+        let deserialized_request: WriterRequest = bincode::deserialize(&serialized_request)
+            .expect("request should be deserializable for TestClient::request");
         self.writer
             .handle(deserialized_request)
             .map_err(|err| ClientError::ServerError(err.to_string()))
@@ -57,9 +59,10 @@ impl WriterClient<WriterRequest> for TestClient {
         request: WriterRequest,
     ) -> Result<(), ClientError> {
         // Serialize the data to emulate the real transfer process.
-        let serialized_request = bincode::serialize(&request).unwrap();
-        let deserialized_request: WriterRequest =
-            bincode::deserialize(&serialized_request).unwrap();
+        let serialized_request =
+            bincode::serialize(&request).expect("request should be serializable for transfer");
+        let deserialized_request: WriterRequest = bincode::deserialize(&serialized_request)
+            .expect("request should be deserializable for transfer");
         self.request(deserialized_request)
     }
 }

@@ -40,17 +40,44 @@ use tracing::debug;
 // A static variable is required to host grand unified configuration settings.
 pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
 
+// A hardcoded value when we can't figure out a good selectivity value
+const UNKNOWN_SELECTIVITY: f64 = 0.00001;
+
+// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
+// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely
+// meaningless but we should be honest that do _something_.
+const DEFAULT_STARTUP_COST: f64 = 10.0;
+
 pgrx::pg_module_magic!();
 
-extension_sql!("GRANT ALL ON SCHEMA paradedb TO PUBLIC;" name = "paradedb_grant_all");
+extension_sql!(
+    "GRANT ALL ON SCHEMA paradedb TO PUBLIC;",
+    name = "paradedb_grant_all",
+    finalize
+);
 
 static mut TRACE_HOOK: shared::trace::TraceHook = shared::trace::TraceHook;
+
+/// Convenience method for [`pgrx::pg_sys::MyDatabaseId`]
+#[allow(non_snake_case)]
+#[inline(always)]
+pub fn MyDatabaseId() -> u32 {
+    unsafe {
+        // SAFETY:  this static is set by Postgres when the backend first connects and is
+        // never changed afterwards.  As such, it'll always be set whenever this code runs
+        pg_sys::MyDatabaseId.as_u32()
+    }
+}
 
 /// Initializes option parsing and telemetry
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
+    if !pg_sys::process_shared_preload_libraries_in_progress {
+        error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
+    }
+
     postgres::options::init();
     GUCS.init("pg_search");
 

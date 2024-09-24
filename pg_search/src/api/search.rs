@@ -15,15 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::env::needs_commit;
 use crate::index::state::SearchState;
-use crate::postgres::utils::VisibilityChecker;
+use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
 use crate::schema::SearchConfig;
 use crate::writer::{Client, WriterDirectory, WriterRequest};
 use crate::{globals::WriterGlobal, index::SearchIndex};
+use parking_lot::Mutex;
 use pgrx::pg_sys::FunctionCallInfo;
 use pgrx::{prelude::TableIterator, *};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tantivy::TantivyDocument;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -71,7 +71,12 @@ unsafe fn score_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+
+    let index_oid = search_config.index_oid;
+    let relfilenode = relfilenode_from_index_oid(index_oid);
+    let database_oid = crate::MyDatabaseId();
+
+    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -128,7 +133,13 @@ unsafe fn snippet(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json.clone()).expect("could not parse search config");
-    let directory = WriterDirectory::from_index_oid(search_config.index_oid);
+
+    let index_oid = &search_config.index_oid;
+    let database_oid = crate::MyDatabaseId();
+    let relfilenode = relfilenode_from_index_oid(*index_oid);
+
+    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
+
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -187,16 +198,22 @@ unsafe fn snippet(
     TableIterator::new(top_docs)
 }
 
-pub fn drop_bm25_internal(index_oid: pg_sys::Oid) {
-    // We need to receive the index_name as an argument here, because PGRX has
-    // some limitations around passing OID / u32 as a pg_extern parameter:
-    // https://github.com/pgcentralfoundation/pgrx/issues/1536
-
+pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
     let writer_client = WriterGlobal::client();
+    let relfile_paths = WriterDirectory::relfile_paths(database_oid, index_oid)
+        .expect("could not look up pg_search relfilenode directory");
 
-    // Drop the Tantivy data directory.
-    SearchIndex::drop_index(&writer_client, index_oid.as_u32())
-        .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
+    for directory in relfile_paths {
+        // Drop the Tantivy data directory.
+        // It's expected that this will be queued to actually perform the delete upon
+        // transaction commit.
+        let search_index = SearchIndex::from_disk(&directory)
+            .expect("index directory should be a valid SearchIndex");
+
+        search_index
+            .drop_index(&writer_client, &directory)
+            .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
+    }
 }
 
 /// # Safety
@@ -218,11 +235,7 @@ unsafe fn create_and_leak_scan_state(
     // Leaking the scan state allows us to avoid a `.collect::<Vec<_>>()` on the search results
     // of `top_docs` down below
     let scan_state = search_index
-        .search_state(
-            writer_client,
-            search_config,
-            needs_commit(search_config.index_oid),
-        )
+        .search_state(writer_client, search_config)
         .expect("could not get scan state");
 
     unsafe {

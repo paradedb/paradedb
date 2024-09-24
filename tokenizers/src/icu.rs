@@ -43,7 +43,7 @@ impl<'a> std::fmt::Debug for ICUBreakingWord<'a> {
 impl<'a> From<&'a str> for ICUBreakingWord<'a> {
     fn from(text: &'a str) -> Self {
         let loc = rust_icu_uloc::get_default();
-        let ustr = &UChar::try_from(text).expect("is an encodable character");
+        let ustr = &UChar::try_from(text).expect("text should be an encodable character");
         // Implementation from a similar fix in https://github.com/jiegec/tantivy-jieba/pull/5
         // referenced by Tantivy issue https://github.com/quickwit-oss/tantivy/issues/1134
         // Append null byte to the end because Tantivy defines the end of a token to be the
@@ -75,7 +75,7 @@ impl<'a> Iterator for ICUBreakingWord<'a> {
         let mut end = self.default_breaking_iterator.next();
         while cont && end.is_some() {
             if end.is_some() && self.default_breaking_iterator.get_rule_status() == 0 {
-                start = end.unwrap();
+                start = end.expect("end iterator should be valid for ICUBreakingWord");
                 end = self.default_breaking_iterator.next();
             }
             if let Some(index) = end {

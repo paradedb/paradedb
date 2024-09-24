@@ -1,0 +1,61 @@
+---
+title: Hybrid Search
+---
+
+ParadeDB's full text and similarity search APIs can be combined in the same query to execute [hybrid search](/api-reference/concepts/search#hybrid-search).
+
+<Note>
+This guide uses the [`mock_items` table](/api-reference/introduction#get-started). It assumes that the entire
+[quickstart](/welcome/quickstart) tutorial has been completed, including the vector search section.
+</Note>
+
+## Reciprocal Rank Fusion
+
+Reciprocal rank fusion is a popular hybrid search algorithm that:
+
+1. Calculates a BM25 and similarity score for the top `n` documents.
+2. Ranks documents by their BM25 and similarity scores separately. The highest-ranked document for each score receives an `r` of `1`.
+3. Calculates a reciprocal rank for each score as `1/(k + r)`, where `k` is a constant. `k` is usually set to `60`.
+4. Calculates each document's reciprocal rank fusion score as the sum of the BM25 and similarity reciprocal rank scores.
+
+The following code block implements reciprocal rank fusion over the `mock_items` table. BM25 scores are calculated against the query `description:keyboard` and similarity scores are
+calculated against the vector `[1,2,3]`.
+
+```sql
+WITH semantic_search AS (
+    SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+    FROM mock_items
+    ORDER BY embedding <=> '[1,2,3]'
+    LIMIT 20
+),
+bm25_search AS (
+    SELECT id, RANK () OVER (ORDER BY score_bm25 DESC) as rank
+    FROM search_idx.score_bm25('description:keyboard', limit_rows => 20)
+)
+SELECT
+    COALESCE(semantic_search.id, bm25_search.id) AS id,
+    COALESCE(1.0 / (60 + semantic_search.rank), 0.0) +
+    COALESCE(1.0 / (60 + bm25_search.rank), 0.0) AS score,
+    mock_items.description,
+    mock_items.embedding
+FROM semantic_search
+FULL OUTER JOIN bm25_search ON semantic_search.id = bm25_search.id
+JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_search.id)
+ORDER BY score DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+ id |         score          |       description        | embedding
+----+------------------------+--------------------------+-----------
+  1 | 0.03062178588125292193 | Ergonomic metal keyboard | [3,4,5]
+  2 | 0.02990695613646433318 | Plastic Keyboard         | [4,5,6]
+ 19 | 0.01639344262295081967 | Artistic ceramic vase    | [1,2,3]
+ 39 | 0.01639344262295081967 | Handcrafted wooden frame | [1,2,3]
+ 29 | 0.01639344262295081967 | Designer wall paintings  | [1,2,3]
+(5 rows)
+```
+</Accordion>
+
+Here, we see that the top five results either contain `keyboard` in the `description` field or have an `embedding` of `[1,2,3]`.

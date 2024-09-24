@@ -9,13 +9,10 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.80.0
-ARG PGRX_VERSION=0.12.1
-ARG PGRX_VERSION_PG_VECTOR_SCALE=0.11.4
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     RUST_VERSION=${RUST_VERSION} \
-    PGRX_VERSION=${PGRX_VERSION} \
     PGRX_VERSION_PG_VECTOR_SCALE=${PGRX_VERSION_PG_VECTOR_SCALE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
@@ -41,9 +38,17 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
+# Copy Cargo.toml because we need to extract the pgrx version
+WORKDIR /tmp
+COPY pg_search/Cargo.toml ./
+
 # Intall the pgrx version of pg_search and pg_analytics
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
+    echo "PGRX_VERSION=$PGRX_VERSION" && \
+    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+RUN rm -rf /tmp/Cargo.toml
 
 ######################
 # pg_search
@@ -87,7 +92,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-RUN git clone --branch v0.1.2 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
+RUN git clone --branch v0.1.4 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 
 # Build the extension
 WORKDIR /tmp/pg_analytics
@@ -114,16 +119,22 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 
 FROM builder AS builder-pgvectorscale
 
-# Intall the pgrx version of pgvectorscale
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION_PG_VECTOR_SCALE}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 ARG TARGETARCH
 
-# Build the extension
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
+# Clone the pgvectorscale repository
 WORKDIR /tmp
 RUN git clone --branch 0.3.0 https://github.com/timescale/pgvectorscale.git
 WORKDIR /tmp/pgvectorscale/pgvectorscale
+
+# Intall the pgrx version of pgvectorscale
+RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pgvectorscale | head -n 1 | cut -f2 -dv) && \
+    echo "PGRX_VERSION=$PGRX_VERSION" && \
+    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+# Build the extension
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         # Required for pgvectorscale to compile on x86_64/amd64
         RUSTFLAGS="-C target-feature=+avx2,+fma" cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"; \
@@ -175,6 +186,7 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
+
 # Copy third-party extensions from their builder stages
 COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
@@ -220,8 +232,16 @@ RUN apt-get update && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
 
-# This is required for TLS connection to PostHog, which is used for telemetry.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install Postgis and ca-certificates
+# ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
+ENV POSTGIS_MAJOR 3
+ENV POSTGIS_VERSION 3.4.2+dfsg-1.pgdg120+1
+
+RUN apt-get update \
+    && apt-cache showpkg postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR \
+    && apt-get install -y --no-install-recommends \
+    postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR=$POSTGIS_VERSION \
+    postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR-scripts \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/* && \
     update-ca-certificates
@@ -251,14 +271,8 @@ RUN apt-get update && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Change the uid of the postgres user to 26, for CloudNativePG compatibility
-RUN usermod -u 26 postgres \
-    && chown -R 26:999 /var/lib/postgresql \
-    && chown -R 26:999 /var/run/postgresql \
-    && chmod -R 700 /var/lib/postgresql
-
 # Switch back to the postgres user, with the new uid
-USER 26
+USER postgres
 
 # Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh

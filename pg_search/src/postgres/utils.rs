@@ -16,10 +16,54 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::types::TantivyValue;
-use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
+use crate::schema::{SearchConfig, SearchDocument, SearchFieldName, SearchIndexSchema};
 use crate::writer::IndexError;
-use pgrx::itemptr::item_pointer_get_block_number;
+use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
+
+/// Finds and returns the first `USING bm25` index on the specified relation, or [`None`] if there
+/// aren't any
+pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
+    unsafe {
+        let heaprel = PgRelation::open(heaprelid);
+        for index in heaprel.indices(pg_sys::AccessShareLock as _) {
+            if !index.rd_indam.is_null()
+                && (*index.rd_indam).ambuild == Some(crate::postgres::build::ambuild)
+            {
+                return Some(index);
+            }
+        }
+        None
+    }
+}
+
+/// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2
+/// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
+/// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
+/// bitpacking or compressing these values.
+#[inline(always)]
+pub fn item_pointer_to_u64(ctid: pg_sys::ItemPointerData) -> u64 {
+    let (blockno, offno) = item_pointer_get_both(ctid);
+    let blockno = blockno as u64;
+    let offno = offno as u64;
+
+    // shift the BlockNumber left 16 bits -- the length of the OffsetNumber we OR onto the end
+    // pgrx's version shifts left 32, which is wasteful
+    (blockno << 16) | offno
+}
+
+/// Rather than using pgrx' version of this function, we use our own, which doesn't leave 2
+/// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
+/// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
+/// bitpacking or compressing these values.
+#[inline(always)]
+pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
+    // shift right 16 bits to pop off the OffsetNumber, leaving only the BlockNumber
+    // pgrx's version must shift right 32 bits to be in parity with `item_pointer_to_u64()`
+    let blockno = (value >> 16) as pg_sys::BlockNumber;
+    let offno = value as pg_sys::OffsetNumber;
+    item_pointer_set_all(tid, blockno, offno);
+}
 
 pub unsafe fn row_to_search_document(
     ctid: pg_sys::ItemPointerData,
@@ -85,7 +129,7 @@ pub unsafe fn row_to_search_document(
     }
 
     // Insert the ctid value into the entries.
-    let ctid_index_value = pgrx::itemptr::item_pointer_to_u64(ctid);
+    let ctid_index_value = item_pointer_to_u64(ctid);
     document.insert(schema.ctid_field().id, ctid_index_value.into());
 
     Ok(document)
@@ -136,7 +180,7 @@ impl VisibilityChecker {
     pub fn ctid_satisfies_snapshot(&mut self, ctid: u64) -> bool {
         unsafe {
             // Using ctid, get itempointer => buffer => page => heaptuple
-            pgrx::itemptr::u64_to_item_pointer(ctid, &mut self.ipd);
+            u64_to_item_pointer(ctid, &mut self.ipd);
 
             let blockno = item_pointer_get_block_number(&self.ipd);
 
@@ -167,5 +211,56 @@ impl VisibilityChecker {
                 true,
             )
         }
+    }
+}
+
+/// Retrieves the `relfilenode` from a `SearchConfig`, handling PostgreSQL version differences.
+pub fn relfilenode_from_search_config(search_config: &SearchConfig) -> pg_sys::Oid {
+    let index_oid = search_config.index_oid;
+    relfilenode_from_index_oid(index_oid)
+}
+
+/// Retrieves the `relfilenode` for a given index OID, handling PostgreSQL version differences.
+pub fn relfilenode_from_index_oid(index_oid: u32) -> pg_sys::Oid {
+    let index_relation = unsafe { PgRelation::open(pg_sys::Oid::from(index_oid)) };
+    relfilenode_from_pg_relation(&index_relation)
+}
+
+/// Retrieves the `relfilenode` from a `PgRelation`, handling PostgreSQL version differences.
+pub fn relfilenode_from_pg_relation(index_relation: &PgRelation) -> pg_sys::Oid {
+    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+    {
+        index_relation.rd_node.relNode
+    }
+    #[cfg(feature = "pg16")]
+    {
+        index_relation.rd_locator.relNumber
+    }
+}
+
+/// Retrieves the OID for an index from Postgres.
+pub fn index_oid_from_index_name(index_name: &str) -> pg_sys::Oid {
+    // TODO: Switch to the implementation below when we eventually drop the generated index schemas.
+    // This implementation will require the schema name to fully qualify the index name.
+    // unsafe {
+    //     // SAFETY:: Safe as long as the underlying function in `direct_function_call` is safe.
+    //     let cstr_name = CString::new(index_name).expect("relation name is a valid CString");
+    //     let indexrelid =
+    //         direct_function_call::<pg_sys::Oid>(pg_sys::regclassin, &[cstr_name.into_datum()])
+    //             .expect("index name should be a valid relation");
+    //     let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+    //     assert!(indexrel.is_index());
+    //     indexrel.oid()
+    // }
+
+    let oid_query = format!(
+        "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
+        index_name
+    );
+
+    match Spi::get_one::<pg_sys::Oid>(&oid_query) {
+        Ok(Some(index_oid)) => index_oid,
+        Ok(None) => panic!("no oid for index '{index_name}' in schema_bm25"),
+        Err(err) => panic!("error looking up index '{index_name}': {err}"),
     }
 }

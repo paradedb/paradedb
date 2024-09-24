@@ -50,7 +50,11 @@ const DEFAULT_STARTUP_COST: f64 = 10.0;
 
 pgrx::pg_module_magic!();
 
-extension_sql!("GRANT ALL ON SCHEMA paradedb TO PUBLIC;" name = "paradedb_grant_all");
+extension_sql!(
+    "GRANT ALL ON SCHEMA paradedb TO PUBLIC;",
+    name = "paradedb_grant_all",
+    finalize
+);
 
 static mut TRACE_HOOK: shared::trace::TraceHook = shared::trace::TraceHook;
 
@@ -70,6 +74,10 @@ pub fn MyDatabaseId() -> u32 {
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
+    if !pg_sys::process_shared_preload_libraries_in_progress {
+        error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
+    }
+
     postgres::options::init();
     GUCS.init("pg_search");
 

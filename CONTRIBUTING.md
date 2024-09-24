@@ -1,7 +1,6 @@
 # **Contributing to ParadeDB**
 
-Welcome! We're excited that you're interested in contributing to ParadeDB and want
-to make the process as smooth as possible.
+Welcome! We're excited that you're interested in contributing to ParadeDB and want to make the process as smooth as possible.
 
 ## Technical Info
 
@@ -9,6 +8,21 @@ Before submitting a pull request, please review this document, which outlines wh
 conventions to follow when submitting changes. If you have any questions not covered
 in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ)
 or via [email](mailto:support@paradedb.com).
+
+### Claiming GitHub Issues
+
+This repository has a workflow to automatically assign issues to new contributors. This ensures that you don't need approval
+from a maintainer to pick an issue.
+
+1. Before claiming an issue, ensure that:
+
+- It's not already assigned to someone else
+- There are no comments indicating ongoing work
+
+2. To claim an unassigned issue, simply comment `/take` on the issue. This will automatically assign the issue to you.
+
+If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ). If you no longer wish to
+work on the issue(s) you self-assigned, please use the `unassign me` link at the top of the issue(s) page to release it.
 
 ### Development Workflow
 

@@ -16,14 +16,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::{
-    anyelement_text_opoid, estimate_selectivity, make_search_config_opexpr_node,
+    anyelement_text_opoid, estimate_selectivity, find_var_relation, make_search_config_opexpr_node,
     ReturnedNodePointer,
 };
 use crate::postgres::utils::{locate_bm25_index, relfilenode_from_search_config};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::UNKNOWN_SELECTIVITY;
-use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
 /// This is the function behind the `@@@(anyelement, text)` operator. Since we transform those to
@@ -97,17 +96,14 @@ pub fn text_restrict(
                 let var = lhs.cast::<pg_sys::Var>();
                 let const_ = rhs.cast::<pg_sys::Const>();
 
-                let rte = planner_rt_fetch((*var).varno as pg_sys::Index, info);
-                if !rte.is_null() {
-                    let heaprelid = (*rte).relid;
-                    let indexrel = locate_bm25_index(heaprelid)?;
+                let (heaprelid, _) = find_var_relation(var, info);
+                let indexrel = locate_bm25_index(heaprelid)?;
 
-                    let query = String::from_datum((*const_).constvalue, (*const_).constisnull)?;
-                    let search_config = SearchConfig::from((query, indexrel));
-                    let relfilenode = relfilenode_from_search_config(&search_config);
+                let query = String::from_datum((*const_).constvalue, (*const_).constisnull)?;
+                let search_config = SearchConfig::from((query, indexrel));
+                let relfilenode = relfilenode_from_search_config(&search_config);
 
-                    return estimate_selectivity(heaprelid, relfilenode, &search_config);
-                }
+                return estimate_selectivity(heaprelid, relfilenode, &search_config);
             }
 
             None

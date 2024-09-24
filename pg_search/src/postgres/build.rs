@@ -263,21 +263,6 @@ fn do_heap_scan<'a>(
     state
 }
 
-#[cfg(feature = "pg12")]
-#[pg_guard]
-unsafe extern "C" fn build_callback(
-    index: pg_sys::Relation,
-    htup: pg_sys::HeapTuple,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    _tuple_is_alive: bool,
-    state: *mut std::os::raw::c_void,
-) {
-    let htup = htup.as_ref().unwrap();
-
-    build_callback_internal(htup.t_self, values, isnull, state, index);
-}
-
 #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 unsafe extern "C" fn build_callback(
@@ -300,7 +285,9 @@ unsafe fn build_callback_internal(
     index: pg_sys::Relation,
 ) {
     check_for_interrupts!();
-    let state = (state as *mut BuildState).as_mut().unwrap();
+    let state = (state as *mut BuildState)
+        .as_mut()
+        .expect("BuildState pointer should not be null");
 
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a

@@ -14,26 +14,8 @@ The `score_bm25` function takes a query and returns a table with two columns: th
 parameters as [`search`](/api-reference/full-text/overview).
 
 ```sql
-SELECT * FROM <index_name>.score_bm25('<query>');
+SELECT * FROM search_idx.score_bm25('description:keyboard');
 ```
-
-<Accordion title="Example Usage">
-
-```sql
-SELECT * FROM search_idx.score_bm25(
-	'description:keyboard',
-	limit_rows => 10
-);
-```
-
-</Accordion>
-
-<ParamField body="index_name" required>
-  The name of the index.
-</ParamField>
-<ParamField body="query" required>
-  The query string.
-</ParamField>
 
 ## Joining BM25 Scores
 

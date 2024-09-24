@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
@@ -201,42 +201,6 @@ unsafe fn build_relopts(
     rdopts as *mut pg_sys::bytea
 }
 
-// build_reloptions is not available when pg<13, so we need our own
-#[cfg(feature = "pg12")]
-unsafe fn build_relopts(
-    reloptions: pg_sys::Datum,
-    validate: bool,
-    options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS],
-) -> *mut pg_sys::bytea {
-    let mut n_options = 0;
-    let p_options = pg_sys::parseRelOptions(reloptions, validate, RELOPT_KIND_PDB, &mut n_options);
-    if n_options == 0 {
-        return std::ptr::null_mut();
-    }
-
-    for relopt in std::slice::from_raw_parts_mut(p_options, n_options as usize) {
-        relopt.gen.as_mut().unwrap().lockmode = pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE;
-    }
-
-    let rdopts = pg_sys::allocateReloptStruct(
-        std::mem::size_of::<SearchIndexCreateOptions>(),
-        p_options,
-        n_options,
-    );
-    pg_sys::fillRelOptions(
-        rdopts,
-        std::mem::size_of::<SearchIndexCreateOptions>(),
-        p_options,
-        n_options,
-        validate,
-        options.as_ptr(),
-        options.len() as i32,
-    );
-    pg_sys::pfree(p_options as void_mut_ptr);
-
-    rdopts as *mut pg_sys::bytea
-}
-
 impl SearchIndexCreateOptions {
     /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
     /// to be present on the json object. This helper method will "wrap" the json object in
@@ -258,8 +222,7 @@ impl SearchIndexCreateOptions {
                 (
                     field_name.clone().into(),
                     parser(field_config)
-                        .context("failed to deserialize {field_name} config")
-                        .unwrap(),
+                        .expect("field config should be valid for SearchFieldConfig::{field_name}"),
                 )
             })
             .collect()
@@ -331,7 +294,10 @@ impl SearchIndexCreateOptions {
             let value =
                 unsafe { CStr::from_ptr((opts + offset as usize) as *const std::os::raw::c_char) };
 
-            value.to_str().unwrap().to_owned()
+            value
+                .to_str()
+                .expect("value should be valid utf-8")
+                .to_owned()
         }
     }
 }

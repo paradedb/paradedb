@@ -6,7 +6,6 @@ This guide will walk you through the following steps to get started with ParadeD
 
 1. Full text search
 2. Similarity (i.e. vector) search
-3. Hybrid search
 
 ## Full Text Search
 
@@ -209,76 +208,6 @@ LIMIT 3;
 (3 rows)
 ```
 </Accordion>
-
-## Hybrid Search
-
-Finally, let's implement hybrid search, which combines BM25-based full text scores with vector-based
-similarity scores. Hybrid search is especially useful in scenarios where you want to match by both
-exact keywords and semantic meaning.
-
-The `score_hybrid` function accepts a BM25 query and a similarity query. It applies minmax normalization to the BM25 and
-similarity scores and combines them using a weighted average.
-
-```sql
-SELECT * FROM default_idx.score_hybrid(
-    bm25_query => 'description:keyboard OR category:electronics',
-    similarity_query => '''[1,2,3]'' <-> embedding',
-    bm25_weight => 0.9,
-    similarity_weight => 0.1
-) LIMIT 5;
-```
-
-<Accordion title="Expected Response">
-``` csv
- id | score_hybrid
-----+--------------
-  2 |  0.95714283
-  1 |   0.8487012
- 29 |         0.1
- 39 |         0.1
-  9 |         0.1
-(5 rows)
-```
-</Accordion>
-
-Let's join this result with our `mock_items` table to see the full results of our hybrid search:
-
-```sql
-SELECT m.description, m.category, m.embedding, s.score_hybrid
-FROM mock_items m
-LEFT JOIN (
-    SELECT * FROM default_idx.score_hybrid(
-        bm25_query => 'description:keyboard OR category:electronics',
-        similarity_query => '''[1,2,3]'' <-> embedding',
-        bm25_weight => 0.9,
-        similarity_weight => 0.1
-    )
-) s
-ON m.id = s.id
-LIMIT 5;
-```
-
-<Accordion title="Expected Response">
-``` csv
-       description        |  category   | embedding | score_hybrid
---------------------------+-------------+-----------+--------------
- Plastic Keyboard         | Electronics | [4,5,6]   |  0.95714283
- Ergonomic metal keyboard | Electronics | [3,4,5]   |   0.8487012
- Designer wall paintings  | Home Decor  | [1,2,3]   |         0.1
- Handcrafted wooden frame | Home Decor  | [1,2,3]   |         0.1
- Modern wall clock        | Home Decor  | [1,2,3]   |         0.1
-(5 rows)
-```
-</Accordion>
-
-As we can see, results with the word `keyboard` scored higher than results with an embedding of
-`[1,2,3]` because we placed a weight of `0.9` on the BM25 scores.
-
-<Note>
-  Minmax normalization transforms the lowest and highest scores in a dataset to
-  `0` and `1`, respectively. Because of this, the lowest-ranking BM25 or
-  similarity score may be overlooked, as it is transformed to `0`.
-</Note>
 
 ## For Further Assistance
 

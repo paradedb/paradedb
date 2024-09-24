@@ -415,13 +415,21 @@ pub fn range_numeric(field: String, range: Range<pgrx::AnyNumeric>) -> SearchQue
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(n.try_into().unwrap())),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(n.try_into().unwrap())),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
+                    n.try_into().expect("numeric should be a valid f64"),
+                )),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
+                    n.try_into().expect("numeric should be a valid f64"),
+                )),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(n.try_into().unwrap())),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(n.try_into().unwrap())),
+                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
+                    n.try_into().expect("numeric should be a valid f64"),
+                )),
+                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
+                    n.try_into().expect("numeric should be a valid f64"),
+                )),
             },
         },
     }
@@ -446,30 +454,38 @@ macro_rules! datetime_range_fn {
                     lower_bound: match lower {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(n)
+                                .expect("n should be a valid TantivyValue representation")
+                                .tantivy_schema_value())
                                 .as_datetime()
-                                .unwrap()
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                         RangeBound::Exclusive(n) => Bound::Excluded(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(n)
+                                .expect("n should be a valid TantivyValue representation")
+                                .tantivy_schema_value())
                                 .as_datetime()
-                                .unwrap()
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                     },
                     upper_bound: match upper {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(n)
+                                .expect("n should be a valid TantivyValue representation")
+                                .tantivy_schema_value())
                                 .as_datetime()
-                                .unwrap()
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                         RangeBound::Exclusive(n) => Bound::Excluded(
-                            (&TantivyValue::try_from(n).unwrap().tantivy_schema_value())
+                            (&TantivyValue::try_from(n)
+                                .expect("n should be a valid TantivyValue representation")
+                                .tantivy_schema_value())
                                 .as_datetime()
-                                .unwrap()
+                                .expect("OwnedValue should be a valid datetime value")
                                 .into(),
                         ),
                     },
@@ -499,7 +515,7 @@ macro_rules! term_fn {
                 SearchQueryInput::Term {
                     field,
                     value: TantivyValue::try_from(value)
-                        .unwrap()
+                        .expect("value should be a valid TantivyValue representation")
                         .tantivy_schema_value(),
                 }
             } else {

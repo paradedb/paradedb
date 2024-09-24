@@ -152,3 +152,27 @@ SELECT search_idx.aggregate('{
   The value to use for documents missing the field. By default, missing values
   are ignored.
 </ParamField>
+
+## Cardinality
+
+A cardinality aggregation estimates the number of unique values in the specified field using the HyperLogLog++ algorithm.
+This is useful for understanding the uniqueness of values in a large dataset.
+
+The cardinality aggregation provides an approximate count, which is accurate within a small error range.
+This trade-off allows for efficient computation even on very large datasets.
+
+```sql
+SELECT search_idx.aggregate('{
+  "unique_users": {
+    "cardinality": {"field": "user_id", "missing": "unknown"}
+  }
+}');
+```
+
+<ParamField body="field" required>
+  The field name to compute the cardinality on.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>

@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity, ReturnedNodePointer};
+use crate::api::operator::{
+    anyelement_jsonb_opoid, estimate_selectivity, find_var_relation, ReturnedNodePointer,
+};
 use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::types::TantivyValue;
@@ -24,7 +26,6 @@ use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
-use pgrx::pg_sys::planner_rt_fetch;
 use pgrx::{
     check_for_interrupts, is_a, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
     JsonB, PgList, PgOid,
@@ -125,23 +126,20 @@ pub fn search_config_restrict(
                 let var = lhs.cast::<pg_sys::Var>();
                 let const_ = rhs.cast::<pg_sys::Const>();
 
-                let rte = planner_rt_fetch((*var).varno as pg_sys::Index, info);
-                if !rte.is_null() {
-                    let heaprelid = (*rte).relid;
-                    let indexrel = locate_bm25_index(heaprelid)?;
-                    let relfilenode = relfilenode_from_pg_relation(&indexrel);
+                let (heaprelid, _) = find_var_relation(var, info);
+                let indexrel = locate_bm25_index(heaprelid)?;
+                let relfilenode = relfilenode_from_pg_relation(&indexrel);
 
-                    let search_config_jsonb =
-                        JsonB::from_datum((*const_).constvalue, (*const_).constisnull)?;
-                    let search_config = SearchConfig::from_jsonb(search_config_jsonb)
-                        .expect("SearchConfig should be valid");
+                let search_config_jsonb =
+                    JsonB::from_datum((*const_).constvalue, (*const_).constisnull)?;
+                let search_config = SearchConfig::from_jsonb(search_config_jsonb)
+                    .expect("SearchConfig should be valid");
 
-                    return estimate_selectivity(
-                        pg_sys::Oid::from(search_config.table_oid),
-                        relfilenode,
-                        &search_config,
-                    );
-                }
+                return estimate_selectivity(
+                    pg_sys::Oid::from(search_config.table_oid),
+                    relfilenode,
+                    &search_config,
+                );
             }
 
             None

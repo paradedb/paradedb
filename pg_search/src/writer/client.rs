@@ -80,7 +80,8 @@ impl<T: Serialize> Client<T> {
         // If there is an open pending transfer, stop it so that we can continue
         // with more requests.
         self.stop_transfer();
-        let bytes = bincode::serialize(&request).unwrap();
+        let bytes =
+            bincode::serialize(&request).expect("request should be serializable for send_request");
         let response = self.http.post(self.url()).body::<Vec<u8>>(bytes).send()?;
 
         match response.status() {
@@ -108,7 +109,10 @@ impl<T: Serialize> Client<T> {
         }
 
         // There is an existing producer in client state, use it to send the request.
-        self.producer.as_mut().unwrap().write_message(&request)?;
+        self.producer
+            .as_mut()
+            .expect("producer should be valid for transfer")
+            .write_message(&request)?;
         Ok(())
     }
 

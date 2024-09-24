@@ -1,0 +1,27 @@
+---
+title: 0.10.1
+---
+
+## Stability Improvements 💪
+
+### More Robust Query Plans
+
+Fixed a bug introduced in `0.10.0` where support queries would throw an `ERROR: Cannot open relation with oid=Oid(0)` error.
+
+### Deprecate PG12 Support
+
+Now that PG12 is deprecated by the Postgres Global Development Group, `pg_search` no longer supports it.
+
+## Performance Improvements 🚀
+
+### 3X Faster Scans
+
+Improved the performance of `@@@` full text search predicates that return large result sets by roughly 3X.
+
+## Documentation 📚
+
+Added documentation for using B-tree indexes in joined search queries.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.10.1).

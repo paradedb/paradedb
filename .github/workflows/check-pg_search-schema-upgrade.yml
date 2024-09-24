@@ -1,0 +1,153 @@
+# workflows/check-pg_search-schema-upgrade.yml
+#
+# Check pg_search Schema Upgrade pg_search
+# Determine if a commit introduces an extension schema change for pg_search.
+
+name: Check pg_search Schema Upgrade
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - dev
+      - main
+    paths:
+      - ".github/workflows/check-pg_search-schema-upgrade.yml"
+      - "pg_search/**"
+      - "!pg_search/README.md"
+  workflow_dispatch:
+
+# Required to post a comment to the PR
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: check-pg_search-schema-upgrade-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-pg_search-schema-upgrade:
+    name: Post Schema Change to PR
+    runs-on: depot-ubuntu-latest-8
+    if: github.event.pull_request.draft == false
+    env:
+      pg_version: 13 # Required by pg-schema-diff
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch the entire history
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
+      # save the cache on the 'dev' branch, but load it on all branches.
+      - name: Install Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1"
+          shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
+          cache-targets: true
+          cache-on-failure: true
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ env.pg_version }}/ /usr/lib/postgresql/${{ env.pg_version }}/ /var/lib/postgresql/${{ env.pg_version }}/
+          rustup component add llvm-tools-preview
+          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install pg-schema-diff and its Required Dependencies
+        run: |
+          sudo apt install clang llvm diffutils
+          cargo install --git https://github.com/zombodb/pg-schema-diff.git
+
+      - name: Extract pgrx Version & Install cargo-pgrx
+        run: |
+          PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${PGRX_VERSION}
+          cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+
+          # Save the pgrx version for comparison later
+          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
+
+      - name: Generate Schema from this git rev
+        run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/this.sql
+
+      - name: Switch to Base git rev and Generate Schema Again
+        run: |
+          # Switch to the base git rev
+          git checkout ${{ github.event.pull_request.base.ref }}
+
+          # See if we need a different cargo-pgrx and install it if so
+          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+          if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
+            # Install cargo-pgrx
+            cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force
+
+            # Initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
+            cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+          fi
+
+          # Generate schema
+          cargo pgrx schema -p pg_search pg${{ env.pg_version }} > ~/old.sql
+
+      - name: Generate Schema Diffs
+        run: |
+          (pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql) || true
+          (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
+
+      - name: Generate Commit Message
+        id: generate_commit_message
+        run: |
+          if test -s ~/diff.sql; then
+            echo "Generating GitHub comment message"
+            {
+              echo 'DIFF<<EOF'
+              echo 'A schema difference was detected.'
+              echo
+              echo 'A suggested "upgrade.sql" script entry might be:'
+              echo
+              echo '```sql'
+              cat ~/diff.sql
+              echo '```'
+
+              #
+              # cargo-pgrx schema doesn't output its generated schema in a stable format
+              # so including the entire diff is garbage.  We still generate it, tho, because
+              # cargo-pgrx will improve someday, and when it does we can uncomment these lines
+              #
+
+              # echo
+              # echo 'The full diff between both schemas is:'
+              # echo
+              # echo '```diff'
+              # cat ~/diff.patch
+              # echo '```'
+              echo EOF
+            } >> "$GITHUB_ENV"
+
+            # Set a flag to indicate a schema difference was detected
+            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "No schema difference detected"
+            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Attach Schema Diff to PR
+        uses: actions/github-script@v6
+        if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: process.env.DIFF
+            })

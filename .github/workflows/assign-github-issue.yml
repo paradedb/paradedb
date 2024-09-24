@@ -1,0 +1,66 @@
+# workflows/assign-github-issue.yml
+#
+# Assign GitHub Issue
+# Automatically assign an issue to the commenter if they use the '/take' command.
+
+name: Assign GitHub Issue
+
+on:
+  issue_comment:
+    types: [created]
+
+# Required to assign the issue to the commenter
+permissions:
+  issues: write
+
+concurrency:
+  group: assign-github-issue-${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  assign-github-issue:
+    name: Assign GitHub Issue to Commenter
+    runs-on: depot-ubuntu-latest-2
+    if: |
+      !github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/take')
+
+    steps:
+      - name: Check if Commenter Can Be Assigned
+        id: check_assignee
+        run: |
+          HTTP_CODE=$(curl -X GET \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -o /dev/null -w '%{http_code}\n' -s \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/assignees/${{ github.event.comment.user.login }}")
+
+          if [ "$HTTP_CODE" -eq "204" ]; then
+            echo "can_assign=true" >> $GITHUB_OUTPUT
+          else
+            echo "can_assign=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Assign GitHub Issue
+        if: steps.check_assignee.outputs.can_assign == 'true'
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d '{"assignees": ["${{ github.event.comment.user.login }}"]}' \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/assignees"
+
+          echo "Issue #${{ github.event.issue.number }} assigned to ${{ github.event.comment.user.login }}"
+
+      - name: Notify of Assignment Failure
+        if: steps.check_assignee.outputs.can_assign == 'false'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.name,
+              body: '@${{ github.event.comment.user.login }} Unable to assign this issue to you. You may not have the necessary permissions.'
+            })

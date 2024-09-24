@@ -21,11 +21,27 @@ pub trait GlobalGucSettings {
     fn telemetry_enabled(&self) -> bool;
 
     fn enable_custom_scan(&self) -> bool;
+
+    /// The `per_tuple_cost` is an arbitrary value that needs to be really high.  In fact, we default
+    /// to one hundred million.
+    ///
+    /// The reason for this is we really do not want Postgres to choose a plan where the `@@@` operator
+    /// is used in a sequential scan, filter, or recheck condition... unless of course there's no
+    /// other way to solve the query.
+    ///
+    /// This value is a multiplier that Postgres applies to the estimated row count any given `@@@`
+    /// query clause will return.  In our case, higher is better.
+    ///
+    /// Our IAM impl has its own costing functions that don't use this GUC and provide sensible estimates
+    /// for the overall IndexScan.  That plus this help to persuade Postgres to use our IAM whenever
+    /// it logically can.
+    fn per_tuple_cost(&self) -> f64;
 }
 
 pub struct PostgresGlobalGucSettings {
     telemetry: GucSetting<bool>,
     enable_custom_scan: GucSetting<bool>,
+    per_tuple_cost: GucSetting<f64>,
 }
 
 impl PostgresGlobalGucSettings {
@@ -33,6 +49,7 @@ impl PostgresGlobalGucSettings {
         Self {
             telemetry: GucSetting::<bool>::new(true),
             enable_custom_scan: GucSetting::<bool>::new(true),
+            per_tuple_cost: GucSetting::<f64>::new(100_000_000.0),
         }
     }
 
@@ -50,6 +67,7 @@ impl PostgresGlobalGucSettings {
             GucContext::Userset,
             GucFlags::default(),
         );
+
         GucRegistry::define_bool_guc(
             "paradedb.enable_custom_scan",
             "Enable ParadeDB's custom scan",
@@ -58,6 +76,18 @@ impl PostgresGlobalGucSettings {
             GucContext::Userset,
             GucFlags::default(),
         );
+
+        // per_tuple_cost
+        GucRegistry::define_float_guc(
+            "paradedb.per_tuple_cost",
+            "Arbitrary multiplier for the cost of retrieving a tuple from a USING bm25 index outside of an IndexScan",
+            "Default is 100,000,000.0.  It is very expensive to use a USING bm25 index in the wrong query plan",
+            &self.per_tuple_cost,
+            0.0,
+            f64::MAX,
+            GucContext::Userset,
+            GucFlags::default(),
+        )
     }
 }
 
@@ -76,5 +106,9 @@ impl GlobalGucSettings for PostgresGlobalGucSettings {
 
     fn enable_custom_scan(&self) -> bool {
         self.enable_custom_scan.get()
+    }
+
+    fn per_tuple_cost(&self) -> f64 {
+        self.per_tuple_cost.get()
     }
 }

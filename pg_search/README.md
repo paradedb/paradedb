@@ -10,7 +10,7 @@
 
 `pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`.
 
-`pg_search` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 12+.
+`pg_search` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+.
 
 Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 

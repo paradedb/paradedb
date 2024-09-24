@@ -274,7 +274,7 @@ pub fn relfilenode_from_index_oid(index_oid: u32) -> pg_sys::Oid {
 
 /// Retrieves the `relfilenode` from a `PgRelation`, handling PostgreSQL version differences.
 pub fn relfilenode_from_pg_relation(index_relation: &PgRelation) -> pg_sys::Oid {
-    #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
     {
         index_relation.rd_node.relNode
     }

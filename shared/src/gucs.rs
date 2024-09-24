@@ -20,6 +20,7 @@ use pgrx::{GucContext, GucFlags, GucRegistry, GucSetting};
 pub trait GlobalGucSettings {
     fn telemetry_enabled(&self) -> bool;
 
+    /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
     fn enable_custom_scan(&self) -> bool;
 
     /// The `per_tuple_cost` is an arbitrary value that needs to be really high.  In fact, we default

@@ -19,7 +19,7 @@ async-std = "1.13.0"
 chrono = { version = "0.4.38", features = ["clock", "alloc", "serde"] }
 clap = { version = "4.5.17", features = ["derive", "env"] }
 cmd_lib = "1.9.4"
-criterion = { version = "0.5.1", features = ["async_std"] }
+criterion = { version = "0.5.1", features = ["async_tokio"] }
 dotenvy = "0.15.7"
 futures = "0.3.30"
 glob = "0.3.1"

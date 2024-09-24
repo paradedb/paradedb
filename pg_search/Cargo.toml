@@ -57,10 +57,12 @@ approx = "0.5.1"
 async-std = { version = "1.13.0", features = ["attributes"] }
 cmd_lib = "1.9.4"
 dotenvy = "0.15.7"
+futures = "0.3.30"
 pgrx-tests = "0.12.4"
 pgvector = { version = "0.3.4", features = ["sqlx"] }
 portpicker = "0.1.1"
 pretty_assertions = "1.4.0"
+rand = "0.8.5"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }
 sqlx = { version = "0.7.4", features = [

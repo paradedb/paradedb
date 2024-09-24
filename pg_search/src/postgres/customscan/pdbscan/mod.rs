@@ -17,7 +17,7 @@
 
 mod qual_inspect;
 
-use crate::api::operator::anyelement_jsonb_opoid;
+use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity};
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
@@ -27,14 +27,14 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::qual_inspect::{can_use_quals, extract_quals, Qual};
+use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::{node, CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::VisibilityChecker;
+use crate::postgres::utils::{relfilenode_from_pg_relation, VisibilityChecker};
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
-use crate::GUCS;
+use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::{is_a, name_data_to_str, pg_sys, IntoDatum, PgList, PgRelation, PgTupleDesc};
 use shared::gucs::GlobalGucSettings;
 use std::ffi::CStr;
@@ -134,7 +134,7 @@ impl CustomScan for PdbScan {
         }
 
         unsafe {
-            if builder.base_restrict_info().is_null() {
+            if builder.base_restrict_info().is_empty() {
                 return None;
             }
             let rte = builder.args().rte();
@@ -154,22 +154,47 @@ impl CustomScan for PdbScan {
             //
             // look for quals we can support
             //
-            if can_use_quals(
-                builder.base_restrict_info().cast(),
+            if let Some(quals) = extract_quals(
+                builder.base_restrict_info().as_ptr().cast(),
                 anyelement_jsonb_opoid(),
-            )
-            .is_some()
-            {
+            ) {
                 builder = builder
                     .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
                     .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast());
 
                 let restrict_info = builder.base_restrict_info();
-                builder = builder.add_private_data(restrict_info.cast());
 
-                // TODO:  I think we need to calculate costs and row estimates here too?
+                let selectivity = if restrict_info.len() == 1 {
+                    // we can use the norm_selec that already happened
+                    (*restrict_info.get_ptr(0).unwrap()).norm_selec
+                } else {
+                    // ask the index
+                    let search_config = SearchConfig::from(quals);
+                    estimate_selectivity(
+                        table.oid(),
+                        relfilenode_from_pg_relation(&bm25_index),
+                        &search_config,
+                    )
+                    .unwrap_or(UNKNOWN_SELECTIVITY)
+                };
 
+                let reltuples = table.reltuples().unwrap_or(1.0) as f64;
+                let rows = (reltuples * selectivity).max(1.0);
+                let startup_cost = DEFAULT_STARTUP_COST;
+                let total_cost =
+                    startup_cost + selectivity * reltuples * (pg_sys::cpu_index_tuple_cost + 0.001);
+
+                // TODO:  total_cost needs to be MUCH higher.  Postgres' `cost_index` does a lot of
+                // work on it, and we should too.  and math it out such that we're ever so slightly
+                // higher than an index scan when we only have 1 RestrictInfo
+
+                builder = builder.set_rows(rows);
+                builder = builder.set_startup_cost(startup_cost);
+                builder = builder.set_total_cost(total_cost);
+
+                builder = builder.add_private_data(restrict_info.into_pg().cast());
                 builder = builder.set_flag(Flags::Projection);
+
                 return Some(builder.build());
             }
         }

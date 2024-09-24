@@ -98,7 +98,7 @@ pub fn anyelement_jsonb_opoid() -> pg_sys::Oid {
     }
 }
 
-fn estimate_selectivity(
+pub(crate) fn estimate_selectivity(
     heaprelid: pg_sys::Oid,
     relfilenode: pg_sys::Oid,
     search_config: &SearchConfig,

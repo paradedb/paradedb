@@ -146,11 +146,7 @@ pub fn search_config_restrict(
                 let search_config = SearchConfig::from_jsonb(search_config_jsonb)
                     .expect("SearchConfig should be valid");
 
-                return estimate_selectivity(
-                    pg_sys::Oid::from(search_config.table_oid),
-                    relfilenode,
-                    &search_config,
-                );
+                return estimate_selectivity(heaprelid, relfilenode, &search_config);
             }
 
             None

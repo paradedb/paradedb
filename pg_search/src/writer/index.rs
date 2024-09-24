@@ -106,6 +106,7 @@ impl Directory for UnlockedDirectory {
 }
 
 /// The entity that interfaces with Tantivy indexes.
+#[derive(Default)]
 pub struct Writer {
     /// Map of index directory path to Tantivy writer instance.
     tantivy_writers: HashMap<WriterDirectory, IndexWriter>,
@@ -172,17 +173,15 @@ impl Writer {
             // the transaction ends.
             let lock = IndexWriterLock::new(database_oid, index_oid);
             lock.acquire(|| {
-                match writer.prepare_commit() {
-                    Err(err) => {
-                        return Err(err).context("error preparing commit to tantivy index");
-                    }
-                    _ => {}
-                };
-
-                match writer.commit() {
-                    Err(err) => Err(err).context("error committing to tantivy index"),
-                    _ => Ok(()),
+                if let Err(err) = writer.prepare_commit() {
+                    return Err(err).context("error preparing commit to tantivy index");
                 }
+
+                if let Err(err) = writer.commit() {
+                    return Err(err).context("error committing to tantivy index");
+                }
+
+                Ok(())
             })?;
         } else {
             warn!(?directory, "index directory unexpectedly does not exist");

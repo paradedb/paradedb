@@ -65,7 +65,7 @@ pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
     Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
 });
 
-static mut SEARCH_WRITER: Lazy<Writer> = Lazy::new(|| Writer::new());
+static mut SEARCH_WRITER: Lazy<Writer> = Lazy::new(Writer::new);
 
 #[derive(Serialize)]
 pub struct SearchIndex {

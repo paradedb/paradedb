@@ -27,22 +27,22 @@ use super::{PathReader, PathSource};
 #[derive(Debug, Deserialize)]
 pub struct EsLog {
     #[serde(rename = "@timestamp")]
-    timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Utc>,
     #[serde(rename = "aws.cloudwatch")]
-    aws_cloudwatch: serde_json::Value,
-    cloud: serde_json::Value,
+    pub aws_cloudwatch: serde_json::Value,
+    pub cloud: serde_json::Value,
     #[serde(rename = "log.file.path")]
-    log_file_path: String,
-    input: serde_json::Value,
-    data_stream: serde_json::Value,
-    process: serde_json::Value,
-    message: String,
-    event: serde_json::Value,
-    host: serde_json::Value,
+    pub log_file_path: String,
+    pub input: serde_json::Value,
+    pub data_stream: serde_json::Value,
+    pub process: serde_json::Value,
+    pub message: String,
+    pub event: serde_json::Value,
+    pub host: serde_json::Value,
     #[serde(rename = "metrics", deserialize_with = "deserialize_metrics_size")]
-    metrics_size: i32,
-    agent: serde_json::Value,
-    tags: Vec<String>,
+    pub metrics_size: i32,
+    pub agent: serde_json::Value,
+    pub tags: Vec<String>,
 }
 
 impl EsLog {

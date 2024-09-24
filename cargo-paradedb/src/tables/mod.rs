@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod benchlogs;
+pub mod benchlogs_extn_hsp_pq;
 
 use serde::de::DeserializeOwned;
 use std::path::PathBuf;

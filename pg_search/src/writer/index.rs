@@ -18,6 +18,7 @@
 use super::{Handler, IndexError, SearchFs, WriterDirectory, WriterRequest};
 use crate::{
     index::SearchIndex,
+    postgres::transaction::IndexWriterLock,
     schema::{
         SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
     },
@@ -159,14 +160,30 @@ impl Writer {
     }
 
     pub fn commit(&mut self, directory: WriterDirectory) -> Result<()> {
+        let database_oid = directory.database_oid;
+        let index_oid = directory.index_oid;
+
         if directory.exists()? {
             let writer = self.get_writer(directory.clone())?;
-            writer
-                .prepare_commit()
-                .context("error preparing commit to tantivy index")?;
-            writer
-                .commit()
-                .context("error committing to tantivy index")?;
+
+            // Tantivy writers may not call commit at the same time,
+            // so we'll use a transaction-level lock to ensure one commit
+            // at a time. The lock will be released automatically when
+            // the transaction ends.
+            let lock = IndexWriterLock::new(database_oid, index_oid);
+            lock.acquire(|| {
+                match writer.prepare_commit() {
+                    Err(err) => {
+                        return Err(err).context("error preparing commit to tantivy index");
+                    }
+                    _ => {}
+                };
+
+                match writer.commit() {
+                    Err(err) => Err(err).context("error committing to tantivy index"),
+                    _ => Ok(()),
+                }
+            })?;
         } else {
             warn!(?directory, "index directory unexepectedly does not exist");
         }

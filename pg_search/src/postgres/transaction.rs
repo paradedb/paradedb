@@ -19,7 +19,7 @@ use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::writer::{ClientError, WriterClient, WriterDirectory, WriterRequest};
 use parking_lot::Mutex;
-use pgrx::{pg_guard, pg_sys};
+use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum};
 use std::sync::Arc;
 use tracing::warn;
 
@@ -150,4 +150,44 @@ fn finalize_drop<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
         .expect("commit must work in finalize drop");
 
     Ok(())
+}
+
+/// Create a new index writer advisory lock.
+/// Advisory locks are global across the entire Postgres cluster,
+/// so its important that the key is qualified with the database oid.
+pub struct IndexWriterLock {
+    database_oid: u32,
+    index_oid: u32,
+}
+
+impl IndexWriterLock {
+    pub fn new(database_oid: u32, index_oid: u32) -> Self {
+        Self {
+            database_oid,
+            index_oid,
+        }
+    }
+
+    // This method combines the two OIDs into a single 64-bit lock key
+    fn key(&self) -> i64 {
+        // Shift the database_oid into the high 32 bits, then combine with index_oid
+        ((self.database_oid as i64) << 32) | (self.index_oid as i64)
+    }
+
+    pub fn acquire<T>(&self, func: impl FnOnce() -> T) -> T {
+        let lock_key = self.key(); // Get the lock key
+
+        // Attempt to acquire an exclusive lock on the generated key
+        // The lock will automatically be released at the end of the
+        // transaction.
+        unsafe {
+            direct_function_call::<()>(
+                pg_sys::pg_advisory_xact_lock_int8,
+                &[lock_key.into_datum()],
+            );
+        }
+
+        // Once the lock is acquired, execute the critical section
+        func()
+    }
 }

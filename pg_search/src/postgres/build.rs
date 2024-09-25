@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
@@ -220,18 +219,11 @@ pub extern "C" fn ambuild(
         panic!("no fields specified")
     }
 
-    let writer_client = WriterGlobal::client();
     let directory =
         WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
 
-    SearchIndex::create_index(
-        &writer_client,
-        directory,
-        fields,
-        uuid.clone(),
-        key_field_index,
-    )
-    .expect("error creating new index instance");
+    SearchIndex::create_index(directory, fields, uuid.clone(), key_field_index)
+        .expect("error creating new index instance");
 
     let state = do_heap_scan(index_info, &heap_relation, &index_relation, uuid);
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
@@ -319,10 +311,8 @@ unsafe fn build_callback_internal(
                         );
                     });
 
-            let writer_client = WriterGlobal::client();
-
             search_index
-                .insert(&writer_client, search_document)
+                .insert(search_document)
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });

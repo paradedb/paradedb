@@ -15,18 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod client;
 mod directory;
-mod handler;
 mod index;
 
 use crate::schema::{
     SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
 };
 pub use crate::writer::SearchFs;
-pub use client::*;
 pub use directory::*;
-pub use handler::*;
 pub use index::*;
 pub use rstest::*;
 use serde_json::json;

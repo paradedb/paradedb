@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
@@ -98,10 +97,8 @@ unsafe fn aminsert_internal(
                 panic!("error creating index entries for index '{index_name}': {err}",)
             });
 
-    let writer_client = WriterGlobal::client();
-
     search_index
-        .insert(&writer_client, search_document)
+        .insert(search_document)
         .unwrap_or_else(|err| panic!("error inserting document during insert callback.  See Postgres log for more information: {err:?}"));
 
     true

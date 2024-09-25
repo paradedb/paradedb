@@ -18,8 +18,7 @@
 use pgrx::{pg_sys::ItemPointerData, *};
 
 use crate::{
-    globals::WriterGlobal, index::SearchIndex, postgres::utils::relfilenode_from_index_oid,
-    writer::WriterDirectory,
+    index::SearchIndex, postgres::utils::relfilenode_from_index_oid, writer::WriterDirectory,
 };
 
 #[pg_guard]
@@ -50,15 +49,13 @@ pub extern "C" fn ambulkdelete(
         };
     }
 
-    let writer_client = WriterGlobal::client();
-
     if let Some(actual_callback) = callback {
         let should_delete = |ctid_val| unsafe {
             let mut ctid = ItemPointerData::default();
             crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
             actual_callback(&mut ctid, callback_state)
         };
-        match search_index.delete(&writer_client, should_delete) {
+        match search_index.delete(should_delete) {
             Ok((deleted, not_deleted)) => {
                 stats.pages_deleted += deleted;
                 stats.num_pages += not_deleted;

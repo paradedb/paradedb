@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::{Handler, IndexError, SearchFs, WriterDirectory, WriterRequest};
+use super::{IndexError, SearchFs, WriterDirectory};
 use crate::{
     index::SearchIndex,
     postgres::transaction::IndexWriterLock,
@@ -168,21 +168,16 @@ impl Writer {
             let writer = self.get_writer(directory.clone())?;
 
             // Tantivy writers may not call commit at the same time,
-            // so we'll use a transaction-level lock to ensure one commit
+            // so we'll use a session-level lock to ensure one commit
             // at a time. The lock will be released automatically when
-            // the transaction ends.
-            let lock = IndexWriterLock::new(database_oid, index_oid);
-            lock.acquire(|| {
-                if let Err(err) = writer.prepare_commit() {
-                    return Err(err).context("error preparing commit to tantivy index");
-                }
-
-                if let Err(err) = writer.commit() {
-                    return Err(err).context("error committing to tantivy index");
-                }
-
-                Ok(())
-            })?;
+            // the IndexWriterLock is dropped at the end of this block.
+            IndexWriterLock::new(database_oid, index_oid);
+            writer
+                .prepare_commit()
+                .context("error preparing commit to tantivy index")?;
+            writer
+                .commit()
+                .context("error committing to tantivy index")?;
         } else {
             warn!(?directory, "index directory unexpectedly does not exist");
         }
@@ -265,34 +260,5 @@ impl Writer {
     pub fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         self.drop_requested.insert(directory);
         Ok(())
-    }
-}
-
-impl Handler<WriterRequest> for Writer {
-    fn handle(&mut self, request: WriterRequest) -> Result<()> {
-        match request {
-            WriterRequest::Insert {
-                directory,
-                document,
-            } => Ok(self.insert(directory, document)?),
-            WriterRequest::Delete {
-                directory,
-                field,
-                ctids,
-            } => Ok(self.delete(directory, &field, &ctids)?),
-            WriterRequest::CreateIndex {
-                directory,
-                fields,
-                uuid,
-                key_field_index,
-            } => {
-                self.create_index(directory, fields, uuid, key_field_index)?;
-                Ok(())
-            }
-            WriterRequest::DropIndex { directory } => Ok(self.drop_index(directory)?),
-            WriterRequest::Commit { directory } => Ok(self.commit(directory)?),
-            WriterRequest::Abort { directory } => Ok(self.abort(directory)?),
-            WriterRequest::Vacuum { directory } => Ok(self.vacuum(directory)?),
-        }
     }
 }

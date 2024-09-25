@@ -18,8 +18,7 @@
 use pgrx::*;
 
 use crate::{
-    globals::WriterGlobal, index::SearchIndex, postgres::utils::relfilenode_from_index_oid,
-    writer::WriterDirectory,
+    index::SearchIndex, postgres::utils::relfilenode_from_index_oid, writer::WriterDirectory,
 };
 
 #[pg_guard]
@@ -52,9 +51,8 @@ pub extern "C" fn amvacuumcleanup(
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     // Garbage collect the index and clear the writer cache to free up locks.
-    let writer_client = WriterGlobal::client();
     search_index
-        .vacuum(&writer_client)
+        .vacuum()
         .unwrap_or_else(|err| panic!("error during vacuum on index {index_name}: {err:?}"));
 
     stats

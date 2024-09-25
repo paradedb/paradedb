@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
 use crate::postgres::utils::relfilenode_from_index_oid;
@@ -130,9 +129,8 @@ pub extern "C" fn amrescan(
 
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .expect("index should be valid for SearchIndex::from_cache");
-    let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(&writer_client, &search_config)
+        .search_state(&search_config)
         .expect("SearchState should construct cleanly");
 
     unsafe {

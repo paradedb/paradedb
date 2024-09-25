@@ -15,20 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod client;
 mod directory;
 mod index;
-mod server;
-mod transfer;
 
 use crate::schema::{SearchDocument, SearchFieldConfig, SearchFieldType};
 use crate::{postgres::types::TantivyValueError, schema::SearchFieldName};
-pub use client::{Client, ClientError};
 pub use directory::*;
 pub use index::{UnlockedDirectory, Writer};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-pub use server::{Server, ServerError};
-use std::path::Path;
+use serde::{Deserialize, Serialize};
 use tantivy::schema::Field;
 use thiserror::Error;
 
@@ -65,34 +59,6 @@ pub enum WriterRequest {
     },
 }
 
-// A layer of the client-server request structure that handles
-// details around actions the server should perform.
-#[derive(Deserialize, Serialize)]
-enum ServerRequest<T: Serialize> {
-    /// Request with payload.
-    Request(T),
-    /// Initiate a data transfer using the pipe path given.
-    Transfer(String),
-    /// Close the writer server, should only be called by
-    /// shutdown background worker.
-    Shutdown,
-}
-
-/// This trait is the interface that binds the writer to the server.
-/// The two systems are otherwise decoupled, so they can be tested
-/// and re-used independently.
-pub trait Handler<T: DeserializeOwned> {
-    fn handle(&mut self, request: T) -> Result<(), anyhow::Error>;
-}
-
-pub trait WriterClient<T: Serialize> {
-    #[allow(unused)]
-    fn request(&mut self, request: T) -> Result<(), ClientError>;
-
-    #[allow(unused)]
-    fn transfer<P: AsRef<Path>>(&mut self, pipe_path: P, request: T) -> Result<(), ClientError>;
-}
-
 #[derive(Error, Debug)]
 pub enum IndexError {
     #[error("couldn't get writer for {0:?}: {1}")]
@@ -115,43 +81,4 @@ pub enum IndexError {
 
     #[error("key_field column '{0}' cannot be NULL")]
     KeyIdNull(String),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::SearchDocument;
-    use crate::{fixtures::*, writer::WriterRequest};
-    use rstest::*;
-    use tantivy::schema::Field;
-
-    #[rstest]
-    fn test_writer_request_serialization(
-        #[from(simple_doc)] document: SearchDocument,
-        mock_dir: MockWriterDirectory,
-    ) {
-        // Setup insert writer request.
-        let insert_request = WriterRequest::Insert {
-            directory: mock_dir.writer_dir.clone(),
-            document,
-        };
-
-        let ser = bincode::serialize(&insert_request).unwrap();
-        let de: WriterRequest = bincode::deserialize(&ser).unwrap();
-
-        // Ensure deserialized request is equal.
-        assert_eq!(de, insert_request);
-
-        // Setup delete writer request.
-        let delete_request = WriterRequest::Delete {
-            directory: mock_dir.writer_dir.clone(),
-            field: Field::from_field_id(100),
-            ctids: vec![99, 98, 97],
-        };
-
-        let ser = bincode::serialize(&delete_request).unwrap();
-        let de: WriterRequest = bincode::deserialize(&ser).unwrap();
-
-        // Ensure deserialized request is equal.
-        assert_eq!(de, delete_request);
-    }
 }

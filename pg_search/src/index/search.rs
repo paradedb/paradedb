@@ -21,16 +21,14 @@ use crate::schema::{
     SearchIndexSchema, SearchIndexSchemaError,
 };
 use crate::writer::{
-    self, SearchDirectoryError, SearchFs, TantivyDirPath, UnlockedDirectory, Writer, WriterClient,
-    WriterDirectory, WriterRequest,
+    self, SearchDirectoryError, SearchFs, TantivyDirPath, UnlockedDirectory, Writer,
+    WriterDirectory,
 };
 use anyhow::Result;
 use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::ptr::addr_of_mut;
-use std::sync::Arc;
 use tantivy::{query::QueryParser, Executor, Index, Searcher};
 use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
 use thiserror::Error;
@@ -82,8 +80,7 @@ pub struct SearchIndex {
 }
 
 impl SearchIndex {
-    pub fn create_index<W: WriterClient<WriterRequest>>(
-        _writer: &Arc<Mutex<W>>,
+    pub fn create_index(
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         uuid: String,
@@ -241,14 +238,10 @@ impl SearchIndex {
         query_parser
     }
 
-    pub fn search_state<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
-        &mut self,
-        writer: &Arc<Mutex<W>>,
-        config: &SearchConfig,
-    ) -> Result<SearchState, SearchIndexError> {
+    pub fn search_state(&mut self, config: &SearchConfig) -> Result<SearchState, SearchIndexError> {
         // Commit any inserts or deletes that have occurred during this transaction.
         if self.is_dirty {
-            self.commit(writer)?;
+            self.commit()?;
         }
 
         // Prepare to perform a search.
@@ -283,10 +276,7 @@ impl SearchIndex {
     ///
     /// If problems are encountered while performing the commit, those errors are returned to the
     /// caller.
-    pub fn commit<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
-        &mut self,
-        _writer: &Arc<Mutex<W>>,
-    ) -> Result<(), SearchIndexError> {
+    pub fn commit(&mut self) -> Result<(), SearchIndexError> {
         let writer = unsafe { Self::get_writer() };
         if !self.is_dirty() {
             return Err(SearchIndexError::IndexNotDirty);
@@ -306,10 +296,7 @@ impl SearchIndex {
     ///
     /// If problems are encountered while performing the abort, those errors are returned to the
     /// caller.
-    pub fn abort<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
-        &mut self,
-        _writer: &Arc<Mutex<W>>,
-    ) -> Result<(), SearchIndexError> {
+    pub fn abort(&mut self) -> Result<(), SearchIndexError> {
         let writer = unsafe { Self::get_writer() };
         if !self.is_dirty() {
             return Err(SearchIndexError::IndexNotDirty);
@@ -320,11 +307,7 @@ impl SearchIndex {
         Ok(())
     }
 
-    pub fn insert<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
-        &mut self,
-        _writer: &Arc<Mutex<W>>,
-        document: SearchDocument,
-    ) -> Result<(), SearchIndexError> {
+    pub fn insert(&mut self, document: SearchDocument) -> Result<(), SearchIndexError> {
         // the index is about to change, and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
@@ -340,9 +323,8 @@ impl SearchIndex {
     ///
     /// This function is atomic in that it ensures the underlying changes to the tantivy index
     /// are committed before returning an [`Ok`] response.
-    pub fn delete<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
+    pub fn delete(
         &mut self,
-        _writer: &Arc<Mutex<W>>,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
         let mut deleted: u32 = 0;
@@ -389,11 +371,7 @@ impl SearchIndex {
         Ok((deleted, not_deleted))
     }
 
-    pub fn drop_index<W: WriterClient<WriterRequest>>(
-        &mut self,
-        _writer: &Arc<Mutex<W>>,
-        directory: &WriterDirectory,
-    ) -> Result<(), SearchIndexError> {
+    pub fn drop_index(&mut self, directory: &WriterDirectory) -> Result<(), SearchIndexError> {
         // the index is about to be queued to drop and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
@@ -407,10 +385,7 @@ impl SearchIndex {
         Ok(())
     }
 
-    pub fn vacuum<W: WriterClient<WriterRequest>>(
-        &mut self,
-        _writer: &Arc<Mutex<W>>,
-    ) -> Result<(), SearchIndexError> {
+    pub fn vacuum(&mut self) -> Result<(), SearchIndexError> {
         let writer = unsafe { Self::get_writer() };
         writer.vacuum(self.directory.clone())?;
         Ok(())
@@ -473,9 +448,6 @@ impl<'de> Deserialize<'de> for SearchIndex {
 pub enum SearchIndexError {
     #[error(transparent)]
     SchemaError(#[from] SearchIndexSchemaError),
-
-    #[error(transparent)]
-    WriterClientError(#[from] writer::ClientError),
 
     #[error(transparent)]
     WriterIndexError(#[from] writer::IndexError),

@@ -151,6 +151,10 @@ impl CustomScan for PdbScan {
             // and that relation must have a `USING bm25` index
             let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
 
+            // TODO:  need to see if we can detect that scores are necessary here.  Need to know
+            //        up front because if so, we gotta be able to answer the query -- nobody else can
+            //  hint:  probably look at `builder.path_target()` to figure this out
+
             //
             // look for quals we can support
             //
@@ -182,15 +186,19 @@ impl CustomScan for PdbScan {
                 let rows = (reltuples * selectivity).max(1.0);
                 let startup_cost = DEFAULT_STARTUP_COST;
                 let total_cost =
-                    startup_cost + selectivity * reltuples * (pg_sys::cpu_index_tuple_cost + 0.001);
+                    startup_cost + selectivity * reltuples * (pg_sys::cpu_index_tuple_cost);
 
-                // TODO:  total_cost needs to be MUCH higher.  Postgres' `cost_index` does a lot of
-                // work on it, and we should too.  and math it out such that we're ever so slightly
-                // higher than an index scan when we only have 1 RestrictInfo
+                let cpu_run_cost = {
+                    #[allow(non_upper_case_globals)]
+                    const per_tuple: f64 = 4.0; // TODO:  this is a curious value -- I picked it out of the air!
+
+                    let cpu_run_cost = pg_sys::cpu_tuple_cost + per_tuple;
+                    cpu_run_cost + rows * per_tuple
+                };
 
                 builder = builder.set_rows(rows);
                 builder = builder.set_startup_cost(startup_cost);
-                builder = builder.set_total_cost(total_cost);
+                builder = builder.set_total_cost(total_cost + cpu_run_cost);
 
                 builder = builder.add_private_data(restrict_info.into_pg().cast());
                 builder = builder.set_flag(Flags::Projection);

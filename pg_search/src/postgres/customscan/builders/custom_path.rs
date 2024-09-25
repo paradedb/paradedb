@@ -148,6 +148,10 @@ impl CustomPathBuilder {
         unsafe { PgList::from_pg(self.args.rel().baserestrictinfo) }
     }
 
+    pub fn path_target(&self) -> *mut pg_sys::PathTarget {
+        self.args.rel().reltarget
+    }
+
     //
     // public settings
     //

@@ -71,13 +71,10 @@ pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             return;
         }
 
-        if let Some(path) = CS::callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte)) {
-            pg_sys::add_path(
-                rel,
-                PgMemoryContexts::CurrentMemoryContext
-                    .leak_and_drop_on_delete(path)
-                    .cast(),
-            );
+        if let Some(mut path) = CS::callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte)) {
+            let path = PgMemoryContexts::CurrentMemoryContext
+                .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
+            pg_sys::add_path(rel, path.cast());
         }
     }
 }

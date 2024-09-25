@@ -15,12 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
-use crate::writer::{ClientError, WriterClient, WriterDirectory, WriterRequest};
-use parking_lot::Mutex;
+use crate::writer::WriterDirectory;
 use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum};
-use std::sync::Arc;
 use tracing::warn;
 
 /// Initialize a transaction callback that pg_search uses to commit or abort pending tantivy
@@ -50,7 +47,6 @@ unsafe extern "C" fn pg_search_xact_callback(
 ) {
     match event {
         pg_sys::XactEvent::XACT_EVENT_PRE_COMMIT => {
-            let writer = WriterGlobal::client();
             // first, indexes in our cache that are pending a DROP need to be dropped
             let pending_drops = SearchIndex::get_cache()
                 .values_mut()
@@ -59,8 +55,7 @@ unsafe extern "C" fn pg_search_xact_callback(
                 .collect::<Vec<_>>();
 
             for directory in pending_drops {
-                finalize_drop(&writer, &directory)
-                    .expect("finalizing dropping of pending DROP index should succeed");
+                finalize_drop(&directory);
 
                 // SAFETY:  We don't have an outstanding reference to the SearchIndex cache here
                 // because we collected the pending drop directories into an owned Vec
@@ -74,7 +69,7 @@ unsafe extern "C" fn pg_search_xact_callback(
             {
                 // if this doesn't commit, the transaction will ABORT
                 search_index
-                    .commit(&writer)
+                    .commit()
                     .expect("SearchIndex should commit successfully");
             }
 
@@ -89,8 +84,6 @@ unsafe extern "C" fn pg_search_xact_callback(
         }
 
         pg_sys::XactEvent::XACT_EVENT_ABORT => {
-            let writer = WriterGlobal::client();
-
             // first, indexes in our cache that are pending a CREATE need to be dropped
             let pending_creates = SearchIndex::get_cache()
                 .values_mut()
@@ -99,9 +92,7 @@ unsafe extern "C" fn pg_search_xact_callback(
                 .collect::<Vec<_>>();
 
             for directory in pending_creates {
-                if let Err(e) = finalize_drop(&writer, &directory) {
-                    warn!("could not finalize dropping a pending CREATE index: {e}");
-                }
+                finalize_drop(&directory);
 
                 // SAFETY:  We don't have an outstanding reference to the SearchIndex cache here
                 // because we collected the pending create directories into an owned Vec
@@ -113,7 +104,7 @@ unsafe extern "C" fn pg_search_xact_callback(
                 .values_mut()
                 .filter(|index| index.is_dirty())
             {
-                if let Err(e) = search_index.abort(&writer) {
+                if let Err(e) = search_index.abort() {
                     // the abort didn't work, but we can't raise another panic here as that'll
                     // cause postgres to segfault
                     warn!("could not abort SearchIndex: {e}")
@@ -136,10 +127,7 @@ unsafe extern "C" fn pg_search_xact_callback(
     }
 }
 
-fn finalize_drop<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
-    _writer: &Arc<Mutex<W>>,
-    directory: &WriterDirectory,
-) -> Result<(), ClientError> {
+fn finalize_drop(directory: &WriterDirectory) {
     let writer = unsafe { SearchIndex::get_writer() };
 
     writer
@@ -148,8 +136,6 @@ fn finalize_drop<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
     writer
         .commit(directory.clone())
         .expect("commit must work in finalize drop");
-
-    Ok(())
 }
 
 /// Create a new index writer advisory lock.
@@ -162,32 +148,42 @@ pub struct IndexWriterLock {
 
 impl IndexWriterLock {
     pub fn new(database_oid: u32, index_oid: u32) -> Self {
-        Self {
+        let new_self = Self {
             database_oid,
             index_oid,
-        }
+        };
+
+        new_self.acquire();
+        new_self
     }
 
-    // This method combines the two OIDs into a single 64-bit lock key
+    // This method combines the two OIDs intojj single 64-bit lock key
     fn key(&self) -> i64 {
         // Shift the database_oid into the high 32 bits, then combine with index_oid
         ((self.database_oid as i64) << 32) | (self.index_oid as i64)
     }
 
-    pub fn acquire<T>(&self, func: impl FnOnce() -> T) -> T {
+    pub fn acquire(&self) {
         let lock_key = self.key(); // Get the lock key
 
-        // Attempt to acquire an exclusive lock on the generated key
-        // The lock will automatically be released at the end of the
-        // transaction.
+        // Attempt to acquire an exclusive lock on the generated key.
+        // This is a session-level lock, and must manually be released.
         unsafe {
-            direct_function_call::<()>(
-                pg_sys::pg_advisory_xact_lock_int8,
-                &[lock_key.into_datum()],
-            );
+            direct_function_call::<()>(pg_sys::pg_advisory_lock_int8, &[lock_key.into_datum()]);
         }
+    }
 
-        // Once the lock is acquired, execute the critical section
-        func()
+    fn release(&self) {
+        let lock_key = self.key(); // Get the lock key
+
+        unsafe {
+            direct_function_call::<()>(pg_sys::pg_advisory_unlock_int8, &[lock_key.into_datum()]);
+        }
+    }
+}
+
+impl Drop for IndexWriterLock {
+    fn drop(&mut self) {
+        Self::release(self)
     }
 }

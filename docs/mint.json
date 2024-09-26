@@ -206,28 +206,28 @@
     {
       "group": "Ingest",
       "pages": [
-        "ingest/quickstart",
         {
-          "group": "Table/File Formats",
+          "group": "Postgres",
           "pages": [
-            "ingest/import/csv",
-            "ingest/import/delta",
-            "ingest/import/iceberg",
-            "ingest/import/parquet",
-            "ingest/import/spatial",
-            "ingest/import/json"
+            "ingest/postgres/pg_dump",
+            "ingest/postgres/replication"
           ]
         },
         {
-          "group": "Object Stores",
+          "group": "Data Lakes",
           "pages": [
-            "ingest/object_stores/overview",
-            "ingest/object_stores/azure",
-            "ingest/object_stores/gcs",
-            "ingest/object_stores/s3"
+            "ingest/quickstart",
+            "ingest/datalakes/object_stores/overview",
+            "ingest/datalakes/object_stores/azure",
+            "ingest/datalakes/object_stores/gcs",
+            "ingest/datalakes/object_stores/s3",
+            "ingest/datalakes/import/csv",
+            "ingest/datalakes/import/delta",
+            "ingest/datalakes/import/iceberg",
+            "ingest/datalakes/import/parquet",
+            "ingest/datalakes/import/spatial"
           ]
         },
-        "ingest/postgres",
         {
           "group": "Configuration",
           "pages": [
@@ -241,20 +241,16 @@
       "group": "Deploy",
       "pages": [
         {
-          "group": "Deploy ParadeDB",
-          "pages": [
-            "deploy/aws",
-            "deploy/gcp",
-            "deploy/helm"
-          ]
+          "group": "Self-Hosted ParadeDB",
+          "pages": ["deploy/self-hosted/aws", "deploy/self-hosted/gcp", "deploy/self-hosted/helm"]
         },
-        "deploy/replication",
         {
-          "group": "Deploy Extensions",
-          "pages": [
-            "deploy/pg_search",
-            "deploy/pg_analytics"
-          ]
+          "group": "Managed ParadeDB",
+          "pages": ["deploy/managed/ubicloud"]
+        },
+        {
+          "group": "Standalone Extensions",
+          "pages": ["deploy/pg_search", "deploy/pg_analytics"]
         },
         "deploy/upgrading",
         "deploy/extensions"

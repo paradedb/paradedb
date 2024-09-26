@@ -18,10 +18,10 @@
 mod directory;
 mod index;
 
+pub use crate::index::SearchFs;
 use crate::schema::{
     SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
 };
-pub use crate::index::SearchFs;
 pub use directory::*;
 pub use index::*;
 pub use rstest::*;

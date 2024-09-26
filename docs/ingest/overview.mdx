@@ -2,56 +2,12 @@
 title: Overview
 ---
 
-Querying file(s) stored in an external object store like S3 is as simple as passing a `scheme://path/to/file` string to the `files` option of
-`CREATE FOREIGN TABLE`. A few examples include:
+Today, a vast amount of data is stored in
 
-### Amazon S3
+1. **Databases** like Postgres
+2. **Data lakes** like S3 or GCS
+3. **File formats** like Parquet or CSV
+4. **Table formats** like Delta Lake or Iceberg
 
-```sql
-CREATE FOREIGN TABLE parquet_table ()
-SERVER parquet_server
-OPTIONS (files 's3://<bucket>/<path>/<file>.parquet');
-```
-
-### Azure
-
-```sql
-CREATE FOREIGN TABLE parquet_table ()
-SERVER parquet_server
-OPTIONS (files 'az://<bucket>/<path>/<file>.parquet');
-```
-
-### Cloudflare R2
-
-```sql
-CREATE FOREIGN TABLE parquet_table ()
-SERVER parquet_server
-OPTIONS (files 'r2://<bucket>/<path>/<file>.parquet');
-```
-
-### Google Cloud Storage
-
-```sql
-CREATE FOREIGN TABLE parquet_table ()
-SERVER parquet_server
-OPTIONS (files 'gs://<container>/<path>/<file>.parquet');
-```
-
-### HTTP Server
-
-```sql
-CREATE FOREIGN TABLE parquet_table ()
-SERVER parquet_server
-OPTIONS (files 'https://<domain>/<path>/<file>.parquet');
-```
-
-### Hugging Face
-
-```sql
-CREATE FOREIGN TABLE csv_table ()
-SERVER csv_server
-OPTIONS (files 'hf://datasets/datasets-examples/doc-formats-csv-1/data.csv');
-```
-
-Credentials, endpoints, and other parameters can be specified with the `CREATE USER MAPPING` command. Please see the appropriate
-object store documentation for details.
+Ingesting this data into ParadeDB with data processing engines or ETL tools is complex and error-prone.
+ParadeDB makes it easy to consume this data using nothing but Postgres utilities.

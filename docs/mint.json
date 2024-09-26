@@ -215,29 +215,34 @@
           ]
         },
         {
-          "group": "File/Table Formats",
+          "group": "Data Lakes",
           "pages": [
-            "ingest/formats/csv",
-            "ingest/formats/parquet",
-            "ingest/formats/delta",
-            "ingest/formats/iceberg",
-            "ingest/formats/spatial"
-          ]
-        },
-        {
-          "group": "Object Stores",
-          "pages": [
-            "ingest/datalakes/quickstart",
-            "ingest/datalakes/s3",
-            "ingest/datalakes/gcs",
-            "ingest/datalakes/azure"
-          ]
-        },
-        {
-          "group": "Configuration",
-          "pages": [
-            "ingest/configuration/schema",
-            "ingest/configuration/settings"
+            "ingest/datalakes/overview",
+            {
+              "group": "File/Table Formats",
+              "pages": [
+                "ingest/datalakes/formats/csv",
+                "ingest/datalakes/formats/parquet",
+                "ingest/datalakes/formats/delta",
+                "ingest/datalakes/formats/iceberg",
+                "ingest/datalakes/formats/spatial"
+              ]
+            },
+            {
+              "group": "Object Stores",
+              "pages": [
+                "ingest/datalakes/object_stores/s3",
+                "ingest/datalakes/object_stores/gcs",
+                "ingest/datalakes/object_stores/azure"
+              ]
+            },
+            {
+              "group": "Configuration",
+              "pages": [
+                "ingest/configuration/schema",
+                "ingest/configuration/settings"
+              ]
+            }
           ]
         }
       ]

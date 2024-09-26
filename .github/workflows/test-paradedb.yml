@@ -40,6 +40,12 @@ jobs:
           - runner: depot-ubuntu-latest-arm-8
             pg_version: 16
             arch: arm64
+          - runner: depot-ubuntu-latest-8
+            pg_version: 17
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-8
+            pg_version: 17
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository

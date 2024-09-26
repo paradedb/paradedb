@@ -183,7 +183,7 @@ pub unsafe extern "C" fn amoptions(
     build_relopts(reloptions, validate, options)
 }
 
-#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 unsafe fn build_relopts(
     reloptions: pg_sys::Datum,
     validate: bool,
@@ -312,7 +312,7 @@ pub unsafe fn init() {
         "JSON string specifying how text fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_text_fields),
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -323,7 +323,7 @@ pub unsafe fn init() {
         "JSON string specifying how numeric fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_numeric_fields),
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -334,7 +334,7 @@ pub unsafe fn init() {
         "JSON string specifying how boolean fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_boolean_fields),
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -345,7 +345,7 @@ pub unsafe fn init() {
         "JSON string specifying how JSON fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_json_fields),
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -356,7 +356,7 @@ pub unsafe fn init() {
         "JSON string specifying how date fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_datetime_fields),
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -367,7 +367,7 @@ pub unsafe fn init() {
         "Column name as a string specify the unique identifier for a row".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_key_field),
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -378,7 +378,7 @@ pub unsafe fn init() {
         "Unique uuid for search index instance".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_uuid),
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },

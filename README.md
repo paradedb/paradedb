@@ -53,7 +53,7 @@ For more information, including enterprise features and support, please [contact
 
 ### Extensions
 
-You can find prebuilt binaries for all ParadeDB extensions on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15 and 16 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
+You can find prebuilt binaries for all ParadeDB extensions on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15, 16 and 17 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
 ### Docker Image
 

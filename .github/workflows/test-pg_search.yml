@@ -51,6 +51,9 @@ jobs:
           - runner: depot-ubuntu-latest-8
             pg_version: 16
             arch: amd64
+          - runner: depot-ubuntu-latest-8
+            pg_version: 17
+            arch: amd64
     env:
       default_pg_version: 16
 
@@ -237,6 +240,9 @@ jobs:
         include:
           - runner: depot-ubuntu-latest-8
             pg_version: 16
+            arch: amd64
+          - runner: depot-ubuntu-latest-8
+            pg_version: 17
             arch: amd64
     env:
       default_pg_version: 16

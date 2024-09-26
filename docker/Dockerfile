@@ -113,35 +113,6 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
     make USE_PGXS=1 OPTFLAGS="" -j
 
 ######################
-# pgvectorscale
-######################
-
-FROM builder AS builder-pgvectorscale
-
-ARG TARGETARCH
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
-
-# Clone the pgvectorscale repository
-WORKDIR /tmp
-RUN git clone --branch 0.3.0 https://github.com/timescale/pgvectorscale.git
-WORKDIR /tmp/pgvectorscale/pgvectorscale
-
-# Intall the pgrx version of pgvectorscale
-RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pgvectorscale | head -n 1 | cut -f2 -dv) && \
-    echo "PGRX_VERSION=$PGRX_VERSION" && \
-    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
-# Build the extension
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        # Required for pgvectorscale to compile on x86_64/amd64
-        RUSTFLAGS="-C target-feature=+avx2,+fma" cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"; \
-    else \
-        cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"; \
-    fi
-
-######################
 # pg_cron
 ######################
 
@@ -190,13 +161,10 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
-
 # Copy third-party extensions from their builder stages
 COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pgvectorscale /tmp/pgvectorscale/pgvectorscale/target/release/vectorscale-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/

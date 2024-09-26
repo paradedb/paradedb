@@ -98,7 +98,7 @@ impl Directory for BlockingDirectory {
 
     fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
         // This is the only change we actually need to make to the Directory trait impl.
-        // We want the acquire_lock behavior to block and wait for a lot to be available,
+        // We want the acquire_lock behavior to block and wait for a lock to be available,
         // instead of panicking. Internally, Tantivy just polls for its availability.
         let blocking_lock = Lock {
             filepath: lock.filepath.clone(),

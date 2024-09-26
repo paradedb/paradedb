@@ -17,11 +17,11 @@
 
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::index::WriterDirectory;
 use pgrx::*;
 
 struct PgSearchScanState {

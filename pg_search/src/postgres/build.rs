@@ -16,10 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
-use crate::index::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
 use tantivy::schema::IndexRecordOption;

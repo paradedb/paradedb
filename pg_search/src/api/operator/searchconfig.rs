@@ -19,11 +19,11 @@ use crate::api::operator::{
     anyelement_jsonb_opoid, estimate_selectivity, find_var_relation, ReturnedNodePointer,
 };
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::schema::SearchConfig;
-use crate::index::WriterDirectory;
 use crate::{GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::{
     check_for_interrupts, is_a, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,

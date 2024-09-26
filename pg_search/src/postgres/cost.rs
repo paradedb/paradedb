@@ -18,7 +18,7 @@
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::relfilenode_from_index_oid;
-use crate::writer::WriterDirectory;
+use crate::index::WriterDirectory;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 

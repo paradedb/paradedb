@@ -21,7 +21,7 @@ mod index;
 use crate::schema::{
     SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
 };
-pub use crate::writer::SearchFs;
+pub use crate::index::SearchFs;
 pub use directory::*;
 pub use index::*;
 pub use rstest::*;

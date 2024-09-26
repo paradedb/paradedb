@@ -4032,6 +4032,7 @@ dependencies = [
  "thiserror",
  "tiny_http",
  "tokenizers",
+ "tokio",
  "tracing",
  "utoipa",
  "uuid",

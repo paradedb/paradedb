@@ -15,10 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::{IndexError, SearchFs, WriterDirectory};
 use crate::{
     index::SearchIndex,
-    postgres::transaction::IndexWriterLock,
+    postgres::types::TantivyValueError,
     schema::{
         SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
     },
@@ -42,12 +41,18 @@ use tantivy::{
     IndexSettings,
 };
 use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, IndexWriter};
+use thiserror::Error;
 use tracing::warn;
 
-#[derive(Debug)]
-pub struct UnlockedDirectory(MmapDirectory);
+use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 
-impl UnlockedDirectory {
+/// We maintain our own tantivy::directory::Directory implementation for finer-grained
+/// control over the locking behavior, which enables us to manage Writer instances
+/// across multiple connections.
+#[derive(Debug)]
+pub struct BlockingDirectory(MmapDirectory);
+
+impl BlockingDirectory {
     pub fn open(directory_path: impl AsRef<Path>) -> Result<Self> {
         if !directory_path.as_ref().exists() {
             fs::create_dir_all(&directory_path).expect("must be able to create index directory")
@@ -56,13 +61,13 @@ impl UnlockedDirectory {
     }
 }
 
-impl DirectoryClone for UnlockedDirectory {
+impl DirectoryClone for BlockingDirectory {
     fn box_clone(&self) -> Box<dyn Directory> {
         self.0.box_clone()
     }
 }
 
-impl Directory for UnlockedDirectory {
+impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
         self.0.get_file_handle(path)
     }
@@ -91,9 +96,15 @@ impl Directory for UnlockedDirectory {
         self.0.exists(path)
     }
 
-    fn acquire_lock(&self, _lock: &Lock) -> result::Result<DirectoryLock, LockError> {
-        // self.0.acquire_lock(lock)
-        Ok(DirectoryLock::from(Box::new(())))
+    fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
+        // This is the only change we actually need to make to the Directory trait impl.
+        // We want the acquire_lock behavior to block and wait for a lot to be available,
+        // instead of panicking. Internally, Tantivy just polls for its availability.
+        let blocking_lock = Lock {
+            filepath: lock.filepath.clone(),
+            is_blocking: true,
+        };
+        self.0.acquire_lock(&blocking_lock)
     }
 
     fn watch(&self, watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
@@ -107,13 +118,13 @@ impl Directory for UnlockedDirectory {
 
 /// The entity that interfaces with Tantivy indexes.
 #[derive(Default)]
-pub struct Writer {
+pub struct WriterManager {
     /// Map of index directory path to Tantivy writer instance.
     tantivy_writers: HashMap<WriterDirectory, IndexWriter>,
     drop_requested: HashSet<WriterDirectory>,
 }
 
-impl Writer {
+impl WriterManager {
     pub fn new() -> Self {
         Self {
             tantivy_writers: HashMap::new(),
@@ -132,6 +143,10 @@ impl Writer {
             }
             Occupied(entry) => Ok(entry.into_mut()),
         }
+    }
+
+    pub fn clear_writers(&mut self) {
+        self.tantivy_writers.clear();
     }
 
     pub fn insert(
@@ -161,17 +176,9 @@ impl Writer {
     }
 
     pub fn commit(&mut self, directory: WriterDirectory) -> Result<()> {
-        let database_oid = directory.database_oid;
-        let index_oid = directory.index_oid;
-
         if directory.exists()? {
             let writer = self.get_writer(directory.clone())?;
 
-            // Tantivy writers may not call commit at the same time,
-            // so we'll use a session-level lock to ensure one commit
-            // at a time. The lock will be released automatically when
-            // the IndexWriterLock is dropped at the end of this block.
-            IndexWriterLock::new(database_oid, index_oid);
             writer
                 .prepare_commit()
                 .context("error preparing commit to tantivy index")?;
@@ -222,7 +229,7 @@ impl Writer {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
-        let tantivy_dir = UnlockedDirectory::open(tantivy_dir_path)?;
+        let tantivy_dir = BlockingDirectory::open(tantivy_dir_path)?;
         let mut underlying_index =
             Index::create(tantivy_dir, schema.schema.clone(), IndexSettings::default())?;
 
@@ -245,7 +252,7 @@ impl Writer {
     }
 
     /// Physically delete the Tantivy directory. This should only be called on commit.
-    fn drop_index_on_commit(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+    fn drop_index_on_commit(&mut self, directory: WriterDirectory) -> Result<()> {
         if let Some(writer) = self.tantivy_writers.remove(&directory) {
             std::mem::drop(writer);
         };
@@ -261,4 +268,28 @@ impl Writer {
         self.drop_requested.insert(directory);
         Ok(())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum IndexError {
+    #[error("couldn't get writer for {0:?}: {1}")]
+    GetWriterFailed(WriterDirectory, String),
+
+    #[error(transparent)]
+    TantivyError(#[from] tantivy::TantivyError),
+
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    SerdeJsonError(#[from] serde_json::Error),
+
+    #[error(transparent)]
+    TantivyValueError(#[from] TantivyValueError),
+
+    #[error("couldn't remove index files on drop_index: {0}")]
+    DeleteDirectory(#[from] SearchDirectoryError),
+
+    #[error("key_field column '{0}' cannot be NULL")]
+    KeyIdNull(String),
 }

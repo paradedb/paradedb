@@ -22,7 +22,6 @@ mod index;
 mod postgres;
 mod query;
 mod schema;
-mod writer;
 
 #[cfg(test)]
 pub mod fixtures;

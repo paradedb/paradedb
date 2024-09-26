@@ -25,7 +25,11 @@ use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use pgrx::*;
 
-type SearchResultIter = SearchResults;
+struct PgSearchScanState {
+    results: SearchResults,
+    itup: (Vec<pg_sys::Datum>, Vec<bool>),
+    key_field_oid: PgOid,
+}
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -33,10 +37,15 @@ pub extern "C" fn ambeginscan(
     nkeys: ::std::os::raw::c_int,
     norderbys: ::std::os::raw::c_int,
 ) -> pg_sys::IndexScanDesc {
-    let scandesc: PgBox<pg_sys::IndexScanDescData> =
-        unsafe { PgBox::from_pg(pg_sys::RelationGetIndexScan(indexrel, nkeys, norderbys)) };
+    unsafe {
+        let scandesc = pg_sys::RelationGetIndexScan(indexrel, nkeys, norderbys);
 
-    scandesc.into_pg()
+        // we may or may not end up doing an Index Only Scan, but regardless we only need to do
+        // this one time
+        (*scandesc).xs_itupdesc = (*indexrel).rd_att;
+
+        scandesc
+    }
 }
 
 // An annotation to guard the function for PostgreSQL's threading model.
@@ -126,16 +135,28 @@ pub extern "C" fn amrescan(
         .search_state(&writer_client, &search_config)
         .expect("SearchState should construct cleanly");
 
-    // Save the iterator onto the current memory context.
     unsafe {
-        // SAFETY:  We asserted above that `scan` is non-null
-        (*scan).opaque = {
-            let results_iter: SearchResultIter =
-                state.search_minimal(false, SearchIndex::executor());
-            PgMemoryContexts::CurrentMemoryContext
-                .leak_and_drop_on_delete(results_iter)
-                .cast()
-        }
+        let results = state.search_minimal((*scan).xs_want_itup, SearchIndex::executor());
+        let natts = (*(*scan).xs_itupdesc).natts as usize;
+        let scan_state = if (*scan).xs_want_itup {
+            PgSearchScanState {
+                results,
+                itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
+                key_field_oid: PgOid::from(
+                    (*(*scan).xs_itupdesc).attrs.as_slice(natts)[0].atttypid,
+                ),
+            }
+        } else {
+            PgSearchScanState {
+                results,
+                itup: (vec![], vec![]),
+                key_field_oid: PgOid::Invalid,
+            }
+        };
+
+        (*scan).opaque = PgMemoryContexts::CurrentMemoryContext
+            .leak_and_drop_on_delete(scan_state)
+            .cast();
     }
 }
 
@@ -147,10 +168,10 @@ pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
-    let iter = unsafe {
+    let state = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
         // amrescan, which is always called prior to this function
-        (*scan).opaque.cast::<SearchResultIter>().as_mut()
+        (*scan).opaque.cast::<PgSearchScanState>().as_mut()
     }
     .expect("no scan.opaque state");
 
@@ -158,13 +179,40 @@ pub extern "C" fn amgettuple(
         (*scan).xs_recheck = false;
     }
 
-    match iter.next() {
-        Some((scored, _)) => {
-            let tid = unsafe { &mut (*scan).xs_heaptid };
+    match state.results.next() {
+        Some((scored, _)) => unsafe {
+            let tid = &mut (*scan).xs_heaptid;
             crate::postgres::utils::u64_to_item_pointer(scored.ctid, tid);
 
+            if (*scan).xs_want_itup {
+                match scored
+                    .key
+                    .expect("should have retrieved the key_field")
+                    .try_into_datum(state.key_field_oid)
+                    .expect("key_field value should convert to a Datum")
+                {
+                    // got a valid Datum
+                    Some(key_field_datum) => {
+                        state.itup.0[0] = key_field_datum;
+                        state.itup.1[0] = false;
+                    }
+
+                    // we got a NULL for the key_field.  Highly unlikely but definitely possible
+                    None => {
+                        state.itup.0[0] = pg_sys::Datum::null();
+                        state.itup.1[0] = true;
+                    }
+                }
+
+                (*scan).xs_itup = pg_sys::index_form_tuple(
+                    (*scan).xs_itupdesc,
+                    state.itup.0.as_mut_ptr(),
+                    state.itup.1.as_mut_ptr(),
+                );
+            }
+
             true
-        }
+        },
         None => false,
     }
 }
@@ -174,15 +222,15 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
     assert!(!tbm.is_null());
     assert!(!scan.is_null());
 
-    let iter = unsafe {
+    let state = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
         // amrescan, which is always called prior to this function
-        (*scan).opaque.cast::<SearchResultIter>().as_mut()
+        (*scan).opaque.cast::<PgSearchScanState>().as_mut()
     }
     .expect("no scan.opaque state");
 
     let mut cnt = 0i64;
-    for (scored, _) in iter {
+    for (scored, _) in &mut state.results {
         let mut tid = pg_sys::ItemPointerData::default();
         crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut tid);
 
@@ -196,4 +244,33 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
     }
 
     cnt
+}
+
+#[pg_guard]
+pub extern "C" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
+    if attno != 1 {
+        // currently, we only support returning the "key_field", which will always be the first
+        // index attribute
+        return false;
+    }
+
+    unsafe {
+        assert!(!indexrel.is_null());
+        assert!(!(*indexrel).rd_att.is_null());
+        let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
+
+        let att = tupdesc
+            .get((attno - 1) as usize)
+            .expect("attno should exist in index tupledesc");
+
+        // we can only return a field if it's one of the below types -- basically pass-by-value (non tokenized) data types
+        [
+            pg_sys::INT4OID,
+            pg_sys::INT8OID,
+            pg_sys::FLOAT4OID,
+            pg_sys::FLOAT8OID,
+            pg_sys::BOOLOID,
+        ]
+        .contains(&att.atttypid)
+    }
 }

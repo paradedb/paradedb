@@ -103,6 +103,9 @@ RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/
 
 FROM builder AS builder-pgvector
 
+ARG PG_VERSION_MAJOR=16
+ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
+
 # Build the extension
 WORKDIR /tmp
 RUN git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git
@@ -119,8 +122,6 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 FROM builder AS builder-pg_cron
 
 ARG PG_VERSION_MAJOR=16
-
-# Ensure we're using the correct PostgreSQL version
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -137,6 +138,9 @@ RUN echo "trusted = true" >> pg_cron.control && \
 
 FROM builder AS builder-pg_ivm
 
+ARG PG_VERSION_MAJOR=16
+ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
+
 # Build the extension
 WORKDIR /tmp
 RUN git clone --branch v1.9 https://github.com/sraoss/pg_ivm.git
@@ -148,6 +152,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 ###############################################
 # Second Stage: PostgreSQL and Barman Cloud
 ###############################################
+
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \

@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::SearchIndex;
-use crate::writer::WriterDirectory;
-use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum};
+use crate::index::WriterDirectory;
+use crate::index::SEARCH_WRITER_MANAGER;
+use pgrx::{pg_guard, pg_sys};
 use tracing::warn;
 
 /// Initialize a transaction callback that pg_search uses to commit or abort pending tantivy
@@ -62,7 +63,6 @@ unsafe extern "C" fn pg_search_xact_callback(
                 SearchIndex::drop_from_cache(&directory)
             }
 
-            // next, we can commit any of the other dirty indexes
             for search_index in SearchIndex::get_cache()
                 .values_mut()
                 .filter(|index| index.is_dirty())
@@ -81,6 +81,10 @@ unsafe extern "C" fn pg_search_xact_callback(
             {
                 search_index.is_pending_create = false;
             }
+
+            // We clear out the cached writers in ther writer manager here, so that
+            // the writer locks on the index directory are freed.
+            SEARCH_WRITER_MANAGER.clear_writers();
         }
 
         pg_sys::XactEvent::XACT_EVENT_ABORT => {
@@ -119,6 +123,10 @@ unsafe extern "C" fn pg_search_xact_callback(
             {
                 search_index.is_pending_drop = false;
             }
+
+            // We clear out the cached writers in ther writer manager here, so that
+            // the writer locks on the index directory are freed.
+            SEARCH_WRITER_MANAGER.clear_writers();
         }
 
         _ => {
@@ -133,57 +141,10 @@ fn finalize_drop(directory: &WriterDirectory) {
     writer
         .drop_index(directory.clone())
         .expect("must be able to finalize drop");
+
+    // We have an exclusive lock on the index here, as it is being dropped.
+    // So we don't need to acquire any locks on the index.
     writer
         .commit(directory.clone())
         .expect("commit must work in finalize drop");
-}
-
-/// Create a new index writer advisory lock.
-/// Advisory locks are global across the entire Postgres cluster,
-/// so its important that the key is qualified with the database oid.
-pub struct IndexWriterLock {
-    database_oid: u32,
-    index_oid: u32,
-}
-
-impl IndexWriterLock {
-    pub fn new(database_oid: u32, index_oid: u32) -> Self {
-        let new_self = Self {
-            database_oid,
-            index_oid,
-        };
-
-        new_self.acquire();
-        new_self
-    }
-
-    // This method combines the two OIDs intojj single 64-bit lock key
-    fn key(&self) -> i64 {
-        // Shift the database_oid into the high 32 bits, then combine with index_oid
-        ((self.database_oid as i64) << 32) | (self.index_oid as i64)
-    }
-
-    pub fn acquire(&self) {
-        let lock_key = self.key(); // Get the lock key
-
-        // Attempt to acquire an exclusive lock on the generated key.
-        // This is a session-level lock, and must manually be released.
-        unsafe {
-            direct_function_call::<()>(pg_sys::pg_advisory_lock_int8, &[lock_key.into_datum()]);
-        }
-    }
-
-    fn release(&self) {
-        let lock_key = self.key(); // Get the lock key
-
-        unsafe {
-            direct_function_call::<()>(pg_sys::pg_advisory_unlock_int8, &[lock_key.into_datum()]);
-        }
-    }
-}
-
-impl Drop for IndexWriterLock {
-    fn drop(&mut self) {
-        Self::release(self)
-    }
 }

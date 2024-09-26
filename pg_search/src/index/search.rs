@@ -16,13 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::state::SearchState;
+use super::IndexError;
+use crate::index::{
+    BlockingDirectory, SearchDirectoryError, SearchFs, TantivyDirPath, WriterDirectory,
+    WriterManager,
+};
 use crate::schema::{
     SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
     SearchIndexSchema, SearchIndexSchemaError,
-};
-use crate::writer::{
-    self, SearchDirectoryError, SearchFs, TantivyDirPath, UnlockedDirectory, Writer,
-    WriterDirectory,
 };
 use anyhow::Result;
 use once_cell::sync::Lazy;
@@ -63,7 +64,7 @@ pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
     Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
 });
 
-static mut SEARCH_WRITER: Lazy<Writer> = Lazy::new(Writer::new);
+pub static mut SEARCH_WRITER_MANAGER: Lazy<WriterManager> = Lazy::new(WriterManager::new);
 
 #[derive(Serialize)]
 pub struct SearchIndex {
@@ -136,8 +137,8 @@ impl SearchIndex {
         SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
     }
 
-    pub unsafe fn get_writer() -> &'static mut Writer {
-        addr_of_mut!(SEARCH_WRITER)
+    pub unsafe fn get_writer() -> &'static mut WriterManager {
+        addr_of_mut!(SEARCH_WRITER_MANAGER)
             .as_mut()
             .expect("global SEARCH_INDEX_MEMORY must not be null")
     }
@@ -283,7 +284,9 @@ impl SearchIndex {
         }
 
         self.is_dirty = false;
+
         writer.commit(self.directory.clone())?;
+
         Ok(())
     }
 
@@ -296,10 +299,10 @@ impl SearchIndex {
     ///
     /// If problems are encountered while performing the abort, those errors are returned to the
     /// caller.
-    pub fn abort(&mut self) -> Result<(), SearchIndexError> {
+    pub fn abort(&mut self) -> Result<()> {
         let writer = unsafe { Self::get_writer() };
         if !self.is_dirty() {
-            return Err(SearchIndexError::IndexNotDirty);
+            return Err(anyhow::Error::from(SearchIndexError::IndexNotDirty));
         }
 
         self.is_dirty = false;
@@ -419,7 +422,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             .tantivy_dir_path(true)
             .expect("tantivy directory path should be valid");
 
-        let tantivy_dir = UnlockedDirectory::open(tantivy_dir_path)
+        let tantivy_dir = BlockingDirectory::open(tantivy_dir_path)
             .expect("need a valid path to open a tantivy index");
         let mut underlying_index = Index::open(tantivy_dir).expect("index should be openable");
 
@@ -450,7 +453,7 @@ pub enum SearchIndexError {
     SchemaError(#[from] SearchIndexSchemaError),
 
     #[error(transparent)]
-    WriterIndexError(#[from] writer::IndexError),
+    WriterIndexError(#[from] IndexError),
 
     #[error(transparent)]
     TantivyError(#[from] tantivy::error::TantivyError),
@@ -469,21 +472,4 @@ pub enum SearchIndexError {
 
     #[error("Index has no pending changes")]
     IndexNotDirty,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::SearchIndex;
-    use crate::{
-        fixtures::{mock_dir, MockWriterDirectory},
-        writer::SearchFs,
-    };
-    use rstest::*;
-
-    /// Expected to panic because no index has been created in the directory.
-    #[rstest]
-    #[should_panic]
-    fn test_index_from_disk_panics(mock_dir: MockWriterDirectory) {
-        mock_dir.load_index::<SearchIndex>().unwrap();
-    }
 }

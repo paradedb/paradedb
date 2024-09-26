@@ -28,6 +28,7 @@ use rstest::*;
 /// With no locking implemented, a high number of concurrent writers will
 /// cause in an error when they all try to commit to the index at once.
 #[rstest]
+#[tokio::test]
 async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     let mut conn1 = database.connection().await;
 
@@ -88,7 +89,6 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
         .fetch_one(&mut conn1)
         .await?;
 
-    // Since 100 rows are inserted in each connection, the expected count is 100
     assert_eq!(rows1, 250);
 
     Ok(())

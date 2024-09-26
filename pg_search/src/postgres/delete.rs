@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{pg_sys::ItemPointerData, *};
-
 use crate::{
-    index::SearchIndex, postgres::utils::relfilenode_from_index_oid, writer::WriterDirectory,
+    index::{SearchIndex, WriterDirectory},
+    postgres::utils::relfilenode_from_index_oid,
 };
+use pgrx::{pg_sys::ItemPointerData, *};
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(

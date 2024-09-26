@@ -23,7 +23,7 @@ use crate::index::SearchIndex;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::writer::WriterDirectory;
+use crate::index::WriterDirectory;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pgrx_sql_entity_graph::metadata::{

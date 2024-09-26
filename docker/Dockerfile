@@ -46,9 +46,8 @@ COPY pg_search/Cargo.toml ./
 RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
-RUN rm -rf /tmp/Cargo.toml
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
+    rm -rf /tmp/Cargo.toml
 
 ######################
 # pg_search
@@ -147,6 +146,11 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 ######################
 
 FROM builder AS builder-pg_cron
+
+ARG PG_VERSION_MAJOR=16
+
+# Ensure we're using the correct PostgreSQL version
+ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp

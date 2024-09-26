@@ -234,14 +234,11 @@ RUN apt-get update && \
 
 # Install Postgis and ca-certificates
 # ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
-ENV POSTGIS_MAJOR 3
-ENV POSTGIS_VERSION 3.4.2+dfsg-1.pgdg120+1
-
+ENV POSTGIS_VERSION_MAJOR 3
 RUN apt-get update \
-    && apt-cache showpkg postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR \
     && apt-get install -y --no-install-recommends \
-    postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR=$POSTGIS_VERSION \
-    postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_MAJOR-scripts \
+    postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_VERSION_MAJOR \
+    postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_VERSION_MAJOR-scripts \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/* && \
     update-ca-certificates

@@ -137,6 +137,10 @@ impl SearchIndex {
         SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
     }
 
+    /// # Safety
+    ///
+    /// While a caller has a reference to the returned [`Writer`], the internal `SEARCH_INDEX_MEMORY` cache
+    /// **cannot** be modified. It is the caller's responsibility to ensure this.
     pub unsafe fn get_writer() -> &'static mut WriterManager {
         addr_of_mut!(SEARCH_WRITER_MANAGER)
             .as_mut()

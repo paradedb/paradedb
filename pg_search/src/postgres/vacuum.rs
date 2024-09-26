@@ -18,7 +18,8 @@
 use pgrx::*;
 
 use crate::{
-    index::SearchIndex, postgres::utils::relfilenode_from_index_oid, writer::WriterDirectory,
+    index::{SearchIndex, WriterDirectory},
+    postgres::utils::relfilenode_from_index_oid,
 };
 
 #[pg_guard]

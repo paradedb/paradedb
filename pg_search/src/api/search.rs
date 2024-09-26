@@ -19,7 +19,7 @@ use crate::index::state::SearchState;
 use crate::index::SearchIndex;
 use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
 use crate::schema::SearchConfig;
-use crate::writer::WriterDirectory;
+use crate::index::WriterDirectory;
 use pgrx::pg_sys::FunctionCallInfo;
 use pgrx::{prelude::TableIterator, *};
 use tantivy::TantivyDocument;

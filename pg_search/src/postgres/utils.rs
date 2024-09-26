@@ -17,7 +17,7 @@
 
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchDocument, SearchFieldName, SearchIndexSchema};
-use crate::writer::IndexError;
+use crate::index::IndexError;
 use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 

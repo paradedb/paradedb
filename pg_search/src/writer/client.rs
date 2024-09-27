@@ -35,7 +35,7 @@ pub struct Client<T: Serialize> {
 /// "request" sends a synchronous request and waits for a response.
 
 /// "transfer" sends a request, and then opens a data pipe to the backend.
-/// This is useful for transfering large volumes of data, where "request"
+/// This is useful for transferring large volumes of data, where "request"
 /// has too much overhead to be called over and over.
 
 /// A transfer requires exclusive access to the background server, so

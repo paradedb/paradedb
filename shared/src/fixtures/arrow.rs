@@ -646,7 +646,7 @@ pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch
                 },
                 DataType::Time64(unit) => match unit {
                     TimeUnit::Second => bail!("arrow time64i does not support seconds"),
-                    TimeUnit::Millisecond => bail!("arrow time64 does not support millseconds"),
+                    TimeUnit::Millisecond => bail!("arrow time64 does not support milliseconds"),
                     TimeUnit::Microsecond => Arc::new(Time64MicrosecondArray::from(
                         rows.iter()
                             .map(|row| decode::<Option<NaiveTime>>(field, row))

@@ -131,7 +131,7 @@ CALL paradedb.create_bm25(
 Standby servers do not have any specific configuration necessary other than the tables in which you are ingesting logical replication must start off empty. Configuring
 replication consists of two steps:
 
-- Running pg_basebackup, which will create a snapshot of your primary onto your standy servers. This makes the initial replication much faster.
+- Running pg_basebackup, which will create a snapshot of your primary onto your standby servers. This makes the initial replication much faster.
 - Subscribing via logical replication, which will create a subscription that continuously propagates changes on the primary server to the standby.
 
 ### Run pg_basebackup
@@ -171,7 +171,7 @@ Logical replication allows you to replicate changes to specific tables between P
 CREATE PUBLICATION mock_items_pub FOR TABLE mock_items;
 ```
 
-### Create Subscription on Standy
+### Create Subscription on Standby
 
 ```sql
 CREATE SUBSCRIPTION sub_marketplace

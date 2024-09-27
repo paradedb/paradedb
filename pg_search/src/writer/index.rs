@@ -94,7 +94,7 @@ impl Writer {
                 .commit()
                 .context("error committing to tantivy index")?;
         } else {
-            warn!(?directory, "index directory unexepectedly does not exist");
+            warn!(?directory, "index directory unexpectedly does not exist");
         }
 
         if self.drop_requested.contains(&directory) {
@@ -108,7 +108,7 @@ impl Writer {
 
     fn abort(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         // If the transaction was aborted, we should roll back the writer to the last commit.
-        // Otherwise, partialy written data could stick around for the next transaction.
+        // Otherwise, partially written data could stick around for the next transaction.
         if let Some(writer) = self.tantivy_writers.get_mut(&directory) {
             writer.rollback()?;
         }

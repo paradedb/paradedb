@@ -13,8 +13,7 @@ In production settings, we recommend deploying ParadeDB as a replica of your pri
 integrate with managed Postgres providers like AWS RDS, Google CloudSQL, Azure Postgres, and others. It also isolates
 search and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.
 
-In this guide, we'll walk through setting up logical replication, also known as streaming replication, for ParadeDB. This setup allows you to replicate data from a primary server to one or more standby servers.
-Replication is useful for high availability or for ParadeDB to run as a search replica over your primary Postgres.
+In this guide, we'll walk through setting up logical replication, also known as streaming replication, from a primary Postgres instance (e.g. AWS RDS) to a ParadeDB deployment.
 
 ### Environment Setup
 
@@ -33,7 +32,7 @@ We'll use the following environment setup for our demonstration:
 - **OS**: Ubuntu 24.04
 - **IP**: `192.168.0.31`, `192.168.0.32`
 
-## Primary Server Setup
+## Primary Postgres Setup
 
 Follow these steps in order to set up the primary server.
 
@@ -50,13 +49,11 @@ max_wal_senders = 10
 - `listen_addresses` specifies the IP addresses on which PostgreSQL listens for connections. By default, PostgreSQL only listens on `localhost`. To allow other servers (like your standby servers) to connect for replication, you need to include their IP addresses.
 - `max_wal_senders` determines the maximum number of concurrent connections that can send WAL (Write-Ahead Log) data.
 
-If you are running `pg_search` on the primary server, make sure to add it to `shared_preload_libraries`. If you are installing it only on the standby server as a search replica,
-you should skip this step.
-
-```ini
-# Include this only if pg_search is installed on the primary
-shared_preload_libraries = 'pg_search'
-```
+If you are using a managed Postgres service, this can be configured via the dashboard UI. Here are the relevant links for commonly-used primary Postgres databases.
+- [AWS RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Parameters.html)
+- [Google CloudSQL](https://cloud.google.com/sql/docs/postgres/flags)
+- [Google Cloud AlloyDB](https://cloud.google.com/alloydb/docs/instance-configure-database-flags)
+- [Azure PostgreSQL](https://learn.microsoft.com/en-us/azure/postgresql/single-server/how-to-configure-server-parameters-using-cli)
 
 ### Edit `pg_hba.conf`
 

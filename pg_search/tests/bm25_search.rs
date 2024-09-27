@@ -1102,9 +1102,9 @@ fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
         key_field => 'id',
         text_fields => 
             paradedb.field('name', tokenizer => paradedb.tokenizer('default')) ||
-            paradedb.field('name', alias => 'name_stem', tokenizer => paradedb.tokenizer('en_stem')) ||
+            paradedb.field('name', alias => 'name_stem', tokenizer => paradedb.tokenizer('default', stemmer => 'English')) ||
             paradedb.field('description', tokenizer => paradedb.tokenizer('default')) ||
-            paradedb.field('description', alias => 'description_stem', tokenizer => paradedb.tokenizer('en_stem'))
+            paradedb.field('description', alias => 'description_stem', tokenizer => paradedb.tokenizer('default', stemmer => 'English'))
     );"
     .execute(&mut conn);
 
@@ -1175,7 +1175,7 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
         key_field => 'id',
         text_fields => 
             paradedb.field('name', tokenizer => paradedb.tokenizer('default')) ||
-            paradedb.field('description', alias => 'id', tokenizer => paradedb.tokenizer('en_stem'))
+            paradedb.field('description', alias => 'id', tokenizer => paradedb.tokenizer('default', stemmer => 'English'))
     );"
     .execute_result(&mut conn);
 
@@ -1192,7 +1192,7 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
         key_field => 'id',
         text_fields => 
             paradedb.field('name', tokenizer => paradedb.tokenizer('default')) ||
-            paradedb.field('description', alias => 'desc_stem', tokenizer => paradedb.tokenizer('en_stem'))
+            paradedb.field('description', alias => 'desc_stem', tokenizer => paradedb.tokenizer('default', stemmer => 'English'))
     );"
     .execute_result(&mut conn);
 
@@ -1232,7 +1232,7 @@ fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
             paradedb.field('product_name', tokenizer => paradedb.tokenizer('default')) ||
             paradedb.field('product_name', alias => 'product_name_ngram', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)) ||
             paradedb.field('review_text', tokenizer => paradedb.tokenizer('default')) ||
-            paradedb.field('review_text', alias => 'review_text_stem', tokenizer => paradedb.tokenizer('en_stem'))
+            paradedb.field('review_text', alias => 'review_text_stem', tokenizer => paradedb.tokenizer('default', stemmer => 'English'))
     );"
     .execute(&mut conn);
 
@@ -1249,7 +1249,7 @@ fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1, "SmartPhone X");
 
-    // Stemmed search using en_stem tokenizer
+    // Stemmed search using English stemmer tokenizer
     let rows: Vec<(i32, String)> =
         "SELECT id, product_name FROM product_reviews_index.search('review_text_stem:gaming')"
             .fetch(&mut conn);

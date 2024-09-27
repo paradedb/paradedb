@@ -495,7 +495,7 @@ fn multiple_tokenizers_example(mut conn: PgConnection) {
       text_fields =>
         paradedb.field('description', tokenizer => paradedb.tokenizer('whitespace')) ||
         paradedb.field('description', alias => 'description_ngram', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)) ||
-        paradedb.field('description', alias => 'description_stem', tokenizer => paradedb.tokenizer('en_stem'))
+        paradedb.field('description', alias => 'description_stem', tokenizer => paradedb.tokenizer('default', stemmer => 'English'))
     );"#
     .execute(&mut conn);
 

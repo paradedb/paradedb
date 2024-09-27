@@ -10,6 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "**/*.rs"
+      - "**/*.toml"
       - ".github/workflows/lint-rust.yml"
   workflow_dispatch:
 
@@ -54,3 +55,10 @@ jobs:
 
       - name: Dependency Check
         run: cargo install cargo-machete && cargo machete
+
+      - name: Install taplo
+        run: cargo +stable install taplo-cli --version ^0.9 --locked
+
+      # If you encounter an error, try running 'taplo format' to fix the formatting automatically.
+      - name: Check Cargo.toml Formatting
+        run: taplo format --check

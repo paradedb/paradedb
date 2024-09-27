@@ -217,15 +217,15 @@
         {
           "group": "Data Lakes",
           "pages": [
-            "ingest/datalakes/overview",
+            "ingest/datalakes/quickstart",
             {
               "group": "File/Table Formats",
               "pages": [
                 "ingest/datalakes/formats/csv",
                 "ingest/datalakes/formats/parquet",
-                "ingest/datalakes/formats/delta",
+                "ingest/datalakes/formats/spatial",
                 "ingest/datalakes/formats/iceberg",
-                "ingest/datalakes/formats/spatial"
+                "ingest/datalakes/formats/delta"
               ]
             },
             {
@@ -233,7 +233,9 @@
               "pages": [
                 "ingest/datalakes/object_stores/s3",
                 "ingest/datalakes/object_stores/gcs",
-                "ingest/datalakes/object_stores/azure"
+                "ingest/datalakes/object_stores/azure",
+                "ingest/datalakes/object_stores/huggingface",
+                "ingest/datalakes/object_stores/http"
               ]
             },
             {
@@ -252,15 +254,11 @@
       "pages": [
         {
           "group": "Self-Hosted ParadeDB",
-          "pages": ["deploy/self-hosted/aws", "deploy/self-hosted/gcp", "deploy/self-hosted/helm"]
+          "pages": ["deploy/self-hosted/k8s", "deploy/self-hosted/docker", "deploy/self-hosted/extensions"]
         },
         {
           "group": "Managed ParadeDB",
           "pages": ["deploy/managed/ubicloud"]
-        },
-        {
-          "group": "Standalone Extensions",
-          "pages": ["deploy/pg_search", "deploy/pg_analytics"]
         },
         "deploy/upgrading",
         "deploy/extensions"

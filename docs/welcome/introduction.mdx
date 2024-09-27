@@ -19,20 +19,12 @@ aggregations, which lack critical functionality and perform poorly over large da
 ParadeDB aims to be the best of both worlds, providing developers with the familiarity of Postgres and the
 performance of a dedicated search and analytical database.
 
-ParadeDB is a good fit for:
+ParadeDB is a good fit for developers who:
 
-
-
-- Developers who sync data from Postgres to Elasticsearch and 
-- 
-
-- 
-
-
-- Developers who trust Postgres and don't want to operate a non-Postgres database/query engine
-- Elasticsearch users who want to consolidate their data stack on Postgres
-- Full-text, similarity, or hybrid search over large volumes of operational data with zero ETL
-- Building rich search experiences with analytical queries and facets
+- have UPDATE-heavy workloads, which require frequent index rebuilds in Elasticsearch
+- want to achieve near real-time search without complex and expensive ETL pipelines
+- need an ACID-compliant search and analytics engine to avoid denormalizing their schema
+- trust Postgres and don't want to operate a non-Postgres database/query engine
 
 ## Next Steps
 

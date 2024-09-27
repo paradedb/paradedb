@@ -1198,3 +1198,67 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
 
     assert!(result.is_ok());
 }
+
+#[rstest]
+fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE product_reviews (
+        id SERIAL PRIMARY KEY,
+        product_name TEXT,
+        review_text TEXT
+    );"
+    .execute(&mut conn);
+
+    // Insert mock data
+    "INSERT INTO product_reviews (product_name, review_text) VALUES
+    ('SmartPhone X', 'This smartphone is incredible! The camera quality is amazing.'),
+    ('Laptop Pro', 'Great laptop for programming. The keyboard is comfortable.'),
+    ('Wireless Earbuds', 'These earbuds have excellent sound quality. Battery life could be better.'),
+    ('Gaming Mouse', 'Responsive and comfortable. Perfect for long gaming sessions.'),
+    ('4K TV', 'The picture quality is breathtaking. Smart features work seamlessly.'),
+    ('Fitness Tracker', 'Accurate step counting and heart rate monitoring. The app is user-friendly.'),
+    ('Smartwatch', 'This watch is smart indeed! Great for notifications and fitness tracking.'),
+    ('Bluetooth Speaker', 'Impressive sound for its size. Waterproof feature is a plus.'),
+    ('Mechanical Keyboard', 'Satisfying key presses. RGB lighting is customizable.'),
+    ('External SSD', 'Super fast read/write speeds. Compact and portable design.');"
+    .execute(&mut conn);
+
+    // Create the BM25 index with multiple tokenizers
+    "CALL paradedb.create_bm25(
+        index_name => 'product_reviews_index',
+        table_name => 'product_reviews',
+        key_field => 'id',
+        text_fields => 
+            paradedb.field('product_name', tokenizer => paradedb.tokenizer('default')) ||
+            paradedb.field('product_name', alias => 'product_name_ngram', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)) ||
+            paradedb.field('review_text', tokenizer => paradedb.tokenizer('default')) ||
+            paradedb.field('review_text', alias => 'review_text_stem', tokenizer => paradedb.tokenizer('en_stem'))
+    );"
+    .execute(&mut conn);
+
+    //  Exact match using default tokenizer
+    let rows: Vec<(i32, String)> = "SELECT id, product_name FROM product_reviews_index.search('product_name:\"Wireless Earbuds\"')"
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "Wireless Earbuds");
+
+    // Partial match using ngram tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, product_name FROM product_reviews_index.search('product_name_ngram:phon')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "SmartPhone X");
+
+    // Stemmed search using en_stem tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, product_name FROM product_reviews_index.search('review_text_stem:gaming')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().any(|(_, name)| name == "Gaming Mouse"));
+
+    // Using default tokenizer and stem on same field
+    let rows: Vec<(i32, String)> = "SELECT id, product_name FROM product_reviews_index.search('review_text:monitoring OR review_text_stem:mon')"
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "Fitness Tracker");
+}

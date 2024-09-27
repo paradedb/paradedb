@@ -232,8 +232,7 @@
                 "ingest/datalakes/object_stores/s3",
                 "ingest/datalakes/object_stores/gcs",
                 "ingest/datalakes/object_stores/azure",
-                "ingest/datalakes/object_stores/huggingface",
-                "ingest/datalakes/object_stores/http"
+                "ingest/datalakes/object_stores/huggingface"
               ]
             },
             {

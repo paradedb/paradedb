@@ -73,44 +73,29 @@
       "url": "changelog"
     }
   ],
-  "versions": ["v0.10.1"],
+  "versions": ["v0.10.2"],
   "navigation": [
     {
       "group": "Welcome",
       "pages": [
         "welcome/introduction",
-        {
-          "group": "Getting Started",
-          "pages": [
-            "welcome/install",
-            "welcome/quickstart"
-          ]
-        },
         "welcome/support"
       ]
     },
     {
       "group": "Search",
       "pages": [
-        "api-reference/introduction",
         {
-          "group": "Concepts",
+          "group": "Getting Started",
           "pages": [
-            "api-reference/concepts/aggregation",
-            "api-reference/concepts/bm25",
-            "api-reference/concepts/faceting",
-            "api-reference/concepts/index",
-            "api-reference/concepts/matching",
-            "api-reference/concepts/phrase",
-            "api-reference/concepts/search",
-            "api-reference/concepts/stemming",
-            "api-reference/concepts/tantivy",
-            "api-reference/concepts/term"
+            "api-reference/getting-started/install",
+            "api-reference/getting-started/quickstart"
           ]
         },
         {
           "group": "Reference",
           "pages": [
+            "api-reference/introduction",
             {
               "group": "Indexing",
               "pages": [
@@ -137,7 +122,9 @@
                 "api-reference/full-text/scoring",
                 "api-reference/full-text/highlighting",
                 "api-reference/full-text/sorting",
-                "api-reference/full-text/boosting"
+                "api-reference/full-text/boosting",
+                "api-reference/full-text/conjunction",
+                "api-reference/full-text/lenient_parsing"
               ]
             },
             {
@@ -196,6 +183,21 @@
             "api-reference/guides/autocomplete",
             "api-reference/guides/hybrid"
           ]
+        },
+        {
+          "group": "Concepts",
+          "pages": [
+            "api-reference/concepts/aggregation",
+            "api-reference/concepts/bm25",
+            "api-reference/concepts/faceting",
+            "api-reference/concepts/index",
+            "api-reference/concepts/matching",
+            "api-reference/concepts/phrase",
+            "api-reference/concepts/search",
+            "api-reference/concepts/stemming",
+            "api-reference/concepts/tantivy",
+            "api-reference/concepts/term"
+          ]
         }
       ]
     },
@@ -251,6 +253,7 @@
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.10.2",
         "changelog/0.10.1",
         "changelog/0.10.0",
         "changelog/0.9.4",

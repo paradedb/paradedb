@@ -1,7 +1,7 @@
 [package]
 name = "pg_search"
 description = "Full text search for PostgreSQL using BM25"
-version = "0.10.1"
+version = "0.10.2"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -31,7 +31,7 @@ libc = "0.2.158"
 memoffset = "0.9.1"
 once_cell = "1.19.0"
 parking_lot = "0.12.3"
-tokenizers = { version = "0.10.1", path = "../tokenizers" }
+tokenizers = { version = "0.10.2", path = "../tokenizers" }
 pgrx = "0.12.4"
 reqwest = "0.11.27"
 rustc-hash = "1.1.0"

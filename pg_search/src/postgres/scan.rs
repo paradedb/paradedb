@@ -18,14 +18,16 @@
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
 use crate::index::SearchIndex;
+use crate::postgres::parallel::PgSearchParallelScanState;
 use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use pgrx::*;
+use std::ptr::addr_of_mut;
 
-struct PgSearchScanState {
+pub struct PgSearchScanState {
     results: SearchResults,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
     key_field_oid: PgOid,
@@ -136,6 +138,30 @@ pub extern "C" fn amrescan(
         .expect("SearchState should construct cleanly");
 
     unsafe {
+        // TODO:  I was just playing around here to see what was going on and looking at the order
+        //        in which works are spun up.  Had no ideas of where to go next
+        let worker_number = unsafe {
+            if !(*scan).parallel_scan.is_null() {
+                let parallel_scan = (*scan)
+                    .parallel_scan
+                    .cast::<std::ffi::c_void>()
+                    .add((*(*scan).parallel_scan).ps_offset)
+                    .cast::<PgSearchParallelScanState>();
+                pg_sys::SpinLockAcquire(addr_of_mut!((*parallel_scan).mutex));
+                let worker_number = (*parallel_scan).worker_number;
+                (*parallel_scan).worker_number += 1;
+                pg_sys::SpinLockRelease(addr_of_mut!((*parallel_scan).mutex));
+                Some(worker_number)
+            } else {
+                None
+            }
+        };
+
+        pgrx::warning!(
+            "worker_number={worker_number:?}, ParallelWorkerNumber={}",
+            pg_sys::ParallelWorkerNumber
+        );
+
         let results = state.search_minimal((*scan).xs_want_itup, SearchIndex::executor());
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
         let scan_state = if (*scan).xs_want_itup {

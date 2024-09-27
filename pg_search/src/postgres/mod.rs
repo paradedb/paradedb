@@ -27,6 +27,7 @@ mod vacuum;
 mod validate;
 
 pub mod datetime;
+mod parallel;
 pub mod transaction;
 pub mod types;
 pub mod utils;
@@ -85,6 +86,11 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.amgetbitmap = Some(scan::amgetbitmap);
     amroutine.amendscan = Some(scan::amendscan);
     amroutine.amcanreturn = Some(scan::amcanreturn);
+
+    amroutine.amcanparallel = true;
+    amroutine.aminitparallelscan = Some(parallel::aminitparallelscan);
+    amroutine.amestimateparallelscan = Some(parallel::amestimateparallelscan);
+    amroutine.amparallelrescan = Some(parallel::amparallelrescan);
 
     amroutine.into_pg_boxed()
 }

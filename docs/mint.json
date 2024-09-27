@@ -208,8 +208,16 @@
         {
           "group": "Postgres",
           "pages": [
-            "ingest/postgres/pg_dump",
-            "ingest/postgres/replication"
+            {
+              "group": "Logical Replication",
+              "pages": [
+                "ingest/postgres/replication/aws",
+                "ingest/postgres/replication/gcp",
+                "ingest/postgres/replication/azure",
+                "ingest/postgres/replication/selfhosted"
+              ]
+            },
+            "ingest/postgres/pg_dump"
           ]
         },
         {

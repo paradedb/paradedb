@@ -176,6 +176,10 @@ impl SearchIndex {
         Self::from_cache(directory, &uuid)
     }
 
+    pub fn open_direct(directory: &WriterDirectory) -> Result<Self, SearchDirectoryError> {
+        directory.load_index()
+    }
+
     pub fn from_cache<'a>(
         directory: &WriterDirectory,
         uuid: &str,

@@ -1119,7 +1119,7 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    
+
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana"));
     assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana split"));

@@ -1,0 +1,28 @@
+---
+title: AWS RDS/Aurora
+---
+
+<Note>
+  ParadeDB BYOC (Bring Your Own Cloud), a managed deployment of ParadeDB inside
+  your AWS account, is coming soon. Please fill out the [interest
+  form](https://form.typeform.com/to/jHkLmIzx?typeform-source=paradedb.typeform.com)
+  for access.
+</Note>
+
+<Info>
+  This page is for configuring logical replication from an AWS Managed Postgres
+  database like AWS RDS for PostgreSQL or AWS Aurora for PostgreSQL into a
+  ParadeDB deployment.
+</Info>
+
+In production settings, we recommend deploying ParadeDB as a replica of your primary Postgres. This allows ParadeDB to
+integrate with managed Postgres providers like AWS RDS, Google CloudSQL, Azure Postgres, and others. It also isolates
+search and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.
+
+## AWS RDS/Aurora for PostgreSQL
+
+AWS provides a [comprehensive tutorial for configuring logical replication](https://aws.amazon.com/blogs/database/using-logical-replication-to-replicate-managed-amazon-rds-for-postgresql-and-amazon-aurora-to-self-managed-postgresql/) between an AWS
+RDS/Aurora for PostgreSQL database and a subscriber. To configure logical replication between your AWS database and your ParadeDB deployment, follow the instructions with your AWS RDS/Aurora for PostgreSQL database as the **publisher** and your
+ParadeDB deployment as the **subscriber**.
+
+That's it! Your ParadeDB deploy will now stay in near real-time synchronization with your primary PostgreSQL database.

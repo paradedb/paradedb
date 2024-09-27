@@ -2,12 +2,13 @@
 title: Overview
 ---
 
-Today, a vast amount of data is stored in
+ParadeDB is designed to seamlessly ingest data without the need for ETL pipelines. Our users ingest from two primary locations:
 
-1. **Databases** like Postgres
-2. **Data lakes** like S3 or GCS
-3. **File formats** like Parquet or CSV
-4. **Table formats** like Delta Lake or Iceberg
+## Existing Postgres Databases
 
-Ingesting this data into ParadeDB with data processing engines or ETL tools is complex and error-prone.
-ParadeDB makes it easy to consume this data using nothing but Postgres utilities.
+ParadeDB can easily ingest operational data from existing Postgres databases, including from managed Postgres services like AWS RDS, using nothing but built-in Postgres utilities.
+
+## Data Lakes
+
+ParadeDB can easily ingest larger, less-frequently updated data stored in common file and open table formats from data lakes like Amazon S3. The ParadeDB ingest API is powered by [DuckDB](https://duckdb.org),
+an in-process analytical query engine, which also enables running fast analytical queries over data lakes from ParadeDB.

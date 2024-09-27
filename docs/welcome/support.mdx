@@ -3,4 +3,13 @@ title: Help and Support
 ---
 
 For questions regarding enterprise support or commercial licensing, please [contact the ParadeDB team](mailto:hello@paradedb.com).
-For general questions, please join the [ParadeDB Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ).
+For general questions, please join the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ).
+
+Alternatively, the `paradedb.help` function opens a GitHub Discussion that the ParadeDB team will respond to.
+
+```sql
+SELECT paradedb.help(
+  subject => $$Something isn't working$$,
+  body => $$Issue description$$
+);
+```

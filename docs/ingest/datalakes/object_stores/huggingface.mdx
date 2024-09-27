@@ -1,0 +1,15 @@
+---
+title: Hugging Face
+---
+
+## Overview
+
+This code block demonstrates how to query machine learning datasets from the Hugging Face Datasets library. The file path must start with hf://.
+
+```sql
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (files 'hf://datasets/datasets-examples/doc-formats-csv-1/data.csv');
+```
+
+# TODO: @ming -- https://duckdb.org/2024/05/29/access-150k-plus-datasets-from-hugging-face-with-duckdb.html

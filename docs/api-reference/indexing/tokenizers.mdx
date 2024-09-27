@@ -167,22 +167,30 @@ SELECT * FROM paradedb.tokenize(
 
 ## Multiple Tokenizers
 
-In ParadeDB, only one tokenizer is allowed per field and only one BM25 index is allowed per table. However, some scenarios may require the same field to be tokenized in multiple ways. For instance, suppose we wish to use both the `whitespace` and `ngrams` tokenizer
-to tokenize the `description` field. One way to achieve this is to use generated columns.
+<Info>
+  Facets/aggregations are a ParadeDB enterprise feature. [Contact
+  us](mailto:sales@paradedb.com) for access.
+</Info>
+
+ParadeDB supports using multiple tokenizers for the same field within a single BM25 index. This feature allows for more flexible and powerful querying capabilities, enabling you to employ various strategies to match against an index term. You can apply different tokenizers to the same field by using the `alias` parameter in the `paradedb.field` function.
+
+Here's an example of how to create a BM25 index with multiple tokenizers for the same field:
 
 ```sql
-ALTER TABLE mock_items
-ADD COLUMN description_ngrams TEXT GENERATED ALWAYS AS (description) STORED;
-
--- Optional: Drop existing search_idx if exists
-CALL paradedb.drop_bm25('search_idx')
-
 CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
+  schema_name => 'public',
   key_field => 'id',
   text_fields =>
     paradedb.field('description', tokenizer => paradedb.tokenizer('whitespace')) ||
-    paradedb.field('description_ngrams', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false))
+    paradedb.field('description', alias => 'description_ngram', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)) ||
+    paradedb.field('description', alias => 'description_stem', tokenizer => paradedb.tokenizer('default', stemmer => 'English'))
 );
+
+-- Example queries
+
+SELECT * FROM search_idx.search('description_ngram:cam AND description_stem:digitally');
+
+SELECT * FROM search_idx.search('description:"Soft cotton" OR description_stem:shirts');
 ```

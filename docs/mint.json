@@ -122,7 +122,9 @@
                 "api-reference/full-text/scoring",
                 "api-reference/full-text/highlighting",
                 "api-reference/full-text/sorting",
-                "api-reference/full-text/boosting"
+                "api-reference/full-text/boosting",
+                "api-reference/full-text/conjunction",
+                "api-reference/full-text/lenient_parsing"
               ]
             },
             {

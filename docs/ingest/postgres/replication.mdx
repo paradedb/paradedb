@@ -19,7 +19,7 @@ In this guide, we'll walk through setting up logical replication, also known as 
 
 We'll use the following environment setup for our demonstration:
 
-**Primary Server**
+**Primary Postgres (e.g. AWS RDS)**
 
 - **OS**: Ubuntu 24.04
 - **IP**: 192.168.0.30
@@ -27,7 +27,7 @@ We'll use the following environment setup for our demonstration:
 - **Replication User**: `replicator`
 - **Replication Password**: `passw0rd`
 
-**Standby Servers**
+**Replica Postgres (e.g. ParadeDB)**
 
 - **OS**: Ubuntu 24.04
 - **IP**: `192.168.0.31`, `192.168.0.32`
@@ -50,6 +50,7 @@ max_wal_senders = 10
 - `max_wal_senders` determines the maximum number of concurrent connections that can send WAL (Write-Ahead Log) data.
 
 If you are using a managed Postgres service, this can be configured via the dashboard UI. Here are the relevant links for commonly-used primary Postgres databases.
+
 - [AWS RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Parameters.html)
 - [Google CloudSQL](https://cloud.google.com/sql/docs/postgres/flags)
 - [Google Cloud AlloyDB](https://cloud.google.com/alloydb/docs/instance-configure-database-flags)

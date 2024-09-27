@@ -208,7 +208,7 @@ fn create_bm25_impl(
                 obj[key]["field_name_at_index_build"] = field_name_at_index_build.into();
 
                 // Insert the actual field name into the column set for CREATE INDEX.
-                column_names.insert(spi::quote_identifier(field_name_at_index_build.to_string()));
+                column_names.insert(spi::quote_identifier(field_name_at_index_build));
             }
         }
     }

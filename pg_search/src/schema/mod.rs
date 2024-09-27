@@ -645,7 +645,7 @@ impl SearchIndexSchema {
                 id,
                 name: name.clone(),
                 config: config.clone(),
-                type_: field_type.clone(),
+                type_: *field_type,
             });
         }
 
@@ -677,7 +677,7 @@ impl SearchIndexSchema {
                         _ => None,
                     } {
                         acc.entry(SearchFieldName(field_name_at_index_build.clone()))
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(name.clone());
                     }
                     acc

@@ -1,0 +1,129 @@
+---
+title: Nested Search
+---
+
+In search engines like ElasticSearch, hierarchical or tree-structured data is often stored as nested JSON objects.
+In manufacturing, for instance, a single product is made up of many parts, which in turn can have many subparts. In nested JSON format, this data can be represented as:
+
+```json
+{
+    "part": "Chassis Assembly",
+    "subparts": [
+        {
+            "part": "Engine Block",
+            "subparts": [
+                {
+                    "part": "Cylinder Head",
+                    "subparts": ...
+                }
+            ]
+        },
+        {
+            "part": "Transmission System",
+            "subparts": ...
+        },
+        ...
+    ]
+}
+```
+
+In Postgres, this nested object can be flattened into a table with a "parent ID" column to maintain information about the tree structure. To illustrate, ParadeDB comes with a procedure that creates a table called `parts`:
+
+```sql
+CALL paradedb.create_bm25_test_table(
+    schema_name => 'public',
+    table_name => 'parts',
+    table_type => 'Parts'
+);
+
+CALL paradedb.create_bm25(
+    index_name => 'parts',
+    table_name => 'parts',
+    key_field => 'part_id',
+    text_fields => paradedb.field('description')
+);
+
+SELECT * FROM parts LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+ part_id | parent_part_id |     description
+---------+----------------+---------------------
+       1 |              0 | Chassis Assembly
+       2 |              1 | Engine Block
+       3 |              1 | Transmission System
+       4 |              1 | Suspension System
+       5 |              2 | Cylinder Head
+(5 rows)
+```
+</Accordion>
+
+## Child Full Text Search
+
+The following code block uses self JOINs to find all rows with a child matching a full text search:
+
+```sql
+SELECT p.*
+FROM parts p
+JOIN parts c ON p.part_id = c.parent_part_id
+WHERE c.part_id @@@ 'description:rings';
+```
+
+<Accordion title="Expected Response">
+```csv
+ part_id | parent_part_id | description
+---------+----------------+--------------
+       6 |              2 | Piston
+      15 |              6 | Piston Rings
+(2 rows)
+```
+</Accordion>
+
+## Parent Full Text Search
+
+The following code block finds all rows with a parent matching a full text search:
+
+```sql
+WITH parent_parts AS (
+    SELECT part_id, parent_part_id, description
+    FROM parts
+    WHERE parts.part_id @@@ 'description:rings'
+)
+SELECT p.part_id, p.parent_part_id, p.description
+FROM parts p
+JOIN parent_parts pp ON p.parent_part_id = pp.part_id;
+```
+
+<Accordion title="Expected Response">
+```csv
+ part_id | parent_part_id |    description
+---------+----------------+-------------------
+      23 |             15 | Oil Scraper Rings
+(1 row)
+```
+</Accordion>
+
+## Child and Parent Full Text Search
+
+The following code block finds all rows where both the parent and child match a full text search:
+
+```sql
+SELECT child.part_id AS child_part_id,
+       child.parent_part_id AS parent_part_id,
+       child.description AS child_description,
+       parent.description AS parent_description
+FROM parts child
+JOIN parts parent ON child.parent_part_id = parent.part_id
+WHERE parent.part_id @@@ 'description:rings'
+  AND child.part_id @@@ 'description:rings';
+```
+
+<Accordion title="Expected Response">
+```csv
+ child_part_id | parent_part_id | child_description | parent_description
+---------------+----------------+-------------------+--------------------
+            23 |             15 | Oil Scraper Rings | Piston Rings
+(1 row)
+```
+</Accordion>

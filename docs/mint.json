@@ -181,7 +181,8 @@
           "pages": [
             "api-reference/guides/overview",
             "api-reference/guides/autocomplete",
-            "api-reference/guides/hybrid"
+            "api-reference/guides/hybrid",
+            "api-reference/guides/nested-search"
           ]
         },
         {

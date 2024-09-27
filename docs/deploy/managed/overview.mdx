@@ -1,0 +1,7 @@
+---
+title: Configure Replication
+---
+
+In production settings, we recommend deploying ParadeDB as a replica of your primary Postgres. This allows ParadeDB to
+integrate with managed Postgres providers like AWS RDS, Google CloudSQL, Azure Postgres, and others. It also isolates
+search and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.

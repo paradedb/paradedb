@@ -264,8 +264,8 @@
           "pages": ["deploy/self-hosted/k8s", "deploy/self-hosted/docker", "deploy/self-hosted/extensions"]
         },
         {
-          "group": "Managed ParadeDB",
-          "pages": ["deploy/managed/ubicloud"]
+          "group": "Configure Replication",
+          "pages": ["deploy/managed/overview"]
         },
         "deploy/upgrading",
         "deploy/extensions"

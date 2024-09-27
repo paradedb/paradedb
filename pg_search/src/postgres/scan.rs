@@ -42,7 +42,7 @@ pub extern "C" fn ambeginscan(
 
         // we may or may not end up doing an Index Only Scan, but regardless we only need to do
         // this one time
-        (*scandesc).xs_itupdesc = (*indexrel).rd_att;
+        (*scandesc).xs_hitupdesc = (*indexrel).rd_att;
 
         scandesc
     }
@@ -137,13 +137,13 @@ pub extern "C" fn amrescan(
 
     unsafe {
         let results = state.search_minimal((*scan).xs_want_itup, SearchIndex::executor());
-        let natts = (*(*scan).xs_itupdesc).natts as usize;
+        let natts = (*(*scan).xs_hitupdesc).natts as usize;
         let scan_state = if (*scan).xs_want_itup {
             PgSearchScanState {
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
                 key_field_oid: PgOid::from(
-                    (*(*scan).xs_itupdesc).attrs.as_slice(natts)[0].atttypid,
+                    (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid,
                 ),
             }
         } else {
@@ -169,7 +169,7 @@ pub extern "C" fn amgettuple(
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
     let state = unsafe {
-        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
         (*scan).opaque.cast::<PgSearchScanState>().as_mut()
     }
@@ -204,8 +204,8 @@ pub extern "C" fn amgettuple(
                     }
                 }
 
-                (*scan).xs_itup = pg_sys::index_form_tuple(
-                    (*scan).xs_itupdesc,
+                (*scan).xs_hitup = pg_sys::heap_form_tuple(
+                    (*scan).xs_hitupdesc,
                     state.itup.0.as_mut_ptr(),
                     state.itup.1.as_mut_ptr(),
                 );
@@ -223,7 +223,7 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
     assert!(!scan.is_null());
 
     let state = unsafe {
-        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `SearchResultIter` above in
+        // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
         (*scan).opaque.cast::<PgSearchScanState>().as_mut()
     }

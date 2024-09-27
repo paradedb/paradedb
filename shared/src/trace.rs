@@ -93,7 +93,7 @@ impl<S: Subscriber> Layer<S> for EreportLogger {
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        // Covert the values into JSON.
+        // Convert the values into JSON.
         // The tracing library requires you to use a visitor
         // pattern to access the values of the fields.
         let mut fields = HashMap::new();
@@ -141,10 +141,10 @@ impl<S: Subscriber> Layer<S> for EreportLogger {
     }
 }
 
-/// Intialize the tracing subscriber for pgrx/Postgres logging.
+/// Initialize the tracing subscriber for pgrx/Postgres logging.
 /// This function needs to be called in every process for logging to work.
 /// It should be called explicitly in background workers, and also in a hook
-/// that will automatically intialize it for connection processes.
+/// that will automatically initialize it for connection processes.
 pub fn init_ereport_logger(crate_name: &str) {
     if INITIALIZED.load(Ordering::SeqCst) {
         return;

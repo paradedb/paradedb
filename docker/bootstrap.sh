@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2154
 
-# Executed at container start to boostrap ParadeDB extensions and Postgres settings.
+# Executed at container start to bootstrap ParadeDB extensions and Postgres settings.
 
 # Exit on subcommand errors
 set -Eeuo pipefail

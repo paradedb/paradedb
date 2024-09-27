@@ -426,7 +426,7 @@ impl From<SearchFieldConfig> for TextOptions {
                     text_options = text_options.set_indexing_options(text_field_indexing);
                 }
             }
-            _ => panic!("attemped to convert non-text search field config to tantivy text config"),
+            _ => panic!("attempted to convert non-text search field config to tantivy text config"),
         }
         text_options
     }
@@ -455,7 +455,7 @@ impl From<SearchFieldConfig> for NumericOptions {
             }
             _ => {
                 panic!(
-                    "attemped to convert non-numeric search field config to tantivy numeric config"
+                    "attempted to convert non-numeric search field config to tantivy numeric config"
                 )
             }
         }
@@ -494,7 +494,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 }
             }
             _ => {
-                panic!("attemped to convert non-json search field config to tantivy json config")
+                panic!("attempted to convert non-json search field config to tantivy json config")
             }
         }
 
@@ -522,7 +522,7 @@ impl From<SearchFieldConfig> for DateOptions {
                 }
             }
             _ => {
-                panic!("attemped to convert non-date search field config to tantivy date config")
+                panic!("attempted to convert non-date search field config to tantivy date config")
             }
         }
         date_options

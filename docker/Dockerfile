@@ -42,7 +42,7 @@ ENV PATH="/root/.cargo/bin:$PATH" \
 WORKDIR /tmp
 COPY pg_search/Cargo.toml ./
 
-# Intall the pgrx version of pg_search and pg_analytics
+# Install the pgrx version of pg_search and pg_analytics
 RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
@@ -128,7 +128,7 @@ WORKDIR /tmp
 RUN git clone --branch 0.3.0 https://github.com/timescale/pgvectorscale.git
 WORKDIR /tmp/pgvectorscale/pgvectorscale
 
-# Intall the pgrx version of pgvectorscale
+# Install the pgrx version of pgvectorscale
 RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pgvectorscale | head -n 1 | cut -f2 -dv) && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \

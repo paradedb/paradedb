@@ -18,7 +18,7 @@
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
 use pgrx::{JsonB, PgRelation, Spi};
-use serde_json::{json, Value};
+use serde_json::{json, to_string, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -166,33 +166,53 @@ fn create_bm25_impl(
     ))?;
 
     let mut column_names = HashSet::new();
-    for fields in [
+
+    let mut field_config_objects = [
         text_fields,
         numeric_fields,
         boolean_fields,
         json_fields,
         datetime_fields,
-    ] {
-        match json5::from_str::<Value>(fields) {
-            Ok(obj) => {
-                if let Value::Object(map) = obj {
-                    for key in map.keys() {
-                        if key == key_field {
-                            bail!(
-                                "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields",
-                                spi::quote_identifier(key.clone())
-                            );
-                        }
+    ]
+    .into_iter()
+    .map(|s| json5::from_str::<Value>(s).unwrap_or_else(|err| panic!("error parsing {s}: {err}")))
+    .collect::<Vec<_>>();
 
-                        column_names.insert(spi::quote_identifier(key.clone()));
-                    }
+    for obj in field_config_objects.iter_mut() {
+        if let Value::Object(map) = obj.clone() {
+            for key in map.keys() {
+                let field_name_at_index_build = map
+                    .get(key)
+                    .expect("config map should have field name as a key")
+                    .get("field_name_at_index_build")
+                    .and_then(|val| val.as_str())
+                    .unwrap_or(key); // Was configured as JSON object if not passed, use key as-is.
+
+                // The user should not be able to use the key_field as either a field or alias.
+                if key == key_field {
+                    bail!(
+                        "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields",
+                        spi::quote_identifier(key.clone())
+                    );
                 }
-            }
-            Err(err) => {
-                bail!("Error parsing {}: {}", fields, err);
+
+                // In case the user has tried to alias the key field, throw the same error.
+                if field_name_at_index_build == key_field {
+                    bail!(
+                        "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields",
+                        spi::quote_identifier(key.clone())
+                    );
+                }
+                // In case no value was passed, re-assign this field to ensure the defaults
+                // above are stored in the config object.
+                obj[key]["field_name_at_index_build"] = field_name_at_index_build.into();
+
+                // Insert the actual field name into the column set for CREATE INDEX.
+                column_names.insert(spi::quote_identifier(field_name_at_index_build.to_string()));
             }
         }
     }
+
     let column_names_csv = column_names
         .clone()
         .into_iter()
@@ -216,11 +236,11 @@ fn create_bm25_impl(
         spi::quote_identifier(key_field),
         column_names_csv,
         spi::quote_literal(key_field),
-        spi::quote_literal(text_fields),
-        spi::quote_literal(numeric_fields),
-        spi::quote_literal(boolean_fields),
-        spi::quote_literal(json_fields),
-        spi::quote_literal(datetime_fields),
+        spi::quote_literal(to_string(&field_config_objects[0]).expect("config should serialize")),
+        spi::quote_literal(to_string(&field_config_objects[1]).expect("config should serialize")),
+        spi::quote_literal(to_string(&field_config_objects[2]).expect("config should serialize")),
+        spi::quote_literal(to_string(&field_config_objects[3]).expect("config should serialize")),
+        spi::quote_literal(to_string(&field_config_objects[4]).expect("config should serialize")),
         spi::quote_identifier(index_uuid.clone()),
         predicate_where))?;
 

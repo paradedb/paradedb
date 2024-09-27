@@ -44,6 +44,8 @@ impl BuildState {
     }
 }
 
+type NameTypeMap = HashMap<SearchFieldName, SearchFieldType>;
+
 #[pg_guard]
 pub extern "C" fn ambuild(
     heaprel: pg_sys::Relation,
@@ -78,7 +80,7 @@ pub extern "C" fn ambuild(
 
     // Create a map from column name to column type. We'll use this to verify that index
     // configurations passed by the user reference the correct types for each column.
-    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heap_relation
+    let name_type_map: NameTypeMap = heap_relation
         .tuple_desc()
         .into_iter()
         .filter_map(|attribute| {
@@ -99,48 +101,97 @@ pub extern "C" fn ambuild(
         .collect();
 
     // Parse and validate the index configurations for each column.
-    let text_fields =
-        rdopts
-            .get_text_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Text) => (name, config, *field_type),
-                _ => panic!("'{name}' cannot be indexed as a text field"),
-            });
+
+    let text_fields = rdopts.get_text_fields().into_iter().map(|(name, config)| {
+        if let SearchFieldConfig::Text {
+            field_name_at_index_build,
+            ..
+        } = &config
+        {
+            if let Some(field_type @ SearchFieldType::Text) =
+                name_type_map.get(&SearchFieldName(field_name_at_index_build.clone()))
+            {
+                return (name, config, *field_type);
+            }
+            panic!("'{field_name_at_index_build}' cannot be indexed as a text field",);
+        }
+        panic!("'{name}' cannot be indexed as a text field");
+    });
 
     let numeric_fields = rdopts
         .get_numeric_fields()
         .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::U64)
-            | Some(field_type @ SearchFieldType::I64)
-            | Some(field_type @ SearchFieldType::F64) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a numeric field"),
+        .map(|(name, config)| {
+            if let SearchFieldConfig::Numeric {
+                field_name_at_index_build,
+                ..
+            } = &config
+            {
+                if let Some(
+                    field_type @ (SearchFieldType::U64
+                    | SearchFieldType::I64
+                    | SearchFieldType::F64),
+                ) = name_type_map.get(&SearchFieldName(field_name_at_index_build.clone()))
+                {
+                    return (name, config, *field_type);
+                }
+                panic!("'{field_name_at_index_build}' cannot be indexed as a numeric field");
+            }
+            panic!("'{name}' cannot be indexed as a numeric field");
         });
 
     let boolean_fields = rdopts
         .get_boolean_fields()
         .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Bool) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a boolean field"),
+        .map(|(name, config)| {
+            if let SearchFieldConfig::Boolean {
+                field_name_at_index_build,
+                ..
+            } = &config
+            {
+                if let Some(field_type @ SearchFieldType::Bool) =
+                    name_type_map.get(&SearchFieldName(field_name_at_index_build.clone()))
+                {
+                    return (name, config, *field_type);
+                }
+                panic!("'{field_name_at_index_build}' cannot be indexed as a boolean field");
+            }
+            panic!("'{name}' cannot be indexed as a boolean field");
         });
 
-    let json_fields =
-        rdopts
-            .get_json_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Json) => (name, config, *field_type),
-                _ => panic!("'{name}' cannot be indexed as a JSON field"),
-            });
+    let json_fields = rdopts.get_json_fields().into_iter().map(|(name, config)| {
+        if let SearchFieldConfig::Json {
+            field_name_at_index_build,
+            ..
+        } = &config
+        {
+            if let Some(field_type @ SearchFieldType::Json) =
+                name_type_map.get(&SearchFieldName(field_name_at_index_build.clone()))
+            {
+                return (name, config, *field_type);
+            }
+            panic!("'{field_name_at_index_build}' cannot be indexed as a JSON field");
+        }
+        panic!("'{name}' cannot be indexed as a JSON field");
+    });
 
     let datetime_fields = rdopts
         .get_datetime_fields()
         .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Date) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a datetime field"),
+        .map(|(name, config)| {
+            if let SearchFieldConfig::Date {
+                field_name_at_index_build,
+                ..
+            } = &config
+            {
+                if let Some(field_type @ SearchFieldType::Date) =
+                    name_type_map.get(&SearchFieldName(field_name_at_index_build.clone()))
+                {
+                    return (name, config, *field_type);
+                }
+                panic!("'{field_name_at_index_build}' cannot be indexed as a datetime field");
+            }
+            panic!("'{name}' cannot be indexed as a datetime field");
         });
 
     let uuid = rdopts
@@ -157,6 +208,7 @@ pub extern "C" fn ambuild(
                 indexed: true,
                 fast: true,
                 stored: true,
+                field_name_at_index_build: key_field.0.clone(),
             }
         }
         SearchFieldType::Text => SearchFieldConfig::Text {
@@ -167,6 +219,7 @@ pub extern "C" fn ambuild(
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
+            field_name_at_index_build: key_field.0.clone(),
         },
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
@@ -176,16 +229,19 @@ pub extern "C" fn ambuild(
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
+            field_name_at_index_build: key_field.0.clone(),
         },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
             stored: true,
+            field_name_at_index_build: key_field.0.clone(),
         },
         SearchFieldType::Date => SearchFieldConfig::Date {
             indexed: true,
             fast: true,
             stored: true,
+            field_name_at_index_build: key_field.0.clone(),
         },
     };
 

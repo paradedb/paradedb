@@ -1065,3 +1065,136 @@ fn index_size(mut conn: PgConnection) {
     // Ensure the size is greater than zero, meaning the index has been created
     assert!(size > 0);
 }
+
+#[rstest]
+fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE products (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        description TEXT
+    );"
+    .execute(&mut conn);
+
+    // Insert mock data
+    "INSERT INTO products (name, description) VALUES
+    ('Mechanical Keyboard', 'RGB backlit keyboard with Cherry MX switches'),
+    ('Wireless Mouse', 'Ergonomic mouse with long battery life'),
+    ('4K Monitor', 'Ultra-wide curved display with HDR'),
+    ('Gaming Laptop', 'Powerful laptop with dedicated GPU'),
+    ('Ergonomic Chair', 'Adjustable office chair with lumbar support'),
+    ('Standing Desk', 'Electric height-adjustable desk'),
+    ('Noise-Cancelling Headphones', 'Over-ear headphones with active noise cancellation'),
+    ('Mechanical Pencil', 'Precision drafting tool with 0.5mm lead'),
+    ('Wireless Keyboard', 'Slim keyboard with multi-device support'),
+    ('Graphic Tablet', 'Digital drawing pad with pressure sensitivity'),
+    ('Curved Monitor', 'Immersive gaming display with high refresh rate'),
+    ('Ergonomic Keyboard', 'Split design keyboard for comfortable typing'),
+    ('Vertical Mouse', 'Upright mouse design to reduce wrist strain'),
+    ('Ultrabook Laptop', 'Thin and light laptop with all-day battery'),
+    ('LED Desk Lamp', 'Adjustable lighting with multiple color temperatures');"
+        .execute(&mut conn);
+
+    // Create the BM25 index
+    "CALL paradedb.create_bm25(
+        index_name => 'products_index',
+        table_name => 'products',
+        key_field => 'id',
+        text_fields => 
+            paradedb.field('name', tokenizer => paradedb.tokenizer('default')) ||
+            paradedb.field('name', alias => 'name_stem', tokenizer => paradedb.tokenizer('en_stem')) ||
+            paradedb.field('description', tokenizer => paradedb.tokenizer('default')) ||
+            paradedb.field('description', alias => 'description_stem', tokenizer => paradedb.tokenizer('en_stem'))
+    );"
+    .execute(&mut conn);
+
+    // Test querying with default tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products_index.search('name:Keyboard')".fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().any(|(_, name)| name == "Mechanical Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Ergonomic Keyboard"));
+
+    // Ensure that the default tokenizer doesn't return for stemmed queries
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products_index.search('name:Keyboards')".fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+
+    // Test querying with stemmed alias
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products_index.search('name_stem:Keyboards')".fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().any(|(_, name)| name == "Mechanical Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Ergonomic Keyboard"));
+
+    // Test querying description with default tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products_index.search('description:battery')".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Mouse"));
+    assert!(rows.iter().any(|(_, name)| name == "Ultrabook Laptop"));
+
+    // Ensure that the default tokenizer doesn't return for stemmed queries
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products_index.search('description:displaying')".fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+
+    // Test querying description with stemmed alias
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products_index.search('description_stem:displaying')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "4K Monitor"));
+    assert!(rows.iter().any(|(_, name)| name == "Curved Monitor"));
+
+    // Test querying with both default and stemmed fields
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products_index.search('name:Mouse OR description_stem:mouses')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Mouse"));
+    assert!(rows.iter().any(|(_, name)| name == "Vertical Mouse"));
+}
+
+#[rstest]
+fn alias_cannot_be_key_field(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE products (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        description TEXT
+    );"
+    .execute(&mut conn);
+
+    // Test alias cannot be the same as key_field
+    let result = "CALL paradedb.create_bm25(
+        index_name => 'products_index',
+        table_name => 'products',
+        key_field => 'id',
+        text_fields => 
+            paradedb.field('name', tokenizer => paradedb.tokenizer('default')) ||
+            paradedb.field('description', alias => 'id', tokenizer => paradedb.tokenizer('en_stem'))
+    );"
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("key_field id cannot be included"));
+
+    // Test valid configuration where alias is different from key_field
+    let result = "CALL paradedb.create_bm25(
+        index_name => 'products_index',
+        table_name => 'products',
+        key_field => 'id',
+        text_fields => 
+            paradedb.field('name', tokenizer => paradedb.tokenizer('default')) ||
+            paradedb.field('description', alias => 'desc_stem', tokenizer => paradedb.tokenizer('en_stem'))
+    );"
+    .execute_result(&mut conn);
+
+    assert!(result.is_ok());
+}

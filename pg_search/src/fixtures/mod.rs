@@ -69,10 +69,18 @@ pub fn mock_dir() -> MockWriterDirectory {
 
 #[fixture]
 pub fn default_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
-    let text: SearchFieldConfig = serde_json::from_value(json!({"Text": {}})).unwrap();
-    let numeric: SearchFieldConfig = serde_json::from_value(json!({"Numeric": {}})).unwrap();
-    let json: SearchFieldConfig = serde_json::from_value(json!({"Json": {}})).unwrap();
-    let boolean: SearchFieldConfig = serde_json::from_value(json!({"Boolean": {}})).unwrap();
+    let text: SearchFieldConfig = serde_json::from_value(json!({"Text": {
+        "field_name_at_index_build": "somename"
+    }}))
+    .unwrap();
+    let numeric: SearchFieldConfig =
+        serde_json::from_value(json!({"Numeric": {"field_name_at_index_build": "somename"}}))
+            .unwrap();
+    let json: SearchFieldConfig =
+        serde_json::from_value(json!({"Json": {"field_name_at_index_build": "somename"}})).unwrap();
+    let boolean: SearchFieldConfig =
+        serde_json::from_value(json!({"Boolean": {"field_name_at_index_build": "somename"}}))
+            .unwrap();
 
     vec![
         ("id".into(), numeric.clone(), SearchFieldType::I64),

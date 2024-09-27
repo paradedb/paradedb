@@ -79,15 +79,6 @@ pub unsafe fn row_to_search_document(
         let attname = attribute.name().to_string();
         let attribute_type_oid = attribute.type_oid();
 
-        // If we can't lookup the attribute name in the field_lookup parameter,
-        // it means that this field is not part of the index. We should skip it.
-        let search_field =
-            if let Some(index_field) = schema.get_search_field(&attname.clone().into()) {
-                index_field
-            } else {
-                continue;
-            };
-
         let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
         let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
             (PgOid::from(array_type), true)
@@ -112,19 +103,34 @@ pub unsafe fn row_to_search_document(
             continue;
         }
 
-        if is_array {
-            for value in TantivyValue::try_from_datum_array(datum, base_oid)? {
-                document.insert(search_field.id, value.tantivy_schema_value());
+        // A given column name in the table may have many aliases, so we should look
+        // them up here and insert them separately into the document.
+        for field_name in schema
+            .get_aliases(&SearchFieldName(attname.clone()))
+            .unwrap_or_else(|| panic!("column {attname} should exist in index alias lookup map"))
+        {
+            // If we can't lookup the attribute name in the field_lookup parameter,
+            // it means that this field is not part of the index. We should skip it.
+            let search_field = if let Some(index_field) = schema.get_search_field(field_name) {
+                index_field
+            } else {
+                continue;
+            };
+
+            if is_array {
+                for value in TantivyValue::try_from_datum_array(datum, base_oid)? {
+                    document.insert(search_field.id, value.tantivy_schema_value());
+                }
+            } else if is_json {
+                for value in TantivyValue::try_from_datum_json(datum, base_oid)? {
+                    document.insert(search_field.id, value.tantivy_schema_value());
+                }
+            } else {
+                document.insert(
+                    search_field.id,
+                    TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),
+                );
             }
-        } else if is_json {
-            for value in TantivyValue::try_from_datum_json(datum, base_oid)? {
-                document.insert(search_field.id, value.tantivy_schema_value());
-            }
-        } else {
-            document.insert(
-                search_field.id,
-                TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),
-            );
         }
     }
 

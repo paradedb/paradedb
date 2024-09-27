@@ -107,6 +107,7 @@ pub enum SearchFieldConfig {
         record: IndexRecordOption,
         #[serde(default)]
         normalizer: SearchNormalizer,
+        field_name_at_index_build: String,
     },
     Json {
         #[serde(default = "default_as_true")]
@@ -124,6 +125,7 @@ pub enum SearchFieldConfig {
         record: IndexRecordOption,
         #[serde(default)]
         normalizer: SearchNormalizer,
+        field_name_at_index_build: String,
     },
     Numeric {
         #[serde(default = "default_as_true")]
@@ -132,6 +134,7 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         stored: bool,
+        field_name_at_index_build: String,
     },
     Boolean {
         #[serde(default = "default_as_true")]
@@ -140,6 +143,7 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         stored: bool,
+        field_name_at_index_build: String,
     },
     Date {
         #[serde(default = "default_as_true")]
@@ -148,6 +152,7 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         stored: bool,
+        field_name_at_index_build: String,
     },
     Ctid,
 }
@@ -201,6 +206,12 @@ impl SearchFieldConfig {
             None => Ok(SearchNormalizer::Raw),
         }?;
 
+        let field_name_at_index_build = obj
+            .get("field_name_at_index_build")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .expect("SearchFieldConfig expects a field_name_at_index_build string");
+
         Ok(SearchFieldConfig::Text {
             indexed,
             fast,
@@ -209,6 +220,7 @@ impl SearchFieldConfig {
             tokenizer,
             record,
             normalizer,
+            field_name_at_index_build,
         })
     }
 
@@ -260,6 +272,12 @@ impl SearchFieldConfig {
             None => Ok(SearchNormalizer::Raw),
         }?;
 
+        let field_name_at_index_build = obj
+            .get("field_name_at_index_build")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .expect("SearchFieldConfig expects a field_name_at_index_build string");
+
         Ok(SearchFieldConfig::Json {
             indexed,
             fast,
@@ -268,6 +286,7 @@ impl SearchFieldConfig {
             tokenizer,
             record,
             normalizer,
+            field_name_at_index_build,
         })
     }
 
@@ -297,10 +316,17 @@ impl SearchFieldConfig {
             None => Ok(true),
         }?;
 
+        let field_name_at_index_build = obj
+            .get("field_name_at_index_build")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .expect("SearchFieldConfig expects a field_name_at_index_build string");
+
         Ok(SearchFieldConfig::Numeric {
             indexed,
             fast,
             stored,
+            field_name_at_index_build,
         })
     }
 
@@ -330,10 +356,17 @@ impl SearchFieldConfig {
             None => Ok(true),
         }?;
 
+        let field_name_at_index_build = obj
+            .get("field_name_at_index_build")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .expect("SearchFieldConfig expects a field_name_at_index_build string");
+
         Ok(SearchFieldConfig::Boolean {
             indexed,
             fast,
             stored,
+            field_name_at_index_build,
         })
     }
 
@@ -363,10 +396,17 @@ impl SearchFieldConfig {
             None => Ok(true),
         }?;
 
+        let field_name_at_index_build = obj
+            .get("field_name_at_index_build")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .expect("SearchFieldConfig expects a field_name_at_index_build string");
+
         Ok(SearchFieldConfig::Date {
             indexed,
             fast,
             stored,
+            field_name_at_index_build,
         })
     }
 }
@@ -378,23 +418,23 @@ impl SearchFieldConfig {
     }
 
     pub fn default_text() -> Self {
-        Self::from_json(json!({"Text": {}}))
+        Self::from_json(json!({"Text": {"field_name_at_index_build": "somename"}}))
     }
 
     pub fn default_numeric() -> Self {
-        Self::from_json(json!({"Numeric": {}}))
+        Self::from_json(json!({"Numeric": {"field_name_at_index_build": "somename"}}))
     }
 
     pub fn default_boolean() -> Self {
-        Self::from_json(json!({"Boolean": {}}))
+        Self::from_json(json!({"Boolean": {"field_name_at_index_build": "somename"}}))
     }
 
     pub fn default_json() -> Self {
-        Self::from_json(json!({"Json": {}}))
+        Self::from_json(json!({"Json": {"field_name_at_index_build": "somename"}}))
     }
 
     pub fn default_date() -> Self {
-        Self::from_json(json!({"Date": {}}))
+        Self::from_json(json!({"Date": {"field_name_at_index_build": "somename"}}))
     }
 }
 
@@ -410,6 +450,7 @@ impl From<SearchFieldConfig> for TextOptions {
                 tokenizer,
                 record,
                 normalizer,
+                ..
             } => {
                 if stored {
                     text_options = text_options.set_stored();
@@ -440,9 +481,10 @@ impl From<SearchFieldConfig> for NumericOptions {
                 indexed,
                 fast,
                 stored,
+                ..
             }
             // Following the example of Quickwit, which uses NumericOptions for boolean options.
-            | SearchFieldConfig::Boolean { indexed, fast, stored } => {
+            | SearchFieldConfig::Boolean { indexed, fast, stored, .. } => {
                 if stored {
                     numeric_options = numeric_options.set_stored();
                 }
@@ -475,6 +517,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 tokenizer,
                 record,
                 normalizer,
+                ..
             } => {
                 if stored {
                     json_options = json_options.set_stored();
@@ -510,6 +553,7 @@ impl From<SearchFieldConfig> for DateOptions {
                 indexed,
                 fast,
                 stored,
+                ..
             } => {
                 if stored {
                     date_options = date_options.set_stored();
@@ -560,7 +604,8 @@ pub struct SearchIndexSchema {
     pub schema: Schema,
     /// A lookup cache for retrieving search fields.
     #[serde(skip_serializing)]
-    pub lookup: Option<HashMap<SearchFieldName, usize>>,
+    lookup: Option<HashMap<SearchFieldName, usize>>,
+    alias_lookup: HashMap<SearchFieldName, Vec<SearchFieldName>>,
 }
 
 impl SearchIndexSchema {
@@ -572,8 +617,8 @@ impl SearchIndexSchema {
         let mut search_fields = vec![];
 
         let mut ctid_index = 0;
-        for (index, (name, config, field_type)) in fields.into_iter().enumerate() {
-            if config == SearchFieldConfig::Ctid {
+        for (index, (name, config, field_type)) in fields.iter().enumerate() {
+            if config == &SearchFieldConfig::Ctid {
                 ctid_index = index
             }
 
@@ -598,11 +643,45 @@ impl SearchIndexSchema {
 
             search_fields.push(SearchField {
                 id,
-                name,
-                config,
-                type_: field_type,
+                name: name.clone(),
+                config: config.clone(),
+                type_: field_type.clone(),
             });
         }
+
+        let alias_lookup: HashMap<SearchFieldName, Vec<SearchFieldName>> =
+            fields
+                .iter()
+                .fold(HashMap::new(), |mut acc, (name, config, _)| {
+                    if let Some(field_name_at_index_build) = match config {
+                        SearchFieldConfig::Text {
+                            field_name_at_index_build,
+                            ..
+                        }
+                        | SearchFieldConfig::Json {
+                            field_name_at_index_build,
+                            ..
+                        }
+                        | SearchFieldConfig::Numeric {
+                            field_name_at_index_build,
+                            ..
+                        }
+                        | SearchFieldConfig::Boolean {
+                            field_name_at_index_build,
+                            ..
+                        }
+                        | SearchFieldConfig::Date {
+                            field_name_at_index_build,
+                            ..
+                        } => Some(field_name_at_index_build),
+                        _ => None,
+                    } {
+                        acc.entry(SearchFieldName(field_name_at_index_build.clone()))
+                            .or_insert_with(Vec::new)
+                            .push(name.clone());
+                    }
+                    acc
+                });
 
         let schema = builder.build();
 
@@ -612,6 +691,7 @@ impl SearchIndexSchema {
             schema,
             lookup: Self::build_lookup(&search_fields).into(),
             fields: search_fields,
+            alias_lookup,
         })
     }
 
@@ -655,6 +735,10 @@ impl SearchIndexSchema {
             let lookup = Self::build_lookup(&self.fields);
             lookup.get(name).and_then(|idx| self.fields.get(*idx))
         }
+    }
+
+    pub fn get_aliases(&self, name: &SearchFieldName) -> Option<&Vec<SearchFieldName>> {
+        self.alias_lookup.get(name)
     }
 }
 
@@ -737,6 +821,7 @@ mod tests {
                 indexed: true,
                 fast: true,
                 stored: true,
+                field_name_at_index_build: "dummy_key_field".into(),
             },
             SearchFieldType::U64,
         )];

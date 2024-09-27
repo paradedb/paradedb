@@ -187,7 +187,8 @@ mod tests {
             "fieldnorms": true,
             "type": "default",
             "record": "basic",
-            "normalizer": "raw"
+            "normalizer": "raw",
+            "field_name_at_index_build": "somename"
         }"#;
         let config: serde_json::Value = serde_json::from_str(json).unwrap();
         let search_text_option: SearchFieldConfig =
@@ -211,7 +212,8 @@ mod tests {
             "indexed": true,
             "stored": true,
             "fieldnorms": false,
-            "fast": true
+            "fast": true,
+            "field_name_at_index_build": "somename"
         }"#;
         let config: serde_json::Value = serde_json::from_str(json).unwrap();
         let expected: SearchFieldConfig =
@@ -227,7 +229,8 @@ mod tests {
             "indexed": true,
             "stored": true,
             "fieldnorms": false,
-            "fast": true
+            "fast": true,
+            "field_name_at_index_build": "somename"
         }"#;
         let config: serde_json::Value = serde_json::from_str(json).unwrap();
         let expected: SearchFieldConfig =
@@ -246,7 +249,8 @@ mod tests {
             "expand_dots": true,
             "type": "default",
             "record": "basic",
-            "normalizer": "raw"
+            "normalizer": "raw",
+            "field_name_at_index_build": "somename"
         }"#;
         let config: serde_json::Value = serde_json::from_str(json).unwrap();
         let search_json_option: SearchFieldConfig =

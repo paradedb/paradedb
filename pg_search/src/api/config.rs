@@ -30,6 +30,7 @@ pub fn field(
     expand_dots: default!(Option<bool>, "NULL"),
     tokenizer: default!(Option<JsonB>, "NULL"),
     normalizer: default!(Option<String>, "NULL"),
+    alias: default!(Option<String>, "NULL"),
 ) -> JsonB {
     let mut config = Map::new();
 
@@ -41,8 +42,13 @@ pub fn field(
     expand_dots.map(|v| config.insert("expand_dots".to_string(), Value::Bool(v)));
     tokenizer.map(|v| config.insert("tokenizer".to_string(), v.0));
     normalizer.map(|v| config.insert("normalizer".to_string(), Value::String(v)));
+    config.insert("field_name_at_index_build".to_string(), name.into());
 
-    JsonB(json!({ name: config }))
+    if let Some(alias) = alias {
+        JsonB(json!({ alias: config }))
+    } else {
+        JsonB(json!({ name: config }))
+    }
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -85,7 +91,7 @@ mod tests {
     #[test]
     fn test_single_field() {
         let expected = json!({
-            "field1": {
+            "new_alias_name": {
                 "indexed": true,
                 "stored": false,
                 "fast": true,
@@ -93,7 +99,8 @@ mod tests {
                 "record": "position",
                 "expand_dots": true,
                 "tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false, "stemmer": "English"},
-                "normalizer": "lowercase"
+                "normalizer": "lowercase",
+                "field_name_at_index_build": "field1"
             }
         });
 
@@ -117,6 +124,7 @@ mod tests {
                 Some("English".to_string()),
             )),
             Some("lowercase".to_string()),
+            Some("new_alias_name".to_string()),
         );
 
         assert_eq!(expected, actual);

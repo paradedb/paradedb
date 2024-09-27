@@ -1074,3 +1074,53 @@ fn conjunction_config_search(mut conn: PgConnection) {
 
     assert!(columns.len() > 2);
 }
+
+#[rstest]
+fn more_like_this_with_alias(mut conn: PgConnection) {
+    // Create the table
+    r#"
+    CREATE TABLE test_more_like_this_alias (
+        id SERIAL PRIMARY KEY,
+        flavour TEXT,
+        description TEXT
+    );
+
+    INSERT INTO test_more_like_this_alias (flavour, description) VALUES 
+        ('apple', 'A sweet and crisp fruit'),
+        ('banana', 'A long yellow tropical fruit'),
+        ('cherry', 'A small round red fruit'),
+        ('banana split', 'An ice cream dessert with bananas'),
+        ('apple pie', 'A dessert made with apples');
+    "#
+    .execute(&mut conn);
+
+    // Create the BM25 index with aliased fields
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_more_like_this_alias',
+        index_name => 'test_more_like_this_alias_index',
+        key_field => 'id',
+        text_fields => 
+            paradedb.field('flavour', alias => 'taste') ||
+            paradedb.field('description', alias => 'details')
+    );
+    "#
+    .execute(&mut conn);
+
+    // Test more_like_this with aliased field 'taste' (original 'flavour')
+    let rows: Vec<(i32, String, String)> = r#"
+    SELECT id, flavour, description FROM test_more_like_this_alias_index.search(
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 0,
+            with_min_term_frequency => 0,
+            with_document_fields => '{"taste": "banana"}'
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana"));
+    assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana split"));
+}

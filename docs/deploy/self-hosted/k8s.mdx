@@ -2,7 +2,7 @@
 title: Kubernetes
 ---
 
-The ParadeDB Helm Chart is based on the [CloudNativePG Helm Chart](https://cloudnative-pg.io/). CloudNativePG is the Kubernetes operator that covers the full lifecycle of a highly available
+The ParadeDB Helm Chart is based on the official [CloudNativePG Helm Chart](https://cloudnative-pg.io/). CloudNativePG is a Kubernetes operator that covers the full lifecycle of a highly available
 PostgreSQL database cluster with a primary/standby architecture, using native streaming replication.
 
 The chart is also available via [ArtifactHub](https://artifacthub.io/packages/helm/paradedb/paradedb).
@@ -10,7 +10,7 @@ The chart is also available via [ArtifactHub](https://artifacthub.io/packages/he
 ## Getting Started
 
 First, install [Helm](https://helm.sh/docs/intro/install/). The following steps assume you have a Kubernetes cluster running v1.25+. If you are testing locally, we recommend
-using [Minikube](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fmacos%2Farm64%2Fstable%2Fbinary+download).
+using [Minikube](https://minikube.sigs.k8s.io/docs/start/).
 
 ### Installing the CloudNativePG Operator
 
@@ -24,7 +24,7 @@ helm upgrade --install cnpg \
 cnpg/cloudnative-pg
 ```
 
-### Setting up a ParadeDB CNPG Cluster
+### Setting up a ParadeDB CloudNativePG Cluster
 
 Create a `values.yaml` and configure it to your requirements. Here is a basic example:
 
@@ -38,7 +38,9 @@ cluster:
     size: 256Mi
 ```
 
-Then, launch the ParadeDB cluster. You can omit the `--values values.yaml` to use the default values.
+You can omit the `--values values.yaml` to use the default values. Please refer to the [ParadeDB Helm Chart documentation](https://paradedb.github.io/charts/) for advanced configuration options.
+
+Then, launch the ParadeDB cluster.
 
 ```console
 helm repo add paradedb https://paradedb.github.io/charts
@@ -48,8 +50,6 @@ helm upgrade --install paradedb \
 --values values.yaml \
 paradedb/paradedb
 ```
-
-Refer to the [CloudNativePG Cluster Chart documentation](https://paradedb.github.io/charts/) for advanced configuration options.
 
 ## High Availability
 

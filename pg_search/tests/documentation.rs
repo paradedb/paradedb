@@ -478,3 +478,69 @@ fn joined_tables(mut conn: PgConnection) {
         )]
     );
 }
+
+#[rstest]
+fn multiple_tokenizers_example(mut conn: PgConnection) {
+    // Create the test table
+    "CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');"
+        .execute(&mut conn);
+
+    // Create the BM25 index with multiple tokenizers
+    r#"
+    CALL paradedb.create_bm25(
+      index_name => 'search_idx',
+      table_name => 'mock_items',
+      schema_name => 'public',
+      key_field => 'id',
+      text_fields =>
+        paradedb.field('description', tokenizer => paradedb.tokenizer('whitespace')) ||
+        paradedb.field('description', alias => 'description_ngram', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)) ||
+        paradedb.field('description', alias => 'description_stem', tokenizer => paradedb.tokenizer('en_stem'))
+    );"#
+    .execute(&mut conn);
+
+    // Exact phrase match using default tokenizer
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, description 
+    FROM search_idx.search('description:"Ergonomic metal keyboard"', stable_sort => true)"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "Ergonomic metal keyboard");
+
+    // Partial match using ngram tokenizer
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, description 
+    FROM search_idx.search('description_ngram:key', stable_sort => true)"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows
+        .iter()
+        .any(|(_, desc)| desc == "Ergonomic metal keyboard"));
+    assert!(rows.iter().any(|(_, desc)| desc == "Plastic Keyboard"));
+
+    // Stemmed search using en_stem tokenizer
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, description 
+    FROM search_idx.search('description_stem:running', stable_sort => true)"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().any(|(_, desc)| desc == "Sleek running shoes"));
+
+    // Combining different tokenizers in a single query
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, description 
+    FROM search_idx.search('description_ngram:cam AND description_stem:digitally', stable_sort => true)"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows
+        .iter()
+        .any(|(_, desc)| desc == "Compact digital camera"));
+
+    //  Using default tokenizer for exact match and stem for related concepts
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, description 
+    FROM search_idx.search('description:"Soft cotton" OR description_stem:shirts', stable_sort => true)"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().any(|(_, desc)| desc == "Soft cotton shirt"));
+}

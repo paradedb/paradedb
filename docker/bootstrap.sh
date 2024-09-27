@@ -24,7 +24,6 @@ for DB in template_paradedb "$POSTGRES_DB"; do
     CREATE EXTENSION IF NOT EXISTS pg_analytics;
     CREATE EXTENSION IF NOT EXISTS pg_ivm;
     CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE EXTENSION IF NOT EXISTS vectorscale;
 
     CREATE EXTENSION IF NOT EXISTS postgis;
     CREATE EXTENSION IF NOT EXISTS postgis_topology;

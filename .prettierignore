@@ -16,7 +16,6 @@
 /docs/api-reference/indexing/create_index.mdx
 /docs/api-reference/guides/autocomplete.mdx
 /docs/api-reference/guides/hybrid.mdx
-/docs/api-reference/guides/nested-search.mdx
 /docs/api-reference/optimization/joins.mdx
 /docs/ingest/quickstart.mdx
 /pg_search/benchmarks/out/

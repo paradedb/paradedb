@@ -1,0 +1,31 @@
+# workflows/check-typo.yml
+#
+# Check Typo
+# Check Typo using codespell.
+
+name: Check Typo
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: check-typo-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-typo:
+    name: Check Typo using codespell
+    runs-on: depot-ubuntu-latest-2
+    if: github.event.pull_request.draft == false
+    strategy:
+      matrix:
+        pg_version: [16]
+
+    steps:
+      - name: Check Typo using codespell
+        uses: codespell-project/actions-codespell@v2
+        with:
+          check_filenames: true
+          ignore_words_list: inout,crate,ser,te,lokal,autor,lokales,momentos

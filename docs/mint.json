@@ -73,7 +73,9 @@
       "url": "changelog"
     }
   ],
-  "versions": ["v0.10.2"],
+  "versions": [
+    "v0.10.2"
+  ],
   "navigation": [
     {
       "group": "Welcome",
@@ -212,7 +214,8 @@
             "ingest/import/delta",
             "ingest/import/iceberg",
             "ingest/import/parquet",
-            "ingest/import/spatial"
+            "ingest/import/spatial",
+            "ingest/import/json"
           ]
         },
         {
@@ -239,12 +242,19 @@
       "pages": [
         {
           "group": "Deploy ParadeDB",
-          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
+          "pages": [
+            "deploy/aws",
+            "deploy/gcp",
+            "deploy/helm"
+          ]
         },
         "deploy/replication",
         {
           "group": "Deploy Extensions",
-          "pages": ["deploy/pg_search", "deploy/pg_analytics"]
+          "pages": [
+            "deploy/pg_search",
+            "deploy/pg_analytics"
+          ]
         },
         "deploy/upgrading",
         "deploy/extensions"

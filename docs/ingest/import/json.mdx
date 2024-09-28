@@ -1,0 +1,356 @@
+---
+title: JSON
+---
+
+## Overview
+
+This code block demonstrates how to query JSON file(s).
+
+```sql
+CREATE FOREIGN DATA WRAPPER <wrapper_name>
+HANDLER json_fdw_handler
+VALIDATOR json_fdw_validator;
+
+CREATE SERVER <server_name>
+FOREIGN DATA WRAPPER <wrapper_name>;
+
+CREATE FOREIGN TABLE <table_name> ()
+SERVER <server_name>
+OPTIONS (files '<files>');
+```
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN DATA WRAPPER json_wrapper
+HANDLER json_fdw_handler
+VALIDATOR json_fdw_validator;
+
+CREATE SERVER json_server
+FOREIGN DATA WRAPPER json_wrapper;
+
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (files 's3://bucket/folder/file.json');
+
+````
+
+</Accordion>
+
+<ParamField body="wrapper_name" required>
+  Foreign data wrapper name. Can be any string.
+</ParamField>
+<ParamField body="server_name" required>
+  Foreign server name. Can be any string.
+</ParamField>
+<ParamField body="table_name" required>
+  Foreign table name. Can be any string.
+</ParamField>
+<ParamField body="files" required>
+The path of a single JSON file or [multiple JSON files](#multiple-json-files).
+For instance, `s3://bucket/folder/file.json` if the file is in Amazon S3 or `/path/to/file.json`
+if the file is on the local file system.
+</ParamField>
+
+## JSON Options
+
+There are a number of options that can be passed into the `CREATE FOREIGN TABLE` statement.
+These are the same [options](https://duckdb.org/docs/data/json/overview#parameters) accepted
+by DuckDB's `read_json` function.
+
+
+<ParamField body="auto_detect" default="false">
+Enables auto detection of key names and value types.
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    auto_detect 'true'
+);
+````
+
+</Accordion>
+
+</ParamField>
+
+<ParamField body="columns" default="NULL">
+Specifies key names and value types in the JSON file (e.g. `{key1: 'INTEGER', key2: 'VARCHAR'}`). If `auto_detect` is enabled the value of this setting will be inferred from the JSON file contents.
+
+<Accordion title = "Example Usage">
+```sql
+-- Dollar-quoted strings are used to contain single quotes
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    columns $${key1: 'INTEGER', key2: 'VARCHAR'}$$
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="compression" default="auto_detect">
+The compression type for the file. By default this will be detected automatically from the file extension (e.g., `t.json.gz` will use `gzip`, `t.json` will use `none`). Options are `uncompressed`, `gzip`, `zstd`, and `auto_detect`.
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    compression 'gzip'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="convert_strings_to_integers" default="false">
+Whether strings representing integer values should be converted to a numerical type.
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    convert_strings_to_integers 'true'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="dateformat" default="iso">
+Specifies the date format to use when parsing dates. See [Date Format](https://duckdb.org/docs/sql/functions/dateformat.html)
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    dateformat '%d/%m/%Y'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="filename" default="false">
+Whether or not an extra filename column should be included in the result.
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    filename 'false'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="format" default="array">
+Can be one of `auto`, `unstructured`, `newline_delimited` and `array`
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    format 'unstructured'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="hive_partitioning" default="false">
+Whether or not to interpret the path as a Hive partitioned path.
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    hive_partitioning 'true'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="ignore_errors" default="false">
+Whether to ignore parse errors (only possible when format is `newline_delimited`)
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    ignore_errors 'false'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="maximum_depth" default="-1">
+Maximum nesting depth to which the automatic schema detection detects types. Set to `-1` to fully detect nested JSON types.
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    maximum_depth '65536'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="maximum_object_size" default="16777216">
+The maximum size of a JSON object (in bytes).
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    maximum_object_size '65536'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="records" default="true">
+Determines whether the fields of JSON object will be unpacked into individual columns.
+Can be one of `auto`, `true` or `false`
+
+Suppose we have a JSON file with these contents:
+
+```json
+{"key1":"value1", "key2": "value1"}
+{"key1":"value2", "key2": "value2"}
+{"key1":"value3", "key2": "value3"}
+```
+
+Reading it with `records` set to `true` will result in these table contents:
+
+```csv
+  key1  | key2
+-----------------+
+ value1 | value1
+ value2 | value2
+ value3 | value3
+```
+
+Reading it with `records` set to `false` will result in these table contents:
+
+```csv
+              json
+---------------------------------+
+ {'key1': value1, 'key2': value1}
+ {'key1': value2, 'key2': value2}
+ {'key1': value3, 'key2': value3}
+```
+
+If set to `auto` DuckDB will try to determine the desired behaviour. See [DuckDB documentation](https://duckdb.org/docs/data/json/overview#examples-of-records-settings) for more details.
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    records 'auto'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="sample_size" default="20480">
+Option to define number of sample objects for automatic JSON type detection. Set to `-1` to scan the entire input file
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    sample_size '4086'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="timestampformat" default="iso">
+Specifies the date format to use when parsing timestamps. See [Date Format](https://duckdb.org/docs/sql/functions/dateformat.html)
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    timestampformat 'iso'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="union_by_name" default="false">
+Whether the schema's of multiple JSON files should be unified.
+
+<Accordion title = "Example Usage">
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files 's3://bucket/folder/file.json',
+    union_by_name 'false'
+);
+```
+</Accordion>
+</ParamField>
+
+## Multiple JSON Files
+
+To treat multiple JSON files as a single table, their paths should be passed in as a comma-separated
+string.
+
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files '/path/to/file1.json, /path/to/file2.json'
+);
+```
+
+To treat a directory of JSON files as a single table, the glob pattern should be used.
+
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files '/folder/*.json',
+);
+```
+
+The glob pattern can also be used to read all JSON files from multiple directories.
+
+```sql
+CREATE FOREIGN TABLE json_table ()
+SERVER json_server
+OPTIONS (
+    files '/folder1/*.json, /folder2/*.json'
+);
+```
+
+## Cloud Object Stores
+
+The [object stores](/ingest/object_stores) documentation explains how to provide secrets and other credentials for
+JSON files stored in object stores like S3.

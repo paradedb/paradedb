@@ -325,7 +325,7 @@ jobs:
         run: |
           PARADEDB_TELEMETRY=false
           cargo pgrx stop
-          cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=icu
+          cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
           cargo pgrx start
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
           DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral

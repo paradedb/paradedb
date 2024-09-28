@@ -1,10 +1,10 @@
 ---
-title: pg_dump
+title: Load Data from Postgres
 ---
 
 The easiest way to copy data from another Postgres into ParadeDB is with the `pg_dump` and `pg_restore` utilities. These are installed by default when you install `psql`.
 
-This approach is ideal for quickly bootstraping your ParadeDB cluster with some data. The best way to keep ParadeDB in sync with an existing Postgres database is by configuring [logical replication](/ingest/postgres/replication).
+This approach is ideal for quickly bootstraping your ParadeDB cluster with some data. To keep ParadeDB in sync with an existing Postgres database in real time, [logical replication](/ingest/postgres/replication) should be configured.
 
 ## Create a Dump
 
@@ -17,7 +17,7 @@ Below, we use the "custom" format (`-Fc`) for both `pg_dump` and `pg_restore`. P
   credentials.
 </Note>
 
-```ini
+```bash
 pg_dump -Fc --no-acl --no-owner \
     -h <host> \
     -U <username> \
@@ -26,7 +26,7 @@ pg_dump -Fc --no-acl --no-owner \
 
 If your database is large, this can take some time. You can speed this up by dumping specific tables.
 
-```ini
+```bash
 pg_dump -Fc --no-acl --no-owner \
     -h <host> \
     -U <username> \
@@ -42,7 +42,7 @@ Run `pg_restore` to load this data into ParadeDB.
   Replace `host`, `username`, and `dbname` with your ParadeDB credentials.
 </Note>
 
-```ini
+```bash
 pg_restore --verbose --clean --no-acl --no-owner \
     -h <host> \
     -U <username> \

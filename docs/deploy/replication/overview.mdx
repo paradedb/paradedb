@@ -1,0 +1,15 @@
+---
+title: Overview
+---
+
+<Note>
+ParadeDB BYOC (Bring Your Own Cloud), a managed deployment of ParadeDB inside
+your AWS, Azure, or GCP account, is now available. Please [contact sales](sales@paradedb.com) for access.
+</Note>
+
+In production settings, we recommend deploying ParadeDB as a replica of your primary Postgres. This allows ParadeDB to
+integrate with managed Postgres providers like AWS RDS, Google CloudSQL, and Azure Postgres. It also isolates
+search and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.
+
+When deployed as a replica, ParadeDB uses Postgres logical replication to stay in sync with your primary Postgres.
+More information on how Postgres logical replication works can be found in the [Postgres documentation](https://www.postgresql.org/docs/current/logical-replication.html). 

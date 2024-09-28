@@ -4,7 +4,7 @@ title: Hugging Face
 
 ## Overview
 
-This code block demonstrates how to query machine learning datasets from the Hugging Face Datasets library. The file path must start with hf://.
+This code block demonstrates how to query machine learning datasets from the Hugging Face Datasets library. The file path must start with `hf://`.
 
 ```sql
 -- CSV format is assumed
@@ -18,14 +18,6 @@ FOREIGN DATA WRAPPER csv_wrapper;
 CREATE FOREIGN TABLE csv_table ()
 SERVER csv_server
 OPTIONS (files 'hf://datasets/datasets-examples/doc-formats-csv-1/data.csv');
-```
-
-The glob pattern can be used to query a directory of files.
-
-```sql
-CREATE FOREIGN TABLE csv_table ()
-SERVER csv_server
-OPTIONS (files 'hf://datasets/datasets-examples/doc-formats-csv-1/*.csv');
 ```
 
 ## Providing Credentials

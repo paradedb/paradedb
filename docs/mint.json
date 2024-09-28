@@ -53,12 +53,7 @@
   },
   "anchors": [
     {
-      "name": "Search",
-      "icon": "binoculars",
-      "url": "api-reference"
-    },
-    {
-      "name": "Ingest",
+      "name": "Integrations",
       "icon": "merge",
       "url": "ingest"
     },
@@ -78,20 +73,15 @@
   ],
   "navigation": [
     {
-      "group": "Welcome",
+      "group": "Documentation",
       "pages": [
         "welcome/introduction",
-        "welcome/support"
-      ]
-    },
-    {
-      "group": "Search",
-      "pages": [
         {
           "group": "Getting Started",
           "pages": [
             "api-reference/getting-started/install",
-            "api-reference/getting-started/quickstart"
+            "api-reference/getting-started/quickstart",
+            "api-reference/getting-started/load"
           ]
         },
         {
@@ -200,58 +190,38 @@
             "api-reference/concepts/tantivy",
             "api-reference/concepts/term"
           ]
-        }
+        },
+        "welcome/support"
       ]
     },
     {
-      "group": "Ingest",
+      "group": "Integrations",
       "pages": [
         "ingest/overview",
         {
-          "group": "Postgres",
+          "group": "File/Table Formats",
           "pages": [
-            {
-              "group": "Logical Replication",
-              "pages": [
-                "ingest/postgres/replication/aws",
-                "ingest/postgres/replication/gcp",
-                "ingest/postgres/replication/azure",
-                "ingest/postgres/replication/selfhosted"
-              ]
-            },
-            "ingest/postgres/pg_dump"
+            "ingest/formats/csv",
+            "ingest/formats/parquet",
+            "ingest/formats/spatial",
+            "ingest/formats/iceberg",
+            "ingest/formats/delta"
           ]
         },
         {
-          "group": "Data Lakes",
+          "group": "Object Stores",
           "pages": [
-            "ingest/datalakes/quickstart",
-            {
-              "group": "File/Table Formats",
-              "pages": [
-                "ingest/datalakes/formats/csv",
-                "ingest/datalakes/formats/parquet",
-                "ingest/datalakes/formats/spatial",
-                "ingest/datalakes/formats/iceberg",
-                "ingest/datalakes/formats/delta"
-              ]
-            },
-            {
-              "group": "Object Stores",
-              "pages": [
-                "ingest/datalakes/object_stores/s3",
-                "ingest/datalakes/object_stores/gcs",
-                "ingest/datalakes/object_stores/azure",
-                "ingest/datalakes/object_stores/huggingface"
-              ]
-            },
-            {
-              "group": "Configuration",
-              "pages": [
-                "ingest/configuration/schema",
-                "ingest/configuration/settings"
-              ]
-            }
+            "ingest/object_stores/s3",
+            "ingest/object_stores/gcs",
+            "ingest/object_stores/azure",
+            "ingest/object_stores/huggingface"
+          ]
+        },
+        {
+          "group": "Configuration",
+          "pages": [
+            "ingest/configuration/schema",
+            "ingest/configuration/settings"
           ]
         }
       ]
@@ -265,8 +235,13 @@
         },
         {
           "group": "Configure Replication",
-          "pages": ["deploy/managed/overview"]
+          "pages": [
+            "deploy/replication/overview", 
+            "deploy/replication/self-hosted", 
+            "deploy/replication/managed"
+          ]
         },
+        "deploy/high-availability",
         "deploy/upgrading",
         "deploy/extensions"
       ]

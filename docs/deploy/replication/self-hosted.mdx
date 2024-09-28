@@ -1,27 +1,13 @@
 ---
-title: Self-Hosted Postgres
+title: From Self-Hosted Postgres
 ---
 
 <Note>
-  ParadeDB BYOC (Bring Your Own Cloud), a managed deployment of ParadeDB inside
-  your AWS account, is coming soon. Please fill out the [interest
-  form](https://form.typeform.com/to/jHkLmIzx?typeform-source=paradedb.typeform.com)
-  for access.
+ParadeDB BYOC (Bring Your Own Cloud), a managed deployment of ParadeDB inside
+your AWS, Azure, or GCP account, is now available. Please [contact sales](sales@paradedb.com) for access.
 </Note>
 
-<Info>
-  This page is for configuring logical replication from a self-hosted Postgres
-  instance into a ParadeDB deployment. To instead install the ParadeDB Postgres
-  extensions directly in your self-hosted Postgres database, please refer to our
-  [extension deployment documentation](/deploy/self-hosted/extensions).
-</Info>
-
-In production settings, we recommend deploying ParadeDB as a replica of your primary Postgres. This allows ParadeDB to
-integrate with managed Postgres providers like AWS RDS, Google CloudSQL, Azure Postgres, and others. It also isolates
-search and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.
-
-In this guide, we'll walk through setting up logical replication for ParadeDB. This setup allows you to replicate data from a primary server to one or more standby servers.
-Replication is useful for high availability or for ParadeDB to run as a search replica over your primary Postgres.
+This guide will walk through setting up logical replication from a primary self-hosted Postgres into ParadeDB.
 
 ## Environment Setup
 
@@ -133,7 +119,7 @@ CALL paradedb.create_bm25(
 );
 ```
 
-## Standby Servers Setup
+## Standby Server Setup
 
 Standby servers do not have any specific configuration necessary other than the tables in which you are ingesting logical replication must start off empty. Configuring
 replication consists of two steps:

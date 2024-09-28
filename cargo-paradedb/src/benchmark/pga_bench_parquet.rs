@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-use crate::pga_fixtures::tables::auto_sales::{AutoSalesSimulator, AutoSalesTestRunner};
-use crate::pga_fixtures::*;
+use pga_fixtures::tables::auto_sales::{AutoSalesSimulator, AutoSalesTestRunner};
+use pga_fixtures::*;
 
 use camino::Utf8PathBuf;
 

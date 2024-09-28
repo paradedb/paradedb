@@ -19,11 +19,9 @@ mod bench_hits;
 mod benchmark;
 mod cli;
 mod elastic;
-mod fixtures;
 mod subcommand;
 mod tables;
 
-use crate::fixtures::pga_fixtures;
 use anyhow::Result;
 use async_std::task::block_on;
 use cli::{Cli, Corpus, EsLogsCommand, HitsCommand, PgaBenchCommand, Subcommand};

@@ -5,7 +5,7 @@ title: Postgres Extensions
 ParadeDB is built from two Postgres extensions
 
 - The `pg_search` extension powers all of ParadeDB's [full text search API](/api-reference).
-- The `pg_analytics` extension powers ParadeDB's [ingest API](/ingest).
+- The `pg_analytics` extension powers ParadeDB's [integrations](/integrations).
 
 This guide explains how to install these extensions inside an existing, self-hosted Postgres database.
 
@@ -29,10 +29,11 @@ sudo apt-get install -y libicu74
 
 # Install the ParadeDB Postgres Extensions
 
-ParadeDB provides prebuilt binaries for our extensions on 
+ParadeDB provides prebuilt binaries for our extensions on
+
 - Debian 12
 - Ubuntu 22.04 and 24.04
-- Red Hat Enterprise Linux 8 and 9 
+- Red Hat Enterprise Linux 8 and 9
 
 Postgres 14, 15 and 16 on both `amd64 (x86_64)` and `arm64` are available. If you are using a different version of Postgres or a different operating system, you will need to build the extensions from source.
 
@@ -41,7 +42,8 @@ Postgres 14, 15 and 16 on both `amd64 (x86_64)` and `arm64` are available. If yo
 The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest).
 
 <Note>
-You can replace `0.10.2` with the `pg_search` version you wish to install and `16` with the version of Postgres you are using.
+  You can replace `0.10.2` with the `pg_search` version you wish to install and
+  `16` with the version of Postgres you are using.
 </Note>
 
 <CodeGroup>
@@ -83,7 +85,8 @@ sudo dnf install -y /tmp/*.rpm
 The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/pg_analytics/releases/latest).
 
 <Note>
-You can replace `0.1.4` with the `pg_analytics` version you wish to install and `16` with the version of Postgres you are using.
+  You can replace `0.1.4` with the `pg_analytics` version you wish to install
+  and `16` with the version of Postgres you are using.
 </Note>
 
 <CodeGroup>

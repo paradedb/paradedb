@@ -197,31 +197,31 @@
     {
       "group": "Integrations",
       "pages": [
-        "ingest/overview",
+        "integrations/overview",
         {
           "group": "File/Table Formats",
           "pages": [
-            "ingest/formats/csv",
-            "ingest/formats/parquet",
-            "ingest/formats/spatial",
-            "ingest/formats/iceberg",
-            "ingest/formats/delta"
+            "integrations/formats/csv",
+            "integrations/formats/parquet",
+            "integrations/formats/spatial",
+            "integrations/formats/iceberg",
+            "integrations/formats/delta"
           ]
         },
         {
           "group": "Object Stores",
           "pages": [
-            "ingest/object_stores/s3",
-            "ingest/object_stores/gcs",
-            "ingest/object_stores/azure",
-            "ingest/object_stores/huggingface"
+            "integrations/object_stores/s3",
+            "integrations/object_stores/gcs",
+            "integrations/object_stores/azure",
+            "integrations/object_stores/huggingface"
           ]
         },
         {
           "group": "Configuration",
           "pages": [
-            "ingest/configuration/schema",
-            "ingest/configuration/settings"
+            "integrations/configuration/schema",
+            "integrations/configuration/settings"
           ]
         }
       ]
@@ -236,8 +236,8 @@
         {
           "group": "Configure Replication",
           "pages": [
-            "deploy/replication/overview", 
-            "deploy/replication/self-hosted", 
+            "deploy/replication/overview",
+            "deploy/replication/self-hosted",
             "deploy/replication/managed"
           ]
         },

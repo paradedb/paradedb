@@ -66,7 +66,7 @@ This enables the extension to spawn a background worker process that performs wr
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux for Postgres 16, 15 and 14. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide prebuilt binaries for Debian-based Linux for Postgres 17, 16, 15 and 14. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 Our prebuilt binaries come with the ICU tokenizer enabled, which requires the `libicu` library. If you don't have it installed, you can do so with:
 

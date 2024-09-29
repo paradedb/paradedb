@@ -324,12 +324,11 @@ jobs:
         working-directory: pg_search/
         run: |
           PARADEDB_TELEMETRY=false
-          cargo pgrx stop
+          cargo pgrx stop all
           cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
-          cargo pgrx start
+          cargo pgrx start pg${{ matrix.pg_version }}
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
           DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
-          cat ~/.pgrx/${{ matrix.pg_version}}.log
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()

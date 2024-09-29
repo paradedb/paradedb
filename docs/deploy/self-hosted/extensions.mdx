@@ -4,7 +4,7 @@ title: Postgres Extensions
 
 ParadeDB is built from two Postgres extensions
 
-- The `pg_search` extension powers all of ParadeDB's [full text search API](/api-reference).
+- The `pg_search` extension powers all of ParadeDB's [full text search API](/documentation).
 - The `pg_analytics` extension powers ParadeDB's [integrations](/integrations).
 
 This guide explains how to install these extensions inside an existing, self-hosted Postgres database.
@@ -142,7 +142,7 @@ CREATE EXTENSION pg_search;
 CREATE EXTENSION pg_analytics;
 ```
 
-That's it! To get started, follow the [quickstart guide](/api-reference/getting-started/quickstart).
+That's it! To get started, follow the [quickstart guide](/documentation/getting-started/quickstart).
 
 <Note>
   `pg_search` can be combined with `pgvector` for hybrid search. You can find

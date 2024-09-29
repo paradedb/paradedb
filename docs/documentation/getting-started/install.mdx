@@ -1,8 +1,8 @@
 ---
-title: Docker
+title: Install ParadeDB
 ---
 
-To deploy ParadeDB via Docker, simply pull and run the `paradedb/paradedb` image locally. This is the recommend deployment method for testing and development.
+The fastest way to install ParadeDB is by pulling the ParadeDB Docker image and running it locally.
 
 ```bash
 docker run \
@@ -25,4 +25,6 @@ To connect to ParadeDB, install the `psql` client and run
 docker exec -it paradedb psql -U myuser -d mydatabase -W
 ```
 
-That's it! To get started, we suggest you follow the [quickstart guide](/documentation/getting-started/quickstart).
+To see all the ways in which you can install ParadeDB, please refer to our [deployment documentation](/deploy).
+
+That's it! Next, let's [run a few queries](/documentation/getting-started/quickstart) over mock data with ParadeDB.

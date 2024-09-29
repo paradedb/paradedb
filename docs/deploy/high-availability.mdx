@@ -7,9 +7,74 @@ title: High Availability
   us](mailto:sales@paradedb.com) for access.
 </Info>
 
-High availability, which is a deployment model that ensures minimal downtime through redundacy and failover mechanisms, can be configured for ParadeDB on Kubernetes via CloudNativePG. By default,
-the ParadeDB CloudNativePG cluster will launch with 3 instances, one primary and two replica. To enable high availability for BM25 indexes, please contact [sales](mailto:sales@paradedb.com).
+In production settings, we recommend deploying your ParadeDB cluster configured with high
+availability (HA) to minimize downtime. ParadeDB supports high availability as part of our
+[Kubernetes deployment](/deploy/self-hosted/k8s), with CloudNativePG.
 
-For details on how high availability works in CloudNativePG, please refer to the [CloudNativePG documentation](https://cloudnative-pg.io/documentation/1.18/replication/).
+## What is High Availability?
 
-[TODO FOR PHIL]
+High availability is the ability of a database to operate continousouly and reliably, with minimal
+or no downtime. To accomplish this, ParadeDB deploys as a cluster of instances, by default 3, which replicate
+data between each other. One instance is designed as the **primary** while the other instances are designed as
+**standby** instances. The standby instances can seamlessly be failed-over to should the primary instance start
+to malfunction, which helps prevent downtime due to load or hardware failures.
+
+## How Does It Work?
+
+High availability in ParadeDB is built via Postgres physical replication, also known as streaming replication. Note that
+physical/streaming replication is **different** from [logical replication](#high-availability-vs-logical-replication).
+
+Physical replication is one of the strengths of PostgreSQL and one of the reasons why some of the
+largest organizations in the world have chosen it for the management of their data in business
+continuity contexts. Primarily used to achieve high availability, physical replication also
+allows scale-out of read-only workloads and offloading of some work from the primary.
+
+In ParadeDB, Postgres native physical replication is integrated directly in the Kubernetes API. This
+design greatly simplifies management and increases failover and scalability responsiveness. It also
+enables maintaining standby instances across different datacenter availability zones or regions,
+to mitigate downtime caused by natural disasters.
+
+For more details on multi-availability zone ParadeDB Kubernetes clusters, please consult the [CloudNativePG Architecture documentation](https://cloudnative-pg.io/documentation/1.18/architecture/).
+
+### Synchronous Replication
+
+By default, ParadeDB ships with asynchronuous replication, meaning transactions on the primary **do not** wait for confirmation from
+the standby instances before commiting. This is the simplest high availability configuration.
+
+It is also possible to configure **quorum-based synchronous replication**. This can improve data consistency further by ensuring
+that a transaction is written to multiple nodes before it is considered complete.
+
+For more details on synchronous replication, please consult the [CloudNativePG Replication documentation](https://cloudnative-pg.io/documentation/1.18/replication/#synchronous-replication).
+
+### Continuous Backup Integration
+
+ParadeDB supports backups to cloud object stores (e.g. AWS S3, GCS, etc.) and point-in-time-recovery
+via [Barman](https://pgbarman.org/). To further reduce the risk of data loss, continuous backups can
+be configured when using ParadeDB on Kubernetes. This enables the ParadeDB standbys to fallback on archived
+database records whenever replication from the primary fails.
+
+For more details on synchronous replication, please consult the [CloudNativePG Backup documentation](https://cloudnative-pg.io/documentation/1.18/backup_recovery/).
+
+### Security
+
+By default, a ParadeDB Kubernetes cluster launches with one primary and two
+replicas, replicating the state of the primary between each other via a preconfigured
+Postgres user called `streaming_replica`. Replication is performed over an encrypted channel
+and enforces TLS client certificate authentication for the `streaming_replica` user.
+
+For more details on security configurations for Postgres physical replication, please consult the [CloudNativePG Replication documentation](https://cloudnative-pg.io/documentation/1.18/replication/).
+
+## Physical Replication (High Availability) vs Logical Replication
+
+[Logical replication](/deploy/replication/overview) is used to connect the primary instance of a ParadeDB cluster as a replica to an existing Postgres deployment, for instance
+on a managed Postgres service like AWS RDS. It replicates specific data changes by tracking and transmitting individual row modifications. This feature is fully supported in the
+open source version of ParadeDB.
+
+Physical replication is used to achieve high availability between instances in a ParadeDB cluster. It copies entire data files byte-for-byte.
+on disk. This feature is reserved for ParadeDB enterprise customers.
+
+TODO: ADD A DIAGRAM FROM FIGJAM
+
+## How to Enable High Availability
+
+To deploy your ParadeDB with high availability, please [contact sales](mailto:sales@paradedb.com).

@@ -35,13 +35,9 @@ inferred from the Parquet file.
 SELECT vendorid, passenger_count, trip_distance FROM trips LIMIT 1;
 ```
 
-<Accordion title = "Expected Response">
-```csv
- vendorid | passenger_count | trip_distance
-----------+-----------------+---------------
-        2 |               1 |          1.72
-(1 row)
-```
+<Accordion title="Expected Response">
+  ```csv vendorid | passenger_count | trip_distance
+  ----------+-----------------+--------------- 2 | 1 | 1.72 (1 row) ```
 </Accordion>
 
 Queries over this table are powered by [DuckDB](https://duckdb.org), an in-process analytical query engine.
@@ -51,13 +47,8 @@ This means that you can run fast analytical queries over data lakes from ParadeD
 SELECT COUNT(*) FROM trips;
 ```
 
-<Accordion title = "Expected Response">
-```csv
-  count
----------
- 2964624
-(1 row)
-```
+<Accordion title="Expected Response">
+  ```csv count --------- 2964624 (1 row) ```
 </Accordion>
 
 Finally, let's copy this table into a Postgres heap table. For demonstration, we will

@@ -157,7 +157,7 @@ pub enum ServerError {
     #[error("error binding writer server to address: {0}")]
     AddressBindFailed(String),
 
-    #[error("writer server must not bind to unix socket, attemped: {0}")]
+    #[error("writer server must not bind to unix socket, attempted: {0}")]
     UnixSocketBindAttempt(String),
 
     #[error(transparent)]

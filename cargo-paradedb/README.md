@@ -59,9 +59,9 @@ The `generate` tool is idempotent. It will produce a table in your Postgres data
 
 #### Running pg_search Benchmarks
 
-All commands below operate on default tables, visible with `--help`. Defaults can be overidden with options passed to each command.
+All commands below operate on default tables, visible with `--help`. Defaults can be overridden with options passed to each command.
 
-Benchmarks that build a table or index are only run once, as these operations usually take a long time. Benchmarks that peform fast operations, like queries, are sampled many times with the [Criterion](https://github.com/bheisler/criterion.rs) library.
+Benchmarks that build a table or index are only run once, as these operations usually take a long time. Benchmarks that perform fast operations, like queries, are sampled many times with the [Criterion](https://github.com/bheisler/criterion.rs) library.
 
 Build a `pg_search` index:
 

@@ -19,7 +19,7 @@ VALUES
         'Lately, Ive been, Ive been losing sleep,Dreaming about the things that we could be,But baby, Ive been, Ive been praying hard.'
     ),
     ('Apologize', 'Dreaming Out Loud', 2007, 'Pop Rock', 'A brief description of the song Apologize.',
-        'Im holding on your rope, got me ten feet off the ground,And Im hearing what you say but I just cant make a sound,You tell me that you need me, then you go and cut me down.'
+        'Im holding on your rope, got me ten feet off the ground,And Im hearing what you say but I just can't make a sound,You tell me that you need me, then you go and cut me down.'
     );
 
 CALL paradedb.create_bm25(

@@ -104,7 +104,7 @@ pub fn search_config_support(arg: Internal) -> ReturnedNodePointer {
                 (*src).startup = GUCS.per_tuple_cost();
 
                 // similarly, use the same GUC here.  Postgres will then add this into its per-tuple
-                // cost evalutations for whatever scan it's considering using for the `@@@` operator.
+                // cost evaluations for whatever scan it's considering using for the `@@@` operator.
                 // our IAM provides more intelligent costs for the IndexScan situation.
                 (*src).per_tuple = GUCS.per_tuple_cost();
 

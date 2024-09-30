@@ -2,7 +2,7 @@
 title: Install ParadeDB
 ---
 
-The fastest way to install ParadeDB is by pulling the ParadeDB docker image and running it locally.
+The fastest way to install ParadeDB is by pulling the ParadeDB Docker image and running it locally.
 
 ```bash
 docker run \
@@ -16,8 +16,8 @@ docker run \
   paradedb/paradedb:latest
 ```
 
-You may replace `myuser`, `mypassword`, and `mydatabase` with whatever values you want — these will be your database
-connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
+You may replace `myuser`, `mypassword`, and `mydatabase` with whatever values you want. These will be your database
+connection credentials.
 
 To connect to ParadeDB, install the `psql` client and run
 
@@ -32,4 +32,4 @@ docker exec -it paradedb psql -U myuser -d mydatabase -W
   database.
 </Note>
 
-That's it! Next, let's [run a few queries](/welcome/quickstart) over mock data with ParadeDB.
+That's it! Next, let's [run a few queries](/api-reference/getting-started/quickstart) over mock data with ParadeDB.

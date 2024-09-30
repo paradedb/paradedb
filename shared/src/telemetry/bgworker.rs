@@ -92,7 +92,7 @@ pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
         // It doesn't seem like bgworkers will start without this.
         .enable_spi_access()
         // RecoveryFinished is the last available stage for bgworker startup.
-        // Allows time for all boostrapped tables to be created.
+        // Allows time for all bootstrapped tables to be created.
         .set_start_time(bgworkers::BgWorkerStartTime::RecoveryFinished)
         .load();
 }

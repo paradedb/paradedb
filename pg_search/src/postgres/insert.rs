@@ -25,7 +25,7 @@ use pgrx::*;
 use super::utils::relfilenode_from_index_oid;
 
 #[allow(clippy::too_many_arguments)]
-#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,

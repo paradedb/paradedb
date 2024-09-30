@@ -472,7 +472,7 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // Here, we'll delete all rows in the table but the first.
-    // This previsouly triggered a "division by zero" error when there was
+    // This previously triggered a "division by zero" error when there was
     // only one result in the similarity query. This test ensures that we
     // check for that condition.
     "DELETE FROM paradedb.bm25_search WHERE id != 1".execute(&mut conn);

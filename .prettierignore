@@ -8,7 +8,7 @@
 **/*.txt
 **/*.zip
 /docker/.docker_cache_dev/
-/docs/welcome/quickstart.mdx
+/docs/api-reference/getting-started/quickstart.mdx
 /docs/api-reference/full-text/fuzzy.mdx
 /docs/api-reference/full-text/scoring.mdx
 /docs/api-reference/full-text/highlighting.mdx

@@ -37,7 +37,7 @@ static WRITER_TRANSFER_DIR_NAME: &str = "writer_transfer";
 #[derive(AsRef)]
 #[as_ref(forward)]
 pub struct SearchIndexDirPath(pub PathBuf);
-/// The name of the index-specfic configuration file, enabling loading an index across connections.
+/// The name of the index-specific configuration file, enabling loading an index across connections.
 #[derive(AsRef)]
 #[as_ref(forward)]
 pub struct SearchIndexConfigFilePath(pub PathBuf);
@@ -152,7 +152,7 @@ impl WriterDirectory {
     /// file path used by our extension (relative to the Postgres DATA_DIRECTORY).
     ///
     /// It's also important to note that this functionis called in contexts that cannot
-    /// ask Postgres for the data_dir_path, so we must use the one already intialized
+    /// ask Postgres for the data_dir_path, so we must use the one already initialized
     /// on the WriterDirectory instance.
     fn search_index_dir_path(
         &self,

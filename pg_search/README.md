@@ -66,7 +66,7 @@ This enables the extension to spawn a background worker process that performs wr
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux for Postgres 16, 15 and 14. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide prebuilt binaries for Debian-based Linux for Postgres 17, 16, 15 and 14. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 Our prebuilt binaries come with the ICU tokenizer enabled, which requires the `libicu` library. If you don't have it installed, you can do so with:
 
@@ -171,7 +171,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup install stable
 ```
 
-Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.
+Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconsistencies with Homebrew's Rust installation on macOS.
 
 Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
 
@@ -198,7 +198,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
-cargo install --locked cargo-pgrx --version 0.12.4
+cargo install --locked cargo-pgrx --version 0.12.5
 
 # macOS arm64
 cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config

@@ -59,6 +59,14 @@ jobs:
             image: ubuntu:22.04
             pg_version: 16
             arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: ubuntu:22.04
+            pg_version: 17
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: ubuntu:22.04
+            pg_version: 17
+            arch: arm64
           # Ubuntu 24.04
           - runner: depot-ubuntu-latest-8
             image: ubuntu:24.04
@@ -83,6 +91,14 @@ jobs:
           - runner: depot-ubuntu-latest-arm-4
             image: ubuntu:24.04
             pg_version: 16
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: ubuntu:24.04
+            pg_version: 17
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: ubuntu:24.04
+            pg_version: 17
             arch: arm64
           # Debian 12
           - runner: depot-ubuntu-latest-8
@@ -109,6 +125,14 @@ jobs:
             image: debian:12-slim
             pg_version: 16
             arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: debian:12-slim
+            pg_version: 17
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: debian:12-slim
+            pg_version: 17
+            arch: arm64
           # Red Hat Enterprise Linux 8
           - runner: depot-ubuntu-latest-8
             image: redhat/ubi8:latest
@@ -134,6 +158,14 @@ jobs:
             image: redhat/ubi8:latest
             pg_version: 16
             arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi8:latest
+            pg_version: 17
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi8:latest
+            pg_version: 17
+            arch: arm64
           # Red Hat Enterprise Linux 9
           - runner: depot-ubuntu-latest-8
             image: redhat/ubi9:latest
@@ -158,6 +190,14 @@ jobs:
           - runner: depot-ubuntu-latest-arm-4
             image: redhat/ubi9:latest
             pg_version: 16
+            arch: arm64
+          - runner: depot-ubuntu-latest-8
+            image: redhat/ubi9:latest
+            pg_version: 17
+            arch: amd64
+          - runner: depot-ubuntu-latest-arm-4
+            image: redhat/ubi9:latest
+            pg_version: 17
             arch: arm64
 
     steps:

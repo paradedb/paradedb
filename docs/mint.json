@@ -237,7 +237,7 @@
           ]
         },
         {
-          "group": "Configure Replication",
+          "group": "Logical Replication",
           "pages": [
             "deploy/replication/overview",
             "deploy/replication/self-hosted",

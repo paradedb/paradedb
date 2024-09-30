@@ -1,5 +1,5 @@
 ---
-title: Update ParadeDB
+title: Upgrading ParadeDB
 ---
 
 ## Overview
@@ -7,8 +7,8 @@ title: Update ParadeDB
 ParadeDB ships all of its functionality via Postgres extensions. All updates to ParadeDB can be
 received by updating one or more of the following extensions:
 
-1. `pg_analytics` for accelerated analytical queries
-2. `pg_search` for full text search
+1. `pg_search` for full text search
+2. `pg_analytics` for accelerated analytical queries
 3. `pgvector` for dense and sparse vector search
 
 ## Getting the Current Version
@@ -28,7 +28,7 @@ Because `pg_search`, `pg_analytics`, and `pgvector` are independent extensions, 
 For the latest available version, please refer to the respective Github repos:
 
 1. [`pg_search`](https://github.com/paradedb/paradedb/releases) is on version `0.10.2`
-2. [`pg_analytics`](https://github.com/paradedb/pg_analytics/blob/main/pg_analytics.control) is on version `0.1.4`
+2. [`pg_analytics`](https://github.com/paradedb/pg_analytics/blob/main/pg_analytics.control) is on version `0.2.0`
 3. [`pgvector`](https://github.com/pgvector/pgvector/tags) is on version `0.7.4`
 
 ## Updating ParadeDB Docker Image
@@ -44,7 +44,7 @@ The latest version of the Docker image should be `0.10.2`. Then, run the followi
 
 ```sql
 ALTER EXTENSION pg_search UPDATE TO '0.10.2';
-ALTER EXTENSION pg_analytics UPDATE TO '0.1.4';
+ALTER EXTENSION pg_analytics UPDATE TO '0.2.0';
 ALTER EXTENSION vector UPDATE TO '0.7.4';
 ```
 

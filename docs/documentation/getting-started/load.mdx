@@ -1,0 +1,52 @@
+---
+title: Load Data from Postgres
+---
+
+The easiest way to copy data from another Postgres into ParadeDB is with the `pg_dump` and `pg_restore` utilities. These are installed by default when you install `psql`.
+
+This approach is ideal for quickly bootstrapping your ParadeDB cluster with some data. To keep ParadeDB in sync with an existing Postgres database in real time, [logical replication](/deploy/replication) should be configured.
+
+## Create a Dump
+
+Run `pg_dump` to create a copy of your database.
+
+Below, we use the "custom" format (`-Fc`) for both `pg_dump` and `pg_restore`. Please review the [Postgres `pg_dump` documentation](https://www.postgresql.org/docs/current/app-pgdump.html) for other options that may be more appropriate for your environment.
+
+<Note>
+  Replace `host`, `username`, and `dbname` with your existing database
+  credentials.
+</Note>
+
+```bash
+pg_dump -Fc --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    <dbname> > old_db.dump
+```
+
+If your database is large, this can take some time. You can speed this up by dumping specific tables.
+
+```bash
+pg_dump -Fc --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    -t <table_name_1> -t <table_name_2>
+    <dbname> > old_db.dump
+```
+
+## Restore the Dump
+
+Run `pg_restore` to load this data into ParadeDB.
+
+<Note>
+  Replace `host`, `username`, and `dbname` with your ParadeDB credentials.
+</Note>
+
+```bash
+pg_restore --verbose --clean --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    -d <dbname> \
+    -Fc \
+    old_db.dump
+```

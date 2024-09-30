@@ -1,0 +1,36 @@
+---
+title: From Managed Postgres
+---
+
+<Note>
+  ParadeDB BYOC (Bring Your Own Cloud), a managed deployment of ParadeDB inside
+  your AWS, Azure, or GCP account, is now available. Please [contact
+  sales](mailto:sales@paradedb.com) for access.
+</Note>
+
+ParadeDB integrates with most managed Postgres databases via logical replication.
+
+## AWS RDS/Aurora
+
+Please follow AWS' [tutorial for configuring logical replication](https://aws.amazon.com/blogs/database/using-logical-replication-to-replicate-managed-amazon-rds-for-postgresql-and-amazon-aurora-to-self-managed-postgresql/).
+In this tutorial, AWS RDS/Aurora is the **publisher** and ParadeDB is the **subscriber**.
+
+## Azure Database
+
+Please follow Azure's [tutorial for configuring logical replication](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-logical).
+In this tutorial, Azure Database is the **publisher** and ParadeDB is the **subscriber**.
+
+<Note>
+  Azure Cosmos DB for PostgreSQL [does not support logical
+  replication](https://learn.microsoft.com/en-us/answers/questions/1193391/does-azure-cosmos-db-for-postgresql-support-logica).
+</Note>
+
+## GCP CloudSQL for PostgreSQL
+
+Please follow Google's [tutorial for configuring logical replication](https://cloud.google.com/sql/docs/postgres/replication/configure-logical-replication#set-up-native-postgresql-logical-replication).
+In this tutorial, GCP CloudSQL for PostgreSQL is the **publisher** and ParadeDB is the **subscriber**.
+
+## AlloyDB for PostgreSQL
+
+Please follow Google's [tutorial for configuring logical replication](https://cloud.google.com/alloydb/docs/omni/replicate-data-omni-other-db).
+In this tutorial, AlloyDB is the **publisher** and ParadeDB is the **subscriber**.

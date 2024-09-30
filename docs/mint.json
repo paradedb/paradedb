@@ -53,14 +53,9 @@
   },
   "anchors": [
     {
-      "name": "Search",
-      "icon": "binoculars",
-      "url": "api-reference"
-    },
-    {
-      "name": "Ingest",
+      "name": "Integrations",
       "icon": "merge",
-      "url": "ingest"
+      "url": "integrations"
     },
     {
       "name": "Deploy",
@@ -73,107 +68,100 @@
       "url": "changelog"
     }
   ],
-  "versions": [
-    "v0.10.2"
-  ],
+  "versions": ["v0.10.2"],
   "navigation": [
     {
-      "group": "Welcome",
+      "group": "Documentation",
       "pages": [
         "welcome/introduction",
-        "welcome/support"
-      ]
-    },
-    {
-      "group": "Search",
-      "pages": [
         {
           "group": "Getting Started",
           "pages": [
-            "api-reference/getting-started/install",
-            "api-reference/getting-started/quickstart"
+            "documentation/getting-started/install",
+            "documentation/getting-started/quickstart",
+            "documentation/getting-started/load"
           ]
         },
         {
           "group": "Reference",
           "pages": [
-            "api-reference/introduction",
+            "documentation/introduction",
             {
               "group": "Indexing",
               "pages": [
-                "api-reference/indexing/create_index",
-                "api-reference/indexing/inspect_index",
-                "api-reference/indexing/delete_index",
-                "api-reference/indexing/partitioned",
-                "api-reference/indexing/partial",
-                "api-reference/indexing/tokenizers",
-                "api-reference/indexing/token_filters",
-                "api-reference/indexing/fast_fields",
-                "api-reference/indexing/record"
+                "documentation/indexing/create_index",
+                "documentation/indexing/inspect_index",
+                "documentation/indexing/delete_index",
+                "documentation/indexing/partitioned",
+                "documentation/indexing/partial",
+                "documentation/indexing/tokenizers",
+                "documentation/indexing/token_filters",
+                "documentation/indexing/fast_fields",
+                "documentation/indexing/record"
               ]
             },
             {
               "group": "Full Text Search",
               "pages": [
-                "api-reference/full-text/overview",
-                "api-reference/full-text/term",
-                "api-reference/full-text/phrase",
-                "api-reference/full-text/json",
-                "api-reference/full-text/filtering",
-                "api-reference/full-text/pagination",
-                "api-reference/full-text/scoring",
-                "api-reference/full-text/highlighting",
-                "api-reference/full-text/sorting",
-                "api-reference/full-text/boosting",
-                "api-reference/full-text/conjunction",
-                "api-reference/full-text/lenient_parsing"
+                "documentation/full-text/overview",
+                "documentation/full-text/term",
+                "documentation/full-text/phrase",
+                "documentation/full-text/json",
+                "documentation/full-text/filtering",
+                "documentation/full-text/pagination",
+                "documentation/full-text/scoring",
+                "documentation/full-text/highlighting",
+                "documentation/full-text/sorting",
+                "documentation/full-text/boosting",
+                "documentation/full-text/conjunction",
+                "documentation/full-text/lenient_parsing"
               ]
             },
             {
               "group": "Query Builder",
               "pages": [
-                "api-reference/advanced/overview",
-                "api-reference/advanced/all",
-                "api-reference/advanced/boolean",
-                "api-reference/advanced/boost",
-                "api-reference/advanced/const",
-                "api-reference/advanced/disjunction_max",
-                "api-reference/advanced/empty",
-                "api-reference/advanced/exists",
-                "api-reference/advanced/fuzzy_term",
-                "api-reference/advanced/fuzzy_phrase",
-                "api-reference/advanced/more_like_this",
-                "api-reference/advanced/phrase",
-                "api-reference/advanced/phrase_prefix",
-                "api-reference/advanced/range",
-                "api-reference/advanced/regex",
-                "api-reference/advanced/term",
-                "api-reference/advanced/term_set"
+                "documentation/advanced/overview",
+                "documentation/advanced/all",
+                "documentation/advanced/boolean",
+                "documentation/advanced/boost",
+                "documentation/advanced/const",
+                "documentation/advanced/disjunction_max",
+                "documentation/advanced/empty",
+                "documentation/advanced/exists",
+                "documentation/advanced/fuzzy_term",
+                "documentation/advanced/fuzzy_phrase",
+                "documentation/advanced/more_like_this",
+                "documentation/advanced/phrase",
+                "documentation/advanced/phrase_prefix",
+                "documentation/advanced/range",
+                "documentation/advanced/regex",
+                "documentation/advanced/term",
+                "documentation/advanced/term_set"
               ]
             },
             {
               "group": "Faceting",
               "pages": [
-                "api-reference/faceting/overview",
-                "api-reference/faceting/metric",
-                "api-reference/faceting/bucket"
+                "documentation/faceting/overview",
+                "documentation/faceting/metric",
+                "documentation/faceting/bucket"
               ]
             },
             {
               "group": "Similarity Search",
               "pages": [
-                "api-reference/similarity/overview",
-                "api-reference/similarity/index",
-                "api-reference/similarity/search"
+                "documentation/similarity/overview",
+                "documentation/similarity/index",
+                "documentation/similarity/search"
               ]
             },
             {
               "group": "Optimization",
               "pages": [
-                "api-reference/optimization/overview",
-                "api-reference/optimization/joins",
-                "api-reference/optimization/pagination",
-                "api-reference/optimization/sorting"
+                "documentation/optimization/overview",
+                "documentation/optimization/joins",
+                "documentation/optimization/pagination",
+                "documentation/optimization/sorting"
               ]
             }
           ]
@@ -181,58 +169,58 @@
         {
           "group": "Tutorials",
           "pages": [
-            "api-reference/guides/overview",
-            "api-reference/guides/autocomplete",
-            "api-reference/guides/hybrid"
+            "documentation/guides/overview",
+            "documentation/guides/autocomplete",
+            "documentation/guides/hybrid"
           ]
         },
         {
           "group": "Concepts",
           "pages": [
-            "api-reference/concepts/aggregation",
-            "api-reference/concepts/bm25",
-            "api-reference/concepts/faceting",
-            "api-reference/concepts/index",
-            "api-reference/concepts/matching",
-            "api-reference/concepts/phrase",
-            "api-reference/concepts/search",
-            "api-reference/concepts/stemming",
-            "api-reference/concepts/tantivy",
-            "api-reference/concepts/term"
+            "documentation/concepts/aggregation",
+            "documentation/concepts/bm25",
+            "documentation/concepts/faceting",
+            "documentation/concepts/index",
+            "documentation/concepts/matching",
+            "documentation/concepts/phrase",
+            "documentation/concepts/search",
+            "documentation/concepts/stemming",
+            "documentation/concepts/tantivy",
+            "documentation/concepts/term"
           ]
-        }
+        },
+        "welcome/support"
       ]
     },
     {
-      "group": "Ingest",
+      "group": "Integrations",
       "pages": [
-        "ingest/quickstart",
+        "integrations/overview",
         {
-          "group": "Table/File Formats",
+          "group": "File/Table Formats",
           "pages": [
-            "ingest/import/csv",
-            "ingest/import/delta",
-            "ingest/import/iceberg",
-            "ingest/import/parquet",
-            "ingest/import/spatial",
-            "ingest/import/json"
+            "integrations/formats/csv",
+            "integrations/formats/json",
+            "integrations/formats/parquet",
+            "integrations/formats/spatial",
+            "integrations/formats/iceberg",
+            "integrations/formats/delta"
           ]
         },
         {
           "group": "Object Stores",
           "pages": [
-            "ingest/object_stores/overview",
-            "ingest/object_stores/azure",
-            "ingest/object_stores/gcs",
-            "ingest/object_stores/s3"
+            "integrations/object_stores/s3",
+            "integrations/object_stores/gcs",
+            "integrations/object_stores/azure",
+            "integrations/object_stores/huggingface"
           ]
         },
-        "ingest/postgres",
         {
           "group": "Configuration",
           "pages": [
-            "ingest/configuration/schema",
-            "ingest/configuration/settings"
+            "integrations/configuration/schema",
+            "integrations/configuration/settings"
           ]
         }
       ]
@@ -241,21 +229,22 @@
       "group": "Deploy",
       "pages": [
         {
-          "group": "Deploy ParadeDB",
+          "group": "Self-Hosted ParadeDB",
           "pages": [
-            "deploy/aws",
-            "deploy/gcp",
-            "deploy/helm"
+            "deploy/self-hosted/k8s",
+            "deploy/self-hosted/docker",
+            "deploy/self-hosted/extensions"
           ]
         },
-        "deploy/replication",
         {
-          "group": "Deploy Extensions",
+          "group": "Logical Replication",
           "pages": [
-            "deploy/pg_search",
-            "deploy/pg_analytics"
+            "deploy/replication/overview",
+            "deploy/replication/self-hosted",
+            "deploy/replication/managed"
           ]
         },
+        "deploy/high-availability",
         "deploy/upgrading",
         "deploy/extensions"
       ]

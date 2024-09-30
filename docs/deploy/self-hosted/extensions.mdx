@@ -1,0 +1,151 @@
+---
+title: Postgres Extensions
+---
+
+ParadeDB is built from two Postgres extensions
+
+- The `pg_search` extension powers all of ParadeDB's [full text search API](/documentation).
+- The `pg_analytics` extension powers ParadeDB's [integrations](/integrations).
+
+This guide explains how to install these extensions inside an existing, self-hosted Postgres database.
+
+# Prerequisites
+
+Ensure that you have superuser access to the Postgres database.
+
+Next, install `libicu`.
+
+<CodeGroup>
+
+```bash Ubuntu 20.04 or 22.04
+sudo apt-get install -y libicu70
+```
+
+```bash Ubuntu 24.04
+sudo apt-get install -y libicu74
+```
+
+</CodeGroup>
+
+# Install the ParadeDB Postgres Extensions
+
+ParadeDB provides prebuilt binaries for our extensions on
+
+- Debian 12
+- Ubuntu 22.04 and 24.04
+- Red Hat Enterprise Linux 8 and 9
+
+Postgres 14, 15 and 16 on both `amd64 (x86_64)` and `arm64` are available. If you are using a different version of Postgres or a different operating system, you will need to build the extensions from source.
+
+### pg_search
+
+The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest).
+
+<Note>
+  You can replace `0.10.2` with the `pg_search` version you wish to install and
+  `16` with the version of Postgres you are using.
+</Note>
+
+<CodeGroup>
+
+```bash Ubuntu 24.04
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.2/postgresql-16-pg-search_0.10.2-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash Ubuntu 22.04
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.2/postgresql-16-pg-search_0.10.2-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_search.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash Debian 12
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.2/postgresql-16-pg-search_0.10.2-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash RHEL 9
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.2/pg_search_16-0.10.2-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
+sudo dnf install -y /tmp/*.rpm
+```
+
+```bash RHEL 8
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.10.2/pg_search_16-0.10.2-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_search.rpm
+sudo dnf install -y /tmp/*.rpm
+```
+
+</CodeGroup>
+
+### pg_analytics
+
+The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/pg_analytics/releases/latest).
+
+<Note>
+  You can replace `0.2.0` with the `pg_analytics` version you wish to install
+  and `16` with the version of Postgres you are using.
+</Note>
+
+<CodeGroup>
+
+```bash Ubuntu 24.04
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.2.0/postgresql-16-pg-analytics_0.2.0-1PARADEDB-noble_amd64.deb" -o /tmp/pg_analytics.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash Ubuntu 22.04
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.2.0/postgresql-16-pg-analytics_0.2.0-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_analytics.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash Debian 12
+# Available arch versions are amd64, arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.2.0/postgresql-16-pg-analytics_0.2.0-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_analytics.deb
+sudo apt-get install -y /tmp/*.deb
+```
+
+```bash RHEL 9
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.2.0/pg_analytics_16-0.2.0-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_analytics.rpm
+sudo dnf install -y /tmp/*.rpm
+```
+
+```bash RHEL 8
+# Available arch versions are x86_64, aarch64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.2.0/pg_analytics_16-0.2.0-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_analytics.rpm
+sudo dnf install -y /tmp/*.rpm
+```
+
+</CodeGroup>
+
+# Update `postgresql.conf`
+
+Next, add the extension(s) to `shared_preload_libraries` in `postgresql.conf`.
+
+```ini
+shared_preload_libraries = 'pg_search,pg_analytics'
+```
+
+Reload the Postgres server for these changes to take effect.
+
+# Load the Extensions
+
+Finally, connect to your Postgres database via your client of choice (e.g. `psql`) and run the following command:
+
+```sql
+CREATE EXTENSION pg_search;
+CREATE EXTENSION pg_analytics;
+```
+
+That's it! To get started, follow the [quickstart guide](/documentation/getting-started/quickstart).
+
+<Note>
+  `pg_search` can be combined with `pgvector` for hybrid search. You can find
+  the instructions for installing `pgvector`
+  [here](https://github.com/pgvector/pgvector?tab=readme-ov-file#installation).
+</Note>

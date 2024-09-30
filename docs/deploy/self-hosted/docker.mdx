@@ -1,0 +1,28 @@
+---
+title: Docker
+---
+
+To deploy ParadeDB via Docker, simply pull and run the `paradedb/paradedb` image locally. This is the recommend deployment method for testing and development.
+
+```bash
+docker run \
+  --name paradedb \
+  -e POSTGRES_USER=myuser \
+  -e POSTGRES_PASSWORD=mypassword \
+  -e POSTGRES_DB=mydatabase \
+  -v paradedb_data:/var/lib/postgresql/data/ \
+  -p 5432:5432 \
+  -d \
+  paradedb/paradedb:latest
+```
+
+You may replace `myuser`, `mypassword`, and `mydatabase` with whatever values you want. These will be your database
+connection credentials.
+
+To connect to ParadeDB, install the `psql` client and run
+
+```bash
+docker exec -it paradedb psql -U myuser -d mydatabase -W
+```
+
+That's it! To get started, we suggest you follow the [quickstart guide](/documentation/getting-started/quickstart).

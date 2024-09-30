@@ -36,8 +36,12 @@ SELECT vendorid, passenger_count, trip_distance FROM trips LIMIT 1;
 ```
 
 <Accordion title="Expected Response">
-  ```csv vendorid | passenger_count | trip_distance
-  ----------+-----------------+--------------- 2 | 1 | 1.72 (1 row) ```
+```csv
+  vendorid | passenger_count | trip_distance
+ ----------+-----------------+---------------
+      2    |       1        | 1.72
+(1 row)
+```
 </Accordion>
 
 Queries over this table are powered by [DuckDB](https://duckdb.org), an in-process analytical query engine.
@@ -48,7 +52,12 @@ SELECT COUNT(*) FROM trips;
 ```
 
 <Accordion title="Expected Response">
-  ```csv count --------- 2964624 (1 row) ```
+```csv
+ count
+---------
+ 2964624
+(1 row)
+```
 </Accordion>
 
 Finally, let's copy this table into a Postgres heap table. For demonstration, we will

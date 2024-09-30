@@ -55,7 +55,7 @@ CALL paradedb.create_bm25(
 </Note>
 
 <Note>
-  The [indexing](/documentation/indexing) documentation provides an in-depth
+  The [indexing](/api-reference/indexing) documentation provides an in-depth
   explanation of what each of these options means.
 </Note>
 
@@ -83,7 +83,7 @@ Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal pe
 `limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
 
 Similarly, the `rating` column was indexed and the `rating:>2` filter was used instead of the SQL `WHERE` clause
-for [efficient filtering](/documentation/full-text/filtering).
+for [efficient filtering](/api-reference/full-text/filtering).
 
 </Note>
 
@@ -142,7 +142,7 @@ LEFT JOIN mock_items ON snippet.id = mock_items.id;
   row) ```
 </Accordion>
 
-For more on full text search, refer to the [full text search API](/documentation/full-text/overview) section.
+For more on full text search, refer to the [full text search API](/api-reference/full-text/overview) section.
 
 ## Similarity Search
 
@@ -194,4 +194,13 @@ LIMIT 3;
   Designer wall paintings | Home Decor | 5 | [1,2,3] (3 rows) ```
 </Accordion>
 
-That’s it! It's now time to [ingest your own data into ParadeDB](/documentation/getting-started/load).
+## For Further Assistance
+
+The `paradedb.help` function opens a GitHub Discussion that the ParadeDB team will respond to.
+
+```sql
+SELECT paradedb.help(
+  subject => $$Something isn't working$$,
+  body => $$Issue description$$
+);
+```

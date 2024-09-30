@@ -202,6 +202,7 @@
           "group": "File/Table Formats",
           "pages": [
             "integrations/formats/csv",
+            "integrations/formats/json",
             "integrations/formats/parquet",
             "integrations/formats/spatial",
             "integrations/formats/iceberg",

@@ -4,7 +4,7 @@ title: Create an Index
 
 ## Basic Usage
 
-The following code block creates a [BM25 index](/api-reference/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
+The following code block creates a [BM25 index](/documentation/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
 
 ```sql
 CALL paradedb.create_bm25(
@@ -84,17 +84,17 @@ CALL paradedb.create_bm25(
   `true` to calculate the BM25 score.
 </ParamField>
 <ParamField body="tokenizer">
-  See [tokenizers](/api-reference/indexing/tokenizers) for how to configure the
+  See [tokenizers](/documentation/indexing/tokenizers) for how to configure the
   tokenizer.
 </ParamField>
 <ParamField body="record" default="position">
   Describes the amount of information indexed. See
-  [record](/api-reference/indexing/record) for a list of available record types.
+  [record](/documentation/indexing/record) for a list of available record types.
 </ParamField>
 <ParamField body="normalizer">
   The name of the tokenizer used for fast fields. This field is ignored unless
   `fast=true`. See
-  [normalizers](/api-reference/indexing/fast_fields#normalizers) for a list of
+  [normalizers](/documentation/indexing/fast_fields#normalizers) for a list of
   available normalizers.
 </ParamField>
 
@@ -188,15 +188,15 @@ CALL paradedb.create_bm25(
   `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`.
 </ParamField>
 <ParamField body="tokenizer">
-  See [tokenizers](/api-reference/indexing/tokenizers) for how to configure the tokenizer.
+  See [tokenizers](/documentation/indexing/tokenizers) for how to configure the tokenizer.
 </ParamField>
 <ParamField body="record" default="position">
-  Describes the amount of information indexed. See [record](/api-reference/indexing/record) for a list of available
+  Describes the amount of information indexed. See [record](/documentation/indexing/record) for a list of available
   record types.
 </ParamField>
 <ParamField body="normalizer">
   The name of the tokenizer used for fast fields. This field is ignored unless
-  `fast=true`. See [normalizers](/api-reference/indexing/fast_fields#normalizers) for a list of available
+  `fast=true`. See [normalizers](/documentation/indexing/fast_fields#normalizers) for a list of available
   normalizers.
 </ParamField>
 

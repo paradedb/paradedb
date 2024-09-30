@@ -55,7 +55,7 @@
     {
       "name": "Integrations",
       "icon": "merge",
-      "url": "ingest"
+      "url": "integrations"
     },
     {
       "name": "Deploy",

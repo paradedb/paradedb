@@ -467,8 +467,11 @@ mod collector {
 
         fn harvest(mut self) -> Self::Fruit {
             // ordering by ctid helps to avoid random heap access, at least for the docs that
-            // were found in this segment
-            self.fruit.sort_by_key(|(scored, _)| scored.ctid);
+            // were found in this segment.  But we don't need to do it if we're also retrieving
+            // the "key_field".
+            if self.key_ff.is_none() {
+                self.fruit.sort_by_key(|(scored, _)| scored.ctid);
+            }
 
             // if send fails that likely means the receiver was dropped so we have nowhere
             // to send the result.  That's okay

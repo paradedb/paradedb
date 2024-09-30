@@ -92,13 +92,15 @@ unsafe fn score_bm25(
         .filter(move |(scored, _)| vischeck.ctid_satisfies_snapshot(scored.ctid))
         .map(move |(scored, _)| {
             let key = unsafe {
+                let datum = scored
+                    .key
+                    .expect("key should have been retrieved")
+                    .try_into_datum(PgOid::from_untagged(key_oid))
+                    .expect("failed to convert key_field to datum");
+                let isnull = datum.is_none();
                 datum::AnyElement::from_polymorphic_datum(
-                    scored
-                        .key
-                        .expect("key should have been retrieved")
-                        .try_into_datum(PgOid::from_untagged(key_oid))
-                        .expect("failed to convert key_field to datum"),
-                    false,
+                    datum.unwrap_or(pg_sys::Datum::null()),
+                    isnull,
                     key_oid,
                 )
                 .expect("null found in key_field")
@@ -163,13 +165,15 @@ unsafe fn snippet(
         .filter(move |(scored, _)| vischeck.ctid_satisfies_snapshot(scored.ctid))
         .map(move |(scored, doc_address)| {
             let key = unsafe {
+                let datum = scored
+                    .key
+                    .expect("key should have been retrieved")
+                    .try_into_datum(PgOid::from_untagged(key_oid))
+                    .expect("failed to convert key_field to datum");
+                let isnull = datum.is_none();
                 datum::AnyElement::from_polymorphic_datum(
-                    scored
-                        .key
-                        .expect("key should have been retrieved")
-                        .try_into_datum(PgOid::from_untagged(key_oid))
-                        .expect("failed to convert key_field to datum"),
-                    false,
+                    datum.unwrap_or(pg_sys::Datum::null()),
+                    isnull,
                     key_oid,
                 )
                 .expect("null found in key_field")

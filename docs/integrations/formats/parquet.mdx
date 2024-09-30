@@ -19,7 +19,7 @@ SERVER <server_name>
 OPTIONS (files '<files>');
 ```
 
-<Accordion title = "Example Usage">
+<Accordion title= "Example Usage">
 ```sql
 CREATE FOREIGN DATA WRAPPER parquet_wrapper
 HANDLER parquet_fdw_handler
@@ -88,7 +88,7 @@ Whether or not to interpret the path as a Hive partitioned path.
 <ParamField body="hive_types">
 If `hive_partitioning` is enabled, `hive_types` can be used to specify the logical types of the hive
 partitions in a struct.
-<Accordion title = "Example Usage">
+<Accordion title= "Example Usage">
 ```sql
 -- Dollar-quoted strings are used to contain single quotes
 CREATE FOREIGN TABLE parquet_table ()
@@ -104,7 +104,7 @@ OPTIONS (
 <ParamField body="hive_types_autocast">
 hive_types will be autodetected for the following types: `DATE`, `TIMESTAMP` and `BIGINT`.
 To switch off the autodetection, this option can be set to `0`.
-<Accordion title = "Example Usage">
+<Accordion title= "Example Usage">
 ```sql
 CREATE FOREIGN TABLE parquet_table ()
 SERVER parquet_server

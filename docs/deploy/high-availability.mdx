@@ -39,7 +39,7 @@ For more details on multi-availability zone ParadeDB Kubernetes clusters, please
 ### Synchronous Replication
 
 By default, ParadeDB ships with asynchronuous replication, meaning transactions on the primary **do not** wait for confirmation from
-the standby instances before commiting. This is the simplest form of high availability.
+the standby instances before committing. This is the simplest form of high availability.
 
 It is possible to configure **quorum-based synchronous replication**. This can improve data consistency further by ensuring
 that a transaction is written to multiple nodes before it is considered complete.

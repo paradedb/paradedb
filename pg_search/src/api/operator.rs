@@ -184,8 +184,6 @@ unsafe fn make_search_config_opexpr_node(
         (*var).varcollid = att.attcollation;
     }
 
-    pgrx::warning!("{:#?}", *var);
-
     // fabricate a `SearchConfig` from the above relation and query string
     // and get it serialized into a JSONB Datum
     let search_config = SearchConfig::from((query, indexrel));

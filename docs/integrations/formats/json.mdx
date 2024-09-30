@@ -19,7 +19,7 @@ SERVER <server_name>
 OPTIONS (files '<files>');
 ```
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN DATA WRAPPER json_wrapper
 HANDLER json_fdw_handler
@@ -61,7 +61,7 @@ by DuckDB's `read_json` function.
 <ParamField body="auto_detect" default="false">
 Enables auto detection of key names and value types.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -78,7 +78,7 @@ OPTIONS (
 <ParamField body="columns" default="NULL">
 Specifies key names and value types in the JSON file (e.g. `{key1: 'INTEGER', key2: 'VARCHAR'}`). If `auto_detect` is enabled the value of this setting will be inferred from the JSON file contents.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 -- Dollar-quoted strings are used to contain single quotes
 CREATE FOREIGN TABLE json_table ()
@@ -94,7 +94,7 @@ OPTIONS (
 <ParamField body="compression" default="auto_detect">
 The compression type for the file. By default this will be detected automatically from the file extension (e.g., `t.json.gz` will use `gzip`, `t.json` will use `none`). Options are `uncompressed`, `gzip`, `zstd`, and `auto_detect`.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -109,7 +109,7 @@ OPTIONS (
 <ParamField body="convert_strings_to_integers" default="false">
 Whether strings representing integer values should be converted to a numerical type.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -124,7 +124,7 @@ OPTIONS (
 <ParamField body="dateformat" default="iso">
 Specifies the date format to use when parsing dates. See [Date Format](https://duckdb.org/docs/sql/functions/dateformat.html)
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -139,7 +139,7 @@ OPTIONS (
 <ParamField body="filename" default="false">
 Whether or not an extra filename column should be included in the result.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -154,7 +154,7 @@ OPTIONS (
 <ParamField body="format" default="array">
 Can be one of `auto`, `unstructured`, `newline_delimited` and `array`
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -169,7 +169,7 @@ OPTIONS (
 <ParamField body="hive_partitioning" default="false">
 Whether or not to interpret the path as a Hive partitioned path.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -184,7 +184,7 @@ OPTIONS (
 <ParamField body="ignore_errors" default="false">
 Whether to ignore parse errors (only possible when format is `newline_delimited`)
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -199,7 +199,7 @@ OPTIONS (
 <ParamField body="maximum_depth" default="-1">
 Maximum nesting depth to which the automatic schema detection detects types. Set to `-1` to fully detect nested JSON types.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -214,7 +214,7 @@ OPTIONS (
 <ParamField body="maximum_object_size" default="16777216">
 The maximum size of a JSON object (in bytes).
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -260,7 +260,7 @@ Reading it with `records` set to `false` will result in these table contents:
 
 If set to `auto` DuckDB will try to determine the desired behaviour. See [DuckDB documentation](https://duckdb.org/docs/data/json/overview#examples-of-records-settings) for more details.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -275,7 +275,7 @@ OPTIONS (
 <ParamField body="sample_size" default="20480">
 Option to define number of sample objects for automatic JSON type detection. Set to `-1` to scan the entire input file
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -290,7 +290,7 @@ OPTIONS (
 <ParamField body="timestampformat" default="iso">
 Specifies the date format to use when parsing timestamps. See [Date Format](https://duckdb.org/docs/sql/functions/dateformat.html)
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server
@@ -305,7 +305,7 @@ OPTIONS (
 <ParamField body="union_by_name" default="false">
 Whether the schema's of multiple JSON files should be unified.
 
-<Accordion title = "Example Usage">
+<Accordion title ="Example Usage">
 ```sql
 CREATE FOREIGN TABLE json_table ()
 SERVER json_server

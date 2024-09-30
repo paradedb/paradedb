@@ -118,8 +118,19 @@ impl PrivateData {
         }
     }
 
+    fn maybe_need_scores(&self) -> bool {
+        unsafe {
+            match self.0.get_ptr(2) {
+                None => false,
+                Some(ptr) => node::<pg_sys::Boolean>(ptr.cast(), pg_sys::NodeTag::T_Boolean)
+                    .map(|b| (*b).boolval)
+                    .unwrap_or_default(),
+            }
+        }
+    }
+
     fn quals(&self) -> Option<Qual> {
-        let base_restrict_info = self.0.get_ptr(2)?;
+        let base_restrict_info = self.0.get_ptr(3)?;
         unsafe { extract_quals(base_restrict_info, anyelement_jsonb_opoid()) }
     }
 }
@@ -150,10 +161,22 @@ impl CustomScan for PdbScan {
 
             // and that relation must have a `USING bm25` index
             let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
+            // quick look at the PathTarget list to see if we might need scoring
+            let path_target = builder.path_target();
+            let exprs = PgList::<pg_sys::Node>::from_pg((*path_target).exprs);
+            let mut maybe_need_scores = false;
 
-            // TODO:  need to see if we can detect that scores are necessary here.  Need to know
-            //        up front because if so, we gotta be able to answer the query -- nobody else can
-            //  hint:  probably look at `builder.path_target()` to figure this out
+            for expr in exprs.iter_ptr() {
+                if is_a(expr, pg_sys::NodeTag::T_Var) {
+                    let var = expr.cast::<pg_sys::Var>();
+                    if (*var).vartype == (*table.rd_rel).reltype {
+                        // we might need scoring if the expression is a Var that points to the
+                        // relation itself.  This could be from `paradedb.score(table_name)`
+                        maybe_need_scores = true;
+                        break;
+                    }
+                }
+            }
 
             //
             // look for quals we can support
@@ -164,7 +187,8 @@ impl CustomScan for PdbScan {
             ) {
                 builder = builder
                     .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast());
+                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast())
+                    .add_private_data(pg_sys::makeBoolean(maybe_need_scores).cast());
 
                 let restrict_info = builder.base_restrict_info();
 
@@ -185,14 +209,17 @@ impl CustomScan for PdbScan {
                 let reltuples = table.reltuples().unwrap_or(1.0) as f64;
                 let rows = (reltuples * selectivity).max(1.0);
                 let startup_cost = DEFAULT_STARTUP_COST;
-                let total_cost =
-                    startup_cost + selectivity * reltuples * (pg_sys::cpu_index_tuple_cost);
+
+                let cpu_index_tuple_cost = pg_sys::cpu_index_tuple_cost;
+                let total_cost = startup_cost + selectivity * reltuples * cpu_index_tuple_cost;
 
                 let cpu_run_cost = {
-                    #[allow(non_upper_case_globals)]
-                    const per_tuple: f64 = 4.0; // TODO:  this is a curious value -- I picked it out of the air!
-
+                    // if we think we need scores, we need a much cheaper plan so that Postgres will
+                    // prefer it over all the others.
+                    // TODO:  these are curious values that I picked out of thin air and probably need attention
+                    let per_tuple = if maybe_need_scores { 0.5 } else { 4.0 };
                     let cpu_run_cost = pg_sys::cpu_tuple_cost + per_tuple;
+
                     cpu_run_cost + rows * per_tuple
                 };
 
@@ -256,15 +283,17 @@ impl CustomScan for PdbScan {
                 pg_sys::GetActiveSnapshot(),
             ));
 
-            let score_funcoid = score_support::score_funcoid();
-            for (i, entry) in builder.target_list().iter_ptr().enumerate() {
-                let entry = entry.as_ref().expect("`TargetEntry` should not be null");
-                let expr = entry.expr;
+            if private_data.maybe_need_scores() {
+                let score_funcoid = score_support::score_funcoid();
+                for (i, entry) in builder.target_list().iter_ptr().enumerate() {
+                    let entry = entry.as_ref().expect("`TargetEntry` should not be null");
+                    let expr = entry.expr;
 
-                if is_a(expr.cast(), pg_sys::NodeTag::T_FuncExpr) {
-                    let func: *mut pg_sys::FuncExpr = expr.cast();
-                    if (*func).funcid == score_funcoid {
-                        builder.custom_state().score_field_indices.push(i);
+                    if is_a(expr.cast(), pg_sys::NodeTag::T_FuncExpr) {
+                        let func: *mut pg_sys::FuncExpr = expr.cast();
+                        if (*func).funcid == score_funcoid {
+                            builder.custom_state().score_field_indices.push(i);
+                        }
                     }
                 }
             }
@@ -282,6 +311,7 @@ impl CustomScan for PdbScan {
 
         explainer.add_text("Table", state.custom_state.heaprelname());
         explainer.add_text("Index", &state.custom_state.index_name);
+        explainer.add_bool("Scores", state.custom_state.need_scores());
 
         let query = &state.custom_state.search_config.query;
         let pretty_json = if explainer.is_verbose() {

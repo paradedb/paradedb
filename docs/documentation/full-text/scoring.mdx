@@ -38,9 +38,13 @@ LEFT JOIN mock_items ON scores.id = mock_items.id;
 ```
 
 <Accordion title="Expected Output">
-  ```csv id | description | score_bm25
-  ----+--------------------------+------------ 2 | Plastic Keyboard | 3.2668595
-  1 | Ergonomic metal keyboard | 2.8213787 (2 rows) ```
+```csv
+ id |       description        | score_bm25
+----+--------------------------+------------
+  2 | Plastic Keyboard         |  3.2668595
+  1 | Ergonomic metal keyboard |  2.8213787
+(2 rows)
+```
 </Accordion>
 
 ## Score Refresh

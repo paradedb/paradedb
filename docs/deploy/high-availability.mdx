@@ -30,8 +30,8 @@ continuity contexts. Primarily used to achieve high availability, physical repli
 allows scale-out of read-only workloads and offloading of some work from the primary.
 
 In ParadeDB, Postgres native physical replication is integrated directly in the Kubernetes API. This
-design greatly simplifies management and increases failover and scalability responsiveness. It also
-enables maintaining standby instances across different datacenter availability zones or regions,
+design greatly simplifies management and increases failover and autoscaling responsiveness. It also
+enables maintaining standby instances across multiple datacenter availability zones or regions,
 to mitigate downtime caused by natural disasters.
 
 For more details on multi-availability zone ParadeDB Kubernetes clusters, please consult the [CloudNativePG Architecture documentation](https://cloudnative-pg.io/documentation/1.18/architecture/).
@@ -39,21 +39,21 @@ For more details on multi-availability zone ParadeDB Kubernetes clusters, please
 ### Synchronous Replication
 
 By default, ParadeDB ships with asynchronuous replication, meaning transactions on the primary **do not** wait for confirmation from
-the standby instances before commiting. This is the simplest high availability configuration.
+the standby instances before commiting. This is the simplest form of high availability.
 
-It is also possible to configure **quorum-based synchronous replication**. This can improve data consistency further by ensuring
+It is possible to configure **quorum-based synchronous replication**. This can improve data consistency further by ensuring
 that a transaction is written to multiple nodes before it is considered complete.
 
 For more details on synchronous replication, please consult the [CloudNativePG Replication documentation](https://cloudnative-pg.io/documentation/1.18/replication/#synchronous-replication).
 
-### Continuous Backup Integration
+### Continuous Backup
 
-ParadeDB supports backups to cloud object stores (e.g. AWS S3, GCS, etc.) and point-in-time-recovery
+ParadeDB supports backups to cloud object stores (e.g. S3, GCS, etc.) and point-in-time-recovery
 via [Barman](https://pgbarman.org/). To further reduce the risk of data loss, continuous backups can
 be configured when using ParadeDB on Kubernetes. This enables the ParadeDB standbys to fallback on archived
 database records whenever replication from the primary fails.
 
-For more details on synchronous replication, please consult the [CloudNativePG Backup documentation](https://cloudnative-pg.io/documentation/1.18/backup_recovery/).
+For more details on continuous backups, please consult the [CloudNativePG Backup documentation](https://cloudnative-pg.io/documentation/1.18/backup_recovery/).
 
 ### Security
 
@@ -64,17 +64,17 @@ and enforces TLS client certificate authentication for the `streaming_replica` u
 
 For more details on security configurations for Postgres physical replication, please consult the [CloudNativePG Replication documentation](https://cloudnative-pg.io/documentation/1.18/replication/).
 
-## Physical Replication (High Availability) vs Logical Replication
+## Physical Replication vs Logical Replication
 
 [Logical replication](/deploy/replication/overview) is used to connect the primary instance of a ParadeDB cluster as a replica to an existing Postgres deployment, for instance
 on a managed Postgres service like AWS RDS. It replicates specific data changes by tracking and transmitting individual row modifications. This feature is fully supported in the
 open source version of ParadeDB.
 
-Physical replication is used to achieve high availability between instances in a ParadeDB cluster. It copies entire data files byte-for-byte.
+Physical replication is used to achieve high availability between instances within a ParadeDB cluster. It copies entire data files byte-for-byte
 on disk. This feature is reserved for ParadeDB enterprise customers.
 
 ![ParadeDB High Availability Architecture](/images/ha.png)
 
 ## How to Enable High Availability
 
-To deploy your ParadeDB with high availability, please [contact sales](mailto:sales@paradedb.com).
+To deploy your ParadeDB cluster with high availability, please [contact sales](mailto:sales@paradedb.com).

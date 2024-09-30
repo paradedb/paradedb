@@ -173,9 +173,18 @@ unsafe fn make_search_config_opexpr_node(
             panic!("index's first column is not in the var's targetlist");
         }
     } else {
-        // the Var's attribute number must always be the first field from the index definition
+        // the Var must look like the first attribute from the index definition
+        let tupdesc = PgTupleDesc::from_pg_unchecked(indexrel.rd_att);
+        let att = tupdesc
+            .get(0)
+            .unwrap_or_else(|| panic!("attribute `{}` not found", keys[0]));
         (*var).varattno = keys[0];
+        (*var).vartype = att.atttypid;
+        (*var).vartypmod = att.atttypmod;
+        (*var).varcollid = att.attcollation;
     }
+
+    pgrx::warning!("{:#?}", *var);
 
     // fabricate a `SearchConfig` from the above relation and query string
     // and get it serialized into a JSONB Datum

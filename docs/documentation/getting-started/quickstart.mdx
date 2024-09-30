@@ -25,10 +25,14 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-  ```csv description | rating | category
-  --------------------------+--------+------------- Ergonomic metal keyboard | 4
-  | Electronics Plastic Keyboard | 4 | Electronics Sleek running shoes | 5 |
-  Footwear (3 rows) ```
+```csv
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+ Sleek running shoes      |      5 | Footwear
+(3 rows)
+```
 </Accordion>
 
 Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
@@ -71,11 +75,16 @@ FROM search_idx.search(
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | rating | category
-  -----------------------------+--------+------------- Plastic Keyboard | 4 |
-  Electronics Ergonomic metal keyboard | 4 | Electronics Innovative wireless
-  earbuds | 5 | Electronics Fast charging power bank | 4 | Electronics
-  Bluetooth-enabled speaker | 3 | Electronics (5 rows) ```
+``` csv
+         description         | rating |  category
+-----------------------------+--------+-------------
+ Plastic Keyboard            |      4 | Electronics
+ Ergonomic metal keyboard    |      4 | Electronics
+ Innovative wireless earbuds |      5 | Electronics
+ Fast charging power bank    |      4 | Electronics
+ Bluetooth-enabled speaker   |      3 | Electronics
+(5 rows)
+```
 </Accordion>
 
 <Note>
@@ -96,9 +105,12 @@ FROM search_idx.search('description:"bluetooth speaker"~1');
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | rating | category
-  ---------------------------+--------+------------- Bluetooth-enabled speaker |
-  3 | Electronics (1 row) ```
+``` csv
+        description        | rating |  category
+---------------------------+--------+-------------
+ Bluetooth-enabled speaker |      3 | Electronics
+(1 row)
+```
 </Accordion>
 
 Note that phrases must be wrapped in double quotes. Also note our use of the `~1` slop operator,
@@ -115,9 +127,12 @@ SELECT * FROM search_idx.snippet(
 ```
 
 <Accordion title="Expected Response">
-  ``` csv id | snippet | score_bm25
-  ----+----------------------------------+------------ 32 | <b>Bluetooth</b>
-  -enabled speaker | 3.3322046 (1 row) ```
+``` csv
+ id |             snippet              | score_bm25
+----+----------------------------------+------------
+ 32 | <b>Bluetooth</b>-enabled speaker |  3.3322046
+(1 row)
+```
 </Accordion>
 
 Let's join this result with our `mock_items` table to see the BM25 scores and highlighted snippets
@@ -136,10 +151,12 @@ LEFT JOIN mock_items ON snippet.id = mock_items.id;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | snippet | score_bm25
-  ---------------------------+----------------------------------+------------
-  Bluetooth-enabled speaker | <b>Bluetooth</b>-enabled speaker | 3.3322046 (1
-  row) ```
+``` csv
+        description        |             snippet              | score_bm25
+---------------------------+----------------------------------+------------
+ Bluetooth-enabled speaker | <b>Bluetooth</b>-enabled speaker |  3.3322046
+(1 row)
+```
 </Accordion>
 
 For more on full text search, refer to the [full text search API](/documentation/full-text/overview) section.
@@ -164,10 +181,14 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | rating | category | embedding
-  --------------------------+--------+-------------+----------- Ergonomic metal
-  keyboard | 4 | Electronics | [3,4,5] Plastic Keyboard | 4 | Electronics |
-  [4,5,6] Sleek running shoes | 5 | Footwear | [5,6,7] (3 rows) ```
+``` csv
+       description        | rating |  category   | embedding
+--------------------------+--------+-------------+-----------
+ Ergonomic metal keyboard |      4 | Electronics | [3,4,5]
+ Plastic Keyboard         |      4 | Electronics | [4,5,6]
+ Sleek running shoes      |      5 | Footwear    | [5,6,7]
+(3 rows)
+```
 </Accordion>
 
 Next, let's create an HNSW index on the `embedding` column of our table.
@@ -188,10 +209,14 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | category | rating | embedding
-  -------------------------+------------+--------+----------- Artistic ceramic
-  vase | Home Decor | 4 | [1,2,3] Modern wall clock | Home Decor | 4 | [1,2,3]
-  Designer wall paintings | Home Decor | 5 | [1,2,3] (3 rows) ```
+``` csv
+       description       |  category  | rating | embedding
+-------------------------+------------+--------+-----------
+ Artistic ceramic vase   | Home Decor |      4 | [1,2,3]
+ Modern wall clock       | Home Decor |      4 | [1,2,3]
+ Designer wall paintings | Home Decor |      5 | [1,2,3]
+(3 rows)
+```
 </Accordion>
 
 ## For Further Assistance

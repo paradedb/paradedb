@@ -48,13 +48,16 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-  ```csv id | score | description | embedding
-  ----+------------------------+--------------------------+----------- 1 |
-  0.03062178588125292193 | Ergonomic metal keyboard | [3,4,5] 2 |
-  0.02990695613646433318 | Plastic Keyboard | [4,5,6] 19 |
-  0.01639344262295081967 | Artistic ceramic vase | [1,2,3] 39 |
-  0.01639344262295081967 | Handcrafted wooden frame | [1,2,3] 29 |
-  0.01639344262295081967 | Designer wall paintings | [1,2,3] (5 rows) ```
+```csv
+ id |         score          |       description        | embedding
+----+------------------------+--------------------------+-----------
+  1 | 0.03062178588125292193 | Ergonomic metal keyboard | [3,4,5]
+  2 | 0.02990695613646433318 | Plastic Keyboard         | [4,5,6]
+ 19 | 0.01639344262295081967 | Artistic ceramic vase    | [1,2,3]
+ 39 | 0.01639344262295081967 | Handcrafted wooden frame | [1,2,3]
+ 29 | 0.01639344262295081967 | Designer wall paintings  | [1,2,3]
+(5 rows)
+```
 </Accordion>
 
 Here, we see that the top five results either contain `keyboard` in the `description` field or have an `embedding` of `[1,2,3]`.

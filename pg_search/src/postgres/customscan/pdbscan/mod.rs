@@ -237,7 +237,7 @@ impl CustomScan for PdbScan {
         None
     }
 
-    fn plan_custom_path(builder: CustomScanBuilder) -> pgrx::pg_sys::CustomScan {
+    fn plan_custom_path(builder: CustomScanBuilder) -> pg_sys::CustomScan {
         builder.build()
     }
 
@@ -304,7 +304,7 @@ impl CustomScan for PdbScan {
 
     fn explain_custom_scan(
         state: &CustomScanStateWrapper<Self>,
-        ancestors: *mut pgrx::pg_sys::List,
+        ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(state.projection_tupdesc()) };

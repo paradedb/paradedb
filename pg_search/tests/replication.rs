@@ -59,6 +59,7 @@ impl Drop for EphemeralPostgres {
         let path = &self.tempdir_path;
         let pg_ctl_path = &self.pg_ctl_path;
         run_cmd!($pg_ctl_path -D $path stop &> /dev/null).unwrap();
+        std::fs::remove_dir_all(self.tempdir_path.clone()).unwrap();
     }
 }
 

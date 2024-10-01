@@ -308,8 +308,6 @@ impl SearchIndex {
 
         if !ctids_to_delete.is_empty() {
             writer.delete(&ctid_field, &ctids_to_delete)?;
-
-            writer.commit()?;
         }
 
         Ok((deleted, not_deleted))

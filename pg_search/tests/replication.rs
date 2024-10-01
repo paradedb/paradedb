@@ -4,10 +4,13 @@ use dotenvy::dotenv;
 use rstest::*;
 use shared::fixtures::db::Query;
 use sqlx::{Connection, PgConnection};
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
+use std::thread;
+use std::time::Duration;
 use tempfile::TempDir;
 
 // Static variables for initializing port assignment and ensuring one-time setup
@@ -88,7 +91,8 @@ impl EphemeralPostgres {
 
     fn new_from_initialized(
         tempdir_path: &Path,
-        postgresql_conf: Option<&str>
+        postgresql_conf: Option<&str>,
+        pg_hba_conf: Option<&str>,
     ) -> Self {
         let tempdir_path = tempdir_path.to_str().unwrap().to_string();
         let port = get_free_port();
@@ -101,6 +105,19 @@ impl EphemeralPostgres {
         };
         let config_path = format!("{}/postgresql.conf", tempdir_path);
         std::fs::write(config_path, config_content).expect("Failed to write to postgresql.conf");
+
+        // Write to pg_hba.conf
+        if let Some(config_content) = pg_hba_conf {
+            let config_path = format!("{}/pg_hba.conf", tempdir_path);
+
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(config_path)
+                .expect("Failed to open pg_hba.conf");
+
+            writeln!(file, "{}", config_content).expect("Failed to append to pg_hba.conf");
+        }
 
         // Create log directory
         let timestamp = chrono::Utc::now().timestamp_millis();
@@ -123,7 +140,7 @@ impl EphemeralPostgres {
         }
     }
 
-    fn new(postgresql_conf: Option<&str>) -> Self {
+    fn new(postgresql_conf: Option<&str>, pg_hba_conf: Option<&str>) -> Self {
         // Make sure .env files are loaded before reading env vars.
         dotenv().ok();
 
@@ -135,17 +152,7 @@ impl EphemeralPostgres {
         run_cmd!($init_db_path -D $tempdir_path &> /dev/null)
             .expect("Failed to initialize Postgres data directory");
 
-        Self::new_from_initialized(tempdir_path.as_path(), postgresql_conf)
-    }
-
-    fn set_pg_hba(&self, config: &str) {
-        let pg_ctl_path = Self::pg_ctl_path();
-        let tempdir_path = &self.tempdir_path;
-        let config_path = format!("{}/pg_hba.conf", tempdir_path);
-        std::fs::write(config_path, config).expect("Failed to write to pg_hba.conf");
-
-        run_cmd!($pg_ctl_path restart -D $tempdir_path)
-            .expect("Failed to restart Postgres");
+        Self::new_from_initialized(tempdir_path.as_path(), postgresql_conf, pg_hba_conf)
     }
 
     // Method to establish a connection to the PostgreSQL instance
@@ -168,8 +175,8 @@ async fn test_ephemeral_postgres() -> Result<()> {
         shared_preload_libraries = 'pg_search'
     ";
 
-    let source_postgres = EphemeralPostgres::new(Some(config));
-    let target_postgres = EphemeralPostgres::new(Some(config));
+    let source_postgres = EphemeralPostgres::new(Some(config), None);
+    let target_postgres = EphemeralPostgres::new(Some(config), None);
 
     let mut source_conn = source_postgres.connection().await?;
     let mut target_conn = target_postgres.connection().await?;
@@ -325,7 +332,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
         shared_preload_libraries = 'pg_search'
     ";
 
-    let source_postgres = EphemeralPostgres::new(Some(config));
+    let source_postgres = EphemeralPostgres::new(Some(config), None);
     let mut source_conn = source_postgres.connection().await?;
     let source_port = source_postgres.port;
     let source_username = "SELECT CURRENT_USER"
@@ -387,7 +394,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     .expect("Failed to run pg_basebackup");
 
     let target_postgres =
-        EphemeralPostgres::new_from_initialized(target_tempdir_path.as_path(), Some(config));
+        EphemeralPostgres::new_from_initialized(target_tempdir_path.as_path(), Some(config), None);
     let mut target_conn = target_postgres.connection().await?;
 
     // Verify the content in the target database
@@ -420,8 +427,8 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
         shared_preload_libraries = 'pg_search'
     ";
 
-    let source_postgres = EphemeralPostgres::new(Some(config));
-    let target_postgres = EphemeralPostgres::new(Some(config));
+    let source_postgres = EphemeralPostgres::new(Some(config), None);
+    let target_postgres = EphemeralPostgres::new(Some(config), None);
 
     let mut source_conn = source_postgres.connection().await?;
     let mut target_conn = target_postgres.connection().await?;
@@ -494,21 +501,58 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
 async fn test_wal_streaming_replication() -> Result<()> {
     // Primary Postgres setup + insert data
     let postgresql_conf = "
-        listen_addresses = '*'
+        listen_addresses = 'localhost'
         wal_level = replica
         max_wal_senders = 4
         shared_preload_libraries = 'pg_search'
     ";
     let pg_hba_conf = "
-        host    replication     replicator       192.168.0.0/24         md5
+        host replication all 127.0.0.1/32 md5
+        host replication all ::1/128 md5
     ";
-    let source_postgres = EphemeralPostgres::new(Some(postgresql_conf));
+    let source_postgres = EphemeralPostgres::new(Some(postgresql_conf), Some(pg_hba_conf));
     let mut source_conn = source_postgres.connection().await?;
     let source_port = source_postgres.port;
     let source_username = "replicator";
 
-    "CREATE USER replicator WITH REPLICATION".execute(&mut source_conn);
-        
+    "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD 'replicator_pass'"
+        .execute(&mut source_conn);
+
+    // Standby Postgres setup
+    let postgresql_conf = format!(
+        "
+        primary_conninfo = 'host={} port={} user={} application_name=replica1'
+    ",
+        source_postgres.host, source_port, source_username
+    );
+    let target_tempdir = TempDir::new().expect("Failed to create temp dir");
+    let target_tempdir_path = target_tempdir.into_path();
+
+    // Permissions for the --pgdata directory passed to pg_basebackup
+    // should be u=rwx (0700) or u=rwx,g=rx (0750)
+    std::fs::set_permissions(
+        target_tempdir_path.as_path(),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .expect("couldn't set permissions on target_tempdir path");
+
+    // Run pg_basebackup
+    let pg_basebackup = EphemeralPostgres::pg_basebackup_path();
+    run_cmd!($pg_basebackup -D $target_tempdir_path -Fp -Xs -P -R -h localhost -U $source_username --port $source_port)
+        .expect("Failed to run pg_basebackup");
+
+    let target_postgres = EphemeralPostgres::new_from_initialized(
+        target_tempdir_path.as_path(),
+        Some(&postgresql_conf),
+        None,
+    );
+
+    // Test standby recognized as replica
+    let result: Vec<(String, String)> = "SELECT usename, application_name
+        FROM pg_stat_replication"
+        .fetch(&mut source_conn);
+    assert_eq!(result.len(), 1);
+
     // Create the mock_items table schema on the source
     let schema = "
         CREATE TABLE mock_items (
@@ -524,41 +568,16 @@ async fn test_wal_streaming_replication() -> Result<()> {
         )
     ";
     schema.execute(&mut source_conn);
+    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+        VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1)".execute(&mut source_conn);
 
-    println!("Created table");
+    thread::sleep(Duration::from_millis(1000));
 
-    // Standby Postgres setup
-    let postgresql_conf = "
-        hot_standby = on
-    ";
-    let target_tempdir = TempDir::new().expect("Failed to create temp dir");
-    let target_tempdir_path = target_tempdir.into_path();
-
-    // Permissions for the --pgdata directory passed to pg_basebackup
-    // should be u=rwx (0700) or u=rwx,g=rx (0750)
-    std::fs::set_permissions(
-        target_tempdir_path.as_path(),
-        std::fs::Permissions::from_mode(0o700),
-    )
-    .expect("couldn't set permissions on target_tempdir path");
-
-    // Run pg_basebackup
-    let pg_basebackup = EphemeralPostgres::pg_basebackup_path();
-    run_cmd!($pg_basebackup --pgdata $target_tempdir_path --host localhost --port $source_port --username $source_username)
-    .expect("Failed to run pg_basebackup");
-
-    let target_postgres =
-        EphemeralPostgres::new_from_initialized(target_tempdir_path.as_path(), Some(postgresql_conf));
     let mut target_conn = target_postgres.connection().await?;
-
-    let source_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mock_items")
-        .fetch_one(&mut source_conn)
-        .await?;
     let target_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mock_items")
         .fetch_one(&mut target_conn)
         .await?;
 
-    assert_eq!(source_count, target_count);
-
+    assert_eq!(target_count, (1,));
     Ok(())
 }

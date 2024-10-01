@@ -22,8 +22,10 @@ use crate::api::operator::{
 use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::UNKNOWN_SELECTIVITY;
-use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
+use crate::{nodecast, UNKNOWN_SELECTIVITY};
+use pgrx::{
+    direct_function_call, pg_extern, pg_sys, AnyElement, FromDatum, Internal, IntoDatum, PgList,
+};
 
 /// This is the function behind the `@@@(anyelement, paradedb.searchqueryinput)` operator. Since we
 /// transform those to use `@@@(anyelement, jsonb`), this function won't be called in normal
@@ -40,40 +42,37 @@ pub fn search_with_query_input(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn query_input_support(arg: Internal) -> ReturnedNodePointer {
+pub unsafe fn query_input_support(arg: Internal) -> ReturnedNodePointer {
+    query_input_support_request_simplify(arg).unwrap_or_else(|| ReturnedNodePointer(None))
+}
+
+fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
     unsafe {
-        let node = arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>();
+        let srs = nodecast!(
+            SupportRequestSimplify,
+            T_SupportRequestSimplify,
+            arg.unwrap()?.cast_mut_ptr::<pg_sys::Node>()
+        )?;
 
-        match (*node).type_ {
-            // rewrite this node, which is using the @@@(key_field, paradedb.searchqueryinput) operator
-            // to instead use the @@@(key_field, jsonb) operator.  This involves converting the rhs
-            // of the operator into the jsonb representation of a SearchConfig, which is built
-            // in `make_new_opexpr_node()`
-            pg_sys::NodeTag::T_SupportRequestSimplify => {
-                let srs = node.cast::<pg_sys::SupportRequestSimplify>();
+        pgrx::warning!("{}", pgrx::node_to_string((*srs).fcall.cast()).unwrap());
 
-                let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
-                if let (Some(lhs), Some(rhs)) = (input_args.get_ptr(0), input_args.get_ptr(1)) {
-                    if is_a(lhs, pg_sys::NodeTag::T_Var) && is_a(rhs, pg_sys::NodeTag::T_Const) {
-                        let var = lhs.cast::<pg_sys::Var>();
-                        let const_ = rhs.cast::<pg_sys::Const>();
+        // rewrite this node, which is using the @@@(key_field, paradedb.searchqueryinput) operator
+        // to instead use the @@@(key_field, jsonb) operator.  This involves converting the rhs
+        // of the operator into the jsonb representation of a SearchConfig, which is built
+        // in `make_new_opexpr_node()`
+        let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
+        let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
+        let const_ = nodecast!(Const, T_Const, input_args.get_ptr(1)?)?;
 
-                        // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
-                        let query = SearchQueryInput::from_datum(
-                            (*const_).constvalue,
-                            (*const_).constisnull,
-                        )
-                        .expect("query must not be NULL");
+        // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
+        let query = SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
 
-                        return make_search_config_opexpr_node(srs, &mut input_args, var, query);
-                    }
-                }
-
-                ReturnedNodePointer(None)
-            }
-
-            _ => ReturnedNodePointer(None),
-        }
+        Some(make_search_config_opexpr_node(
+            srs,
+            &mut input_args,
+            var,
+            query,
+        ))
     }
 }
 
@@ -93,23 +92,17 @@ pub fn query_input_restrict(
             let args =
                 PgList::<pg_sys::Node>::from_pg(args.unwrap()?.cast_mut_ptr::<pg_sys::List>());
 
-            let (lhs, rhs) = (args.get_ptr(0)?, args.get_ptr(1)?);
-            if is_a(lhs, pg_sys::NodeTag::T_Var) && is_a(rhs, pg_sys::NodeTag::T_Const) {
-                let var = lhs.cast::<pg_sys::Var>();
-                let const_ = rhs.cast::<pg_sys::Const>();
+            let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+            let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
 
-                let (heaprelid, _, _) = find_var_relation(var, info);
-                let indexrel = locate_bm25_index(heaprelid)?;
-                let relfilenode = relfilenode_from_pg_relation(&indexrel);
+            let (heaprelid, _, _) = find_var_relation(var, info);
+            let indexrel = locate_bm25_index(heaprelid)?;
+            let relfilenode = relfilenode_from_pg_relation(&indexrel);
 
-                let query =
-                    SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-                let search_config = SearchConfig::from((query, indexrel));
+            let query = SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+            let search_config = SearchConfig::from((query, indexrel));
 
-                return estimate_selectivity(heaprelid, relfilenode, &search_config);
-            }
-
-            None
+            estimate_selectivity(heaprelid, relfilenode, &search_config)
         }
     }
 

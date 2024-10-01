@@ -22,8 +22,8 @@ use crate::api::operator::{
 use crate::postgres::utils::{locate_bm25_index, relfilenode_from_search_config};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::UNKNOWN_SELECTIVITY;
-use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList, PgRelation};
+use crate::{nodecast, UNKNOWN_SELECTIVITY};
+use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList, PgRelation};
 
 /// This is the function behind the `@@@(anyelement, text)` operator. Since we transform those to
 /// use `@@@(anyelement, jsonb`), this function won't be called in normal circumstances, but it
@@ -40,36 +40,30 @@ pub fn search_with_text(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn text_support(arg: Internal) -> ReturnedNodePointer {
+pub unsafe fn text_support(arg: Internal) -> ReturnedNodePointer {
+    text_support_request_simplify(arg).unwrap_or_else(|| ReturnedNodePointer(None))
+}
+
+fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
     unsafe {
-        let node = arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>();
+        let srs = nodecast!(
+            SupportRequestSimplify,
+            T_SupportRequestSimplify,
+            arg.unwrap()?.cast_mut_ptr::<pg_sys::Node>()
+        )?;
+        let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
 
-        match (*node).type_ {
-            // rewrite this node, which is using the @@@(key_field, text) operator
-            // to instead use the @@@(key_field, jsonb) operator.  This involves converting the rhs
-            // of the operator into the jsonb representation of a SearchConfig, which is built
-            // in `make_new_opexpr_node()`
-            pg_sys::NodeTag::T_SupportRequestSimplify => {
-                let srs = node.cast::<pg_sys::SupportRequestSimplify>();
+        let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
+        let const_ = nodecast!(Const, T_Const, input_args.get_ptr(1)?)?;
 
-                let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
-                if let (Some(lhs), Some(rhs)) = (input_args.get_ptr(0), input_args.get_ptr(1)) {
-                    if is_a(lhs, pg_sys::NodeTag::T_Var) && is_a(rhs, pg_sys::NodeTag::T_Const) {
-                        let var = lhs.cast::<pg_sys::Var>();
-                        let const_ = rhs.cast::<pg_sys::Const>();
-
-                        // the field name comes from the lhs of the @@@ operator
-
-                        let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
-                        return make_search_config_opexpr_node(srs, &mut input_args, var, query);
-                    }
-                }
-
-                ReturnedNodePointer(None)
-            }
-
-            _ => ReturnedNodePointer(None),
-        }
+        // the field name comes from the lhs of the @@@ operator
+        let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
+        Some(make_search_config_opexpr_node(
+            srs,
+            &mut input_args,
+            var,
+            query,
+        ))
     }
 }
 
@@ -88,21 +82,15 @@ pub fn text_restrict(
             let info = planner_info.unwrap()?.cast_mut_ptr::<pg_sys::PlannerInfo>();
             let args =
                 PgList::<pg_sys::Node>::from_pg(args.unwrap()?.cast_mut_ptr::<pg_sys::List>());
+            let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+            let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
 
-            let (lhs, rhs) = (args.get_ptr(0)?, args.get_ptr(1)?);
-            if is_a(lhs, pg_sys::NodeTag::T_Var) && is_a(rhs, pg_sys::NodeTag::T_Const) {
-                let var = lhs.cast::<pg_sys::Var>();
-                let const_ = rhs.cast::<pg_sys::Const>();
+            let (heaprelid, query) = make_query_from_var_and_const(info, var, const_);
+            let indexrel = locate_bm25_index(heaprelid)?;
+            let search_config = SearchConfig::from((query, indexrel));
+            let relfilenode = relfilenode_from_search_config(&search_config);
 
-                let (heaprelid, query) = make_query_from_var_and_const(info, var, const_);
-                let indexrel = locate_bm25_index(heaprelid)?;
-                let search_config = SearchConfig::from((query, indexrel));
-                let relfilenode = relfilenode_from_search_config(&search_config);
-
-                return estimate_selectivity(heaprelid, relfilenode, &search_config);
-            }
-
-            None
+            estimate_selectivity(heaprelid, relfilenode, &search_config)
         }
     }
 

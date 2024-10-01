@@ -28,6 +28,6 @@ fn attribute_1_of_table_has_wrong_type(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id,) = "SELECT id, description FROM paradedb.bm25_search WHERE description @@@ 'keyboard' OR id = 1 ORDER BY id LIMIT 1"
-        .fetch_one::<(i64,)>(&mut conn);
+        .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 1);
 }

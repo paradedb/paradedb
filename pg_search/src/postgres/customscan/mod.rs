@@ -21,8 +21,8 @@
 #![allow(dead_code)]
 #![allow(clippy::tabs_in_doc_comments)]
 
-use pgrx::{is_a, pg_sys};
-use std::ffi::{c_void, CStr};
+use pgrx::pg_sys;
+use std::ffi::CStr;
 
 mod builders;
 mod dsm;
@@ -50,7 +50,6 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 pub use hook::register_rel_pathlist;
-
 pub trait CustomScanState: Default {}
 
 pub trait CustomScan: Default + Sized {
@@ -164,21 +163,4 @@ pub trait ParallelQueryAndMarkRestoreCapable:
             ExplainCustomScan: Some(explain_custom_scan::<Self>),
         }
     }
-}
-
-#[macro_export]
-macro_rules! nodecast {
-    ($type_:ident, $kind:ident, $node:expr) => {
-        node::<pg_sys::$type_>($node.cast(), pg_sys::NodeTag::$kind)
-    };
-}
-
-#[track_caller]
-#[inline(always)]
-unsafe fn node<T>(void: *mut c_void, tag: pg_sys::NodeTag) -> Option<*mut T> {
-    let node: *mut T = void.cast();
-    if !is_a(node.cast(), tag) {
-        return None;
-    }
-    Some(node)
 }

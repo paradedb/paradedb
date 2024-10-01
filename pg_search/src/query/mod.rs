@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::schema::SearchConfig;
+use crate::schema::{IndexRecordOption, SearchConfig};
 use anyhow::Result;
 use core::panic;
 use pgrx::PostgresType;
@@ -29,7 +29,7 @@ use tantivy::{
         PhraseQuery, Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
-    schema::{Field, FieldType, IndexRecordOption, OwnedValue},
+    schema::{Field, FieldType, OwnedValue},
     Searcher, Term,
 };
 use thiserror::Error;
@@ -425,7 +425,7 @@ impl SearchQueryInput {
                         .expect("internal error, key field should be found here");
                     let term = value_to_term(field, &key_value, &field_type)?;
                     let query: Box<dyn Query> =
-                        Box::new(TermQuery::new(term, IndexRecordOption::Basic));
+                        Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
                     let addresses = searcher.search(&query, &DocSetCollector)?;
                     let disjuncts: Vec<Box<dyn Query>> = addresses
                         .into_iter()
@@ -561,7 +561,7 @@ impl SearchQueryInput {
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
                     let term = value_to_term(field, &value, &field_type)?;
-                    Ok(Box::new(TermQuery::new(term, record_option)))
+                    Ok(Box::new(TermQuery::new(term, record_option.into())))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();

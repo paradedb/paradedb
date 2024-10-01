@@ -17,6 +17,7 @@
 
 mod qual_inspect;
 
+use crate::api::node;
 use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity};
 use crate::globals::WriterGlobal;
 use crate::index::state::SearchResults;
@@ -28,7 +29,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
-use crate::postgres::customscan::{node, CustomScan, CustomScanState};
+use crate::postgres::customscan::{CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{relfilenode_from_pg_relation, VisibilityChecker};

@@ -1,5 +1,4 @@
 use crate::nodecast;
-use crate::postgres::customscan::node;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use pgrx::{node_to_string, pg_sys, FromDatum, JsonB, PgList};

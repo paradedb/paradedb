@@ -15,8 +15,28 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use pgrx::{is_a, pg_sys};
+use std::ffi::c_void;
+
 pub mod config;
 pub mod index;
 pub mod operator;
 pub mod search;
 pub mod tokenize;
+
+#[track_caller]
+#[inline(always)]
+pub unsafe fn node<T>(void: *mut c_void, tag: pg_sys::NodeTag) -> Option<*mut T> {
+    let node: *mut T = void.cast();
+    if !is_a(node.cast(), tag) {
+        return None;
+    }
+    Some(node)
+}
+
+#[macro_export]
+macro_rules! nodecast {
+    ($type_:ident, $kind:ident, $node:expr) => {
+        crate::api::node::<pg_sys::$type_>($node.cast(), pg_sys::NodeTag::$kind)
+    };
+}

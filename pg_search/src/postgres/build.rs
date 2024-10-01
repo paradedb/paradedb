@@ -19,11 +19,10 @@ use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
-use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
-use tantivy::schema::IndexRecordOption;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 

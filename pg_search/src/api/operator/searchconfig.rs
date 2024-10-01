@@ -25,10 +25,10 @@ use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
-use crate::{GUCS, UNKNOWN_SELECTIVITY};
+use crate::{nodecast, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::{
-    check_for_interrupts, is_a, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
-    JsonB, PgList, PgOid,
+    check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal, JsonB,
+    PgList, PgOid,
 };
 use rustc_hash::FxHashSet;
 use shared::gucs::GlobalGucSettings;
@@ -85,34 +85,34 @@ pub fn search_with_search_config(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn search_config_support(arg: Internal) -> ReturnedNodePointer {
+pub unsafe fn search_config_support(arg: Internal) -> ReturnedNodePointer {
+    search_config_support_request_cost(arg).unwrap_or_else(|| ReturnedNodePointer(None))
+}
+
+fn search_config_support_request_cost(arg: Internal) -> Option<ReturnedNodePointer> {
     unsafe {
-        let node = arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>();
+        let src = nodecast!(
+            SupportRequestCost,
+            T_SupportRequestCost,
+            arg.unwrap()?.cast_mut_ptr::<pg_sys::Node>()
+        )?;
+        // our `search_with_*` functions are *incredibly* expensive.  So much so that
+        // we really don't ever want Postgres to prefer them.
+        //
+        // The higher the `per_tuple` cost is here, the better.
 
-        match (*node).type_ {
-            // our `search_with_*` functions are *incredibly* expensive.  So much so that
-            // we really don't ever want Postgres to prefer them.
-            //
-            // The higher the `per_tuple` cost is here, the better.
-            pg_sys::NodeTag::T_SupportRequestCost => {
-                let src = node.cast::<pg_sys::SupportRequestCost>();
+        // it can cost a lot to startup the `@@@` operator outside of an IndexScan because
+        // ultimately we have to hash all the resulting ctids in memory.  For lack of a better
+        // value, we say it costs as much as the `GUCS.per_tuple_cost()`.  This is an arbitrary
+        // number that we've documented as needing to be big.
+        (*src).startup = GUCS.per_tuple_cost();
 
-                // it can cost a lot to startup the `@@@` operator outside of an IndexScan because
-                // ultimately we have to hash all the resulting ctids in memory.  For lack of a better
-                // value, we say it costs as much as the `GUCS.per_tuple_cost()`.  This is an arbitrary
-                // number that we've documented as needing to be big.
-                (*src).startup = GUCS.per_tuple_cost();
+        // similarly, use the same GUC here.  Postgres will then add this into its per-tuple
+        // cost evaluations for whatever scan it's considering using for the `@@@` operator.
+        // our IAM provides more intelligent costs for the IndexScan situation.
+        (*src).per_tuple = GUCS.per_tuple_cost();
 
-                // similarly, use the same GUC here.  Postgres will then add this into its per-tuple
-                // cost evaluations for whatever scan it's considering using for the `@@@` operator.
-                // our IAM provides more intelligent costs for the IndexScan situation.
-                (*src).per_tuple = GUCS.per_tuple_cost();
-
-                ReturnedNodePointer(NonNull::new(node))
-            }
-
-            _ => ReturnedNodePointer(None),
-        }
+        Some(ReturnedNodePointer(NonNull::new(src.cast())))
     }
 }
 
@@ -132,24 +132,18 @@ pub fn search_config_restrict(
             let args =
                 PgList::<pg_sys::Node>::from_pg(args.unwrap()?.cast_mut_ptr::<pg_sys::List>());
 
-            let (lhs, rhs) = (args.get_ptr(0)?, args.get_ptr(1)?);
-            if is_a(lhs, pg_sys::NodeTag::T_Var) && is_a(rhs, pg_sys::NodeTag::T_Const) {
-                let var = lhs.cast::<pg_sys::Var>();
-                let const_ = rhs.cast::<pg_sys::Const>();
+            let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+            let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
+            let (heaprelid, _, _) = find_var_relation(var, info);
+            let indexrel = locate_bm25_index(heaprelid)?;
+            let relfilenode = relfilenode_from_pg_relation(&indexrel);
 
-                let (heaprelid, _, _) = find_var_relation(var, info);
-                let indexrel = locate_bm25_index(heaprelid)?;
-                let relfilenode = relfilenode_from_pg_relation(&indexrel);
+            let search_config_jsonb =
+                JsonB::from_datum((*const_).constvalue, (*const_).constisnull)?;
+            let search_config = SearchConfig::from_jsonb(search_config_jsonb)
+                .expect("SearchConfig should be valid");
 
-                let search_config_jsonb =
-                    JsonB::from_datum((*const_).constvalue, (*const_).constisnull)?;
-                let search_config = SearchConfig::from_jsonb(search_config_jsonb)
-                    .expect("SearchConfig should be valid");
-
-                return estimate_selectivity(heaprelid, relfilenode, &search_config);
-            }
-
-            None
+            estimate_selectivity(heaprelid, relfilenode, &search_config)
         }
     }
 

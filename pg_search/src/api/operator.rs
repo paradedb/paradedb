@@ -34,6 +34,7 @@ use pgrx::*;
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct ReturnedNodePointer(Option<NonNull<pg_sys::Node>>);
 

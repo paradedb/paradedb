@@ -17,9 +17,9 @@
 
 use super::state::SearchState;
 use super::IndexError;
+use crate::index::SearchIndexWriter;
 use crate::index::{
     BlockingDirectory, SearchDirectoryError, SearchFs, TantivyDirPath, WriterDirectory,
-    WriterManager,
 };
 use crate::schema::{
     SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
@@ -30,14 +30,15 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::ptr::addr_of_mut;
+use tantivy::schema::Value;
 use tantivy::{query::QueryParser, Executor, Index, Searcher};
-use tantivy::{schema::Value, IndexReader, IndexWriter, TantivyDocument, TantivyError};
+use tantivy::{IndexReader, TantivyDocument, TantivyError};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::{debug, trace};
 
 // Must be at least 15,000,000 or Tantivy will panic.
-const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
+pub const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
 
 pub type SearchIndexCacheType = Lazy<HashMap<WriterDirectory, SearchIndex>>;
@@ -64,8 +65,6 @@ pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
     Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
 });
 
-pub static mut SEARCH_WRITER_MANAGER: Lazy<WriterManager> = Lazy::new(WriterManager::new);
-
 #[derive(Serialize)]
 pub struct SearchIndex {
     pub schema: SearchIndexSchema,
@@ -75,7 +74,6 @@ pub struct SearchIndex {
     #[serde(skip_serializing)]
     pub underlying_index: Index,
     pub uuid: String,
-    pub is_dirty: bool,
     pub is_pending_create: bool,
     pub is_pending_drop: bool,
 }
@@ -87,8 +85,7 @@ impl SearchIndex {
         uuid: String,
         key_field_index: usize,
     ) -> Result<&'static mut Self, SearchIndexError> {
-        let writer = unsafe { Self::get_writer() };
-        writer.create_index(directory.clone(), fields, uuid, key_field_index)?;
+        SearchIndexWriter::create_index(directory.clone(), fields, uuid, key_field_index)?;
 
         // As the new index instance was created in a background process, we need
         // to load it from disk to use it.
@@ -99,6 +96,14 @@ impl SearchIndex {
         new_self_ref.is_pending_create = true;
 
         Ok(new_self_ref)
+    }
+
+    /// Retrieve an owned writer for a given index. This will block until this process
+    /// can get an exclusive lock on the Tantivy writer. The return type needs to
+    /// be entirely owned by the new process, with no references.
+    pub fn get_writer(&self) -> Result<SearchIndexWriter> {
+        let underlying_writer = self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
+        Ok(SearchIndexWriter { underlying_writer })
     }
 
     #[allow(static_mut_refs)]
@@ -135,16 +140,6 @@ impl SearchIndex {
 
     unsafe fn into_cache(self) {
         SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
-    }
-
-    /// # Safety
-    ///
-    /// While a caller has a reference to the returned [`Writer`], the internal `SEARCH_INDEX_MEMORY` cache
-    /// **cannot** be modified. It is the caller's responsibility to ensure this.
-    pub unsafe fn get_writer() -> &'static mut WriterManager {
-        addr_of_mut!(SEARCH_WRITER_MANAGER)
-            .as_mut()
-            .expect("global SEARCH_INDEX_MEMORY must not be null")
     }
 
     /// # Safety
@@ -206,11 +201,6 @@ impl SearchIndex {
         SEARCH_INDEX_MEMORY.remove(directory);
     }
 
-    /// If this [`SearchIndex]` instance has changes in need of commit *or* abort, return true
-    pub fn is_dirty(&self) -> bool {
-        self.is_dirty
-    }
-
     /// If this [`SearchIndex`] is newly created, return true
     pub fn is_pending_create(&self) -> bool {
         self.is_pending_create
@@ -248,11 +238,6 @@ impl SearchIndex {
     }
 
     pub fn search_state(&mut self, config: &SearchConfig) -> Result<SearchState, SearchIndexError> {
-        // Commit any inserts or deletes that have occurred during this transaction.
-        if self.is_dirty {
-            self.commit()?;
-        }
-
         // Prepare to perform a search.
         // In case this is happening in the same transaction as an index build or an insert,
         // we want to commit first so that the most recent results appear.
@@ -265,66 +250,15 @@ impl SearchIndex {
         self.reader.searcher()
     }
 
-    /// Retrieve an owned writer for a given index. This is a static method, as
-    /// we expect to be called from the writer process. The return type needs to
-    /// be entirely owned by the new process, with no references.
-    pub fn writer(directory: &WriterDirectory) -> Result<IndexWriter, SearchIndexError> {
-        let search_index: Self = directory.load_index()?;
-        let index_writer = search_index
-            .underlying_index
-            .writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
-        Ok(index_writer)
-    }
-
-    /// Commit pending index changes to the underlying tantivy index, changing the internal state
-    /// from "dirty" to clean.
-    ///
-    /// # Errors
-    ///
-    /// If the index is not dirty a [`SearchIndexError::IndexNotDirty`] error is returned.
-    ///
-    /// If problems are encountered while performing the commit, those errors are returned to the
-    /// caller.
-    pub fn commit(&mut self) -> Result<(), SearchIndexError> {
-        let writer = unsafe { Self::get_writer() };
-        if !self.is_dirty() {
-            return Err(SearchIndexError::IndexNotDirty);
-        }
-
-        self.is_dirty = false;
-
-        writer.commit(self.directory.clone())?;
-
-        Ok(())
-    }
-
-    /// Abort pending index changes to the underlying tantivy index, changing the internal state
-    /// from "dirty" to clean.
-    ///
-    /// # Errors
-    ///
-    /// If the index is not dirty a [`SearchIndexError::IndexNotDirty`] error is returned.
-    ///
-    /// If problems are encountered while performing the abort, those errors are returned to the
-    /// caller.
-    pub fn abort(&mut self) -> Result<()> {
-        let writer = unsafe { Self::get_writer() };
-        if !self.is_dirty() {
-            return Err(anyhow::Error::from(SearchIndexError::IndexNotDirty));
-        }
-
-        self.is_dirty = false;
-        writer.abort(self.directory.clone())?;
-        Ok(())
-    }
-
-    pub fn insert(&mut self, document: SearchDocument) -> Result<(), SearchIndexError> {
+    pub fn insert(
+        &mut self,
+        writer: &mut SearchIndexWriter,
+        document: SearchDocument,
+    ) -> Result<(), SearchIndexError> {
         // the index is about to change, and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
-        let writer = unsafe { Self::get_writer() };
-        writer.insert(self.directory.clone(), document)?;
-        self.is_dirty = true;
+        writer.insert(document)?;
 
         Ok(())
     }
@@ -336,6 +270,7 @@ impl SearchIndex {
     /// are committed before returning an [`Ok`] response.
     pub fn delete(
         &mut self,
+        writer: &mut SearchIndexWriter,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
         let mut deleted: u32 = 0;
@@ -372,33 +307,25 @@ impl SearchIndex {
         }
 
         if !ctids_to_delete.is_empty() {
-            let writer = unsafe { Self::get_writer() };
+            writer.delete(&ctid_field, &ctids_to_delete)?;
 
-            writer.delete(self.directory.clone(), &ctid_field, &ctids_to_delete)?;
-
-            writer.commit(self.directory.clone())?;
+            writer.commit()?;
         }
 
         Ok((deleted, not_deleted))
     }
 
-    pub fn drop_index(&mut self, directory: &WriterDirectory) -> Result<(), SearchIndexError> {
+    pub fn drop_index(&mut self) -> Result<(), SearchIndexError> {
         // the index is about to be queued to drop and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
-        let writer = unsafe { Self::get_writer() };
-
-        writer.drop_index(directory.clone())?;
-
-        self.is_dirty = true;
         self.is_pending_drop = true;
 
         Ok(())
     }
 
-    pub fn vacuum(&mut self) -> Result<(), SearchIndexError> {
-        let writer = unsafe { Self::get_writer() };
-        writer.vacuum(self.directory.clone())?;
+    pub fn vacuum(&mut self, writer: &mut SearchIndexWriter) -> Result<(), SearchIndexError> {
+        writer.vacuum()?;
         Ok(())
     }
 }
@@ -448,7 +375,6 @@ impl<'de> Deserialize<'de> for SearchIndex {
             directory,
             schema,
             uuid,
-            is_dirty: false,
             is_pending_drop: false,
             is_pending_create: false,
         })
@@ -477,7 +403,4 @@ pub enum SearchIndexError {
 
     #[error(transparent)]
     AnyhowError(#[from] anyhow::Error),
-
-    #[error("Index has no pending changes")]
-    IndexNotDirty,
 }

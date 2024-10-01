@@ -51,9 +51,13 @@ pub extern "C" fn amvacuumcleanup(
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
+    let mut writer = search_index
+        .get_writer()
+        .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));
+
     // Garbage collect the index and clear the writer cache to free up locks.
     search_index
-        .vacuum()
+        .vacuum(&mut writer)
         .unwrap_or_else(|err| panic!("error during vacuum on index {index_name}: {err:?}"));
 
     stats

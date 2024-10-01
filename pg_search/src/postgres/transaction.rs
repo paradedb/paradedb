@@ -15,9 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::SearchFs;
 use crate::index::SearchIndex;
-use crate::index::WriterDirectory;
-use crate::index::SEARCH_WRITER_MANAGER;
 use pgrx::{pg_guard, pg_sys};
 use tracing::warn;
 
@@ -52,25 +51,19 @@ unsafe extern "C" fn pg_search_xact_callback(
             let pending_drops = SearchIndex::get_cache()
                 .values_mut()
                 .filter(|index| index.is_pending_drop())
-                .map(|index| index.directory.clone())
                 .collect::<Vec<_>>();
 
-            for directory in pending_drops {
-                finalize_drop(&directory);
+            for index in pending_drops {
+                index.directory.remove().unwrap_or_else(|err| {
+                    warn!(
+                        "unexpected error removing index directory during pre-commit: {:?}; {:?}",
+                        index.directory, err
+                    )
+                });
 
                 // SAFETY:  We don't have an outstanding reference to the SearchIndex cache here
                 // because we collected the pending drop directories into an owned Vec
-                SearchIndex::drop_from_cache(&directory)
-            }
-
-            for search_index in SearchIndex::get_cache()
-                .values_mut()
-                .filter(|index| index.is_dirty())
-            {
-                // if this doesn't commit, the transaction will ABORT
-                search_index
-                    .commit()
-                    .expect("SearchIndex should commit successfully");
+                SearchIndex::drop_from_cache(&index.directory)
             }
 
             // finally, any indexes that are marked as pending create are now created because the
@@ -81,10 +74,6 @@ unsafe extern "C" fn pg_search_xact_callback(
             {
                 search_index.is_pending_create = false;
             }
-
-            // We clear out the cached writers in ther writer manager here, so that
-            // the writer locks on the index directory are freed.
-            SEARCH_WRITER_MANAGER.clear_writers();
         }
 
         pg_sys::XactEvent::XACT_EVENT_ABORT => {
@@ -92,27 +81,18 @@ unsafe extern "C" fn pg_search_xact_callback(
             let pending_creates = SearchIndex::get_cache()
                 .values_mut()
                 .filter(|index| index.is_pending_create())
-                .map(|index| index.directory.clone())
                 .collect::<Vec<_>>();
 
-            for directory in pending_creates {
-                finalize_drop(&directory);
-
+            for index in pending_creates {
+                index.directory.remove().unwrap_or_else(|err| {
+                    warn!(
+                        "unexpected error removing index directory during abort: {:?}; {:?}",
+                        index.directory, err
+                    )
+                });
                 // SAFETY:  We don't have an outstanding reference to the SearchIndex cache here
                 // because we collected the pending create directories into an owned Vec
-                SearchIndex::drop_from_cache(&directory)
-            }
-
-            // next, we can abort any of the other dirty indexes
-            for search_index in SearchIndex::get_cache()
-                .values_mut()
-                .filter(|index| index.is_dirty())
-            {
-                if let Err(e) = search_index.abort() {
-                    // the abort didn't work, but we can't raise another panic here as that'll
-                    // cause postgres to segfault
-                    warn!("could not abort SearchIndex: {e}")
-                }
+                SearchIndex::drop_from_cache(&index.directory)
             }
 
             // finally, any index that was pending drop is no longer to be dropped because the
@@ -123,28 +103,10 @@ unsafe extern "C" fn pg_search_xact_callback(
             {
                 search_index.is_pending_drop = false;
             }
-
-            // We clear out the cached writers in ther writer manager here, so that
-            // the writer locks on the index directory are freed.
-            SEARCH_WRITER_MANAGER.clear_writers();
         }
 
         _ => {
             // not an event we care about
         }
     }
-}
-
-fn finalize_drop(directory: &WriterDirectory) {
-    let writer = unsafe { SearchIndex::get_writer() };
-
-    writer
-        .drop_index(directory.clone())
-        .expect("must be able to finalize drop");
-
-    // We have an exclusive lock on the index here, as it is being dropped.
-    // So we don't need to acquire any locks on the index.
-    writer
-        .commit(directory.clone())
-        .expect("commit must work in finalize drop");
 }

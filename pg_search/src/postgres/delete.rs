@@ -41,6 +41,10 @@ pub extern "C" fn ambulkdelete(
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
+    let mut writer = search_index
+        .get_writer()
+        .unwrap_or_else(|err| panic!("error loading index writer in bulkdelete: {err}"));
+
     if stats.is_null() {
         stats = unsafe {
             PgBox::from_pg(
@@ -55,7 +59,7 @@ pub extern "C" fn ambulkdelete(
             crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
             actual_callback(&mut ctid, callback_state)
         };
-        match search_index.delete(should_delete) {
+        match search_index.delete(&mut writer, should_delete) {
             Ok((deleted, not_deleted)) => {
                 stats.pages_deleted += deleted;
                 stats.num_pages += not_deleted;
@@ -65,6 +69,10 @@ pub extern "C" fn ambulkdelete(
             }
         }
     }
+
+    writer
+        .commit()
+        .unwrap_or_else(|err| panic!("error comitting to index in ambulkdelete: {err}"));
 
     stats.into_pg()
 }

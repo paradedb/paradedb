@@ -23,14 +23,8 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
+use std::path::Path;
 use std::sync::Arc;
-use std::{
-    collections::{
-        hash_map::Entry::{Occupied, Vacant},
-        HashMap, HashSet,
-    },
-    path::Path,
-};
 use std::{fs, io, result};
 use tantivy::directory::{
     DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback, WatchHandle,
@@ -42,7 +36,6 @@ use tantivy::{
 };
 use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, IndexWriter};
 use thiserror::Error;
-use tracing::warn;
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 
@@ -117,110 +110,49 @@ impl Directory for BlockingDirectory {
 }
 
 /// The entity that interfaces with Tantivy indexes.
-#[derive(Default)]
-pub struct WriterManager {
-    /// Map of index directory path to Tantivy writer instance.
-    tantivy_writers: HashMap<WriterDirectory, IndexWriter>,
-    drop_requested: HashSet<WriterDirectory>,
+pub struct SearchIndexWriter {
+    pub underlying_writer: IndexWriter,
 }
 
-impl WriterManager {
-    pub fn new() -> Self {
-        Self {
-            tantivy_writers: HashMap::new(),
-            drop_requested: HashSet::new(),
-        }
-    }
-
-    /// Check the writer server cache for an existing IndexWriter. If it does not exist,
-    /// then retrieve the SearchIndex and use it to create a new IndexWriter, caching it.
-    fn get_writer(&mut self, directory: WriterDirectory) -> Result<&mut IndexWriter, IndexError> {
-        match self.tantivy_writers.entry(directory.clone()) {
-            Vacant(entry) => {
-                Ok(entry.insert(SearchIndex::writer(&directory).map_err(|err| {
-                    IndexError::GetWriterFailed(directory.clone(), err.to_string())
-                })?))
-            }
-            Occupied(entry) => Ok(entry.into_mut()),
-        }
-    }
-
-    pub fn clear_writers(&mut self) {
-        self.tantivy_writers.clear();
-    }
-
-    pub fn insert(
-        &mut self,
-        directory: WriterDirectory,
-        document: SearchDocument,
-    ) -> Result<(), IndexError> {
-        let writer = self.get_writer(directory)?;
+impl SearchIndexWriter {
+    pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
         // Add the Tantivy document to the index.
-        writer.add_document(document.into())?;
+        self.underlying_writer.add_document(document.into())?;
 
         Ok(())
     }
 
-    pub fn delete(
-        &mut self,
-        directory: WriterDirectory,
-        ctid_field: &Field,
-        ctid_values: &[u64],
-    ) -> Result<(), IndexError> {
-        let writer = self.get_writer(directory)?;
+    pub fn delete(&mut self, ctid_field: &Field, ctid_values: &[u64]) -> Result<(), IndexError> {
         for ctid in ctid_values {
             let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
-            writer.delete_term(ctid_term);
+            self.underlying_writer.delete_term(ctid_term);
         }
         Ok(())
     }
 
-    pub fn commit(&mut self, directory: WriterDirectory) -> Result<()> {
-        if directory.exists()? {
-            let writer = self.get_writer(directory.clone())?;
-
-            writer
-                .prepare_commit()
-                .context("error preparing commit to tantivy index")?;
-            writer
-                .commit()
-                .context("error committing to tantivy index")?;
-        } else {
-            warn!(?directory, "index directory unexpectedly does not exist");
-        }
-
-        if self.drop_requested.contains(&directory) {
-            // The directory has been dropped in this transaction. Now that we're
-            // committing, we must physically delete it.
-            self.drop_requested.remove(&directory);
-            self.drop_index_on_commit(directory)?
-        }
-        Ok(())
-    }
-
-    pub fn abort(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
-        // If the transaction was aborted, we should roll back the writer to the last commit.
-        // Otherwise, partially written data could stick around for the next transaction.
-        if let Some(writer) = self.tantivy_writers.get_mut(&directory) {
-            writer.rollback()?;
-        }
-
-        // If the index was dropped in this transaction, we will not actually physically
-        // delete the files, as we've aborted. Remove the directory from the
-        // drop_requested set.
-        self.drop_requested.remove(&directory);
+    pub fn commit(&mut self) -> Result<()> {
+        self.underlying_writer
+            .prepare_commit()
+            .context("error preparing commit to tantivy index")?;
+        self.underlying_writer
+            .commit()
+            .context("error committing to tantivy index")?;
 
         Ok(())
     }
 
-    pub fn vacuum(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
-        let writer = self.get_writer(directory)?;
-        writer.garbage_collect_files().wait()?;
+    pub fn abort(&mut self) -> Result<(), IndexError> {
+        self.underlying_writer.rollback()?;
+
+        Ok(())
+    }
+
+    pub fn vacuum(&mut self) -> Result<(), IndexError> {
+        self.underlying_writer.garbage_collect_files().wait()?;
         Ok(())
     }
 
     pub fn create_index(
-        &mut self,
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         uuid: String,
@@ -241,7 +173,6 @@ impl WriterManager {
             directory: directory.clone(),
             schema,
             uuid,
-            is_dirty: false,
             is_pending_drop: false,
             is_pending_create: true,
         };
@@ -250,31 +181,10 @@ impl WriterManager {
         new_self.directory.save_index(&new_self)?;
         Ok(())
     }
-
-    /// Physically delete the Tantivy directory. This should only be called on commit.
-    fn drop_index_on_commit(&mut self, directory: WriterDirectory) -> Result<()> {
-        if let Some(writer) = self.tantivy_writers.remove(&directory) {
-            std::mem::drop(writer);
-        };
-
-        directory.remove()?;
-        Ok(())
-    }
-
-    /// Handle a request to drop an index. We don't physically delete the files in this
-    /// function in case the transaction is aborted. Instead, we mark the directory for
-    /// deletion upon commit.
-    pub fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
-        self.drop_requested.insert(directory);
-        Ok(())
-    }
 }
 
 #[derive(Error, Debug)]
 pub enum IndexError {
-    #[error("couldn't get writer for {0:?}: {1}")]
-    GetWriterFailed(WriterDirectory, String),
-
     #[error(transparent)]
     TantivyError(#[from] tantivy::TantivyError),
 

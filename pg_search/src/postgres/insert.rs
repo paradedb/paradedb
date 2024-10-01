@@ -17,14 +17,16 @@
 
 use super::utils::relfilenode_from_index_oid;
 use crate::index::SearchIndex;
+use crate::index::SearchIndexWriter;
 use crate::index::WriterDirectory;
 use crate::postgres::utils::row_to_search_document;
 use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 
-struct InsertState {
-    index: SearchIndex,
+pub struct InsertState {
+    pub index: SearchIndex,
+    pub writer: SearchIndexWriter,
     abort_on_drop: bool,
 }
 
@@ -35,10 +37,10 @@ impl Drop for InsertState {
         unsafe {
             pgrx_extern_c_guard(|| {
                 if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop {
-                    self.index
+                    self.writer
                         .commit()
                         .expect("tantivy index commit should succeed");
-                } else if let Err(e) = self.index.abort() {
+                } else if let Err(e) = self.writer.abort() {
                     if pg_sys::IsAbortedTransactionBlockState() {
                         // we're in an aborted state, so the best we can do is warn that our
                         // attempt to abort the tantivy changes failed
@@ -65,14 +67,17 @@ impl InsertState {
             relfilenode.as_u32(),
         );
 
+        let index = SearchIndex::open_direct(&directory)?;
+        let writer = index.get_writer()?;
         Ok(Self {
-            index: SearchIndex::open_direct(&directory)?,
+            index,
+            writer,
             abort_on_drop: false,
         })
     }
 }
 
-unsafe fn init_insert_state(
+pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut InsertState {
@@ -141,6 +146,7 @@ unsafe fn aminsert_internal(
         let state = &mut *init_insert_state(index_relation, index_info);
         let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
         let search_index = &mut state.index;
+        let writer = &mut state.writer;
         let search_document =
             row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
                 .unwrap_or_else(|err| {
@@ -151,7 +157,7 @@ unsafe fn aminsert_internal(
                     );
                 });
         search_index
-            .insert(search_document)
+            .insert(writer, search_document)
             .expect("insertion into index should succeed");
         true
     });
@@ -161,7 +167,7 @@ unsafe fn aminsert_internal(
         Err(e) => {
             unsafe {
                 // SAFETY:  it's possible the `ii_AmCache` field didn't get initialized, and if
-                // that's the case there's no need (or way!) to indicate we need to do a tantiy abort
+                // that's the case there's no need (or way!) to indicate we need to do a tantivy abort
                 let state = (*index_info).ii_AmCache.cast::<InsertState>();
                 if !state.is_null() {
                     (*state).abort_on_drop = true;

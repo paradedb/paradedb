@@ -164,6 +164,7 @@ impl WriterDirectory {
         Ok(SearchIndexDirPath(search_index_dir_path.to_path_buf()))
     }
 
+    #[allow(unused)]
     pub fn exists(&self) -> Result<bool, SearchDirectoryError> {
         // False to avoid creating if doesn't exist.
         let SearchIndexDirPath(path) = self.search_index_dir_path(false)?;

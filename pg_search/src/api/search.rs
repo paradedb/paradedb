@@ -210,7 +210,7 @@ pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
             .expect("index directory should be a valid SearchIndex");
 
         search_index
-            .drop_index(&directory)
+            .drop_index()
             .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
     }
 }

@@ -33,7 +33,7 @@ jobs:
     runs-on: depot-ubuntu-latest-2
     strategy:
       matrix:
-        pg_version: [17]
+        pg_version: [16]
 
     steps:
       - name: Checkout Git Repository
@@ -102,7 +102,7 @@ jobs:
     runs-on: depot-ubuntu-latest-2
     strategy:
       matrix:
-        pg_version: [17]
+        pg_version: [16]
 
     steps:
       - name: Retrieve GitHub Release Version

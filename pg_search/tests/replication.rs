@@ -87,23 +87,13 @@ impl EphemeralPostgres {
         Self::pg_bin_path().join("pg_ctl")
     }
 
-    fn new_from_initialized(tempdir: TempDir) -> Self {
+    fn new_from_initialized(tempdir: TempDir, config: &str) -> Self {
         let tempdir_path = tempdir.path().to_str().unwrap().to_string();
         let port = get_free_port();
         let pg_ctl_path = Self::pg_ctl_path();
 
         // Write to postgresql.conf
-        let config_content = format!(
-            "
-            port = {}
-            wal_level = logical
-            max_replication_slots = 4
-            max_wal_senders = 4
-            shared_preload_libraries = 'pg_search'
-            ",
-            port
-        );
-
+        let config_content = format!("port = {}\n{}", port, config.trim());
         let config_path = format!("{}/postgresql.conf", tempdir_path);
         std::fs::write(config_path, config_content).expect("Failed to write to postgresql.conf");
 
@@ -129,7 +119,7 @@ impl EphemeralPostgres {
         }
     }
 
-    fn new() -> Self {
+    fn new(config: &str) -> Self {
         // Make sure .env files are loaded before reading env vars.
         dotenv().ok();
 
@@ -141,7 +131,7 @@ impl EphemeralPostgres {
         run_cmd!($init_db_path -D $tempdir_path &> /dev/null)
             .expect("Failed to initialize Postgres data directory");
 
-        Self::new_from_initialized(tempdir)
+        Self::new_from_initialized(tempdir, config)
     }
 
     // Method to establish a connection to the PostgreSQL instance
@@ -157,8 +147,15 @@ impl EphemeralPostgres {
 // Test function to test the ephemeral PostgreSQL setup
 #[rstest]
 async fn test_ephemeral_postgres() -> Result<()> {
-    let source_postgres = EphemeralPostgres::new();
-    let target_postgres = EphemeralPostgres::new();
+    let config = "
+        wal_level = logical
+        max_replication_slots = 4
+        max_wal_senders = 4
+        shared_preload_libraries = 'pg_search'
+    ";
+
+    let source_postgres = EphemeralPostgres::new(config);
+    let target_postgres = EphemeralPostgres::new(config);
 
     let mut source_conn = source_postgres.connection().await?;
     let mut target_conn = target_postgres.connection().await?;
@@ -307,7 +304,14 @@ async fn test_ephemeral_postgres() -> Result<()> {
 
 #[rstest]
 async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
-    let source_postgres = EphemeralPostgres::new();
+    let config = "
+        wal_level = logical
+        max_replication_slots = 4
+        max_wal_senders = 4
+        shared_preload_libraries = 'pg_search'
+    ";
+
+    let source_postgres = EphemeralPostgres::new(config);
     let mut source_conn = source_postgres.connection().await?;
     let source_port = source_postgres.port;
     let source_username = "SELECT CURRENT_USER"
@@ -368,7 +372,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     run_cmd!($pg_basebackup --pgdata $target_tempdir_path --host localhost --port $source_port --username $source_username)
     .expect("Failed to run pg_basebackup");
 
-    let target_postgres = EphemeralPostgres::new_from_initialized(target_tempdir);
+    let target_postgres = EphemeralPostgres::new_from_initialized(target_tempdir, config);
     let mut target_conn = target_postgres.connection().await?;
 
     // Verify the content in the target database
@@ -394,8 +398,15 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 
 #[rstest]
 async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
-    let source_postgres = EphemeralPostgres::new();
-    let target_postgres = EphemeralPostgres::new();
+    let config = "
+        wal_level = logical
+        max_replication_slots = 4
+        max_wal_senders = 4
+        shared_preload_libraries = 'pg_search'
+    ";
+
+    let source_postgres = EphemeralPostgres::new(config);
+    let target_postgres = EphemeralPostgres::new(config);
 
     let mut source_conn = source_postgres.connection().await?;
     let mut target_conn = target_postgres.connection().await?;

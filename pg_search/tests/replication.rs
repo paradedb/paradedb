@@ -555,21 +555,13 @@ async fn test_wal_streaming_replication() -> Result<()> {
 
     // Create the mock_items table schema on the source
     let schema = "
-        CREATE TABLE mock_items (
-          id SERIAL PRIMARY KEY,
-          description TEXT,
-          rating INTEGER CHECK (rating BETWEEN 1 AND 5),
-          category VARCHAR(255),
-          in_stock BOOLEAN,
-          metadata JSONB,
-          created_at TIMESTAMP,
-          last_updated_date DATE,
-          latest_available_time TIME
+        CREATE EXTENSION pg_search;
+        CALL paradedb.create_bm25_test_table(
+            schema_name => 'public',
+            table_name => 'mock_items'
         )
     ";
     schema.execute(&mut source_conn);
-    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
-        VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1)".execute(&mut source_conn);
 
     thread::sleep(Duration::from_millis(1000));
 
@@ -578,6 +570,6 @@ async fn test_wal_streaming_replication() -> Result<()> {
         .fetch_one(&mut target_conn)
         .await?;
 
-    assert_eq!(target_count, (1,));
+    assert_eq!(target_count, (41,));
     Ok(())
 }

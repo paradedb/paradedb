@@ -541,7 +541,7 @@ async fn test_wal_streaming_replication() -> Result<()> {
 
     let target_postgres = EphemeralPostgres::new_from_initialized(
         target_tempdir_path.as_path(),
-        Some(&postgresql_conf),
+        Some(postgresql_conf),
         None,
     );
 

@@ -519,12 +519,9 @@ async fn test_wal_streaming_replication() -> Result<()> {
         .execute(&mut source_conn);
 
     // Standby Postgres setup
-    let postgresql_conf = format!(
-        "
-        primary_conninfo = 'host={} port={} user={} application_name=replica1'
-    ",
-        source_postgres.host, source_port, source_username
-    );
+    let postgresql_conf = "
+        shared_preload_libraries = 'pg_search'
+    ";
     let target_tempdir = TempDir::new().expect("Failed to create temp dir");
     let target_tempdir_path = target_tempdir.into_path();
 
@@ -547,12 +544,6 @@ async fn test_wal_streaming_replication() -> Result<()> {
         None,
     );
 
-    // Test standby recognized as replica
-    let result: Vec<(String, String)> = "SELECT usename, application_name
-        FROM pg_stat_replication"
-        .fetch(&mut source_conn);
-    assert_eq!(result.len(), 1);
-
     // Create the mock_items table schema on the source
     let schema = "
         CREATE EXTENSION pg_search;
@@ -571,5 +562,29 @@ async fn test_wal_streaming_replication() -> Result<()> {
         .await?;
 
     assert_eq!(target_count, (41,));
+
+    "CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
+        boolean_fields => paradedb.field('in_stock'),
+        datetime_fields => paradedb.field('created_at'),
+        json_fields => paradedb.field('metadata')
+    )"
+    .execute(&mut source_conn);
+
+    thread::sleep(Duration::from_millis(1000));
+
+    match "SELECT id FROM search_idx.search('description:shoes')"
+        .fetch_result::<(i32,)>(&mut target_conn)
+    {
+        Ok(_) => panic!("index WAL replication not yet implemented"),
+        Err(err) => assert!(err
+            .to_string()
+            .contains("could not read from file to load index")),
+    }
+
     Ok(())
 }

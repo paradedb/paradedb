@@ -72,7 +72,7 @@ pub extern "C" fn ambulkdelete(
 
     writer
         .commit()
-        .unwrap_or_else(|err| panic!("error comitting to index in ambulkdelete: {err}"));
+        .unwrap_or_else(|err| panic!("error committing to index in ambulkdelete: {err}"));
 
     stats.into_pg()
 }

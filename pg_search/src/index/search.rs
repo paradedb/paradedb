@@ -382,6 +382,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
 }
 
 #[derive(Error, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum SearchIndexError {
     #[error(transparent)]
     SchemaError(#[from] SearchIndexSchemaError),

@@ -245,7 +245,7 @@ fn do_heap_scan<'a>(
     index_relation: &'a PgRelation,
     uuid: String,
 ) -> BuildState {
-    let mut state = BuildState::new(uuid, index_info.clone());
+    let mut state = BuildState::new(uuid, index_info);
     unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -283,7 +283,7 @@ unsafe fn build_callback_internal(
         .as_mut()
         .expect("BuildState pointer should not be null");
 
-    let insert_state = init_insert_state(index.clone(), state.index_info);
+    let insert_state = init_insert_state(index, state.index_info);
     let writer = &mut (*insert_state).writer;
 
     // In the block below, we switch to the memory context we've defined on our build

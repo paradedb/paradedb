@@ -15,14 +15,94 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::globals::WriterGlobal;
-use crate::index::SearchIndex;
-use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::row_to_search_document;
-use crate::writer::WriterDirectory;
-use pgrx::*;
-
 use super::utils::relfilenode_from_index_oid;
+use crate::index::SearchIndex;
+use crate::index::SearchIndexWriter;
+use crate::index::WriterDirectory;
+use crate::postgres::utils::row_to_search_document;
+use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgTupleDesc};
+use std::ffi::CStr;
+use std::panic::{catch_unwind, resume_unwind};
+
+pub struct InsertState {
+    pub index: SearchIndex,
+    pub writer: SearchIndexWriter,
+    abort_on_drop: bool,
+}
+
+impl Drop for InsertState {
+    /// When [`InsertState`] is dropped we'll either commit the underlying tantivy index changes
+    /// or abort.
+    fn drop(&mut self) {
+        unsafe {
+            pgrx_extern_c_guard(|| {
+                if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop {
+                    self.writer
+                        .commit()
+                        .expect("tantivy index commit should succeed");
+                } else if let Err(e) = self.writer.abort() {
+                    if pg_sys::IsAbortedTransactionBlockState() {
+                        // we're in an aborted state, so the best we can do is warn that our
+                        // attempt to abort the tantivy changes failed
+                        pgrx::warning!("failed to abort tantivy index changes: {}", e);
+                    } else {
+                        // haven't aborted yet so we can raise the error we got during abort
+                        panic!("{e}")
+                    }
+                }
+            });
+        }
+    }
+}
+
+impl InsertState {
+    fn new(
+        database_oid: pg_sys::Oid,
+        index_oid: pg_sys::Oid,
+        relfilenode: pg_sys::Oid,
+    ) -> anyhow::Result<Self> {
+        let directory = WriterDirectory::from_oids(
+            database_oid.as_u32(),
+            index_oid.as_u32(),
+            relfilenode.as_u32(),
+        );
+
+        let index = SearchIndex::open_direct(&directory)?;
+        let writer = index.get_writer()?;
+        Ok(Self {
+            index,
+            writer,
+            abort_on_drop: false,
+        })
+    }
+}
+
+pub unsafe fn init_insert_state(
+    index_relation: pg_sys::Relation,
+    index_info: *mut pg_sys::IndexInfo,
+) -> *mut InsertState {
+    assert!(!index_info.is_null());
+    let state = (*index_info).ii_AmCache;
+    if state.is_null() {
+        // we don't have any cached state yet, so create it now
+        let state = InsertState::new(
+            pg_sys::MyDatabaseId,
+            (*index_relation).rd_id,
+            relfilenode_from_index_oid((*index_relation).rd_id.as_u32()),
+        )
+        .expect("should be able to open new SearchIndex for writing");
+
+        // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
+        //
+        // When that memory context is freed by Postgres is when we'll do our tantivy commit/abort
+        // of the changes made during `aminsert`
+        (*index_info).ii_AmCache = PgMemoryContexts::For((*index_info).ii_Context)
+            .leak_and_drop_on_delete(state)
+            .cast();
+    };
+
+    (*index_info).ii_AmCache.cast()
+}
 
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
@@ -35,21 +115,9 @@ pub unsafe extern "C" fn aminsert(
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck::Type,
     _index_unchanged: bool,
-    _index_info: *mut pg_sys::IndexInfo,
+    index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    let pg_relation = unsafe { PgRelation::from_pg(index_relation) };
-    let rdopts: PgBox<SearchIndexCreateOptions> = if !pg_relation.rd_options.is_null() {
-        unsafe { PgBox::from_pg(pg_relation.rd_options as *mut SearchIndexCreateOptions) }
-    } else {
-        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
-        ops.into_pg_boxed()
-    };
-
-    let uuid = rdopts
-        .get_uuid()
-        .expect("uuid not specified in 'create_bm25' index build, please rebuild pg_search index");
-
-    aminsert_internal(index_relation, values, isnull, heap_tid, &uuid)
+    aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
 }
 
 #[cfg(feature = "pg13")]
@@ -61,16 +129,9 @@ pub unsafe extern "C" fn aminsert(
     heap_tid: pg_sys::ItemPointer,
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck::Type,
-    _index_info: *mut pg_sys::IndexInfo,
+    index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    let rdopts = (*index_relation).rd_options as *mut SearchIndexCreateOptions;
-
-    let uuid = unsafe { rdopts.as_ref() }
-        .expect("index rd_options are unexpectedly null")
-        .get_uuid()
-        .expect("uuid not specified in 'create_bm25' index build, please rebuild pg_search index");
-
-    aminsert_internal(index_relation, values, isnull, heap_tid, &uuid)
+    aminsert_internal(index_relation, values, isnull, heap_tid, index_info)
 }
 
 #[inline(always)]
@@ -79,30 +140,42 @@ unsafe fn aminsert_internal(
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     ctid: pg_sys::ItemPointer,
-    uuid: &str,
+    index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
-    let tupdesc = index_relation_ref.tuple_desc();
-    let index_name = index_relation_ref.name();
+    let result = catch_unwind(|| {
+        let state = &mut *init_insert_state(index_relation, index_info);
+        let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
+        let search_index = &mut state.index;
+        let writer = &mut state.writer;
+        let search_document =
+            row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "error creating index entries for index '{}': {err}",
+                        CStr::from_ptr((*(*index_relation).rd_rel).relname.data.as_ptr())
+                            .to_string_lossy()
+                    );
+                });
+        search_index
+            .insert(writer, search_document)
+            .expect("insertion into index should succeed");
+        true
+    });
 
-    let index_oid = index_relation_ref.oid().as_u32();
-    let relfilenode = relfilenode_from_index_oid(index_oid);
-    let database_oid = crate::MyDatabaseId();
+    match result {
+        Ok(result) => result,
+        Err(e) => {
+            unsafe {
+                // SAFETY:  it's possible the `ii_AmCache` field didn't get initialized, and if
+                // that's the case there's no need (or way!) to indicate we need to do a tantivy abort
+                let state = (*index_info).ii_AmCache.cast::<InsertState>();
+                if !state.is_null() {
+                    (*state).abort_on_drop = true;
+                }
+            }
 
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
-    let search_index = SearchIndex::from_cache(&directory, uuid)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-    let search_document =
-        row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
-            .unwrap_or_else(|err| {
-                panic!("error creating index entries for index '{index_name}': {err}",)
-            });
-
-    let writer_client = WriterGlobal::client();
-
-    search_index
-        .insert(&writer_client, search_document)
-        .unwrap_or_else(|err| panic!("error inserting document during insert callback.  See Postgres log for more information: {err:?}"));
-
-    true
+            // bubble up the panic that we caught during `catch_unwind()`
+            resume_unwind(e)
+        }
+    }
 }

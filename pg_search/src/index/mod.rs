@@ -15,8 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod directory;
 pub mod score;
 pub mod search;
 pub mod state;
+pub mod writer;
 
+pub use directory::*;
 pub use search::*;
+pub use writer::*;

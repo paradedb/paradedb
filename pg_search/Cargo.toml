@@ -26,7 +26,6 @@ csv = "1.3.0"
 derive_more = "0.99.18"
 fs2 = "0.4.3"
 indexmap = "2.5.0"
-interprocess = "1.2.1"
 json5 = "0.4.1"
 libc = "0.2.158"
 memoffset = "0.9.1"
@@ -34,7 +33,6 @@ once_cell = "1.19.0"
 parking_lot = "0.12.3"
 tokenizers = { version = "0.10.3", path = "../tokenizers" }
 pgrx = "0.12.5"
-reqwest = "0.11.27"
 rustc-hash = "1.1.0"
 serde = "1.0.210"
 serde_json = "1.0.128"
@@ -43,7 +41,6 @@ shared = { path = "../shared" }
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "33be46c" }
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "33be46c" }
 thiserror = "1.0.63"
-tiny_http = "0.12.0"
 tracing = "0.1.40"
 utoipa = "4.2.3"
 walkdir = "2.5.0"
@@ -58,10 +55,12 @@ approx = "0.5.1"
 async-std = { version = "1.13.0", features = ["attributes"] }
 cmd_lib = "1.9.4"
 dotenvy = "0.15.7"
-pgrx-tests = "0.12.5"
+futures = "0.3.30"
+pgrx-tests = "0.12.4"
 pgvector = { version = "0.3.4", features = ["sqlx"] }
 portpicker = "0.1.1"
 pretty_assertions = "1.4.0"
+rand = "0.8.5"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }
 sqlx = { version = "0.7.4", features = [
@@ -72,6 +71,7 @@ sqlx = { version = "0.7.4", features = [
   "uuid",
 ] }
 tempfile = "3.12.0"
+tokio = "1.40.0"
 
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]

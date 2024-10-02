@@ -31,7 +31,6 @@ use walkdir::WalkDir;
 static SEARCH_DIR_NAME: &str = "pg_search";
 static SEARCH_INDEX_CONFIG_FILE_NAME: &str = "search-index.json";
 static TANTIVY_DIR_NAME: &str = "tantivy";
-static WRITER_TRANSFER_DIR_NAME: &str = "writer_transfer";
 
 /// The top-level folder name for ParadeDB extension inside the Postgres data directory.
 #[derive(AsRef)]
@@ -60,12 +59,7 @@ pub trait SearchFs {
     // Return and ensure the existence of the Tantivy index path.
     fn tantivy_dir_path(&self, ensure_exists: bool)
         -> Result<TantivyDirPath, SearchDirectoryError>;
-    // Return and ensure the existence of the writer pipe file path.
-    fn writer_transfer_pipe_path(
-        &self,
-        ensure_exists: bool,
-    ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError>;
-    /// Get the total size in bytes of the directory.
+    /// Get the total size in bytes of the directory.                                                      
     fn total_size(&self) -> Result<u64> {
         let path = self.tantivy_dir_path(false)?;
         let mut total_size = 0;
@@ -168,12 +162,6 @@ impl WriterDirectory {
         }
 
         Ok(SearchIndexDirPath(search_index_dir_path.to_path_buf()))
-    }
-
-    pub fn exists(&self) -> Result<bool, SearchDirectoryError> {
-        // False to avoid creating if doesn't exist.
-        let SearchIndexDirPath(path) = self.search_index_dir_path(false)?;
-        Ok(path.exists())
     }
 
     fn search_index_config_file_path(
@@ -325,24 +313,6 @@ impl SearchFs for WriterDirectory {
 
         Self::ensure_dir(&tantivy_dir_path)?;
         Ok(TantivyDirPath(tantivy_dir_path))
-    }
-
-    fn writer_transfer_pipe_path(
-        &self,
-        ensure_exists: bool,
-    ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError> {
-        let pid = std::process::id();
-        let transfer_pipe_dir = &self
-            .postgres_data_dir_path
-            .join(SEARCH_DIR_NAME)
-            .join(WRITER_TRANSFER_DIR_NAME);
-        let transfer_pipe_file = transfer_pipe_dir.join(pid.to_string());
-
-        if ensure_exists {
-            Self::ensure_dir(transfer_pipe_dir)?;
-        }
-
-        Ok(WriterTransferPipeFilePath(transfer_pipe_file.to_path_buf()))
     }
 }
 

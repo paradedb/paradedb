@@ -20,11 +20,11 @@ use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 use crate::query::SearchQueryInput;
 use crate::schema::ToString;
-use crate::writer::WriterDirectory;
 use core::panic;
 use std::collections::HashMap;
 use std::ops::Bound;

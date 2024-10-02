@@ -1,16 +1,17 @@
 ---
-title: License Comparison
+title: Licensing
 ---
 
 <Note>
   ParadeDB BYOC (Bring Your Own Cloud), a managed deployment of ParadeDB inside
-  your AWS account, is coming soon. Please fill out the [interest
-  form](https://form.typeform.com/to/jHkLmIzx?typeform-source=paradedb.typeform.com)
-  for access.
+  your AWS, Azure, or GCP account, is now available. Please [contact
+  sales](mailto:sales@paradedb.com) for access.
 </Note>
 
-ParadeDB is dual-licensed under the GNU Affero General Public License 3.0 and as commercial software. The ParadeDB
-Enterprise license waives the copyleft requirements of the AGPL-3.0 and includes the closed source features listed
+ParadeDB is dual-licensed under the GNU Affero General Public License 3.0 and as commercial software. By using the
+open source version of ParadeDB, you certify that you comply with the requirements of the AGPLv3.
+
+The ParadeDB Enterprise license waives the copyleft requirements of the AGPL-3.0 and includes the closed source features listed
 below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:sales@paradedb.com).
 
 ## ParadeDB License Comparison
@@ -171,28 +172,6 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
       ✅
     </td>
   </tr>
-  <tr style={{ display: "flex" }}>
-    <td
-      align="center"
-      style={{
-        width: "64%",
-        textAlign: "left",
-      }}
-    >
-      IVM indexes*
-    </td>
-    <td style={{ width: "36%" }}></td>
-    <td
-      align="center"
-      style={{
-        width: "36%",
-        textAlign: "center",
-        paddingLeft: 32,
-      }}
-    >
-      ✅
-    </td>
-  </tr>
   <tr style={{ display: "flex", borderBottom: "solid 1px #ddd" }}>
     <td
       align="center"
@@ -247,6 +226,37 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
       }}
     >
       Advanced search API
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Joined search
     </td>
     <td
       align="center"
@@ -706,23 +716,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
       ✅
     </td>
   </tr>
-  <tr style={{ display: "flex", borderTop: "solid 1px #ddd" }}>
-    <td
-      colSpan="3"
-      style={{
-        width: "100%",
-        textAlign: "left",
-        padding: "10px 0",
-        fontSize: "0.9em",
-        color: "#666",
-      }}
-    >
-      *IVM indexes are BM25 indexes over incrementally-maintained materialized
-      views. They enable creating a BM25 index over the JOIN of two or more
-      tables with fast-changing data.
-    </td>
-  </tr>
 </table>
 
-For any questions, please don't hesitate to contact us at [hello@paradedb.com](mailto:hello@paradedb.com) or in
+For any questions, please don't hesitate to contact us via [email](mailto:hello@paradedb.com) or in
 the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ).

@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
-
 use crate::schema::SearchConfig;
 use anyhow::Result;
 use core::panic;
@@ -124,6 +122,7 @@ pub enum SearchQueryInput {
     },
 }
 
+#[allow(dead_code)]
 pub trait AsFieldType<T> {
     fn fields(&self) -> Vec<(FieldType, Field)>;
 
@@ -616,6 +615,7 @@ fn value_to_term(
     })
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Error)]
 enum QueryError {
     #[error("wrong field type for field: {0}")]

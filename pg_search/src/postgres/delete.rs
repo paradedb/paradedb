@@ -15,12 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{pg_sys::ItemPointerData, *};
-
 use crate::{
-    globals::WriterGlobal, index::SearchIndex, postgres::utils::relfilenode_from_index_oid,
-    writer::WriterDirectory,
+    index::{SearchIndex, WriterDirectory},
+    postgres::utils::relfilenode_from_index_oid,
 };
+use pgrx::{pg_sys::ItemPointerData, *};
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -42,6 +41,10 @@ pub extern "C" fn ambulkdelete(
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
+    let mut writer = search_index
+        .get_writer()
+        .unwrap_or_else(|err| panic!("error loading index writer in bulkdelete: {err}"));
+
     if stats.is_null() {
         stats = unsafe {
             PgBox::from_pg(
@@ -50,15 +53,13 @@ pub extern "C" fn ambulkdelete(
         };
     }
 
-    let writer_client = WriterGlobal::client();
-
     if let Some(actual_callback) = callback {
         let should_delete = |ctid_val| unsafe {
             let mut ctid = ItemPointerData::default();
             crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
             actual_callback(&mut ctid, callback_state)
         };
-        match search_index.delete(&writer_client, should_delete) {
+        match search_index.delete(&mut writer, should_delete) {
             Ok((deleted, not_deleted)) => {
                 stats.pages_deleted += deleted;
                 stats.num_pages += not_deleted;
@@ -68,6 +69,10 @@ pub extern "C" fn ambulkdelete(
             }
         }
     }
+
+    writer
+        .commit()
+        .unwrap_or_else(|err| panic!("error committing to index in ambulkdelete: {err}"));
 
     stats.into_pg()
 }

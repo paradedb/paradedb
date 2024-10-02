@@ -83,6 +83,7 @@ jobs:
       - name: Switch to Base git rev and Generate Schema Again
         run: |
           # Switch to the base git rev
+          git checkout .
           git checkout ${{ github.event.pull_request.base.ref }}
 
           # See if we need a different cargo-pgrx and install it if so

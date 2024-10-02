@@ -19,12 +19,11 @@ mod searchconfig;
 mod searchqueryinput;
 mod text;
 
-use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
-use crate::writer::WriterDirectory;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -116,9 +115,8 @@ fn estimate_selectivity(
     );
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-    let writer_client = WriterGlobal::client();
     let state = search_index
-        .search_state(&writer_client, search_config)
+        .search_state(search_config)
         .expect("SearchState creation should not fail");
     let estimate = state.estimate_docs().unwrap_or(1) as f64;
 

@@ -603,7 +603,7 @@ pub fn term_set(
 #[pg_extern]
 pub fn dump_bm25(
     index_name: String,
-) -> TableIterator<'static, (name!(heap_tid, i64), name!(content, pgrx::JsonB))> {
+) -> TableIterator<'static, (name!(ctid, i64), name!(content, pgrx::JsonB))> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
 
     let database_oid = crate::MyDatabaseId();
@@ -627,11 +627,11 @@ pub fn dump_bm25(
 
     let results = top_docs.into_iter().map(move |doc_address| {
         let retrieved_doc: TantivyDocument = searcher.doc(doc_address).unwrap();
-        let heap_tid = retrieved_doc
+        let ctid = retrieved_doc
             .get_first(ctid_field)
-            .expect("Could not get heap_tid field")
+            .expect("Could not get ctid field")
             .as_u64()
-            .expect("Could not convert heap_tid to u64") as i64;
+            .expect("Could not convert ctid to u64") as i64;
 
         let mut json_map = Map::new();
         for (field, _) in schema.fields() {
@@ -689,7 +689,7 @@ pub fn dump_bm25(
             }
         }
 
-        (heap_tid, pgrx::JsonB(Value::Object(json_map)))
+        (ctid, pgrx::JsonB(Value::Object(json_map)))
     });
 
     TableIterator::new(results)

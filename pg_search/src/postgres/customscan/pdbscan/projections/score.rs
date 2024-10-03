@@ -1,36 +1,15 @@
 use crate::nodecast;
-use pgrx::callconv::{Arg, ArgAbi};
+use crate::postgres::customscan::pdbscan::projections::OpaqueRecordArg;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
-};
 use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, IntoDatum};
 use std::ptr::addr_of_mut;
-
-pub struct OpaqueRecordArg;
-
-unsafe impl<'fcx> ArgAbi<'fcx> for OpaqueRecordArg {
-    unsafe fn unbox_arg_unchecked(arg: Arg<'_, 'fcx>) -> Self {
-        OpaqueRecordArg
-    }
-}
-
-unsafe impl SqlTranslatable for OpaqueRecordArg {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("record".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Ok(Returns::One(SqlMapping::As("record".into())))
-    }
-}
 
 #[pg_extern(name = "score", stable, parallel_safe)]
 fn score_from_relation(_relation_reference: OpaqueRecordArg) -> f32 {
     f32::NAN
 }
 
-pub(super) fn score_funcoid() -> pg_sys::Oid {
+pub fn score_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
@@ -40,7 +19,7 @@ pub(super) fn score_funcoid() -> pg_sys::Oid {
     }
 }
 
-pub(super) unsafe fn has_var_for_rel(node: *mut pg_sys::Node, mut relid: pg_sys::Oid) -> bool {
+pub unsafe fn has_var_for_rel(node: *mut pg_sys::Node, mut relid: pg_sys::Oid) -> bool {
     #[pg_guard]
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
         if node.is_null() {
@@ -61,10 +40,7 @@ pub(super) unsafe fn has_var_for_rel(node: *mut pg_sys::Node, mut relid: pg_sys:
     walker(node, data)
 }
 
-pub(super) unsafe fn requires_score(
-    node: *mut pg_sys::Node,
-    mut score_funcoid: pg_sys::Oid,
-) -> bool {
+pub unsafe fn uses_scores(node: *mut pg_sys::Node, mut score_funcoid: pg_sys::Oid) -> bool {
     #[pg_guard]
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
         if node.is_null() {
@@ -84,7 +60,7 @@ pub(super) unsafe fn requires_score(
     walker(node, addr_of_mut!(score_funcoid).cast())
 }
 
-pub(super) unsafe fn inject_scores(
+pub unsafe fn inject_scores(
     node: *mut pg_sys::Node,
     score_funcoid: pg_sys::Oid,
     score: f32,

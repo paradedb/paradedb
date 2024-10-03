@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod projections;
 mod qual_inspect;
-mod score_support;
 
 use crate::api::node;
 use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity};
@@ -29,10 +29,10 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
-use crate::postgres::customscan::pdbscan::score_support::{
-    has_var_for_rel, inject_scores, requires_score, score_funcoid,
+use crate::postgres::customscan::pdbscan::projections::score::{
+    has_var_for_rel, inject_scores, score_funcoid, uses_scores,
 };
+use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::{CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
@@ -279,7 +279,7 @@ impl CustomScan for PdbScan {
             ));
 
             builder.custom_state().score_funcoid = score_funcoid();
-            builder.custom_state().need_scores = requires_score(
+            builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 builder.custom_state().score_funcoid,
             );

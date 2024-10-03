@@ -370,6 +370,7 @@ impl CustomScan for PdbScan {
         PdbScan::rescan_custom_scan(state)
     }
 
+    #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         loop {
             // get the next matching document from our search results and look for it in the heap

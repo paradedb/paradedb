@@ -618,19 +618,7 @@ pub fn term_set(
 
 /// A type used whenever our builder functions require a fieldname.
 #[derive(
-    Debug,
-    Clone,
-    Ord,
-    Eq,
-    PartialOrd,
-    PartialEq,
-    Hash,
-    Serialize,
-    Deserialize,
-    PostgresType,
-    PostgresHash,
-    PostgresEq,
-    PostgresOrd,
+    Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Hash, Serialize, Deserialize, PostgresType,
 )]
 #[inoutfuncs]
 pub struct FieldName(String);

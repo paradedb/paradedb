@@ -21,6 +21,9 @@ use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 
+// came to life in pg15
+type Cardinality = f64;
+
 #[derive(Debug)]
 pub struct Args {
     pub root: *mut pg_sys::PlannerInfo,
@@ -176,7 +179,7 @@ impl CustomPathBuilder {
         self
     }
 
-    pub fn set_rows(mut self, rows: pg_sys::Cardinality) -> Self {
+    pub fn set_rows(mut self, rows: Cardinality) -> Self {
         self.custom_path_node.path.rows = rows;
         self
     }

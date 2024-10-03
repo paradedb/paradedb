@@ -124,6 +124,16 @@ struct PrivateData(PgList<pg_sys::Node>);
 
 impl PrivateData {
     fn heaprelid(&self) -> Option<pg_sys::Oid> {
+        #[cfg(any(feature = "pg13", feature = "pg14"))]
+        unsafe {
+            Some(pg_sys::Oid::from(
+                (*node::<pg_sys::Value>(self.0.get_ptr(0)?.cast(), pg_sys::NodeTag::T_Integer)?)
+                    .val
+                    .ival as u32,
+            ))
+        }
+
+        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
         unsafe {
             Some(pg_sys::Oid::from(
                 (*node::<pg_sys::Integer>(self.0.get_ptr(0)?.cast(), pg_sys::NodeTag::T_Integer)?)
@@ -133,6 +143,16 @@ impl PrivateData {
     }
 
     fn indexrelid(&self) -> Option<pg_sys::Oid> {
+        #[cfg(any(feature = "pg13", feature = "pg14"))]
+        unsafe {
+            Some(pg_sys::Oid::from(
+                (*node::<pg_sys::Value>(self.0.get_ptr(1)?.cast(), pg_sys::NodeTag::T_Integer)?)
+                    .val
+                    .ival as u32,
+            ))
+        }
+
+        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
         unsafe {
             Some(pg_sys::Oid::from(
                 (*node::<pg_sys::Integer>(self.0.get_ptr(1)?.cast(), pg_sys::NodeTag::T_Integer)?)

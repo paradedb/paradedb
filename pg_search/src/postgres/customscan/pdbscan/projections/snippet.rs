@@ -152,7 +152,17 @@ pub unsafe fn inject_snippet(
             }
         }
 
-        pg_sys::expression_tree_mutator_impl(node, Some(walker), data)
+        #[cfg(not(any(feature = "pg16", feature = "pg17")))]
+        {
+            let fnptr = walker as usize as *const ();
+            let walker: unsafe extern "C" fn() -> *mut pg_sys::Node = std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(walker), data)
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(walker), data)
+        }
     }
 
     let mut context = Context {

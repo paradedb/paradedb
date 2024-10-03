@@ -133,6 +133,7 @@ impl<CS: CustomScan> CustomScanStateBuilder<CS> {
                 pscan_len: 0,
                 methods: PgMemoryContexts::CurrentMemoryContext
                     .leak_and_drop_on_delete(CS::exec_methods()),
+                #[cfg(any(feature = "pg16", feature = "pg17"))]
                 slotOps: std::ptr::null_mut(),
             };
 

@@ -48,6 +48,16 @@ where
 
 impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     #[inline(always)]
+    pub fn planstate(&mut self) -> *mut pg_sys::PlanState {
+        addr_of_mut!(self.csstate.ss.ps)
+    }
+
+    #[inline(always)]
+    pub fn custom_state(&mut self) -> &mut CS::State {
+        &mut self.custom_state
+    }
+
+    #[inline(always)]
     pub fn expr_context(&self) -> *mut pg_sys::ExprContext {
         self.csstate.ss.ps.ps_ExprContext
     }

@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod qual_inspect;
+mod score_support;
 
 use crate::api::node;
 use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity};
@@ -29,6 +30,9 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
+use crate::postgres::customscan::pdbscan::score_support::{
+    has_var_for_rel, inject_scores, requires_score, score_funcoid,
+};
 use crate::postgres::customscan::{CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
@@ -36,7 +40,7 @@ use crate::postgres::utils::{relfilenode_from_pg_relation, VisibilityChecker};
 use crate::schema::SearchConfig;
 use crate::writer::WriterDirectory;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
-use pgrx::{is_a, name_data_to_str, pg_sys, IntoDatum, PgList, PgRelation, PgTupleDesc};
+use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation, PgTupleDesc};
 use shared::gucs::GlobalGucSettings;
 use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
@@ -56,7 +60,8 @@ pub struct PdbScanState {
     search_results: SearchResults,
 
     visibility_checker: Option<VisibilityChecker>,
-    score_field_indices: Vec<usize>,
+    need_scores: bool,
+    score_funcoid: pg_sys::Oid,
 }
 
 impl CustomScanState for PdbScanState {}
@@ -64,7 +69,7 @@ impl CustomScanState for PdbScanState {}
 impl PdbScanState {
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
-        !self.score_field_indices.is_empty()
+        self.need_scores
     }
 
     #[inline(always)]
@@ -162,22 +167,11 @@ impl CustomScan for PdbScan {
 
             // and that relation must have a `USING bm25` index
             let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
+
             // quick look at the PathTarget list to see if we might need scoring
             let path_target = builder.path_target();
-            let exprs = PgList::<pg_sys::Node>::from_pg((*path_target).exprs);
-            let mut maybe_need_scores = false;
-
-            for expr in exprs.iter_ptr() {
-                if is_a(expr, pg_sys::NodeTag::T_Var) {
-                    let var = expr.cast::<pg_sys::Var>();
-                    if (*var).vartype == (*table.rd_rel).reltype {
-                        // we might need scoring if the expression is a Var that points to the
-                        // relation itself.  This could be from `paradedb.score(table_name)`
-                        maybe_need_scores = true;
-                        break;
-                    }
-                }
-            }
+            let maybe_need_scores =
+                has_var_for_rel((*path_target).exprs.cast(), (*table.rd_rel).reltype);
 
             //
             // look for quals we can support
@@ -284,21 +278,11 @@ impl CustomScan for PdbScan {
                 pg_sys::GetActiveSnapshot(),
             ));
 
-            if private_data.maybe_need_scores() {
-                let score_funcoid = score_support::score_funcoid();
-                for (i, entry) in builder.target_list().iter_ptr().enumerate() {
-                    let entry = entry.as_ref().expect("`TargetEntry` should not be null");
-                    let expr = entry.expr;
-
-                    if is_a(expr.cast(), pg_sys::NodeTag::T_FuncExpr) {
-                        let func: *mut pg_sys::FuncExpr = expr.cast();
-                        if (*func).funcid == score_funcoid {
-                            builder.custom_state().score_field_indices.push(i);
-                        }
-                    }
-                }
-            }
-
+            builder.custom_state().score_funcoid = score_funcoid();
+            builder.custom_state().need_scores = requires_score(
+                builder.target_list().as_ptr().cast(),
+                builder.custom_state().score_funcoid,
+            );
             builder.build()
         }
     }
@@ -340,7 +324,7 @@ impl CustomScan for PdbScan {
             );
             pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
             pg_sys::ExecAssignProjectionInfo(
-                addr_of_mut!(state.csstate.ss.ps),
+                state.planstate(),
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
         }
@@ -350,71 +334,77 @@ impl CustomScan for PdbScan {
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         loop {
-            match state.custom_state.search_results.next() {
+            // get the next matching document from our search results and look for it in the heap
+            let (scored, slot) = match state.custom_state().search_results.next() {
                 // we've returned all the matching results
                 None => return std::ptr::null_mut(),
 
-                // need to fetch the returned ctid from the heap and perform projection
+                // need to fetch the returned ctid from the heap and store its heap representation
+                // in a TupleTableSlow
                 Some((scored, _)) => {
                     let scanslot = state.scanslot();
                     let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
-                    let heaprelid = state.custom_state.heaprelid();
-                    let slot = state.custom_state.visibility_checker().exec_if_visible(
+                    let heaprelid = state.custom_state().heaprelid();
+
+                    // ask the visibility checker to find the document in the postgres heap
+                    match state.custom_state().visibility_checker().exec_if_visible(
                         scored.ctid,
                         move |htup, buffer| unsafe {
-                            #[allow(improper_ctypes)]
-                            extern "C" {
-                                fn ExecStoreBufferHeapTuple(
-                                    tuple: pg_sys::HeapTuple,
-                                    slot: *mut pg_sys::TupleTableSlot,
-                                    buffer: pg_sys::Buffer,
-                                ) -> *mut pg_sys::TupleTableSlot;
-                            }
-
                             (*bslot).base.base.tts_tableOid = heaprelid;
                             (*bslot).base.tupdata = htup;
                             (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
-                            ExecStoreBufferHeapTuple(
+
+                            // materialize a heap tuple for it
+                            pg_sys::ExecStoreBufferHeapTuple(
                                 addr_of_mut!((*bslot).base.tupdata),
                                 bslot.cast(),
                                 buffer,
                             )
                         },
-                    );
-
-                    match slot {
-                        // project the slot and return it
-                        Some(slot) => unsafe {
-                            let bslot = slot as *mut pg_sys::BufferHeapTupleTableSlot;
-                            state.set_projection_scanslot(slot);
-                            let slot = pg_sys::ExecProject(state.projection_info());
-
-                            if state.custom_state.need_scores() {
-                                let values = std::slice::from_raw_parts_mut(
-                                    (*slot).tts_values,
-                                    (*slot).tts_nvalid as usize,
-                                );
-                                let nulls = std::slice::from_raw_parts_mut(
-                                    (*slot).tts_isnull,
-                                    (*slot).tts_nvalid as usize,
-                                );
-
-                                for i in &state.custom_state.score_field_indices {
-                                    let i = *i;
-
-                                    if i < (*slot).tts_nvalid as usize {
-                                        values[i] = scored.bm25.into_datum().unwrap();
-                                        nulls[i] = false;
-                                    }
-                                }
-                            }
-                            return slot;
-                        },
-
+                    ) {
                         // ctid isn't visible, move to the next one
                         None => continue,
+
+                        // we found the ctid in the heap
+                        Some(slot) => (scored, slot),
                     }
                 }
+            };
+
+            unsafe {
+                let projection_info = if state.custom_state().need_scores() {
+                    // the query requires scores.  since we have it in `scored.bm25`, we inject
+                    // that constant value into every position in the Plan's TargetList that uses
+                    // our `paradedb.score(record)` function.  This is what `inject_scores()` does
+                    // and it returns a whole new TargetList.
+                    //
+                    // It's from that TargetList we build a new ProjectionInfo with the FuncExprs
+                    // replaced with the actual score f32 Const nodes.  Essentially we're manually
+                    // projecting the scores where they need to go
+                    let planstate = state.planstate();
+                    let projection_targetlist = (*(*planstate).plan).targetlist;
+                    let scored_targetlist = inject_scores(
+                        projection_targetlist.cast(),
+                        state.custom_state().score_funcoid,
+                        scored.bm25,
+                    );
+
+                    // build the new ProjectionInfo based on our modified TargetList
+                    pg_sys::ExecBuildProjectionInfo(
+                        scored_targetlist.cast(),
+                        (*planstate).ps_ExprContext,
+                        (*planstate).ps_ResultTupleSlot,
+                        planstate,
+                        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+                    )
+                } else {
+                    // scores aren't necessary so we use whatever we originally setup as our ProjectionInfo
+                    state.projection_info()
+                };
+
+                // finally, do the projection
+                (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
+                return pg_sys::ExecProject(projection_info);
             }
         }
     }
@@ -434,11 +424,11 @@ impl CustomScan for PdbScan {
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         let indexrelid = state.custom_state.index_oid.as_u32();
-        let need_scores = state.custom_state.need_scores();
+        let maybe_need_scores = state.custom_state.need_scores();
         let search_config = &mut state.custom_state.search_config;
 
         search_config.stable_sort = Some(false);
-        search_config.need_scores = need_scores;
+        search_config.need_scores = maybe_need_scores;
 
         // Create the index and scan state
         let directory = WriterDirectory::from_oids(
@@ -471,47 +461,6 @@ fn tts_ops_name(slot: *mut pg_sys::TupleTableSlot) -> &'static str {
             "BufferHeap"
         } else {
             "Unknown"
-        }
-    }
-}
-
-mod score_support {
-    use pgrx::callconv::{Arg, ArgAbi};
-    use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
-    };
-    use pgrx::{direct_function_call, pg_extern, pg_sys, IntoDatum};
-
-    pub struct OpaqueRecordArg;
-
-    unsafe impl<'fcx> ArgAbi<'fcx> for OpaqueRecordArg {
-        unsafe fn unbox_arg_unchecked(arg: Arg<'_, 'fcx>) -> Self {
-            OpaqueRecordArg
-        }
-    }
-
-    unsafe impl SqlTranslatable for OpaqueRecordArg {
-        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("record".into()))
-        }
-
-        fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("record".into())))
-        }
-    }
-
-    #[pg_extern(name = "score", volatile, parallel_safe)]
-    fn score_from_relation(_relation_reference: OpaqueRecordArg) -> f32 {
-        f32::NAN
-    }
-
-    pub(super) fn score_funcoid() -> pg_sys::Oid {
-        unsafe {
-            direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"paradedb.score(record)".into_datum()],
-            )
-            .expect("the `paradedb.score(record) type should exist")
         }
     }
 }

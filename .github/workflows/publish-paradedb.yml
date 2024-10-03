@@ -107,7 +107,13 @@ jobs:
     steps:
       - name: Retrieve GitHub Release Version
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          # If no workflow_dispatch version is provided, we use workflow tag trigger version
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Trigger paradedb/charts Release Workflow
         uses: multinarity/workflow-dispatch@master

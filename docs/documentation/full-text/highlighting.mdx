@@ -1,0 +1,85 @@
+---
+title: Highlighting
+---
+
+<Note>
+  The `highlight` function has been deprecated as of 0.8.5 and has been replaced
+  with `snippet`, which follows new query syntax and has a different return type.
+</Note>
+
+## Overview
+
+Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's
+search query. Highlighted snippets of text are by default wrapped in `<b></b>` tags. This can
+be modified with the `prefix` and `postfix` arguments.
+
+## Basic Usage
+
+The `snippet` function takes a query and returns a table with three columns: the `key_field` of each result, its BM25 score,
+and a highlighted snippet.
+
+```sql
+SELECT * FROM <index_name>.snippet(
+  '<query>',
+  highlight_field => '<highlight_field>'
+);
+```
+
+<Accordion title="Example Usage">
+
+```sql
+SELECT * FROM search_idx.snippet(
+  'description:keyboard',
+  highlight_field => 'description',
+  max_num_chars => 100
+);
+```
+
+</Accordion>
+
+<ParamField body="index_name" required>
+  The name of the index.
+</ParamField>
+<ParamField body="query" required>
+  The query string.
+</ParamField>
+<ParamField body="highlight_field" required>
+  The name of the field that will be highlighted in the result.
+</ParamField>
+<ParamField body="prefix" default="<b>">
+  The leading indicator around the highlighted region.
+</ParamField>
+<ParamField body="postfix" default="</b>">
+  The trailing indicator around the highlighted region.
+</ParamField>
+<ParamField body="max_num_chars" default={150}>
+  Max number of characters for a highlighted fragment.
+</ParamField>
+
+## Joining Snippets
+
+Because `snippet` generates new `score_bm25` and `snippet` columns, the function does not return all the columns of the original table.
+To map the columns of the original table the output of `snippet`, perform a JOIN on the `key_field` column.
+
+```sql
+-- Here, the key_field is "id"
+WITH snippets AS (
+    SELECT * FROM search_idx.snippet(
+      'description:keyboard',
+      highlight_field => 'description'
+    )
+)
+SELECT snippets.id, description, snippet, score_bm25
+FROM snippets
+LEFT JOIN mock_items ON snippets.id = mock_items.id;
+```
+
+<Accordion title="Expected Output">
+```csv
+ id |       description        |             snippet             | score_bm25
+----+--------------------------+---------------------------------+------------
+  2 | Plastic Keyboard         | Plastic <b>Keyboard</b>         |  3.2668595
+  1 | Ergonomic metal keyboard | Ergonomic metal <b>keyboard</b> |  2.8213787
+(2 rows)
+```
+</Accordion>

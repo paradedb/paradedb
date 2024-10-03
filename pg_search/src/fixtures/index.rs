@@ -17,10 +17,10 @@
 
 use uuid::Uuid;
 
+use crate::index::SearchIndexWriter;
 use crate::{
     index::SearchIndex,
     schema::{SearchFieldConfig, SearchFieldName, SearchFieldType},
-    writer::Writer,
 };
 
 use super::MockWriterDirectory;
@@ -39,11 +39,14 @@ impl MockSearchIndex {
         // instance is dropped.
         // We can pass a fixed index OID as a mock.
         let directory = MockWriterDirectory::new(42);
-        let mut writer = Writer::new();
         let uuid = Uuid::new_v4().to_string();
-        writer
-            .create_index(directory.writer_dir.clone(), fields, uuid, key_field_index)
-            .expect("error creating index instance");
+        SearchIndexWriter::create_index(
+            directory.writer_dir.clone(),
+            fields,
+            uuid,
+            key_field_index,
+        )
+        .expect("error creating index instance");
 
         let index = SearchIndex::from_disk(&directory.writer_dir)
             .expect("error reading new index from cache");

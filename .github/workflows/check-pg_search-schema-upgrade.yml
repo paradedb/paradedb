@@ -83,6 +83,7 @@ jobs:
       - name: Switch to Base git rev and Generate Schema Again
         run: |
           # Switch to the base git rev
+          git checkout .
           git checkout ${{ github.event.pull_request.base.ref }}
 
           # See if we need a different cargo-pgrx and install it if so
@@ -141,7 +142,7 @@ jobs:
           fi
 
       - name: Attach Schema Diff to PR
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
         with:
           script: |

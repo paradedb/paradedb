@@ -1,0 +1,50 @@
+---
+title: Google Cloud Storage
+---
+
+## Overview
+
+This code block demonstrates how to query Parquet file(s) stored in Google Cloud Storage (GCS).
+The file path must start with `gs://`.
+
+```sql
+-- Parquet format is assumed
+CREATE FOREIGN DATA WRAPPER parquet_wrapper
+HANDLER parquet_fdw_handler
+VALIDATOR parquet_fdw_validator;
+
+CREATE SERVER parquet_server
+FOREIGN DATA WRAPPER parquet_wrapper;
+
+CREATE FOREIGN TABLE parquet_table ()
+SERVER parquet_server
+OPTIONS (files 'gs://<bucket>/<path>/<file>.parquet');
+```
+
+The glob pattern can be used to query a directory of files.
+
+```sql
+CREATE FOREIGN TABLE parquet_table ()
+SERVER parquet_server
+OPTIONS (files 'gs://<bucket>/<path>/*.parquet');
+```
+
+## Providing Credentials
+
+`CREATE USER MAPPING` is used to provide GCS credentials. These credentials are tied to a specific Postgres user, which enables
+multiple users to query the same foreign table with their own credentials.
+
+[HMAC keys](https://console.cloud.google.com/storage/settings;tab=interoperability) are used for authentication.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'GCS',
+  key_id '<key_id>',
+  secret '<secret>'
+);
+```
+
+Because GCS is accessed with the S3 API, GCS accepts the same user mapping options as S3.
+Please see the [S3 documentation](/integrations/object_stores/s3#credentials-options) for other available options.

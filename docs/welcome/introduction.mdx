@@ -19,12 +19,13 @@ aggregations, which lack critical functionality and perform poorly over large da
 ParadeDB aims to be the best of both worlds, providing developers with the familiarity of Postgres and the
 performance of a dedicated search and analytical database.
 
-ParadeDB is a good fit for:
+ParadeDB is a good fit for developers who:
 
-- Developers who trust Postgres and don't want to operate a non-Postgres database/query engine
-- Elasticsearch users who want to consolidate their data stack on Postgres
-- Full-text, similarity, or hybrid search over large volumes of operational data with zero ETL
-- Building rich search experiences with analytical queries and facets
+- Have UPDATE heavy workloads that trigger frequent index rebuilds in Elasticsearch
+- Want real-time search without complex and expensive ETL or CDC pipelines
+- Require an ACID-compliant, MVCC-safe search and analytics engine
+- Search over JOINs and want to avoid data denormalization
+- Trust Postgres and don't want to operate a non-Postgres database/query engine
 
 ## Next Steps
 
@@ -34,17 +35,17 @@ You're now ready to jump into our guides.
   <Card
     title="Getting Started"
     icon="forward-fast"
-    href="/api-reference/getting-started"
+    href="/documentation/getting-started"
   >
     Get started with ParadeDB in under five minutes.
   </Card>
-  <Card title="API" icon="code" href="/api-reference">
+  <Card title="API" icon="code" href="/documentation/overview">
     API reference for full text, similarity, and hybrid search.
   </Card>
-  <Card title="Ingest" icon="merge" href="/ingest/quickstart">
-    Ingest data from object stores with zero ETL.
+  <Card title="Integrations" icon="merge" href="/integrations/overview">
+    Import data from data lakes with zero ETL.
   </Card>
   <Card title="Deploy" icon="server" href="/deploy">
-    Deploy ParadeDB and configure replication.
+    Deploy ParadeDB as a Postgres extension or standalone database.
   </Card>
 </CardGroup>

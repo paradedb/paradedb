@@ -19,11 +19,11 @@ use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
-use crate::writer::WriterDirectory;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::CStr;

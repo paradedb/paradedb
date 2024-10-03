@@ -15,12 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
+use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
-use crate::writer::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
 use tokenizers::manager::SearchTokenizerFilters;
@@ -31,13 +31,15 @@ struct BuildState {
     count: usize,
     memctx: PgMemoryContexts,
     uuid: String,
+    index_info: *mut pg_sys::IndexInfo,
 }
 
 impl BuildState {
-    fn new(uuid: String) -> Self {
+    fn new(uuid: String, index_info: *mut pg_sys::IndexInfo) -> Self {
         BuildState {
             count: 0,
             memctx: PgMemoryContexts::new("pg_search_index_build"),
+            index_info,
             uuid,
         }
     }
@@ -219,18 +221,11 @@ pub extern "C" fn ambuild(
         panic!("no fields specified")
     }
 
-    let writer_client = WriterGlobal::client();
     let directory =
         WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
 
-    SearchIndex::create_index(
-        &writer_client,
-        directory,
-        fields,
-        uuid.clone(),
-        key_field_index,
-    )
-    .expect("error creating new index instance");
+    SearchIndex::create_index(directory, fields, uuid.clone(), key_field_index)
+        .expect("error creating new index instance");
 
     let state = do_heap_scan(index_info, &heap_relation, &index_relation, uuid);
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
@@ -249,7 +244,7 @@ fn do_heap_scan<'a>(
     index_relation: &'a PgRelation,
     uuid: String,
 ) -> BuildState {
-    let mut state = BuildState::new(uuid);
+    let mut state = BuildState::new(uuid, index_info);
     unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -287,6 +282,9 @@ unsafe fn build_callback_internal(
         .as_mut()
         .expect("BuildState pointer should not be null");
 
+    let insert_state = init_insert_state(index, state.index_info);
+    let writer = &mut (*insert_state).writer;
+
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a
     // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it
@@ -317,10 +315,8 @@ unsafe fn build_callback_internal(
                         );
                     });
 
-            let writer_client = WriterGlobal::client();
-
             search_index
-                .insert(&writer_client, search_document)
+                .insert(writer, search_document)
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });

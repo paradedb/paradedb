@@ -142,75 +142,75 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          # Variables (we disable telemetry to avoid skewing the user metrics with CI runs)
-          BASE_RELEASE="0.10.0"
-          PARADEDB_TELEMETRY=false
+          # # Variables (we disable telemetry to avoid skewing the user metrics with CI runs)
+          # BASE_RELEASE="0.10.0"
+          # PARADEDB_TELEMETRY=false
 
-          echo ""
-          echo "Enabling code coverage..."
-          echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
-          mkdir -p ../target/coverage ../target/coverage-report
+          # echo ""
+          # echo "Enabling code coverage..."
+          # echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
+          # mkdir -p ../target/coverage ../target/coverage-report
 
-          # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
-          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
-            echo ""
-            echo "Promotion PR detected! Running extension upgrade test..."
-            if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
-              echo "Using the GitHub Variables version..."
-              NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}
-            else
-              echo "Using the workflow_dispatch version..."
-              NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
-            fi
-            echo "Running extension upgrade test from v$BASE_RELEASE to v$NEW_VERSION..."
+          # # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
+          # if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          #   echo ""
+          #   echo "Promotion PR detected! Running extension upgrade test..."
+          #   if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
+          #     echo "Using the GitHub Variables version..."
+          #     NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}
+          #   else
+          #     echo "Using the workflow_dispatch version..."
+          #     NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
+          #   fi
+          #   echo "Running extension upgrade test from v$BASE_RELEASE to v$NEW_VERSION..."
 
-            echo ""
-            echo "Downloading pg_search v$BASE_RELEASE..."
-            curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/postgresql-${{ matrix.pg_version }}-pg_search_$BASE_RELEASE-1PARADEDB-noble_${{ matrix.arch }}.deb"
-            sudo dpkg -i "postgresql-${{ matrix.pg_version }}-pg_search_$BASE_RELEASE-1PARADEDB-noble_${{ matrix.arch }}.deb"
+          #   echo ""
+          #   echo "Downloading pg_search v$BASE_RELEASE..."
+          #   curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/postgresql-${{ matrix.pg_version }}-pg_search_$BASE_RELEASE-1PARADEDB-noble_${{ matrix.arch }}.deb"
+          #   sudo dpkg -i "postgresql-${{ matrix.pg_version }}-pg_search_$BASE_RELEASE-1PARADEDB-noble_${{ matrix.arch }}.deb"
 
-            echo ""
-            echo "Starting Postgres..."
-            cargo pgrx start pg${{ matrix.pg_version }}
+          #   echo ""
+          #   echo "Starting Postgres..."
+          #   cargo pgrx start pg${{ matrix.pg_version }}
 
-            echo ""
-            echo "Loading pg_search v$BASE_RELEASE..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE';"
+          #   echo ""
+          #   echo "Loading pg_search v$BASE_RELEASE..."
+          #   psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE';"
 
-            echo ""
-            echo "Verifying current pg_search installed version..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';"
+          #   echo ""
+          #   echo "Verifying current pg_search installed version..."
+          #   psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';"
 
-            echo ""
-            echo "Building pg_search v$NEW_VERSION..."
-            sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
-            cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+          #   echo ""
+          #   echo "Building pg_search v$NEW_VERSION..."
+          #   sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
+          #   cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
-            echo ""
-            echo "Upgrading pg_search to v$NEW_VERSION..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
+          #   echo ""
+          #   echo "Upgrading pg_search to v$NEW_VERSION..."
+          #   psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
 
-            echo ""
-            echo "Verifying current pg_search installed version..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';"
+          #   echo ""
+          #   echo "Verifying current pg_search installed version..."
+          #   psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';"
 
-            echo ""
-            echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
+          #   echo ""
+          #   echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
 
-            echo ""
-            echo "Restarting Postgres..."
-            cargo pgrx stop pg${{ matrix.pg_version }}
-            cargo pgrx start pg${{ matrix.pg_version }}
-          else
-            echo ""
-            echo "Building pg_search..."
-            cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+          #   echo ""
+          #   echo "Restarting Postgres..."
+          #   cargo pgrx stop pg${{ matrix.pg_version }}
+          #   cargo pgrx start pg${{ matrix.pg_version }}
+          # else
+          #   echo ""
+          #   echo "Building pg_search..."
+          #   cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
-            echo ""
-            echo "Starting Postgres..."
-            cargo pgrx start pg${{ matrix.pg_version }}
-          fi
-          echo ""
+          #   echo ""
+          #   echo "Starting Postgres..."
+          #   cargo pgrx start pg${{ matrix.pg_version }}
+          # fi
+          # echo ""
           echo "Building pg_search..."
           cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 

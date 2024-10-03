@@ -18,13 +18,12 @@
 use crate::api::operator::{
     anyelement_jsonb_opoid, estimate_selectivity, find_var_relation, ReturnedNodePointer,
 };
-use crate::globals::WriterGlobal;
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::schema::SearchConfig;
-use crate::writer::WriterDirectory;
 use crate::{nodecast, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal, JsonB,
@@ -49,13 +48,10 @@ pub fn search_with_search_config(
         let database_oid = search_config.database_oid;
         let relfilenode = relfilenode_from_index_oid(index_oid);
 
-        let writer_client = WriterGlobal::client();
         let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-        let scan_state = search_index
-            .search_state(&writer_client, &search_config)
-            .unwrap();
+        let scan_state = search_index.search_state(&search_config).unwrap();
         let top_docs = scan_state.search_minimal(true, SearchIndex::executor());
         let mut hs = FxHashSet::default();
 

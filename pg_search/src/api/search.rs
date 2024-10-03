@@ -16,14 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::state::SearchState;
+use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
 use crate::schema::SearchConfig;
-use crate::writer::{Client, WriterDirectory, WriterRequest};
-use crate::{globals::WriterGlobal, index::SearchIndex};
-use parking_lot::Mutex;
 use pgrx::pg_sys::FunctionCallInfo;
 use pgrx::{prelude::TableIterator, *};
-use std::sync::Arc;
 use tantivy::TantivyDocument;
 
 pub const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -80,10 +78,9 @@ unsafe fn score_bm25(
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
-    let writer_client = WriterGlobal::client();
     let scan_state = unsafe {
         // SAFETY:  caller has asserted that `fcinfo` is valid for this function
-        create_and_leak_scan_state(fcinfo, &search_config, search_index, &writer_client)
+        create_and_leak_scan_state(fcinfo, &search_config, search_index)
     };
     let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
@@ -145,10 +142,9 @@ unsafe fn snippet(
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
-    let writer_client = WriterGlobal::client();
     let scan_state = unsafe {
         // SAFETY:  caller has asserted that `fcinfo` is valid for this function
-        create_and_leak_scan_state(fcinfo, &search_config, search_index, &writer_client)
+        create_and_leak_scan_state(fcinfo, &search_config, search_index)
     };
     let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
@@ -203,7 +199,6 @@ unsafe fn snippet(
 }
 
 pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
-    let writer_client = WriterGlobal::client();
     let relfile_paths = WriterDirectory::relfile_paths(database_oid, index_oid)
         .expect("could not look up pg_search relfilenode directory");
 
@@ -215,7 +210,7 @@ pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
             .expect("index directory should be a valid SearchIndex");
 
         search_index
-            .drop_index(&writer_client, &directory)
+            .drop_index()
             .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
     }
 }
@@ -230,7 +225,6 @@ unsafe fn create_and_leak_scan_state(
     fcinfo: FunctionCallInfo,
     search_config: &SearchConfig,
     search_index: &mut SearchIndex,
-    writer_client: &Arc<Mutex<Client<WriterRequest>>>,
 ) -> &'static SearchState {
     // after instantiating the `SearchState`, we leak it to the MemoryContext governing this
     // function call.  This function is a SRF, and all calls to this function will have the
@@ -239,7 +233,7 @@ unsafe fn create_and_leak_scan_state(
     // Leaking the scan state allows us to avoid a `.collect::<Vec<_>>()` on the search results
     // of `top_docs` down below
     let scan_state = search_index
-        .search_state(writer_client, search_config)
+        .search_state(search_config)
         .expect("could not get scan state");
 
     unsafe {

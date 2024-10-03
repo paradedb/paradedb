@@ -1,0 +1,168 @@
+---
+title: Azure
+---
+
+## Overview
+
+This code block demonstrates how to query Parquet file(s) stored in Azure. The file path must start with an Azure
+scheme such as `az`, `azure`, or `abfss`.
+
+```sql
+-- Parquet format is assumed
+CREATE FOREIGN DATA WRAPPER parquet_wrapper
+HANDLER parquet_fdw_handler
+VALIDATOR parquet_fdw_validator;
+
+CREATE SERVER parquet_server
+FOREIGN DATA WRAPPER parquet_wrapper;
+
+CREATE FOREIGN TABLE parquet_table ()
+SERVER parquet_server
+OPTIONS (files 'az://<container>/<path>/<file>.parquet');
+```
+
+The glob pattern can be used to query a directory of files.
+
+```sql
+CREATE FOREIGN TABLE parquet_table ()
+SERVER parquet_server
+OPTIONS (files 'az://<container>/<path>/*.parquet');
+```
+
+Fully-qualified path syntax is also supported.
+
+```sql
+CREATE FOREIGN TABLE parquet_table ()
+SERVER parquet_server
+OPTIONS (
+  files 'az://<storage_account>.blob.core.windows.net/<container>/<path>/*.parquet'
+);
+```
+
+## Providing Credentials
+
+`CREATE USER MAPPING` is used to provide Azure credentials. These credentials are tied to a specific Postgres user, which enables
+multiple users to query the same foreign table with their own credentials.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'AZURE',
+  connection_string '<connection_string>'
+);
+```
+
+<ParamField body="current_user" required>
+  The name of the Postgres user. If set to `public`, these credentials will be
+  applied to all users. `SELECT current_user` can be used to get the name of the
+  current Postgres user.
+</ParamField>
+<ParamField body="server_name" required>
+  Foreign server name.
+</ParamField>
+
+There are several ways to authenticate with Azure: via a connection string, the Azure credential chain, or an Azure Service Principal.
+
+## Connection String
+
+The following code block demonstrates how to use a connection string.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'AZURE',
+  connection_string '<connection_string>'
+);
+```
+
+If authentication is not used, a storage account name must be provided.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'AZURE',
+  account_name '<account_name>'
+);
+```
+
+## Credential Chain
+
+The `CREDENTIAL CHAIN` provider allows connecting using credentials automatically fetched by the Azure SDK via the Azure credential chain. By default,
+the `DefaultAzureCredential` chain used, which tries credentials according to the order specified by the
+[Azure documentation](https://learn.microsoft.com/en-us/javascript/api/@azure/identity/defaultazurecredential?view=azure-node-latest#@azure-identity-defaultazurecredential-constructor).
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'AZURE',
+  provider 'CREDENTIAL_CHAIN',
+  account_name '<account_name>'
+);
+```
+
+The `chain` option can be used to specify a specific chain. This takes a semicolon-separated list of providers that will be tried in order.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'AZURE',
+  provider 'CREDENTIAL_CHAIN',
+  chain 'cli;env',
+  account_name '<account_name>'
+);
+```
+
+The available chains are `cli`, `env`, `managed_identity`, and `default`.
+
+## Service Principal
+
+The service principal provider allows connecting using a [Azure Service Principal (SPN)](https://learn.microsoft.com/en-us/entra/architecture/service-accounts-principal).
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'AZURE',
+  provider 'SERVICE_PRINCIPAL',
+  tenant_id '<tenant_id>',
+  client_id '<client_id>',
+  client_secret '<client_secret>',
+  account_name '<account_name>'
+);
+```
+
+If a certificate is present on the same Postgres instance, it can also be used.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'AZURE',
+  provider 'SERVICE_PRINCIPAL',
+  tenant_id '<tenant_id>',
+  client_id '<client_id>',
+  client_certificate_path '<client_certificate_path>',
+  account_name '<account_name>'
+);
+```
+
+## Configuring a Proxy
+
+The following code block demonstrates how to configure proxy information.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'AZURE',
+  connection_string '<connection_string>',
+  http_proxy 'http://localhost:3128',
+  proxy_user_name 'john',
+  proxy_password 'doe'
+);
+```

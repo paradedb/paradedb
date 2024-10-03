@@ -1,4 +1,4 @@
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 
 ###############################################
 # First Stage: Builder
@@ -7,7 +7,7 @@ ARG PG_VERSION_MAJOR=16
 # Note: Debian Bookworm = Debian 12
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 ARG RUST_VERSION=1.80.0
 
 # Declare buildtime environment variables
@@ -103,7 +103,7 @@ RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/
 
 FROM builder AS builder-pgvector
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -121,7 +121,7 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 
 FROM builder AS builder-pg_cron
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -138,7 +138,7 @@ RUN echo "trusted = true" >> pg_cron.control && \
 
 FROM builder AS builder-pg_ivm
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -159,7 +159,7 @@ LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
     org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 
 # Declare runtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}

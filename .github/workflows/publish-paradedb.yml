@@ -33,7 +33,7 @@ jobs:
     runs-on: depot-ubuntu-latest-2
     strategy:
       matrix:
-        pg_version: [16]
+        pg_version: [13, 14, 15, 16, 17]
 
     steps:
       - name: Checkout Git Repository
@@ -75,6 +75,7 @@ jobs:
         with:
           context: .
           build-args: |
+            PG_VERSION_MAJOR=${{ matrix.pg_version }}
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
@@ -85,10 +86,10 @@ jobs:
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: |
-            paradedb/paradedb:latest
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}
             paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            ${{ matrix.pg_version == 16 && 'paradedb/paradedb:latest' || '' }}
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v1

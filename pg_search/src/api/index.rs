@@ -192,7 +192,7 @@ pub fn empty() -> SearchQueryInput {
 #[pg_extern(immutable, parallel_safe)]
 pub fn exists(field: FieldName) -> SearchQueryInput {
     SearchQueryInput::Exists {
-        field: field.to_string(),
+        field: field.into_inner(),
     }
 }
 
@@ -200,15 +200,18 @@ pub fn exists(field: FieldName) -> SearchQueryInput {
 // field... and the user can just use SQL to select a range. We'll keep the implementation here
 // for now, but we should remove when we decide definitively that we don't need this.
 #[allow(unused)]
-pub fn fast_field_range_weight(field: FieldName, range: pgrx::Range<i32>) -> SearchQueryInput {
-    match range.into_inner() {
+pub fn fast_field_range_weight(
+    field: FieldName,
+    range: default!(Option<pgrx::Range<i32>>, "NULL"),
+) -> SearchQueryInput {
+    match range.expect("`range` argument is required").into_inner() {
         None => SearchQueryInput::FastFieldRangeWeight {
-            field: field.to_string(),
+            field: field.into_inner(),
             lower_bound: Bound::Included(0),
             upper_bound: Bound::Excluded(0),
         },
         Some((lower, upper)) => SearchQueryInput::FastFieldRangeWeight {
-            field: field.to_string(),
+            field: field.into_inner(),
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(n as u64),
@@ -226,14 +229,14 @@ pub fn fast_field_range_weight(field: FieldName, range: pgrx::Range<i32>) -> Sea
 #[pg_extern(immutable, parallel_safe)]
 pub fn fuzzy_term(
     field: FieldName,
-    value: String,
+    value: default!(Option<String>, "NULL"),
     distance: default!(Option<i32>, "NULL"),
     transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::FuzzyTerm {
-        field: field.to_string(),
-        value,
+        field: field.into_inner(),
+        value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
@@ -243,15 +246,15 @@ pub fn fuzzy_term(
 #[pg_extern(immutable, parallel_safe)]
 pub fn fuzzy_phrase(
     field: FieldName,
-    value: String,
+    value: default!(Option<String>, "NULL"),
     distance: default!(Option<i32>, "NULL"),
     transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
     match_all_terms: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::FuzzyPhrase {
-        field: field.to_string(),
-        value,
+        field: field.into_inner(),
+        value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
@@ -336,14 +339,22 @@ pub fn parse(query_string: String) -> SearchQueryInput {
 }
 
 #[pg_extern(immutable, parallel_safe)]
+pub fn parse_with_field(field: FieldName, query_string: String) -> SearchQueryInput {
+    SearchQueryInput::ParseWithField {
+        field: field.into_inner(),
+        query_string,
+    }
+}
+
+#[pg_extern(immutable, parallel_safe)]
 pub fn phrase(
     field: FieldName,
-    phrases: Array<String>,
+    phrases: Vec<String>,
     slop: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::Phrase {
-        field: field.to_string(),
-        phrases: phrases.iter_deny_null().collect(),
+        field: field.into_inner(),
+        phrases,
         slop: slop.map(|n| n as u32),
     }
 }
@@ -351,12 +362,12 @@ pub fn phrase(
 #[pg_extern(immutable, parallel_safe)]
 pub fn phrase_prefix(
     field: FieldName,
-    phrases: Array<String>,
+    phrases: Vec<String>,
     max_expansion: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::PhrasePrefix {
-        field: field.to_string(),
-        phrases: phrases.iter_deny_null().collect(),
+        field: field.into_inner(),
+        phrases,
         max_expansions: max_expansion.map(|n| n as u32),
     }
 }
@@ -365,12 +376,12 @@ pub fn phrase_prefix(
 pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.to_string(),
+            field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.to_string(),
+            field: field.into_inner(),
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
@@ -389,12 +400,12 @@ pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
 pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.to_string(),
+            field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.to_string(),
+            field: field.into_inner(),
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
@@ -410,15 +421,15 @@ pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
 }
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
-pub fn range_numeric(field: FieldName, range: Range<pgrx::AnyNumeric>) -> SearchQueryInput {
+pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.to_string(),
+            field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::F64(0.0)),
             upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.to_string(),
+            field: field.into_inner(),
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
@@ -447,7 +458,7 @@ macro_rules! datetime_range_fn {
         pub fn $func_name(field: FieldName, range: Range<$value_type>) -> SearchQueryInput {
             match range.into_inner() {
                 None => SearchQueryInput::Range {
-                    field: field.to_string(),
+                    field: field.into_inner(),
                     lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
                         tantivy::DateTime::from_timestamp_micros(0),
                     )),
@@ -456,7 +467,7 @@ macro_rules! datetime_range_fn {
                     )),
                 },
                 Some((lower, upper)) => SearchQueryInput::Range {
-                    field: field.to_string(),
+                    field: field.into_inner(),
                     lower_bound: match lower {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
@@ -508,7 +519,7 @@ datetime_range_fn!(range_timestamptz, pgrx::datum::TimestampWithTimeZone);
 #[pg_extern(immutable, parallel_safe)]
 pub fn regex(field: FieldName, pattern: String) -> SearchQueryInput {
     SearchQueryInput::Regex {
-        field: field.to_string(),
+        field: field.into_inner(),
         pattern,
     }
 }
@@ -522,7 +533,7 @@ macro_rules! term_fn {
         ) -> SearchQueryInput {
             if let Some(value) = value {
                 SearchQueryInput::Term {
-                    field: field.map(|field| field.to_string()),
+                    field: field.map(|field| field.into_inner()),
                     value: TantivyValue::try_from(value)
                         .expect("value should be a valid TantivyValue representation")
                         .tantivy_schema_value(),
@@ -539,7 +550,7 @@ macro_rules! term_fn_unsupported {
         #[pg_extern(name = "term", immutable, parallel_safe)]
         #[allow(unused)]
         pub fn $func_name(
-            field: default!(Option<FieldName>, "NULL"),
+            field: FieldName,
             value: default!(Option<$value_type>, "NULL"),
         ) -> SearchQueryInput {
             unimplemented!("{} in term query not implemented", $term_type)
@@ -605,6 +616,7 @@ pub fn term_set(
     SearchQueryInput::TermSet { terms }
 }
 
+/// A type used whenever our builder functions require a fieldname.
 #[derive(
     Debug,
     Clone,
@@ -635,6 +647,12 @@ impl AsRef<str> for FieldName {
     }
 }
 
+impl From<String> for FieldName {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
 impl InOutFuncs for FieldName {
     fn input(input: &CStr) -> Self
     where
@@ -648,7 +666,29 @@ impl InOutFuncs for FieldName {
     }
 }
 
+impl FieldName {
+    #[inline(always)]
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
 #[pg_cast(implicit)]
 fn text_to_fieldname(field: String) -> FieldName {
     FieldName(field)
+}
+
+#[allow(unused)]
+pub fn fieldname_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"paradedb.FieldName".into_datum()],
+        )
+        .expect("type `paradedb.FieldName` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `paradedb.FieldName` should exist");
+        }
+        oid
+    }
 }

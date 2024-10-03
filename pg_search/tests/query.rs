@@ -249,7 +249,7 @@ fn single_queries(mut conn: PgConnection) {
     // Term with no field (should search all columns)
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-        query => paradedb.term(field => '_all', value => 'shoes'),
+        query => paradedb.term(value => 'shoes'),
         stable_sort => true
 
     )"#

@@ -16,14 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::{
-    anyelement_text_opoid, estimate_selectivity, find_var_relation, make_search_config_opexpr_node,
-    ReturnedNodePointer,
+    anyelement_text_opoid, anyelement_text_procoid, attname_from_var, estimate_selectivity,
+    make_search_config_opexpr_node, ReturnedNodePointer,
 };
 use crate::postgres::utils::{locate_bm25_index, relfilenode_from_search_config};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
-use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList, PgRelation};
+use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
 /// This is the function behind the `@@@(anyelement, text)` operator. Since we transform those to
 /// use `@@@(anyelement, jsonb`), this function won't be called in normal circumstances, but it
@@ -54,15 +54,23 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
 
         let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
-        let const_ = nodecast!(Const, T_Const, input_args.get_ptr(1)?)?;
+        let query = nodecast!(Const, T_Const, input_args.get_ptr(1)?).map(|const_| {
+            // the field name comes from the lhs of the @@@ operator
+            let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
+            query
+        });
 
-        // the field name comes from the lhs of the @@@ operator
-        let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
+        if query.is_none() {
+            panic!("when the left side of the `@@@` operator is a column name the right side must be a text literal");
+        }
+
         Some(make_search_config_opexpr_node(
             srs,
             &mut input_args,
             var,
             query,
+            anyelement_text_opoid(),
+            anyelement_text_procoid(),
         ))
     }
 }
@@ -109,21 +117,22 @@ unsafe fn make_query_from_var_and_const(
     var: *mut pg_sys::Var,
     const_: *mut pg_sys::Const,
 ) -> (pg_sys::Oid, SearchQueryInput) {
-    let (heaprelid, varattno, _) = find_var_relation(var, root);
-    let heaprel = PgRelation::open(heaprelid);
-    let tupdesc = heaprel.tuple_desc();
-    let attribute = tupdesc
-        .get(varattno as usize - 1)
-        .expect("varattno must exist in the relation");
-    let field = attribute.name().to_string();
-
+    let (heaprelid, attname) = attname_from_var(root, var);
     // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
     let query_string = String::from_datum((*const_).constvalue, (*const_).constisnull)
         .expect("query must not be NULL");
 
-    let query = SearchQueryInput::ParseWithField {
-        field: field.to_string(),
-        query_string,
+    let query = match attname {
+        // the Var represents a field name.  we use that name with the Const value to
+        // form a query for that field
+        Some(field) => SearchQueryInput::ParseWithField {
+            field,
+            query_string,
+        },
+
+        // the Var represents a table reference, and that means the Const value is to be used
+        // as-is as a query
+        None => SearchQueryInput::Parse { query_string },
     };
     (heaprelid, query)
 }

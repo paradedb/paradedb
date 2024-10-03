@@ -16,16 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::{
-    anyelement_query_input_opoid, estimate_selectivity, find_var_relation,
-    make_search_config_opexpr_node, ReturnedNodePointer,
+    anyelement_query_input_opoid, anyelement_query_input_procoid, estimate_selectivity,
+    find_var_relation, make_search_config_opexpr_node, ReturnedNodePointer,
 };
 use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
-use pgrx::{
-    direct_function_call, pg_extern, pg_sys, AnyElement, FromDatum, Internal, IntoDatum, PgList,
-};
+use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
 /// This is the function behind the `@@@(anyelement, paradedb.searchqueryinput)` operator. Since we
 /// transform those to use `@@@(anyelement, jsonb`), this function won't be called in normal
@@ -54,24 +52,29 @@ fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePoi
             arg.unwrap()?.cast_mut_ptr::<pg_sys::Node>()
         )?;
 
-        pgrx::warning!("{}", pgrx::node_to_string((*srs).fcall.cast()).unwrap());
-
         // rewrite this node, which is using the @@@(key_field, paradedb.searchqueryinput) operator
         // to instead use the @@@(key_field, jsonb) operator.  This involves converting the rhs
         // of the operator into the jsonb representation of a SearchConfig, which is built
         // in `make_new_opexpr_node()`
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
         let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
-        let const_ = nodecast!(Const, T_Const, input_args.get_ptr(1)?)?;
+        if (*var).varattno != 0 {
+            panic!("the left side of the `@@@` operator must be a relation reference when the right side uses a builder function");
+        }
 
-        // the query comes from the rhs of the @@@ operator.  we've already proved it's a `pg_sys::Const` node
-        let query = SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+        let rhs = input_args.get_ptr(1)?;
+
+        let query = nodecast!(Const, T_Const, rhs)
+            .map(|const_| SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull))
+            .flatten();
 
         Some(make_search_config_opexpr_node(
             srs,
             &mut input_args,
             var,
             query,
+            anyelement_query_input_opoid(),
+            anyelement_query_input_procoid(),
         ))
     }
 }

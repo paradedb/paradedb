@@ -69,6 +69,25 @@ fn anyelement_jsonb_procoid() -> pg_sys::Oid {
     }
 }
 
+fn anyelement_query_input_procoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.search_with_query_input(anyelement, paradedb.searchqueryinput)".into_datum()],
+        )
+        .expect("the `paradedb.search_with_query_input(anyelement, paradedb.searchqueryinput) function should exist")
+    }
+}
+fn anyelement_text_procoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.search_with_text(anyelement, text)".into_datum()],
+        )
+        .expect("the `paradedb.search_with_text(anyelement, text) function should exist")
+    }
+}
+
 fn anyelement_text_opoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -135,7 +154,9 @@ unsafe fn make_search_config_opexpr_node(
     srs: *mut pg_sys::SupportRequestSimplify,
     input_args: &mut PgList<pg_sys::Node>,
     var: *mut pg_sys::Var,
-    query: SearchQueryInput,
+    query: Option<SearchQueryInput>,
+    opoid: pg_sys::Oid,
+    procoid: pg_sys::Oid,
 ) -> ReturnedNodePointer {
     let (relid, _varattno, targetlist) = find_var_relation(var, (*srs).root);
     if relid == pg_sys::Oid::INVALID {
@@ -185,36 +206,45 @@ unsafe fn make_search_config_opexpr_node(
         (*var).varcollid = att.attcollation;
     }
 
-    // fabricate a `SearchConfig` from the above relation and query string
-    // and get it serialized into a JSONB Datum
-    let search_config = SearchConfig::from((query, indexrel));
+    let have_query = query.is_some();
+    if let Some(query) = query {
+        // fabricate a `SearchConfig` from the above relation and query string
+        // and get it serialized into a JSONB Datum
+        let search_config = SearchConfig::from((query, indexrel));
 
-    let search_config_json =
-        serde_json::to_value(&search_config).expect("SearchConfig should serialize to json");
-    let jsonb_datum = JsonB(search_config_json).into_datum().unwrap();
+        let search_config_json =
+            serde_json::to_value(&search_config).expect("SearchConfig should serialize to json");
+        let jsonb_datum = JsonB(search_config_json).into_datum().unwrap();
 
-    // from which we'll create a new pg_sys::Const node
-    let jsonb_const = pg_sys::makeConst(
-        pg_sys::JSONBOID,
-        -1,
-        pg_sys::DEFAULT_COLLATION_OID,
-        -1,
-        jsonb_datum,
-        false,
-        false,
-    );
+        // from which we'll create a new pg_sys::Const node
+        let jsonb_const = pg_sys::makeConst(
+            pg_sys::JSONBOID,
+            -1,
+            pg_sys::DEFAULT_COLLATION_OID,
+            -1,
+            jsonb_datum,
+            false,
+            false,
+        );
 
-    // and assign it to the original argument list
-    input_args.replace_ptr(1, jsonb_const.cast());
+        // and assign it to the original argument list
+        input_args.replace_ptr(1, jsonb_const.cast());
+    }
 
     // we're about to fabricate a new pg_sys::OpExpr node to return
     // that represents the `@@@(anyelement, jsonb)` operator
     let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
-    newopexpr.opno = anyelement_jsonb_opoid();
-    newopexpr.opfuncid = anyelement_jsonb_procoid();
+
+    if have_query {
+        newopexpr.opno = anyelement_jsonb_opoid();
+        newopexpr.opfuncid = anyelement_jsonb_procoid();
+    } else {
+        newopexpr.opno = opoid;
+        newopexpr.opfuncid = procoid;
+    }
     newopexpr.opresulttype = pg_sys::BOOLOID;
     newopexpr.opcollid = pg_sys::DEFAULT_COLLATION_OID;
-    newopexpr.inputcollid = (*(*srs).fcall).inputcollid;
+    newopexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
     newopexpr.location = (*(*srs).fcall).location;
 
     // then assign that list to our new OpExpr node
@@ -310,6 +340,27 @@ unsafe fn find_var_relation(
         }
         _ => panic!("unsupported RTEKind: {}", (*rte).rtekind),
     }
+}
+
+/// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`
+///
+/// # Return
+///
+/// Returns the heap relation [`pg_sys::Oid`] that contains the `Var` along with its name.
+pub unsafe fn attname_from_var(
+    root: *mut pg_sys::PlannerInfo,
+    var: *mut pg_sys::Var,
+) -> (pg_sys::Oid, Option<String>) {
+    let (heaprelid, varattno, _) = find_var_relation(var, root);
+    if (*var).varattno == 0 {
+        return (heaprelid, None);
+    }
+    let heaprel = PgRelation::open(heaprelid);
+    let tupdesc = heaprel.tuple_desc();
+    let attname = tupdesc
+        .get(varattno as usize - 1)
+        .map(|attribute| attribute.name().to_string());
+    (heaprelid, attname)
 }
 
 extension_sql!(

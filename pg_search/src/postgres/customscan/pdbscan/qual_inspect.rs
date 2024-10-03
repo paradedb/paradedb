@@ -170,10 +170,11 @@ unsafe fn opexpr(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> Option<Qual>
     );
 
     if lhs.is_none() || rhs.is_none() {
-        pgrx::warning!(
+        pgrx::debug1!(
             "unrecognized `OpExpr`: {}",
             node_to_string(opexpr.cast()).expect("node_to_string should not return null")
         );
+        return None;
     }
     let (lhs, rhs) = (lhs?, rhs?);
 

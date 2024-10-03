@@ -19,27 +19,6 @@ pub fn score_funcoid() -> pg_sys::Oid {
     }
 }
 
-pub unsafe fn has_var_for_rel(node: *mut pg_sys::Node, mut relid: pg_sys::Oid) -> bool {
-    #[pg_guard]
-    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            let relid = *data.cast::<pg_sys::Oid>();
-            if (*var).vartype == relid {
-                return true;
-            }
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
-    let data = addr_of_mut!(relid).cast();
-    walker(node, data)
-}
-
 pub unsafe fn uses_scores(node: *mut pg_sys::Node, mut score_funcoid: pg_sys::Oid) -> bool {
     #[pg_guard]
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {

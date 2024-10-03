@@ -25,7 +25,9 @@ use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
 use tantivy::schema::FieldType;
-use tantivy::{query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyError};
+use tantivy::{
+    query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyDocument, TantivyError,
+};
 use tantivy::{snippet::SnippetGenerator, Executor};
 
 /// An iterator of the different styles of search results we can return
@@ -109,6 +111,10 @@ impl SearchState {
             searcher,
             schema: schema.clone(),
         }
+    }
+
+    pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {
+        self.searcher.doc(doc_address)
     }
 
     pub fn snippet_generator(&self, field_name: &str) -> SnippetGenerator {
@@ -248,6 +254,7 @@ impl SearchState {
                     ctid: ctid_ff
                         .as_u64(doc)
                         .expect("expected the `ctid` field to be a u64"),
+                    doc_address: None,
 
                     order_by: orderby_ff.as_ref().map(|fftype| fftype.value(doc)),
                     sort_asc,
@@ -487,6 +494,8 @@ mod collector {
                     bm25: score,
                     key,
                     ctid,
+                    doc_address: Some(doc_address),
+
                     order_by: None,
                     sort_asc: false,
                 };

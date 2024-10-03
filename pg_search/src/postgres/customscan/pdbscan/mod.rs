@@ -18,10 +18,12 @@
 mod projections;
 mod qual_inspect;
 
+use crate::api::index::FieldName;
 use crate::api::node;
 use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity};
+use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
 use crate::globals::WriterGlobal;
-use crate::index::state::SearchResults;
+use crate::index::state::{SearchResults, SearchState};
 use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -29,8 +31,12 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::pdbscan::projections::has_var_for_rel;
 use crate::postgres::customscan::pdbscan::projections::score::{
-    has_var_for_rel, inject_scores, score_funcoid, uses_scores,
+    inject_scores, score_funcoid, uses_scores,
+};
+use crate::postgres::customscan::pdbscan::projections::snippet::{
+    inject_snippet, snippet_funcoid, uses_snippets,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::{CustomScan, CustomScanState};
@@ -42,8 +48,10 @@ use crate::writer::WriterDirectory;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation, PgTupleDesc};
 use shared::gucs::GlobalGucSettings;
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
+use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -56,12 +64,16 @@ pub struct PdbScanState {
     index_oid: pg_sys::Oid,
     index_uuid: String,
     key_field: String,
+    search_state: Option<SearchState>,
     search_config: SearchConfig,
     search_results: SearchResults,
 
     visibility_checker: Option<VisibilityChecker>,
     need_scores: bool,
+    snippet_generators:
+        HashMap<(FieldName, Option<String>, Option<String>), Option<SnippetGenerator>>,
     score_funcoid: pg_sys::Oid,
+    snippet_funcoid: pg_sys::Oid,
 }
 
 impl CustomScanState for PdbScanState {}
@@ -70,6 +82,11 @@ impl PdbScanState {
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
         self.need_scores
+    }
+
+    #[inline(always)]
+    pub fn need_snippets(&self) -> bool {
+        !self.snippet_generators.is_empty()
     }
 
     #[inline(always)]
@@ -124,19 +141,8 @@ impl PrivateData {
         }
     }
 
-    fn maybe_need_scores(&self) -> bool {
-        unsafe {
-            match self.0.get_ptr(2) {
-                None => false,
-                Some(ptr) => node::<pg_sys::Boolean>(ptr.cast(), pg_sys::NodeTag::T_Boolean)
-                    .map(|b| (*b).boolval)
-                    .unwrap_or_default(),
-            }
-        }
-    }
-
     fn quals(&self) -> Option<Qual> {
-        let base_restrict_info = self.0.get_ptr(3)?;
+        let base_restrict_info = self.0.get_ptr(2)?;
         unsafe { extract_quals(base_restrict_info, anyelement_jsonb_opoid()) }
     }
 }
@@ -168,9 +174,9 @@ impl CustomScan for PdbScan {
             // and that relation must have a `USING bm25` index
             let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
 
-            // quick look at the PathTarget list to see if we might need scoring
+            // quick look at the PathTarget list to see if we might need to do our const projections
             let path_target = builder.path_target();
-            let maybe_need_scores =
+            let maybe_needs_const_projections =
                 has_var_for_rel((*path_target).exprs.cast(), (*table.rd_rel).reltype);
 
             //
@@ -182,8 +188,7 @@ impl CustomScan for PdbScan {
             ) {
                 builder = builder
                     .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeBoolean(maybe_need_scores).cast());
+                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast());
 
                 let restrict_info = builder.base_restrict_info();
 
@@ -212,7 +217,11 @@ impl CustomScan for PdbScan {
                     // if we think we need scores, we need a much cheaper plan so that Postgres will
                     // prefer it over all the others.
                     // TODO:  these are curious values that I picked out of thin air and probably need attention
-                    let per_tuple = if maybe_need_scores { 0.5 } else { 4.0 };
+                    let per_tuple = if maybe_needs_const_projections {
+                        0.5
+                    } else {
+                        4.0
+                    };
                     let cpu_run_cost = pg_sys::cpu_tuple_cost + per_tuple;
 
                     cpu_run_cost + rows * per_tuple
@@ -279,10 +288,19 @@ impl CustomScan for PdbScan {
             ));
 
             builder.custom_state().score_funcoid = score_funcoid();
+            builder.custom_state().snippet_funcoid = snippet_funcoid();
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 builder.custom_state().score_funcoid,
             );
+            builder.custom_state().snippet_generators = uses_snippets(
+                builder.target_list().as_ptr().cast(),
+                builder.custom_state().snippet_funcoid,
+            )
+            .into_iter()
+            .map(|field| (field, None))
+            .collect();
+
             builder.build()
         }
     }
@@ -372,35 +390,74 @@ impl CustomScan for PdbScan {
             };
 
             unsafe {
-                let projection_info = if state.custom_state().need_scores() {
-                    // the query requires scores.  since we have it in `scored.bm25`, we inject
-                    // that constant value into every position in the Plan's TargetList that uses
-                    // our `paradedb.score(record)` function.  This is what `inject_scores()` does
-                    // and it returns a whole new TargetList.
-                    //
-                    // It's from that TargetList we build a new ProjectionInfo with the FuncExprs
-                    // replaced with the actual score f32 Const nodes.  Essentially we're manually
-                    // projecting the scores where they need to go
-                    let planstate = state.planstate();
-                    let projection_targetlist = (*(*planstate).plan).targetlist;
-                    let scored_targetlist = inject_scores(
-                        projection_targetlist.cast(),
-                        state.custom_state().score_funcoid,
-                        scored.bm25,
-                    );
+                let mut projection_info = state.projection_info();
 
-                    // build the new ProjectionInfo based on our modified TargetList
-                    pg_sys::ExecBuildProjectionInfo(
-                        scored_targetlist.cast(),
-                        (*planstate).ps_ExprContext,
-                        (*planstate).ps_ResultTupleSlot,
-                        planstate,
-                        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
-                    )
-                } else {
-                    // scores aren't necessary so we use whatever we originally setup as our ProjectionInfo
-                    state.projection_info()
-                };
+                projection_info =
+                    if state.custom_state().need_scores() || state.custom_state.need_snippets() {
+                        // the query requires scores.  since we have it in `scored.bm25`, we inject
+                        // that constant value into every position in the Plan's TargetList that uses
+                        // our `paradedb.score(record)` function.  This is what `inject_scores()` does
+                        // and it returns a whole new TargetList.
+                        //
+                        // It's from that TargetList we build a new ProjectionInfo with the FuncExprs
+                        // replaced with the actual score f32 Const nodes.  Essentially we're manually
+                        // projecting the scores where they need to go
+                        let planstate = state.planstate();
+                        let projection_targetlist = (*(*planstate).plan).targetlist;
+
+                        let mut const_projected_targetlist = projection_targetlist;
+
+                        if state.custom_state().need_scores() {
+                            const_projected_targetlist = inject_scores(
+                                const_projected_targetlist.cast(),
+                                state.custom_state().score_funcoid,
+                                scored.bm25,
+                            )
+                            .cast();
+                        }
+                        if state.custom_state().need_snippets() {
+                            let snippet_funcoid = state.custom_state.snippet_funcoid;
+                            let search_state = state.custom_state.search_state.as_ref().expect(
+                                "CustomState should hae a SearchState since it requires snippets",
+                            );
+                            for ((field, start, end), generator) in
+                                &state.custom_state.snippet_generators
+                            {
+                                const_projected_targetlist = inject_snippet(
+                                    const_projected_targetlist.cast(),
+                                    snippet_funcoid,
+                                    search_state,
+                                    field,
+                                    start
+                                        .as_ref()
+                                        .map(|s| s.as_str())
+                                        .unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX),
+                                    end.as_ref()
+                                        .map(|s| s.as_str())
+                                        .unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX),
+                                    generator
+                                        .as_ref()
+                                        .expect("SnippetGenerator should have been created"),
+                                    scored
+                                        .doc_address
+                                        .expect("should have generated a DocAddress"),
+                                )
+                                .cast();
+                            }
+                        }
+
+                        // build the new ProjectionInfo based on our modified TargetList
+                        pg_sys::ExecBuildProjectionInfo(
+                            const_projected_targetlist.cast(),
+                            (*planstate).ps_ExprContext,
+                            (*planstate).ps_ResultTupleSlot,
+                            planstate,
+                            (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+                        )
+                    } else {
+                        // scores aren't necessary so we use whatever we originally setup as our ProjectionInfo
+                        projection_info
+                    };
 
                 // finally, do the projection
                 (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
@@ -424,11 +481,12 @@ impl CustomScan for PdbScan {
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         let indexrelid = state.custom_state.index_oid.as_u32();
-        let maybe_need_scores = state.custom_state.need_scores();
+        let need_scores = state.custom_state.need_scores();
+        let need_snippets = state.custom_state.need_snippets();
         let search_config = &mut state.custom_state.search_config;
 
         search_config.stable_sort = Some(false);
-        search_config.need_scores = maybe_need_scores;
+        search_config.need_scores = need_scores;
 
         // Create the index and scan state
         let directory = WriterDirectory::from_oids(
@@ -446,6 +504,13 @@ impl CustomScan for PdbScan {
 
         state.custom_state.search_results =
             search_state.search_minimal(false, SearchIndex::executor());
+
+        if need_snippets {
+            for (field, generator) in state.custom_state.snippet_generators.iter_mut() {
+                *generator = Some(search_state.snippet_generator(field.0.as_ref()))
+            }
+            state.custom_state.search_state = Some(search_state);
+        }
     }
 }
 

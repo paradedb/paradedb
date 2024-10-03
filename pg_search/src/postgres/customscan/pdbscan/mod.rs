@@ -22,9 +22,8 @@ use crate::api::index::FieldName;
 use crate::api::node;
 use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity};
 use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
-use crate::globals::WriterGlobal;
 use crate::index::state::{SearchResults, SearchState};
-use crate::index::SearchIndex;
+use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -42,9 +41,10 @@ use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::{CustomScan, CustomScanState};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{relfilenode_from_pg_relation, VisibilityChecker};
+use crate::postgres::utils::{
+    relfilenode_from_index_oid, relfilenode_from_pg_relation, VisibilityChecker,
+};
 use crate::schema::SearchConfig;
-use crate::writer::WriterDirectory;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation, PgTupleDesc};
 use shared::gucs::GlobalGucSettings;
@@ -489,17 +489,16 @@ impl CustomScan for PdbScan {
         search_config.need_scores = need_scores;
 
         // Create the index and scan state
-        let directory = WriterDirectory::from_oids(
-            crate::MyDatabaseId(),
-            indexrelid,
-            crate::postgres::utils::relfilenode_from_index_oid(indexrelid).as_u32(),
-        );
+        let index_oid = &search_config.index_oid;
+        let database_oid = crate::MyDatabaseId();
+        let relfilenode = relfilenode_from_index_oid(*index_oid);
+
+        let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-        let writer_client = WriterGlobal::client();
 
         let search_state = search_index
-            .search_state(&writer_client, search_config)
+            .search_state(search_config)
             .expect("`SearchState` should have been constructed correctly");
 
         state.custom_state.search_results =

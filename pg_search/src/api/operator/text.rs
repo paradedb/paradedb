@@ -41,7 +41,7 @@ pub fn search_with_text(
 
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn text_support(arg: Internal) -> ReturnedNodePointer {
-    text_support_request_simplify(arg).unwrap_or_else(|| ReturnedNodePointer(None))
+    text_support_request_simplify(arg).unwrap_or(ReturnedNodePointer(None))
 }
 
 fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {

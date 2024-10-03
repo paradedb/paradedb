@@ -37,6 +37,6 @@ pub unsafe fn node<T>(void: *mut c_void, tag: pg_sys::NodeTag) -> Option<*mut T>
 #[macro_export]
 macro_rules! nodecast {
     ($type_:ident, $kind:ident, $node:expr) => {
-        crate::api::node::<pg_sys::$type_>($node.cast(), pg_sys::NodeTag::$kind)
+        $crate::api::node::<pg_sys::$type_>($node.cast(), pg_sys::NodeTag::$kind)
     };
 }

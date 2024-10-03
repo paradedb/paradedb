@@ -41,7 +41,7 @@ pub fn search_with_query_input(
 
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn query_input_support(arg: Internal) -> ReturnedNodePointer {
-    query_input_support_request_simplify(arg).unwrap_or_else(|| ReturnedNodePointer(None))
+    query_input_support_request_simplify(arg).unwrap_or(ReturnedNodePointer(None))
 }
 
 fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {

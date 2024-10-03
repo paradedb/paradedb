@@ -86,7 +86,7 @@ pub fn search_with_search_config(
 
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn search_config_support(arg: Internal) -> ReturnedNodePointer {
-    search_config_support_request_cost(arg).unwrap_or_else(|| ReturnedNodePointer(None))
+    search_config_support_request_cost(arg).unwrap_or(ReturnedNodePointer(None))
 }
 
 fn search_config_support_request_cost(arg: Internal) -> Option<ReturnedNodePointer> {

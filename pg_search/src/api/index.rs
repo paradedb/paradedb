@@ -17,6 +17,10 @@
 
 use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
+use serde_json::{Map, Value};
+use tantivy::collector::DocSetCollector;
+use tantivy::query::AllQuery;
+use tantivy::schema::Value as SchemaValue;
 use tantivy::schema::*;
 
 use crate::index::SearchIndex;
@@ -594,4 +598,99 @@ pub fn term_set(
         .collect();
 
     SearchQueryInput::TermSet { terms }
+}
+
+#[pg_extern]
+pub fn dump_bm25(
+    index_name: String,
+) -> TableIterator<'static, (name!(heap_tid, i64), name!(content, pgrx::JsonB))> {
+    let bm25_index_name = format!("{}_bm25_index", index_name);
+
+    let database_oid = crate::MyDatabaseId();
+    let index_oid = index_oid_from_index_name(&bm25_index_name);
+    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+
+    let directory =
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
+    let search_index = SearchIndex::from_disk(&directory)
+        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+
+    let schema = search_index.schema.schema.clone();
+
+    let searcher = search_index.searcher();
+
+    let ctid_field = schema.get_field("ctid").unwrap();
+
+    let top_docs = searcher
+        .search(&AllQuery, &DocSetCollector)
+        .expect("failed to search");
+
+    let results = top_docs.into_iter().map(move |doc_address| {
+        let retrieved_doc: TantivyDocument = searcher.doc(doc_address).unwrap();
+        let heap_tid = retrieved_doc
+            .get_first(ctid_field)
+            .expect("Could not get heap_tid field")
+            .as_u64()
+            .expect("Could not convert heap_tid to u64") as i64;
+
+        let mut json_map = Map::new();
+        for (field, _) in schema.fields() {
+            if field == ctid_field {
+                continue;
+            }
+
+            let field_entry = schema.get_field_entry(field);
+            let field_name = field_entry.name();
+            match field_entry.field_type() {
+                tantivy::schema::FieldType::Str(_) => {
+                    if let Some(text) = retrieved_doc.get_first(field).and_then(|f| f.as_str()) {
+                        json_map.insert(field_name.to_string(), Value::String(text.to_string()));
+                    }
+                }
+                tantivy::schema::FieldType::U64(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_u64()) {
+                        json_map.insert(field_name.to_string(), Value::Number(val.into()));
+                    }
+                }
+                tantivy::schema::FieldType::I64(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_i64()) {
+                        json_map.insert(field_name.to_string(), Value::Number(val.into()));
+                    }
+                }
+                tantivy::schema::FieldType::F64(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_f64()) {
+                        json_map.insert(field_name.to_string(), Value::from(val));
+                    }
+                }
+                tantivy::schema::FieldType::Bool(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_bool()) {
+                        json_map.insert(field_name.to_string(), Value::Bool(val));
+                    }
+                }
+                tantivy::schema::FieldType::JsonObject(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_object()) {
+                        let map_value = val
+                            .map(|(k, v)| {
+                                (
+                                    k.to_string(),
+                                    Value::String(v.as_str().unwrap().to_string()),
+                                )
+                            })
+                            .collect();
+                        json_map.insert(field_name.to_string(), Value::Object(map_value));
+                    }
+                }
+                data_type => {
+                    pg_sys::warning!(
+                        "field type {data_type:?} not supported in dump_bm25",
+                        data_type = data_type
+                    );
+                }
+            }
+        }
+
+        (heap_tid, pgrx::JsonB(Value::Object(json_map)))
+    });
+
+    TableIterator::new(results)
 }

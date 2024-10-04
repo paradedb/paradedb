@@ -18,10 +18,8 @@
 mod projections;
 mod qual_inspect;
 
-use crate::api::index::FieldName;
 use crate::api::node;
 use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity};
-use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
 use crate::index::state::{SearchResults, SearchState};
 use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};

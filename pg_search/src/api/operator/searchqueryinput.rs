@@ -58,9 +58,14 @@ fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePoi
         // in `make_new_opexpr_node()`
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
         let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
-        if (*var).varattno != 0 {
-            panic!("the left side of the `@@@` operator must be a relation reference when the right side uses a builder function");
-        }
+
+        // NB:  there was a point where we only allowed a relation reference on the left of @@@
+        // when the right side uses a builder function, but we've decided that also allowing a field
+        // name is materially better as the relation reference might be an artificial ROW(...) whereas
+        // a field will be a legitimate Var from which we can derive the physical table.
+        // if (*var).varattno != 0 {
+        //     panic!("the left side of the `@@@` operator must be a relation reference when the right side uses a builder function");
+        // }
 
         let rhs = input_args.get_ptr(1)?;
 

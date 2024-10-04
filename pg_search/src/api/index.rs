@@ -31,6 +31,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::Bound;
 use tantivy::json_utils::split_json_path;
 use tantivy::schema::{FieldType, OwnedValue, Value};
+use tantivy::json_utils::split_json_path;
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]

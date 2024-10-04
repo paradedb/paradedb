@@ -74,7 +74,7 @@ pub enum SearchQueryInput {
     },
     FuzzyTerm {
         field: String,
-        value: String,
+        value: tantivy::schema::OwnedValue,
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,

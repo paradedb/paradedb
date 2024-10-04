@@ -30,6 +30,7 @@ use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
 use std::ops::Bound;
 use tantivy::schema::{FieldType, OwnedValue, Value};
+use tantivy::json_utils::split_json_path;
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]
@@ -234,12 +235,14 @@ pub fn fuzzy_term(
     transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::FuzzyTerm {
         field: field.into_inner(),
         value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
+        path,
     }
 }
 
@@ -252,6 +255,7 @@ pub fn fuzzy_phrase(
     prefix: default!(Option<bool>, "NULL"),
     match_all_terms: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::FuzzyPhrase {
         field: field.into_inner(),
         value: value.expect("`value` argument is required"),
@@ -259,6 +263,7 @@ pub fn fuzzy_phrase(
         transposition_cost_one,
         prefix,
         match_all_terms,
+        path,
     }
 }
 
@@ -352,10 +357,12 @@ pub fn phrase(
     phrases: Vec<String>,
     slop: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::Phrase {
         field: field.into_inner(),
         phrases,
         slop: slop.map(|n| n as u32),
+        path,
     }
 }
 
@@ -365,10 +372,12 @@ pub fn phrase_prefix(
     phrases: Vec<String>,
     max_expansion: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::PhrasePrefix {
         field: field.into_inner(),
         phrases,
         max_expansions: max_expansion.map(|n| n as u32),
+        path,
     }
 }
 
@@ -532,11 +541,23 @@ macro_rules! term_fn {
             value: default!(Option<$value_type>, "NULL"),
         ) -> SearchQueryInput {
             if let Some(value) = value {
-                SearchQueryInput::Term {
-                    field: field.map(|field| field.into_inner()),
-                    value: TantivyValue::try_from(value)
-                        .expect("value should be a valid TantivyValue representation")
-                        .tantivy_schema_value(),
+                if let Some(field) = field {
+                    let (field, path) = split_field_and_path(&field);
+                    SearchQueryInput::Term {
+                        field: Some(field),
+                        value: TantivyValue::try_from(value)
+                            .expect("value should be a valid TantivyValue representation")
+                            .tantivy_schema_value(),
+                        path,
+                    }
+                } else {
+                    SearchQueryInput::Term {
+                        field,
+                        value: TantivyValue::try_from(value)
+                            .expect("value should be a valid TantivyValue representation")
+                            .tantivy_schema_value(),
+                        path: None,
+                    }
                 }
             } else {
                 panic!("no value provided to term query")
@@ -608,7 +629,9 @@ pub fn term_set(
     let terms: Vec<_> = terms
         .into_iter()
         .filter_map(|input| match input {
-            SearchQueryInput::Term { field, value, .. } => field.map(|field| (field, value)),
+            SearchQueryInput::Term {
+                field, value, path, ..
+            } => field.map(|field| (field, value, path)),
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();
@@ -678,5 +701,15 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
             panic!("type `paradedb.FieldName` should exist");
         }
         oid
+    }
+}
+
+#[inline]
+pub fn split_field_and_path(field: &str) -> (String, Option<String>) {
+    let json_path = split_json_path(field);
+    if json_path.len() == 1 {
+        (field.to_string(), None)
+    } else {
+        (json_path[0].clone(), Some(json_path[1..].join(".")))
     }
 }

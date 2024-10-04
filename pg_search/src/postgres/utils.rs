@@ -19,6 +19,7 @@ use crate::index::IndexError;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchDocument, SearchFieldName, SearchIndexSchema};
 use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
+use pgrx::pg_sys::Buffer;
 use pgrx::*;
 
 /// Finds and returns the first `USING bm25` index on the specified relation, or [`None`] if there
@@ -160,6 +161,33 @@ impl Drop for VisibilityChecker {
     }
 }
 
+//
+// we redeclare these functions so we can use the directly without pgrx' "#[pg_guard]" overhead.
+//
+// Instead, when we call these, we make sure we've created our own ffi boundary guard and run all
+// these functions within the same guard
+//
+#[allow(improper_ctypes)]
+#[allow(non_snake_case)]
+extern "C" {
+    fn ReleaseAndReadBuffer(
+        buffer: Buffer,
+        relation: pg_sys::Relation,
+        blockNum: pg_sys::BlockNumber,
+    ) -> Buffer;
+
+    fn LockBuffer(buffer: Buffer, mode: ::core::ffi::c_int);
+    fn heap_hot_search_buffer(
+        tid: pg_sys::ItemPointer,
+        relation: pg_sys::Relation,
+        buffer: Buffer,
+        snapshot: pg_sys::Snapshot,
+        heapTuple: pg_sys::HeapTuple,
+        all_dead: *mut bool,
+        first_call: bool,
+    ) -> bool;
+}
+
 impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
     /// `relid` in whatever the current snapshot happens to be at the time this function is called.
@@ -206,14 +234,20 @@ impl VisibilityChecker {
 
             let blockno = item_pointer_get_block_number(&self.ipd);
 
+            // SAFETY:  in order for us to properly handle possible ERRORs we need to create
+            // our own ffi guard boundary.  The ReleaseAndReadBuffer, LockBuffer, and heap_hot_search_buffer (see below)
+            // functions are internal to postgres and the ffi boundary needs to be guarded, but we
+            // don't want to incur the overhead of guarding each one individually.
+            //
+            // This also create a requirement that we cannot raise a rust panic!() while in the
+            // `pg_guard_ffi_boundary()` closure.
             pg_sys::ffi::pg_guard_ffi_boundary(|| {
-                self.last_buffer =
-                    pg_sys::ReleaseAndReadBuffer(self.last_buffer, self.relation, blockno);
+                self.last_buffer = ReleaseAndReadBuffer(self.last_buffer, self.relation, blockno);
 
-                pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
+                LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
                 let (found, htup) = self.check_page_vis(self.last_buffer);
                 let result = found.then(|| func(htup, self.last_buffer));
-                pg_sys::LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+                LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
                 result
             })
         }
@@ -225,7 +259,7 @@ impl VisibilityChecker {
 
             // Check if heaptuple is visible
             // In Postgres, the indexam `amgettuple` calls `heap_hot_search_buffer` for its visibility check
-            let found = pg_sys::heap_hot_search_buffer(
+            let found = heap_hot_search_buffer(
                 &mut self.ipd,
                 self.relation,
                 buffer,

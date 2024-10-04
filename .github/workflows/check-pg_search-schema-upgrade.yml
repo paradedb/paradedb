@@ -125,7 +125,7 @@ jobs:
 
               echo
               echo '<details>'
-              echo '<summary>The full diff between both schemas is:'
+              echo '<summary>The full diff between both schemas is:</summary>'
               echo
               echo '```diff'
               cat ~/diff.patch

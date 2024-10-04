@@ -35,7 +35,7 @@ use crate::postgres::customscan::pdbscan::projections::score::{
     inject_scores, score_funcoid, uses_scores,
 };
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    inject_snippet, snippet_funcoid, uses_snippets,
+    inject_snippet, snippet_funcoid, uses_snippets, SnippetInfo,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::{CustomScan, CustomScanState};
@@ -70,8 +70,7 @@ pub struct PdbScanState {
 
     visibility_checker: Option<VisibilityChecker>,
     need_scores: bool,
-    snippet_generators:
-        HashMap<(FieldName, Option<String>, Option<String>), Option<SnippetGenerator>>,
+    snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
 }
@@ -413,72 +412,68 @@ impl CustomScan for PdbScan {
             unsafe {
                 let mut projection_info = state.projection_info();
 
-                projection_info =
-                    if state.custom_state().need_scores() || state.custom_state.need_snippets() {
-                        // the query requires scores.  since we have it in `scored.bm25`, we inject
-                        // that constant value into every position in the Plan's TargetList that uses
-                        // our `paradedb.score(record)` function.  This is what `inject_scores()` does
-                        // and it returns a whole new TargetList.
-                        //
-                        // It's from that TargetList we build a new ProjectionInfo with the FuncExprs
-                        // replaced with the actual score f32 Const nodes.  Essentially we're manually
-                        // projecting the scores where they need to go
-                        let planstate = state.planstate();
-                        let projection_targetlist = (*(*planstate).plan).targetlist;
+                projection_info = if state.custom_state().need_scores()
+                    || state.custom_state.need_snippets()
+                {
+                    // the query requires scores.  since we have it in `scored.bm25`, we inject
+                    // that constant value into every position in the Plan's TargetList that uses
+                    // our `paradedb.score(record)` function.  This is what `inject_scores()` does
+                    // and it returns a whole new TargetList.
+                    //
+                    // It's from that TargetList we build a new ProjectionInfo with the FuncExprs
+                    // replaced with the actual score f32 Const nodes.  Essentially we're manually
+                    // projecting the scores where they need to go
+                    let planstate = state.planstate();
+                    let projection_targetlist = (*(*planstate).plan).targetlist;
 
-                        let mut const_projected_targetlist = projection_targetlist;
+                    let mut const_projected_targetlist = projection_targetlist;
 
-                        if state.custom_state().need_scores() {
-                            const_projected_targetlist = inject_scores(
+                    if state.custom_state().need_scores() {
+                        const_projected_targetlist = inject_scores(
+                            const_projected_targetlist.cast(),
+                            state.custom_state().score_funcoid,
+                            scored.bm25,
+                        )
+                        .cast();
+                    }
+                    if state.custom_state().need_snippets() {
+                        let snippet_funcoid = state.custom_state.snippet_funcoid;
+                        let search_state = state.custom_state.search_state.as_ref().expect(
+                            "CustomState should hae a SearchState since it requires snippets",
+                        );
+                        for (snippet_info, generator) in &mut state.custom_state.snippet_generators
+                        {
+                            const_projected_targetlist = inject_snippet(
                                 const_projected_targetlist.cast(),
-                                state.custom_state().score_funcoid,
-                                scored.bm25,
+                                snippet_funcoid,
+                                search_state,
+                                &snippet_info.field,
+                                &snippet_info.start_tag,
+                                &snippet_info.end_tag,
+                                snippet_info.max_num_chars,
+                                generator
+                                    .as_mut()
+                                    .expect("SnippetGenerator should have been created"),
+                                scored
+                                    .doc_address
+                                    .expect("should have generated a DocAddress"),
                             )
                             .cast();
                         }
-                        if state.custom_state().need_snippets() {
-                            let snippet_funcoid = state.custom_state.snippet_funcoid;
-                            let search_state = state.custom_state.search_state.as_ref().expect(
-                                "CustomState should hae a SearchState since it requires snippets",
-                            );
-                            for ((field, start, end), generator) in
-                                &state.custom_state.snippet_generators
-                            {
-                                const_projected_targetlist = inject_snippet(
-                                    const_projected_targetlist.cast(),
-                                    snippet_funcoid,
-                                    search_state,
-                                    field,
-                                    start
-                                        .as_ref()
-                                        .map(|s| s.as_str())
-                                        .unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX),
-                                    end.as_ref()
-                                        .map(|s| s.as_str())
-                                        .unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX),
-                                    generator
-                                        .as_ref()
-                                        .expect("SnippetGenerator should have been created"),
-                                    scored
-                                        .doc_address
-                                        .expect("should have generated a DocAddress"),
-                                )
-                                .cast();
-                            }
-                        }
+                    }
 
-                        // build the new ProjectionInfo based on our modified TargetList
-                        pg_sys::ExecBuildProjectionInfo(
-                            const_projected_targetlist.cast(),
-                            (*planstate).ps_ExprContext,
-                            (*planstate).ps_ResultTupleSlot,
-                            planstate,
-                            (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
-                        )
-                    } else {
-                        // scores aren't necessary so we use whatever we originally setup as our ProjectionInfo
-                        projection_info
-                    };
+                    // build the new ProjectionInfo based on our modified TargetList
+                    pg_sys::ExecBuildProjectionInfo(
+                        const_projected_targetlist.cast(),
+                        (*planstate).ps_ExprContext,
+                        (*planstate).ps_ResultTupleSlot,
+                        planstate,
+                        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+                    )
+                } else {
+                    // scores aren't necessary so we use whatever we originally setup as our ProjectionInfo
+                    projection_info
+                };
 
                 // finally, do the projection
                 (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
@@ -526,8 +521,8 @@ impl CustomScan for PdbScan {
             search_state.search_minimal(false, SearchIndex::executor());
 
         if need_snippets {
-            for (field, generator) in state.custom_state.snippet_generators.iter_mut() {
-                *generator = Some(search_state.snippet_generator(field.0.as_ref()))
+            for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {
+                *generator = Some(search_state.snippet_generator(&snippet_info.field.as_ref()))
             }
             state.custom_state.search_state = Some(search_state);
         }

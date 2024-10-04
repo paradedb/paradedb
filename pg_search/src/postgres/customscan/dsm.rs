@@ -27,7 +27,7 @@ pub extern "C" fn estimate_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable
     node: *mut pg_sys::CustomScanState,
     pcxt: *mut pg_sys::ParallelContext,
 ) -> pg_sys::Size {
-    todo!("estimate_dsm_custom_scan")
+    unimplemented!("estimate_dsm_custom_scan")
 }
 
 /// Initialize the dynamic shared memory that will be required for parallel operation. coordinate
@@ -40,7 +40,7 @@ pub extern "C" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapab
     pcxt: *mut pg_sys::ParallelContext,
     coordinate: *mut std::os::raw::c_void,
 ) {
-    todo!("initialize_dsm_custom_scan")
+    unimplemented!("initialize_dsm_custom_scan")
 }
 
 /// Re-initialize the dynamic shared memory required for parallel operation when the custom-scan
@@ -54,7 +54,7 @@ pub extern "C" fn reinitialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCap
     pcxt: *mut pg_sys::ParallelContext,
     coordinate: *mut std::os::raw::c_void,
 ) {
-    todo!("reinitialize_dsm_custom_scan")
+    unimplemented!("reinitialize_dsm_custom_scan")
 }
 
 /// Initialize a parallel worker's local state based on the shared state set up by the leader during
@@ -66,5 +66,5 @@ pub extern "C" fn initialize_worker_custom_scan<CS: CustomScan + ParallelQueryCa
     toc: *mut pg_sys::shm_toc,
     coordinate: *mut std::os::raw::c_void,
 ) {
-    todo!("initialize_worker_custom_scan")
+    unimplemented!("initialize_worker_custom_scan")
 }

@@ -45,17 +45,6 @@ const DEFAULT_STARTUP_COST: f64 = 10.0;
 pgrx::pg_module_magic!();
 
 extension_sql!(
-    r#"
---
--- ParadeDB is an Elasticsearch alternative built on Postgres. We're modernizing the features of
--- Elasticsearch's product suite, starting with real-time search and analytics.
---
-"#,
-    name = "bootstrap",
-    bootstrap
-);
-
-extension_sql!(
     "GRANT ALL ON SCHEMA paradedb TO PUBLIC;",
     name = "paradedb_grant_all",
     finalize

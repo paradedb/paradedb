@@ -173,8 +173,12 @@ unsafe fn make_search_config_opexpr_node(
 
     let keys = &(*indexrel.rd_index).indkey;
     let keys = keys.values.as_slice(keys.dim1 as usize);
+    let tupdesc = PgTupleDesc::from_pg_unchecked(indexrel.rd_att);
+    let att = tupdesc
+        .get(0)
+        .unwrap_or_else(|| panic!("attribute `{}` not found", keys[0]));
 
-    if let Some(targetlist) = targetlist {
+    if let Some(targetlist) = &targetlist {
         // if we have a targetlist, find the first field of the index definition in it -- its location
         // in the target list becomes the var's attno
         let mut found = false;
@@ -184,6 +188,7 @@ unsafe fn make_search_config_opexpr_node(
             }
             if (*te).resorigcol == keys[0] {
                 (*var).varattno = (i + 1) as _;
+                (*var).varattnosyn = (*var).varattno;
                 found = true;
                 break;
             }
@@ -194,15 +199,15 @@ unsafe fn make_search_config_opexpr_node(
         }
     } else {
         // the Var must look like the first attribute from the index definition
-        let tupdesc = PgTupleDesc::from_pg_unchecked(indexrel.rd_att);
-        let att = tupdesc
-            .get(0)
-            .unwrap_or_else(|| panic!("attribute `{}` not found", keys[0]));
         (*var).varattno = keys[0];
-        (*var).vartype = att.atttypid;
-        (*var).vartypmod = att.atttypmod;
-        (*var).varcollid = att.attcollation;
+        (*var).varattnosyn = (*var).varattno;
     }
+
+    // the Var must also assume the type of the first attribute from the index defintion,
+    // regardless of where we found the Var
+    (*var).vartype = att.atttypid;
+    (*var).vartypmod = att.atttypmod;
+    (*var).varcollid = att.attcollation;
 
     let have_query = query.is_some();
     if let Some(query) = query {

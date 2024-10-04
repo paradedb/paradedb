@@ -21,7 +21,7 @@ use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, IntoDatum};
 use std::ptr::addr_of_mut;
 
-#[pg_extern(name = "score", stable, parallel_safe)]
+#[pg_extern(name = "score", volatile, parallel_safe)]
 fn score_from_relation(_relation_reference: OpaqueRecordArg) -> f32 {
     f32::NAN
 }

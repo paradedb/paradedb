@@ -162,7 +162,8 @@ pub unsafe fn inject_snippet(
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
 
             if (*funcexpr).funcid == (*context).snippet_funcoid {
-                assert!(args.len() == 4);
+                // this should be equal to the number of args in the `snippet()` function above
+                assert!(args.len() == 5);
 
                 if let Some(second_arg) = nodecast!(Const, T_Const, args.get_ptr(1).unwrap()) {
                     let fieldname =

@@ -83,19 +83,20 @@ impl TantivyValue {
         }
     }
 
-    fn json_value_to_tantivy_value(value: Value) -> Vec<TantivyValue> {
-        let mut tantivy_values = vec![];
-        match value {
-            // A tantivy JSON value can't be a top-level array, so we have to make
-            // separate values out of each entry.
-            Value::Array(value_vec) => {
-                for value in value_vec {
-                    tantivy_values.extend_from_slice(&Self::json_value_to_tantivy_value(value));
-                }
-            }
-            _ => tantivy_values.push(TantivyValue(tantivy::schema::OwnedValue::from(value))),
+    fn json_value_to_tantivy_value(value: Value) -> Box<dyn Iterator<Item = TantivyValue>> {
+        // A tantivy JSON value can't be a top-level array, so we have to make
+        // separate values out of each entry.
+        if let Value::Array(value_vec) = value {
+            Box::new(
+                value_vec
+                    .into_iter()
+                    .flat_map(Self::json_value_to_tantivy_value),
+            )
+        } else {
+            Box::new(std::iter::once(TantivyValue(
+                tantivy::schema::OwnedValue::from(value),
+            )))
         }
-        tantivy_values
     }
 
     pub unsafe fn try_from_datum_array(
@@ -137,7 +138,7 @@ impl TantivyValue {
     pub unsafe fn try_from_datum_json(
         datum: Datum,
         oid: PgOid,
-    ) -> Result<Vec<Self>, TantivyValueError> {
+    ) -> Result<impl Iterator<Item = Self>, TantivyValueError> {
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 // Tantivy has a limitation that prevents JSON top-level arrays from being

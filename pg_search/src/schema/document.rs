@@ -33,6 +33,10 @@ impl SearchDocument {
     pub fn insert(&mut self, SearchFieldId(key): SearchFieldId, value: OwnedValue) {
         self.doc.add_field_value(key, &value)
     }
+
+    pub fn has_key_field(&self) -> bool {
+        self.doc.get_first(self.key.0).is_some()
+    }
 }
 
 impl From<SearchDocument> for TantivyDocument {

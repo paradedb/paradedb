@@ -17,7 +17,7 @@
 
 use crate::index::IndexError;
 use crate::postgres::types::TantivyValue;
-use crate::schema::{SearchConfig, SearchDocument, SearchFieldName, SearchIndexSchema};
+use crate::schema::{SearchConfig, SearchDocument, SearchIndexSchema};
 use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 
@@ -65,74 +65,133 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
     item_pointer_set_all(tid, blockno, offno);
 }
 
-pub unsafe fn row_to_search_document(
+pub unsafe fn row_to_search_documents<'a>(
     ctid: pg_sys::ItemPointerData,
-    tupdesc: &PgTupleDesc,
+    tupdesc: &'a PgTupleDesc,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     schema: &SearchIndexSchema,
-) -> Result<SearchDocument, IndexError> {
-    let mut document = schema.new_document();
+) -> Result<Vec<SearchDocument>, IndexError> {
+    enum MergeStrategy {
+        Array,
+        Json,
+        Field,
+    }
 
-    // Create a vector of index entries from the postgres row.
-    for (attno, attribute) in tupdesc.iter().enumerate() {
-        let attname = attribute.name().to_string();
-        let attribute_type_oid = attribute.type_oid();
+    let (json_fields, other_fields): (Vec<_>, Vec<_>) = tupdesc
+        .iter()
+        .enumerate()
+        .filter_map(|(attno, attribute)| {
+            let attname = attribute.name().to_string();
 
-        // If we can't lookup the attribute name in the field_lookup parameter,
-        // it means that this field is not part of the index. We should skip it.
-        let search_field =
-            if let Some(index_field) = schema.get_search_field(&attname.clone().into()) {
-                index_field
+            schema
+                .get_search_field(&attname.clone().into())
+                .filter(|_| !(*isnull.add(attno)))
+                .map(move |field| (attno, attribute, field))
+        })
+        .map(move |(attno, attribute, search_field)| {
+            let attribute_type_oid = attribute.type_oid();
+            let array_type = pg_sys::get_element_type(attribute_type_oid.value());
+            let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
+                (PgOid::from(array_type), true)
             } else {
-                continue;
+                (attribute_type_oid, false)
             };
 
-        let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-        let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
-            (PgOid::from(array_type), true)
-        } else {
-            (attribute_type_oid, false)
-        };
-
-        let is_json = matches!(
-            base_oid,
-            PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
-        );
-
-        let datum = *values.add(attno);
-        let isnull = *isnull.add(attno);
-
-        let SearchFieldName(key_field_name) = schema.key_field().name;
-        if key_field_name == attname && isnull {
-            return Err(IndexError::KeyIdNull(key_field_name));
-        }
-
-        if isnull {
-            continue;
-        }
-
-        if is_array {
-            for value in TantivyValue::try_from_datum_array(datum, base_oid)? {
-                document.insert(search_field.id, value.tantivy_schema_value());
-            }
-        } else if is_json {
-            for value in TantivyValue::try_from_datum_json(datum, base_oid)? {
-                document.insert(search_field.id, value.tantivy_schema_value());
-            }
-        } else {
-            document.insert(
-                search_field.id,
-                TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),
+            let is_json = matches!(
+                base_oid,
+                PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
             );
+
+            let datum = *values.add(attno);
+
+            if is_array {
+                (MergeStrategy::Array, search_field.id, datum, base_oid)
+            } else if is_json {
+                (MergeStrategy::Json, search_field.id, datum, base_oid)
+            } else {
+                (MergeStrategy::Field, search_field.id, datum, base_oid)
+            }
+        })
+        .partition(|(strategy, _, _, _)| matches!(strategy, MergeStrategy::Json));
+
+    if !other_fields
+        .iter() // Check if key field was filtered out for being null.
+        .any(|(_, id, _, _)| id == &schema.key_field().id)
+    {
+        return Err(IndexError::KeyIdNull);
+    }
+
+    let json_tantivy_values_for_columns = json_fields
+        .into_iter()
+        .map(|(_, field_id, datum, base_oid)| {
+            match TantivyValue::try_from_datum_json(datum, base_oid) {
+                Ok(iter) => iter
+                    .map(|value| (field_id, value.tantivy_schema_value()))
+                    .collect(),
+                Err(err) => panic!("error processing json data: {err}"),
+            }
+        })
+        .collect::<Vec<Vec<_>>>();
+
+    let mut documents: Vec<SearchDocument> = json_tantivy_values_for_columns
+        .iter()
+        .enumerate()
+        .flat_map(|(current_column_index, json_values_for_column)| {
+            json_values_for_column
+                .iter()
+                .map(move |(field_id, field_value)| {
+                    let mut document = schema.new_document();
+                    document.insert(*field_id, field_value.clone());
+                    (document, current_column_index)
+                })
+        })
+        .map(|(mut document, skip_index)| {
+            for (index, column_json_values) in json_tantivy_values_for_columns.iter().enumerate() {
+                if index != skip_index {
+                    for (other_field_id, other_field_value) in column_json_values {
+                        document.insert(*other_field_id, other_field_value.clone());
+                    }
+                }
+            }
+            document
+        })
+        .collect();
+
+    // If there were no JSON fields, make sure we have at least one document.
+    if documents.is_empty() {
+        documents.push(schema.new_document());
+    }
+
+    // Insert ctid values into all documents
+    for document in &mut documents {
+        let ctid_index_value = item_pointer_to_u64(ctid);
+        document.insert(schema.ctid_field().id, ctid_index_value.into())
+    }
+
+    // Insert non-JSON fields into all documents
+    for (strategy, field_id, datum, base_oid) in other_fields {
+        match strategy {
+            MergeStrategy::Array => {
+                let datum_values = TantivyValue::try_from_datum_array(datum, base_oid)
+                    .unwrap_or_else(|err| panic!("could not read array datum: {err}"));
+                for value in datum_values {
+                    for document in &mut documents {
+                        document.insert(field_id, value.tantivy_schema_value());
+                    }
+                }
+            }
+            _ => {
+                let value = TantivyValue::try_from_datum(datum, base_oid)
+                    .unwrap_or_else(|err| panic!("could not read datum: {err}"));
+                for document in &mut documents {
+                    document.insert(field_id, value.tantivy_schema_value());
+                }
+            }
         }
     }
 
-    // Insert the ctid value into the entries.
-    let ctid_index_value = item_pointer_to_u64(ctid);
-    document.insert(schema.ctid_field().id, ctid_index_value.into());
-
-    Ok(document)
+    Ok(documents)
 }
 
 /// Helper to manage the information necessary to validate that a "ctid" is currently visible to

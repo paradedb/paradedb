@@ -16,10 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::relfilenode_from_index_oid;
+use super::utils::row_to_search_documents;
 use crate::index::SearchIndex;
 use crate::index::SearchIndexWriter;
 use crate::index::WriterDirectory;
-use crate::postgres::utils::row_to_search_document;
 use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
@@ -147,8 +147,8 @@ unsafe fn aminsert_internal(
         let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
         let search_index = &mut state.index;
         let writer = &mut state.writer;
-        let search_document =
-            row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
+        let search_documents =
+            row_to_search_documents(*ctid, &tupdesc, values, isnull, &search_index.schema)
                 .unwrap_or_else(|err| {
                     panic!(
                         "error creating index entries for index '{}': {err}",
@@ -156,9 +156,11 @@ unsafe fn aminsert_internal(
                             .to_string_lossy()
                     );
                 });
-        search_index
-            .insert(writer, search_document)
-            .expect("insertion into index should succeed");
+        for document in search_documents {
+            search_index
+                .insert(writer, document)
+                .expect("insertion into index should succeed");
+        }
         true
     });
 

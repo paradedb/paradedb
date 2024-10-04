@@ -19,7 +19,7 @@ use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
+use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_documents};
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
 use std::collections::HashMap;
@@ -306,21 +306,24 @@ unsafe fn build_callback_internal(
             let directory =
                 WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
-                .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-            let search_document =
-                row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)
-                    .unwrap_or_else(|err| {
-                        panic!(
-                            "error creating index entries for index '{}': {err}",
-                            index_relation_ref.name()
-                        );
-                    });
+                .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));            
+                let search_documents =
+                    row_to_search_documents(ctid, &tupdesc, values, isnull, &search_index.schema)
+                        .unwrap_or_else(|err| {
+                            panic!(
+                                "error creating index entries for index '{}': {err}",
+                                index_relation_ref.name()
+                            );
+                        });
 
-            search_index
-                .insert(writer, search_document)
-                .unwrap_or_else(|err| {
-                    panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
-                });
+                for document in search_documents {
+                 search_index
+                    .insert(writer, document)
+                    .unwrap_or_else(|err| {
+                        panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
+                    });                         
+                }
+            
         });
         state.memctx.reset();
 

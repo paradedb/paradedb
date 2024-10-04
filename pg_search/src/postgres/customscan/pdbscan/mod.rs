@@ -520,7 +520,7 @@ impl CustomScan for PdbScan {
 
         if need_snippets {
             for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {
-                *generator = Some(search_state.snippet_generator(&snippet_info.field.as_ref()))
+                *generator = Some(search_state.snippet_generator(snippet_info.field.as_ref()))
             }
             state.custom_state.search_state = Some(search_state);
         }

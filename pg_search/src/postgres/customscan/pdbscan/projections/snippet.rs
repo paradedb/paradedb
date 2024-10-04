@@ -51,9 +51,11 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.snippet(record, paradedb.fieldname, text, text)".into_datum()],
+            &[c"paradedb.snippet(record, paradedb.fieldname, text, text, int)".into_datum()],
         )
-        .expect("the `paradedb.snippet(record, paradedb.fieldname, text, text) type should exist")
+        .expect(
+            "the `paradedb.snippet(record, paradedb.fieldname, text, text, int) type should exist",
+        )
     }
 }
 

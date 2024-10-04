@@ -25,6 +25,15 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
+fn attribute_1_of_table_has_wrong_type(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let (id,) = "SELECT id, description FROM paradedb.bm25_search WHERE description @@@ 'keyboard' OR id = 1 ORDER BY id LIMIT 1"
+        .fetch_one::<(i32,)>(&mut conn);
+    assert_eq!(id, 1);
+}
+
+#[rstest]
 fn generates_custom_scan_for_or(mut conn: PgConnection) {
     use serde_json::Value;
 

@@ -608,6 +608,9 @@ pub fn dump_bm25(
 
     let database_oid = crate::MyDatabaseId();
     let index_oid = index_oid_from_index_name(&bm25_index_name);
+    // hold an AccessShareLock on the index relation to prevent concurrent index drops
+    let _index_relation =
+        unsafe { pgrx::PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as _) };
     let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
     let directory =
@@ -621,11 +624,11 @@ pub fn dump_bm25(
 
     let ctid_field = schema.get_field("ctid").unwrap();
 
-    let top_docs = searcher
+    let all_docs = searcher
         .search(&AllQuery, &DocSetCollector)
         .expect("failed to search");
 
-    let results = top_docs.into_iter().map(move |doc_address| {
+    let results = all_docs.into_iter().map(move |doc_address| {
         let retrieved_doc: TantivyDocument = searcher.doc(doc_address).unwrap();
         let ctid = retrieved_doc
             .get_first(ctid_field)

@@ -74,7 +74,7 @@ pub enum SearchQueryInput {
     },
     FuzzyTerm {
         field: String,
-        value: tantivy::schema::OwnedValue,
+        value: String,
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
@@ -326,8 +326,10 @@ impl SearchQueryInput {
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
 
                 let term = match path {
-                    Some(path) => value_to_term_with_path(field, &value, &field_type, path)?,
-                    None => value_to_term(field, &value, &field_type)?,
+                    Some(path) => {
+                        value_to_term_with_path(field, &OwnedValue::Str(value), &field_type, path)?
+                    }
+                    None => value_to_term(field, &OwnedValue::Str(value), &field_type)?,
                 };
 
                 let distance = distance.unwrap_or(2);
@@ -653,7 +655,6 @@ fn value_to_term_with_path(
         FieldType::JsonObject(options) => options,
         _ => panic!("path is not allowed for non-JSON field types"),
     };
-
     let mut term = Term::from_field_json_path(field, &path, options.is_expand_dots_enabled());
 
     match value {

@@ -125,6 +125,7 @@ pub enum SearchQueryInput {
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         path: Option<String>,
+        is_datetime: bool,
     },
     Regex {
         field: String,
@@ -325,7 +326,7 @@ impl SearchQueryInput {
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                let term = value_to_term(field, &OwnedValue::Str(value), &field_type, path)?;
+                let term = value_to_term(field, &OwnedValue::Str(value), &field_type, path, false)?;
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 if prefix.unwrap_or(false) {
@@ -366,8 +367,13 @@ impl SearchQueryInput {
 
                 while stream.advance() {
                     let token = stream.token().text.clone();
-                    let term =
-                        value_to_term(field, &OwnedValue::Str(token), &field_type, path.clone())?;
+                    let term = value_to_term(
+                        field,
+                        &OwnedValue::Str(token),
+                        &field_type,
+                        path.clone(),
+                        false,
+                    )?;
                     let term_query: Box<dyn Query> = if prefix {
                         Box::new(FuzzyTermQuery::new_prefix(
                             term,
@@ -431,7 +437,7 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&config.key_field)
                         .expect("internal error, key field should be found here");
-                    let term = value_to_term(field, &key_value, &field_type, None)?;
+                    let term = value_to_term(field, &key_value, &field_type, None, false)?;
                     let query: Box<dyn Query> =
                         Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
                     let addresses = searcher.search(&query, &DocSetCollector)?;
@@ -474,8 +480,14 @@ impl SearchQueryInput {
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
-                    value_to_term(field, &OwnedValue::Str(phrase), &field_type, path.clone())
-                        .unwrap()
+                    value_to_term(
+                        field,
+                        &OwnedValue::Str(phrase),
+                        &field_type,
+                        path.clone(),
+                        false,
+                    )
+                    .unwrap()
                 });
                 let mut query = PhrasePrefixQuery::new(terms.collect());
                 if let Some(max_expansions) = max_expansions {
@@ -516,8 +528,14 @@ impl SearchQueryInput {
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
-                    value_to_term(field, &OwnedValue::Str(phrase), &field_type, path.clone())
-                        .unwrap()
+                    value_to_term(
+                        field,
+                        &OwnedValue::Str(phrase),
+                        &field_type,
+                        path.clone(),
+                        false,
+                    )
+                    .unwrap()
                 });
                 let mut query = PhraseQuery::new(terms.collect());
                 if let Some(slop) = slop {
@@ -530,6 +548,7 @@ impl SearchQueryInput {
                 lower_bound,
                 upper_bound,
                 path,
+                is_datetime,
             } => {
                 let field_name = field;
                 let (field_type, field) = field_lookup
@@ -537,22 +556,38 @@ impl SearchQueryInput {
                     .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
                 let lower_bound = match lower_bound {
-                    Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, &value, &field_type, path.clone())?)
-                    }
-                    Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, &value, &field_type, path.clone())?)
-                    }
+                    Bound::Included(value) => Bound::Included(value_to_term(
+                        field,
+                        &value,
+                        &field_type,
+                        path.clone(),
+                        is_datetime,
+                    )?),
+                    Bound::Excluded(value) => Bound::Excluded(value_to_term(
+                        field,
+                        &value,
+                        &field_type,
+                        path.clone(),
+                        is_datetime,
+                    )?),
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
                 let upper_bound = match upper_bound {
-                    Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, &value, &field_type, path.clone())?)
-                    }
-                    Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, &value, &field_type, path.clone())?)
-                    }
+                    Bound::Included(value) => Bound::Included(value_to_term(
+                        field,
+                        &value,
+                        &field_type,
+                        path.clone(),
+                        is_datetime,
+                    )?),
+                    Bound::Excluded(value) => Bound::Excluded(value_to_term(
+                        field,
+                        &value,
+                        &field_type,
+                        path.clone(),
+                        is_datetime,
+                    )?),
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
@@ -573,14 +608,15 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(field, &value, &field_type, path)?;
+                    let term = value_to_term(field, &value, &field_type, path, false)?;
+
                     Ok(Box::new(TermQuery::new(term, record_option)))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
                     for (field_type, field) in all_fields {
-                        if let Ok(term) = value_to_term(field, &value, &field_type, None) {
+                        if let Ok(term) = value_to_term(field, &value, &field_type, None, false) {
                             terms.push(term);
                         }
                     }
@@ -594,7 +630,13 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
-                    terms.push(value_to_term(field, &field_value, &field_type, path)?);
+                    terms.push(value_to_term(
+                        field,
+                        &field_value,
+                        &field_type,
+                        path,
+                        false,
+                    )?);
                 }
 
                 Ok(Box::new(TermSetQuery::new(terms)))
@@ -608,11 +650,19 @@ fn value_to_json_term(
     value: &OwnedValue,
     path: String,
     expand_dots: bool,
+    is_datetime: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {
     let mut term = Term::from_field_json_path(field, &path, expand_dots);
     match value {
         OwnedValue::Str(text) => {
-            term.append_type_and_str(text);
+            if is_datetime {
+                let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
+                term.append_type_and_fast_value(
+                    date.truncate(tantivy::schema::DATE_TIME_PRECISION_INDEXED),
+                );
+            } else {
+                term.append_type_and_str(text);
+            }
         }
         OwnedValue::U64(value) => {
             if let Ok(i64_val) = (*value).try_into() {
@@ -647,6 +697,7 @@ fn value_to_term(
     value: &OwnedValue,
     field_type: &FieldType,
     path: Option<String>,
+    is_datetime: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
@@ -654,31 +705,25 @@ fn value_to_term(
     };
 
     if let (Some(json_options), Some(path)) = (json_options, path) {
-        return value_to_json_term(field, value, path, json_options.is_expand_dots_enabled());
+        return value_to_json_term(
+            field,
+            value,
+            path,
+            json_options.is_expand_dots_enabled(),
+            is_datetime,
+        );
+    }
+
+    if is_datetime {
+        if let OwnedValue::Str(text) = value {
+            let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
+            pgrx::info!("is date {:?}", date);
+            return Ok(Term::from_field_date_for_search(field, date));
+        }
     }
 
     Ok(match value {
-        OwnedValue::Str(text) => {
-            match field_type {
-                FieldType::Date(_) => {
-                    // Serialization turns date into string, so we have to turn it back into a Tantivy date
-                    // First try with no precision beyond seconds, then try with precision
-                    let datetime =
-                        match chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%SZ") {
-                            Ok(dt) => dt,
-                            Err(_) => {
-                                chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.fZ")
-                                    .map_err(|_| QueryError::FieldTypeMismatch)?
-                            }
-                        };
-                    let tantivy_datetime = tantivy::DateTime::from_timestamp_micros(
-                        datetime.and_utc().timestamp_micros(),
-                    );
-                    Term::from_field_date_for_search(field, tantivy_datetime)
-                }
-                _ => Term::from_field_text(field, text),
-            }
-        }
+        OwnedValue::Str(text) => Term::from_field_text(field, text),
         OwnedValue::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
         OwnedValue::U64(u64) => {
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
@@ -699,6 +744,23 @@ fn value_to_term(
         OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
         _ => panic!("Tantivy OwnedValue type not supported"),
     })
+}
+
+struct TantivyDateTime(pub tantivy::DateTime);
+
+impl TryFrom<&str> for TantivyDateTime {
+    type Error = QueryError;
+
+    fn try_from(text: &str) -> Result<Self, Self::Error> {
+        let datetime = match chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%SZ") {
+            Ok(dt) => dt,
+            Err(_) => chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.fZ")
+                .map_err(|_| QueryError::FieldTypeMismatch)?,
+        };
+        Ok(TantivyDateTime(tantivy::DateTime::from_timestamp_micros(
+            datetime.and_utc().timestamp_micros(),
+        )))
+    }
 }
 
 #[allow(dead_code)]

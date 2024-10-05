@@ -1195,11 +1195,11 @@ fn json_range(mut conn: PgConnection) {
 
     r#"
     UPDATE paradedb.bm25_search
-    SET metadata = '{"attributes": {"score": 3, "date": "2024-10-02", "timestamp": "2023-05-01T08:12:34"}}'::jsonb 
+    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb 
     WHERE id = 1;
 
     UPDATE paradedb.bm25_search
-    SET metadata = '{"attributes": {"score": 4, "date": "2024-10-03", "timestamp": "2023-05-01T09:12:34"}}'::jsonb 
+    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb 
     WHERE id = 2;
     "#
     .execute(&mut conn);
@@ -1220,11 +1220,11 @@ fn json_range(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
-    // let rows: Vec<(i32,)> = "
-    // SELECT id FROM paradedb.bm25_search
-    // WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.date', daterange('2024-10-02', NULL, '[)'))
-    // ORDER BY id
-    // "
-    // .fetch(&mut conn);
-    // assert_eq!(rows, vec![(2,)]);
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search
+    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
 }

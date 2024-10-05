@@ -205,16 +205,6 @@ installRPM(){
 # Installs latest binary for ParadeDB
 installBinary(){
 
-  if [[ "$OSTYPE" = "msys" ]] || [[ "$OSTYPE" = "cygwin" ]]; then
-    echo "Sorry but we do not support windows yet!"
-    echo -e "$EXIT_MSG"
-    exit 1
-  elif [[ "$OSTYPE" = "darwin"* ]]; then
-    echo -e "\nOops! We don't have any prebuilt binaries for MacOS right now.\nYou can follow our comprehensive guide to compile ParadeDB from source at: https://github.com/paradedb/paradedb/blob/dev/README.md!"
-    echo -e "$EXIT_MSG"
-    exit 1
-  fi
-
   # Select postgres version
   pg_version=
   echo "Select postgres version[Please use 1 for v14, 2 for v15 and 3 for v16](Note: ParadeDB is supported on PG12-16. For other postgres versions, you will need to compile from source.)"
@@ -268,7 +258,39 @@ echo -e "=========================================================\n"
 
 
 
+# Handle installation on windows
+if [[ "$OSTYPE" = "msys" ]] || [[ "$OSTYPE" = "cygwin" ]]; then
+  echo "We do not support any prebuilt binary files for Windows."
+  read -r -p "Would you like to continue with the docker setup? [y/N] " response
 
+  case "$response" in
+    [yY][eE][sS]|[yY])
+      # installDocker
+      echo -e "Installation Successfull ✅\n"
+  esac
+  
+  # Exit silently  
+  echo -e "$EXIT_MSG"
+  exit 0
+
+# Handle MacOS installation
+elif [[ "$OSTYPE" = "darwin"* ]]; then
+  echo "We do not support any prebuilt binaries for MacOS. You can either compile paradedb from source or use our docker image."
+  read -r -p "Would you like to continue with the docker setup? [y/N] " response
+
+  case "$response" in
+    [yY][eE][sS]|[yY])
+      # installDocker
+      echo -e "Installation Successfull ✅\n"
+  esac
+
+  # Exit silently  
+  echo -e "$EXIT_MSG"
+  exit 0
+fi
+
+
+# Installation for Linux
 OPTIONS=("🐳Latest Docker Image" "⬇️ Stable Binary")
 
 
@@ -277,12 +299,12 @@ do
   case $opt in
     "🐳Latest Docker Image")
       installDocker
-      echo -e "Installation Successfull!\n"
+      echo -e "Installation Successfull ✅\n"
       break ;;
     "⬇️ Stable Binary")
       echo "Stable"
       installBinary
-      echo -e "Installation Successfull!\n"
+      echo -e "Installation Successfull ✅\n"
       break ;;
     *)
       echo -e "No option selected, exiting setup.\n"

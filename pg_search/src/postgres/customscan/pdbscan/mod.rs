@@ -327,8 +327,6 @@ impl CustomScan for PdbScan {
         ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
-        let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(state.projection_tupdesc()) };
-
         explainer.add_text("Table", state.custom_state.heaprelname());
         explainer.add_text("Index", &state.custom_state.index_name);
         explainer.add_bool("Scores", state.custom_state.need_scores());

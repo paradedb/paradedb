@@ -1179,3 +1179,52 @@ fn json_fuzzy_phrase(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 }
+
+#[rstest]
+fn json_range(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
+        .execute(&mut conn);
+    "CALL paradedb.create_bm25(
+        index_name => 'bm25_search',
+        schema_name => 'paradedb',
+        table_name => 'bm25_search',
+        key_field => 'id',
+        json_fields => paradedb.field('metadata', fast => true)
+    )"
+    .execute(&mut conn);
+
+    r#"
+    UPDATE paradedb.bm25_search
+    SET metadata = '{"attributes": {"score": 3, "date": "2024-10-02", "timestamp": "2023-05-01T08:12:34"}}'::jsonb 
+    WHERE id = 1;
+
+    UPDATE paradedb.bm25_search
+    SET metadata = '{"attributes": {"score": 4, "date": "2024-10-03", "timestamp": "2023-05-01T09:12:34"}}'::jsonb 
+    WHERE id = 2;
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(3, NULL, '[)')) 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,)]);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)')) 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+
+    // let rows: Vec<(i32,)> = "
+    // SELECT id FROM paradedb.bm25_search
+    // WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.date', daterange('2024-10-02', NULL, '[)'))
+    // ORDER BY id
+    // "
+    // .fetch(&mut conn);
+    // assert_eq!(rows, vec![(2,)]);
+}

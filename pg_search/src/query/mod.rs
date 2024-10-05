@@ -124,6 +124,7 @@ pub enum SearchQueryInput {
         field: String,
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        path: Option<String>,
     },
     Regex {
         field: String,
@@ -528,6 +529,7 @@ impl SearchQueryInput {
                 field,
                 lower_bound,
                 upper_bound,
+                path,
             } => {
                 let field_name = field;
                 let (field_type, field) = field_lookup
@@ -536,20 +538,20 @@ impl SearchQueryInput {
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, &value, &field_type, None)?)
+                        Bound::Included(value_to_term(field, &value, &field_type, path.clone())?)
                     }
                     Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, &value, &field_type, None)?)
+                        Bound::Excluded(value_to_term(field, &value, &field_type, path.clone())?)
                     }
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
                 let upper_bound = match upper_bound {
                     Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, &value, &field_type, None)?)
+                        Bound::Included(value_to_term(field, &value, &field_type, path.clone())?)
                     }
                     Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, &value, &field_type, None)?)
+                        Bound::Excluded(value_to_term(field, &value, &field_type, path.clone())?)
                     }
                     Bound::Unbounded => Bound::Unbounded,
                 };
@@ -651,8 +653,7 @@ fn value_to_term(
         _ => None,
     };
 
-    if let Some(json_options) = json_options {
-        let path = path.expect("path must be provided for a JSON field");
+    if let (Some(json_options), Some(path)) = (json_options, path) {
         return value_to_json_term(field, value, path, json_options.is_expand_dots_enabled());
     }
 

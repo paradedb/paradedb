@@ -388,6 +388,7 @@ pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
             field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
+            path,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
             field: field.into_inner(),
@@ -401,6 +402,7 @@ pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
                 RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
             },
+            path,
         },
     }
 }
@@ -412,6 +414,7 @@ pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
             field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
+            path,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
             field: field.into_inner(),
@@ -425,6 +428,7 @@ pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
                 RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
             },
+            path,
         },
     }
 }
@@ -436,6 +440,7 @@ pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryI
             field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::F64(0.0)),
             upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
+            path,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
             field: field.into_inner(),
@@ -457,6 +462,7 @@ pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryI
                     n.try_into().expect("numeric should be a valid f64"),
                 )),
             },
+            path,
         },
     }
 }
@@ -474,6 +480,7 @@ macro_rules! datetime_range_fn {
                     upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
                         tantivy::DateTime::from_timestamp_micros(0),
                     )),
+                    path,
                 },
                 Some((lower, upper)) => SearchQueryInput::Range {
                     field: field.into_inner(),
@@ -515,6 +522,7 @@ macro_rules! datetime_range_fn {
                                 .into(),
                         ),
                     },
+                    path,
                 },
             }
         }

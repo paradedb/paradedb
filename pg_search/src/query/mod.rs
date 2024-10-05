@@ -541,20 +541,20 @@ impl SearchQueryInput {
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, &value, &field_type, None)?)
+                        Bound::Included(value_to_term(field, &value, &field_type, path.clone())?)
                     }
                     Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, &value, &field_type, None)?)
+                        Bound::Excluded(value_to_term(field, &value, &field_type, path.clone())?)
                     }
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
                 let upper_bound = match upper_bound {
                     Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, &value, &field_type, None)?)
+                        Bound::Included(value_to_term(field, &value, &field_type, path.clone())?)
                     }
                     Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, &value, &field_type, None)?)
+                        Bound::Excluded(value_to_term(field, &value, &field_type, path.clone())?)
                     }
                     Bound::Unbounded => Bound::Unbounded,
                 };

@@ -541,23 +541,19 @@ macro_rules! term_fn {
             value: default!(Option<$value_type>, "NULL"),
         ) -> SearchQueryInput {
             if let Some(value) = value {
-                if let Some(field) = field {
+                let (field, path) = if let Some(field) = field {
                     let (field, path) = split_field_and_path(&field);
-                    SearchQueryInput::Term {
-                        field: Some(field),
-                        value: TantivyValue::try_from(value)
-                            .expect("value should be a valid TantivyValue representation")
-                            .tantivy_schema_value(),
-                        path,
-                    }
+                    (Some(field), path)
                 } else {
-                    SearchQueryInput::Term {
-                        field,
-                        value: TantivyValue::try_from(value)
-                            .expect("value should be a valid TantivyValue representation")
-                            .tantivy_schema_value(),
-                        path: None,
-                    }
+                    (None, None)
+                };
+
+                SearchQueryInput::Term {
+                    field,
+                    value: TantivyValue::try_from(value)
+                        .expect("value should be a valid TantivyValue representation")
+                        .tantivy_schema_value(),
+                    path,
                 }
             } else {
                 panic!("no value provided to term query")

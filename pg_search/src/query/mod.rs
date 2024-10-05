@@ -602,9 +602,7 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
-                    let term = value_to_term(field, &field_value, &field_type, path)?;
-
-                    terms.push(term);
+                    terms.push(value_to_term(field, &field_value, &field_type, path)?);
                 }
 
                 Ok(Box::new(TermSetQuery::new(terms)))

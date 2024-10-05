@@ -564,12 +564,19 @@ macro_rules! term_fn {
                     (None, None)
                 };
 
+                let tantivy_value = TantivyValue::try_from(value)
+                    .expect("value should be a valid TantivyValue representation")
+                    .tantivy_schema_value();
+                let is_datetime = match tantivy_value {
+                    OwnedValue::Date(_) => true,
+                    _ => false,
+                };
+
                 SearchQueryInput::Term {
                     field,
-                    value: TantivyValue::try_from(value)
-                        .expect("value should be a valid TantivyValue representation")
-                        .tantivy_schema_value(),
+                    value: tantivy_value,
                     path,
+                    is_datetime,
                 }
             } else {
                 panic!("no value provided to term query")
@@ -642,8 +649,12 @@ pub fn term_set(
         .into_iter()
         .filter_map(|input| match input {
             SearchQueryInput::Term {
-                field, value, path, ..
-            } => field.map(|field| (field, value, path)),
+                field,
+                value,
+                path,
+                is_datetime,
+                ..
+            } => field.map(|field| (field, value, path, is_datetime)),
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();

@@ -29,7 +29,7 @@ use tantivy::{
         PhraseQuery, Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
-    schema::{Field, FieldType, OwnedValue},
+    schema::{Field, FieldType, IndexRecordOption, OwnedValue, DATE_TIME_PRECISION_INDEXED},
     Searcher, Term,
 };
 use thiserror::Error;
@@ -135,9 +135,10 @@ pub enum SearchQueryInput {
         field: Option<String>,
         value: tantivy::schema::OwnedValue,
         path: Option<String>,
+        is_datetime: bool,
     },
     TermSet {
-        terms: Vec<(String, tantivy::schema::OwnedValue, Option<String>)>,
+        terms: Vec<(String, tantivy::schema::OwnedValue, Option<String>, bool)>,
     },
 }
 
@@ -602,13 +603,18 @@ impl SearchQueryInput {
                 )
                 .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
             )),
-            Self::Term { field, value, path } => {
+            Self::Term {
+                field,
+                value,
+                path,
+                is_datetime,
+            } => {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(field, &value, &field_type, path, false)?;
+                    let term = value_to_term(field, &value, &field_type, path, is_datetime)?;
 
                     Ok(Box::new(TermQuery::new(term, record_option)))
                 } else {
@@ -616,7 +622,9 @@ impl SearchQueryInput {
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
                     for (field_type, field) in all_fields {
-                        if let Ok(term) = value_to_term(field, &value, &field_type, None, false) {
+                        if let Ok(term) =
+                            value_to_term(field, &value, &field_type, None, is_datetime)
+                        {
                             terms.push(term);
                         }
                     }
@@ -626,7 +634,7 @@ impl SearchQueryInput {
             }
             Self::TermSet { terms: fields } => {
                 let mut terms = vec![];
-                for (field_name, field_value, path) in fields {
+                for (field_name, field_value, path, is_datetime) in fields {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
@@ -635,7 +643,7 @@ impl SearchQueryInput {
                         &field_value,
                         &field_type,
                         path,
-                        false,
+                        is_datetime,
                     )?);
                 }
 
@@ -657,9 +665,9 @@ fn value_to_json_term(
         OwnedValue::Str(text) => {
             if is_datetime {
                 let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
-                term.append_type_and_fast_value(
-                    date.truncate(tantivy::schema::DATE_TIME_PRECISION_INDEXED),
-                );
+                // https://github.com/quickwit-oss/tantivy/pull/2456
+                // It's a footgun that date needs to truncated when creating the Term
+                term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
             } else {
                 term.append_type_and_str(text);
             }
@@ -717,8 +725,12 @@ fn value_to_term(
     if is_datetime {
         if let OwnedValue::Str(text) = value {
             let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
-            pgrx::info!("is date {:?}", date);
-            return Ok(Term::from_field_date_for_search(field, date));
+            // https://github.com/quickwit-oss/tantivy/pull/2456
+            // It's a footgun that date needs to truncated when creating the Term
+            return Ok(Term::from_field_date(
+                field,
+                date.truncate(DATE_TIME_PRECISION_INDEXED),
+            ));
         }
     }
 
@@ -727,7 +739,7 @@ fn value_to_term(
         OwnedValue::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
         OwnedValue::U64(u64) => {
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
-            //     so we should use the field type to assign the term type
+            // so we should use the field type to assign the term type
             match field_type {
                 FieldType::I64(_) => Term::from_field_i64(field, *u64 as i64),
                 FieldType::U64(_) => Term::from_field_u64(field, *u64),
@@ -737,7 +749,9 @@ fn value_to_term(
         OwnedValue::I64(i64) => Term::from_field_i64(field, *i64),
         OwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
         OwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
-        OwnedValue::Date(date) => Term::from_field_date_for_search(field, *date),
+        OwnedValue::Date(date) => {
+            Term::from_field_date(field, date.truncate(DATE_TIME_PRECISION_INDEXED))
+        }
         OwnedValue::Facet(facet) => Term::from_facet(field, facet),
         OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
         OwnedValue::Object(_) => panic!("json cannot be converted to term"),

@@ -324,14 +324,7 @@ impl SearchQueryInput {
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
-
-                let term = match path {
-                    Some(path) => {
-                        value_to_term_with_path(field, &OwnedValue::Str(value), &field_type, path)?
-                    }
-                    None => value_to_term(field, &OwnedValue::Str(value), &field_type)?,
-                };
-
+                let term = value_to_term(field, &OwnedValue::Str(value), &field_type, path)?;
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 if prefix.unwrap_or(false) {
@@ -372,13 +365,8 @@ impl SearchQueryInput {
 
                 while stream.advance() {
                     let token = stream.token().text.clone();
-                    let value = OwnedValue::Str(token);
-                    let term = match path {
-                        Some(ref path) => {
-                            value_to_term_with_path(field, &value, &field_type, path.to_string())?
-                        }
-                        None => value_to_term(field, &value, &field_type)?,
-                    };
+                    let term =
+                        value_to_term(field, &OwnedValue::Str(token), &field_type, path.clone())?;
                     let term_query: Box<dyn Query> = if prefix {
                         Box::new(FuzzyTermQuery::new_prefix(
                             term,
@@ -442,7 +430,7 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&config.key_field)
                         .expect("internal error, key field should be found here");
-                    let term = value_to_term(field, &key_value, &field_type)?;
+                    let term = value_to_term(field, &key_value, &field_type, None)?;
                     let query: Box<dyn Query> =
                         Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
                     let addresses = searcher.search(&query, &DocSetCollector)?;
@@ -484,22 +472,10 @@ impl SearchQueryInput {
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
-
-                let terms: Box<dyn Iterator<Item = _>> = match path {
-                    Some(ref path) => Box::new(phrases.clone().into_iter().map(|phrase| {
-                        value_to_term_with_path(
-                            field,
-                            &OwnedValue::Str(phrase),
-                            &field_type,
-                            path.to_string(),
-                        )
+                let terms = phrases.clone().into_iter().map(|phrase| {
+                    value_to_term(field, &OwnedValue::Str(phrase), &field_type, path.clone())
                         .unwrap()
-                    })),
-                    None => Box::new(phrases.clone().into_iter().map(|phrase| {
-                        value_to_term(field, &OwnedValue::Str(phrase), &field_type).unwrap()
-                    })),
-                };
-
+                });
                 let mut query = PhrasePrefixQuery::new(terms.collect());
                 if let Some(max_expansions) = max_expansions {
                     query.set_max_expansions(max_expansions)
@@ -538,22 +514,10 @@ impl SearchQueryInput {
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
-
-                let terms: Box<dyn Iterator<Item = _>> = match path {
-                    Some(ref path) => Box::new(phrases.clone().into_iter().map(|phrase| {
-                        value_to_term_with_path(
-                            field,
-                            &OwnedValue::Str(phrase),
-                            &field_type,
-                            path.to_string(),
-                        )
+                let terms = phrases.clone().into_iter().map(|phrase| {
+                    value_to_term(field, &OwnedValue::Str(phrase), &field_type, path.clone())
                         .unwrap()
-                    })),
-                    None => Box::new(phrases.clone().into_iter().map(|phrase| {
-                        value_to_term(field, &OwnedValue::Str(phrase), &field_type).unwrap()
-                    })),
-                };
-
+                });
                 let mut query = PhraseQuery::new(terms.collect());
                 if let Some(slop) = slop {
                     query.set_slop(slop)
@@ -572,20 +536,20 @@ impl SearchQueryInput {
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, &value, &field_type)?)
+                        Bound::Included(value_to_term(field, &value, &field_type, None)?)
                     }
                     Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, &value, &field_type)?)
+                        Bound::Excluded(value_to_term(field, &value, &field_type, None)?)
                     }
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
                 let upper_bound = match upper_bound {
                     Bound::Included(value) => {
-                        Bound::Included(value_to_term(field, &value, &field_type)?)
+                        Bound::Included(value_to_term(field, &value, &field_type, None)?)
                     }
                     Bound::Excluded(value) => {
-                        Bound::Excluded(value_to_term(field, &value, &field_type)?)
+                        Bound::Excluded(value_to_term(field, &value, &field_type, None)?)
                     }
                     Bound::Unbounded => Bound::Unbounded,
                 };
@@ -607,14 +571,14 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(field, &value, &field_type)?;
-                    Ok(Box::new(TermQuery::new(term, record_option.into())))
+                    let term = value_to_term(field, &value, &field_type, path)?;
+                    Ok(Box::new(TermQuery::new(term, record_option)))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
                     for (field_type, field) in all_fields {
-                        if let Ok(term) = value_to_term(field, &value, &field_type) {
+                        if let Ok(term) = value_to_term(field, &value, &field_type, None) {
                             terms.push(term);
                         }
                     }
@@ -628,13 +592,7 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
-
-                    let term = match path {
-                        Some(path) => {
-                            value_to_term_with_path(field, &field_value, &field_type, path)?
-                        }
-                        None => value_to_term(field, &field_value, &field_type)?,
-                    };
+                    let term = value_to_term(field, &field_value, &field_type, path)?;
 
                     terms.push(term);
                 }
@@ -645,18 +603,13 @@ impl SearchQueryInput {
     }
 }
 
-fn value_to_term_with_path(
+fn value_to_json_term(
     field: Field,
     value: &OwnedValue,
-    field_type: &FieldType,
     path: String,
+    expand_dots: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {
-    let options = match field_type {
-        FieldType::JsonObject(options) => options,
-        _ => panic!("path is not allowed for non-JSON field types"),
-    };
-    let mut term = Term::from_field_json_path(field, &path, options.is_expand_dots_enabled());
-
+    let mut term = Term::from_field_json_path(field, &path, expand_dots);
     match value {
         OwnedValue::Str(text) => {
             term.append_type_and_str(text);
@@ -693,7 +646,18 @@ fn value_to_term(
     field: Field,
     value: &OwnedValue,
     field_type: &FieldType,
+    path: Option<String>,
 ) -> Result<Term, Box<dyn std::error::Error>> {
+    let json_options = match field_type {
+        FieldType::JsonObject(ref options) => Some(options),
+        _ => None,
+    };
+
+    if let Some(json_options) = json_options {
+        let path = path.expect("path must be provided for a JSON field");
+        return value_to_json_term(field, value, path, json_options.is_expand_dots_enabled());
+    }
+
     Ok(match value {
         OwnedValue::Str(text) => {
             match field_type {

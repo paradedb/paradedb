@@ -321,9 +321,8 @@ unsafe fn build_callback_internal(
                     .insert(writer, document)
                     .unwrap_or_else(|err| {
                         panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
-                    });                         
+                    });
                 }
-            
         });
         state.memctx.reset();
 

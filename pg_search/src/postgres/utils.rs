@@ -65,9 +65,9 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
     item_pointer_set_all(tid, blockno, offno);
 }
 
-pub unsafe fn row_to_search_documents<'a>(
+pub unsafe fn row_to_search_documents(
     ctid: pg_sys::ItemPointerData,
-    tupdesc: &'a PgTupleDesc,
+    tupdesc: &PgTupleDesc,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     schema: &SearchIndexSchema,

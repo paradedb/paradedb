@@ -614,7 +614,7 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(field, &value, &field_type, path, false)?;
+                    let term = value_to_term(field, &value, &field_type, path, is_datetime)?;
 
                     Ok(Box::new(TermQuery::new(term, record_option)))
                 } else {
@@ -622,7 +622,9 @@ impl SearchQueryInput {
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
                     for (field_type, field) in all_fields {
-                        if let Ok(term) = value_to_term(field, &value, &field_type, None, false) {
+                        if let Ok(term) =
+                            value_to_term(field, &value, &field_type, None, is_datetime)
+                        {
                             terms.push(term);
                         }
                     }
@@ -641,7 +643,7 @@ impl SearchQueryInput {
                         &field_value,
                         &field_type,
                         path,
-                        false,
+                        is_datetime,
                     )?);
                 }
 

@@ -327,7 +327,7 @@ impl SearchQueryInput {
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                let term = value_to_term(field, &OwnedValue::Str(value), &field_type, path, false)?;
+                let term = value_to_term(field, &OwnedValue::Str(value), &field_type, path)?;
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 if prefix.unwrap_or(false) {
@@ -368,13 +368,8 @@ impl SearchQueryInput {
 
                 while stream.advance() {
                     let token = stream.token().text.clone();
-                    let term = value_to_term(
-                        field,
-                        &OwnedValue::Str(token),
-                        &field_type,
-                        path.clone(),
-                        false,
-                    )?;
+                    let term =
+                        value_to_term(field, &OwnedValue::Str(token), &field_type, path.clone())?;
                     let term_query: Box<dyn Query> = if prefix {
                         Box::new(FuzzyTermQuery::new_prefix(
                             term,
@@ -438,7 +433,7 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&config.key_field)
                         .expect("internal error, key field should be found here");
-                    let term = value_to_term(field, &key_value, &field_type, None, false)?;
+                    let term = value_to_term(field, &key_value, &field_type, None)?;
                     let query: Box<dyn Query> =
                         Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
                     let addresses = searcher.search(&query, &DocSetCollector)?;
@@ -481,14 +476,8 @@ impl SearchQueryInput {
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
-                    value_to_term(
-                        field,
-                        &OwnedValue::Str(phrase),
-                        &field_type,
-                        path.clone(),
-                        false,
-                    )
-                    .unwrap()
+                    value_to_term(field, &OwnedValue::Str(phrase), &field_type, path.clone())
+                        .unwrap()
                 });
                 let mut query = PhrasePrefixQuery::new(terms.collect());
                 if let Some(max_expansions) = max_expansions {
@@ -529,14 +518,8 @@ impl SearchQueryInput {
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
-                    value_to_term(
-                        field,
-                        &OwnedValue::Str(phrase),
-                        &field_type,
-                        path.clone(),
-                        false,
-                    )
-                    .unwrap()
+                    value_to_term(field, &OwnedValue::Str(phrase), &field_type, path.clone())
+                        .unwrap()
                 });
                 let mut query = PhraseQuery::new(terms.collect());
                 if let Some(slop) = slop {
@@ -557,38 +540,22 @@ impl SearchQueryInput {
                     .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
                 let lower_bound = match lower_bound {
-                    Bound::Included(value) => Bound::Included(value_to_term(
-                        field,
-                        &value,
-                        &field_type,
-                        path.clone(),
-                        is_datetime,
-                    )?),
-                    Bound::Excluded(value) => Bound::Excluded(value_to_term(
-                        field,
-                        &value,
-                        &field_type,
-                        path.clone(),
-                        is_datetime,
-                    )?),
+                    Bound::Included(value) => {
+                        Bound::Included(value_to_term(field, &value, &field_type, None)?)
+                    }
+                    Bound::Excluded(value) => {
+                        Bound::Excluded(value_to_term(field, &value, &field_type, None)?)
+                    }
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
                 let upper_bound = match upper_bound {
-                    Bound::Included(value) => Bound::Included(value_to_term(
-                        field,
-                        &value,
-                        &field_type,
-                        path.clone(),
-                        is_datetime,
-                    )?),
-                    Bound::Excluded(value) => Bound::Excluded(value_to_term(
-                        field,
-                        &value,
-                        &field_type,
-                        path.clone(),
-                        is_datetime,
-                    )?),
+                    Bound::Included(value) => {
+                        Bound::Included(value_to_term(field, &value, &field_type, None)?)
+                    }
+                    Bound::Excluded(value) => {
+                        Bound::Excluded(value_to_term(field, &value, &field_type, None)?)
+                    }
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
@@ -614,17 +581,14 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(field, &value, &field_type, path, is_datetime)?;
-
-                    Ok(Box::new(TermQuery::new(term, record_option.into())))
+                    let term = value_to_term(field, &value, &field_type, path)?;
+                    Ok(Box::new(TermQuery::new(term, record_option)))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
                     for (field_type, field) in all_fields {
-                        if let Ok(term) =
-                            value_to_term(field, &value, &field_type, None, is_datetime)
-                        {
+                        if let Ok(term) = value_to_term(field, &value, &field_type, None) {
                             terms.push(term);
                         }
                     }
@@ -638,13 +602,9 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
-                    terms.push(value_to_term(
-                        field,
-                        &field_value,
-                        &field_type,
-                        path,
-                        is_datetime,
-                    )?);
+                    let term = value_to_term(field, &field_value, &field_type, path)?;
+
+                    terms.push(term);
                 }
 
                 Ok(Box::new(TermSetQuery::new(terms)))
@@ -658,7 +618,6 @@ fn value_to_json_term(
     value: &OwnedValue,
     path: Option<String>,
     expand_dots: bool,
-    is_datetime: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {
     let mut term = Term::from_field_json_path(field, &path.unwrap_or_default(), expand_dots);
     match value {

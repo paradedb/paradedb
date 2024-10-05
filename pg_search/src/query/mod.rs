@@ -761,7 +761,6 @@ fn value_to_term(
 }
 
 struct TantivyDateTime(pub tantivy::DateTime);
-
 impl TryFrom<&str> for TantivyDateTime {
     type Error = QueryError;
 

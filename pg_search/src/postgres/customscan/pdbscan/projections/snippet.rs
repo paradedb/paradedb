@@ -93,7 +93,7 @@ pub unsafe fn uses_snippets(
                 {
                     let attname = (*context)
                         .attname_lookup
-                        .get(&((*field_arg).varno, (*field_arg).varattno))
+                        .get(&((*field_arg).varno as _, (*field_arg).varattno as _))
                         .cloned()
                         .expect("Var attname should be in lookup");
                     let field = FieldName::from(attname);
@@ -175,7 +175,7 @@ pub unsafe fn inject_snippet(
                 if let Some(first_arg) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                     let attname = (*context)
                         .attname_lookup
-                        .get(&((*first_arg).varno, (*first_arg).varattno))
+                        .get(&((*first_arg).varno as _, (*first_arg).varattno as _))
                         .cloned()
                         .expect("Var attname should be in lookup");
                     let fieldname = FieldName::from(attname);

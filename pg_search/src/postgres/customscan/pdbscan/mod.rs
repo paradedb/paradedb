@@ -314,7 +314,7 @@ impl CustomScan for PdbScan {
                         let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                         for arg in args.iter_ptr() {
                             if let Some(var) = nodecast!(Var, T_Var, arg) {
-                                if (*var).varno == rti {
+                                if (*var).varno as i32 == rti as i32 {
                                     // only modify the tlist if we have one already
                                     if !tlist.is_empty() {
                                         let te = pg_sys::copyObjectImpl(te.cast())
@@ -328,7 +328,8 @@ impl CustomScan for PdbScan {
                                     let attname = attname_from_var(builder.args().root, var)
                                         .1
                                         .expect("function call argument should be a column name");
-                                    attname_lookup.push(pg_sys::makeInteger((*var).varno).cast());
+                                    attname_lookup
+                                        .push(pg_sys::makeInteger((*var).varno as _).cast());
                                     attname_lookup
                                         .push(pg_sys::makeInteger((*var).varattno as _).cast());
                                     attname_lookup
@@ -394,15 +395,27 @@ impl CustomScan for PdbScan {
             ) -> Option<()> {
                 let mut iter = iter.peekable();
                 while let Some(node) = iter.next() {
-                    let varno = nodecast!(Integer, T_Integer, node)?;
-                    let varattno = nodecast!(Integer, T_Integer, iter.next()?)?;
-                    let attname = nodecast!(String, T_String, iter.next()?)?;
+                    #[cfg(any(feature = "pg13", feature = "pg14"))]
+                    let (varno, varattno, attname) = {
+                        let varno = nodecast!(Value, T_Integer, node)?;
+                        let varattno = nodecast!(Value, T_Integer, iter.next()?)?;
+                        let attname = nodecast!(Value, T_String, iter.next()?)?;
+
+                        ((*varno).val.ival, (*varattno).val.ival, (*attname).val.str_)
+                    };
+
+                    #[cfg(not(any(feature = "pg13", feature = "pg14")))]
+                    let (varno, varattno, attname) = {
+                        let varno = nodecast!(Integer, T_Integer, node)?;
+                        let varattno = nodecast!(Integer, T_Integer, iter.next()?)?;
+                        let attname = nodecast!(String, T_String, iter.next()?)?;
+
+                        ((*varno).ival, (*varattno).ival, (*attname).sval)
+                    };
 
                     lookup.insert(
-                        ((*varno).ival, (*varattno).ival as pg_sys::AttrNumber),
-                        CStr::from_ptr((*attname).sval)
-                            .to_string_lossy()
-                            .to_string(),
+                        (varno as _, varattno as _),
+                        CStr::from_ptr(attname).to_string_lossy().to_string(),
                     );
                 }
 

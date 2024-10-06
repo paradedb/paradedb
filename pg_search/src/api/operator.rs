@@ -203,7 +203,7 @@ unsafe fn make_search_config_opexpr_node(
         (*var).varattnosyn = (*var).varattno;
     }
 
-    // the Var must also assume the type of the first attribute from the index defintion,
+    // the Var must also assume the type of the first attribute from the index definition,
     // regardless of where we found the Var
     (*var).vartype = att.atttypid;
     (*var).vartypmod = att.atttypmod;

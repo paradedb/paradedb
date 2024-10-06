@@ -128,7 +128,7 @@ impl<CS: CustomScan> CustomScanStateBuilder<CS> {
                 .cast::<CustomScanStateWrapper<CS>>();
             (*cssw).csstate = pg_sys::CustomScanState {
                 ss: scan_state,
-                flags: 0,
+                flags: (*self.args.cscan).flags,
                 custom_ps: std::ptr::null_mut(),
                 pscan_len: 0,
                 methods: PgMemoryContexts::CurrentMemoryContext

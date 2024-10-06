@@ -16,13 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
-use crate::postgres::customscan::pdbscan::projections::OpaqueRecordArg;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, IntoDatum};
+use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum};
 use std::ptr::addr_of_mut;
 
-#[pg_extern(name = "score", volatile, parallel_safe)]
-fn score_from_relation(_relation_reference: OpaqueRecordArg) -> f32 {
+#[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
+fn score_from_relation(_relation_reference: AnyElement) -> f32 {
     f32::NAN
 }
 
@@ -30,9 +29,9 @@ pub fn score_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.score(record)".into_datum()],
+            &[c"paradedb.score(tid)".into_datum()],
         )
-        .expect("the `paradedb.score(record) type should exist")
+        .expect("the `paradedb.score(tid) type should exist")
     }
 }
 

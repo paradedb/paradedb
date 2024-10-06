@@ -186,8 +186,8 @@ select a.id,
     a.score, 
     b.id, 
     b.score
-from (select paradedb.score(bm25_search), * from paradedb.bm25_search) a
-inner join (select paradedb.score(bm25_search), * from paradedb.bm25_search) b on a.id = b.id
+from (select paradedb.score(ctid), * from paradedb.bm25_search) a
+inner join (select paradedb.score(ctid), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' AND b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
     assert_eq!(result, (40, 3.3322046, 40, 6.664409));

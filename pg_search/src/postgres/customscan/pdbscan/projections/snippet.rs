@@ -19,7 +19,6 @@ use crate::api::index::FieldName;
 use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
 use crate::index::state::SearchState;
 use crate::nodecast;
-use crate::postgres::customscan::pdbscan::projections::OpaqueRecordArg;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
     default, direct_function_call, pg_extern, pg_guard, pg_sys, FromDatum, IntoDatum, PgList,
@@ -38,7 +37,7 @@ pub struct SnippetInfo {
 
 #[pg_extern(name = "snippet", stable, parallel_safe)]
 fn snippet_from_relation(
-    _relation_reference: OpaqueRecordArg,
+    _relation_reference: pg_sys::ItemPointerData,
     field: FieldName,
     start_tag: default!(String, "'<b>'"),
     end_tag: default!(String, "'</b>'"),
@@ -51,11 +50,9 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.snippet(record, paradedb.fieldname, text, text, int)".into_datum()],
+            &[c"paradedb.snippet(tid, paradedb.fieldname, text, text, int)".into_datum()],
         )
-        .expect(
-            "the `paradedb.snippet(record, paradedb.fieldname, text, text, int) type should exist",
-        )
+        .expect("the `paradedb.snippet(tid, paradedb.fieldname, text, text, int) type should exist")
     }
 }
 

@@ -28,7 +28,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::projections::has_var_for_rel;
+use crate::postgres::customscan::pdbscan::projections::has_var_for_ctid;
 use crate::postgres::customscan::pdbscan::projections::score::{
     inject_scores, score_funcoid, uses_scores,
 };
@@ -43,7 +43,8 @@ use crate::postgres::utils::{
     relfilenode_from_index_oid, relfilenode_from_pg_relation, VisibilityChecker,
 };
 use crate::schema::SearchConfig;
-use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
+use crate::{nodecast, DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
+use pgrx::pg_sys::AsPgCStr;
 use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation, PgTupleDesc};
 use shared::gucs::GlobalGucSettings;
 use std::collections::HashMap;
@@ -194,7 +195,7 @@ impl CustomScan for PdbScan {
             // quick look at the PathTarget list to see if we might need to do our const projections
             let path_target = builder.path_target();
             let maybe_needs_const_projections =
-                has_var_for_rel((*path_target).exprs.cast(), (*table.rd_rel).reltype);
+                has_var_for_ctid((*path_target).exprs.cast(), (*table.rd_rel).reltype);
 
             //
             // look for quals we can support
@@ -259,7 +260,42 @@ impl CustomScan for PdbScan {
     }
 
     fn plan_custom_path(builder: CustomScanBuilder) -> pg_sys::CustomScan {
-        builder.build()
+        unsafe {
+            let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
+            if tlist.is_empty() {
+                return builder.build();
+            }
+
+            let first_te = tlist.get_ptr(0).unwrap();
+            let mut our_varno = 0;
+            if let Some(var) = nodecast!(Var, T_Var, (*first_te).expr) {
+                our_varno = (*var).varno;
+            }
+            if our_varno == 0 {
+                panic!("our varno is zero.  dunno what to do");
+            }
+
+            let processed_tlist =
+                PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
+
+            for te in processed_tlist.iter_ptr() {
+                if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+                    let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                    for arg in args.iter_ptr() {
+                        if let Some(var) = nodecast!(Var, T_Var, arg) {
+                            if (*var).varno == our_varno {
+                                let te =
+                                    pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
+                                (*te).resno = (tlist.len() + 1) as _;
+                                tlist.push(te);
+                            }
+                        }
+                    }
+                }
+            }
+
+            builder.build()
+        }
     }
 
     fn create_custom_scan_state(

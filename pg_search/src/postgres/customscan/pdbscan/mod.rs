@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+#![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 mod projections;
 mod qual_inspect;
 

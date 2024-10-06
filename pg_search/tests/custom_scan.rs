@@ -198,7 +198,7 @@ fn simple_join_with_scores_or_both_sides(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // this one doesn't plan a custom scan at all, so scores come back as NaN
-    let (a_id, a_score, b_id, b_score) = r#"
+    let result = r#"
 select a.id, 
     a.score, 
     b.id, 
@@ -207,7 +207,5 @@ from (select paradedb.score(id), * from paradedb.bm25_search) a
 inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
-    assert!(a_score.is_nan());
-    assert!(b_score.is_nan());
-    assert_eq!((a_id, b_id), (40, 40));
+    assert_eq!(result, (40, 9.9966135, 40, 9.9966135));
 }

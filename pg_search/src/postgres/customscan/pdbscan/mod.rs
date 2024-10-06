@@ -204,13 +204,15 @@ impl CustomScan for PdbScan {
         }
 
         unsafe {
-            if builder.base_restrict_info().is_empty() {
+            if builder.restrict_info().is_empty() {
                 return None;
             }
             let rte = builder.args().rte();
 
             // first, we only work on plain relations
-            if rte.rtekind != pg_sys::RTEKind::RTE_RELATION {
+            if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
+                && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
+            {
                 return None;
             }
             let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
@@ -225,12 +227,13 @@ impl CustomScan for PdbScan {
             let path_target = builder.path_target();
             let maybe_needs_const_projections =
                 maybe_needs_const_projections((*(*builder.args().root).parse).targetList.cast());
+            let is_join = rte.rtekind == pg_sys::RTEKind::RTE_JOIN;
 
             //
             // look for quals we can support
             //
             if let Some(quals) = extract_quals(
-                builder.base_restrict_info().as_ptr().cast(),
+                builder.restrict_info().as_ptr().cast(),
                 anyelement_jsonb_opoid(),
             ) {
                 let rti = builder.args().rti;
@@ -239,7 +242,7 @@ impl CustomScan for PdbScan {
                     .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast())
                     .add_private_data(pg_sys::makeInteger(rti as _).cast());
 
-                let restrict_info = builder.base_restrict_info();
+                let restrict_info = builder.restrict_info();
 
                 let selectivity = if restrict_info.len() == 1 {
                     // we can use the norm_selec that already happened
@@ -266,15 +269,20 @@ impl CustomScan for PdbScan {
                     // if we think we need scores, we need a much cheaper plan so that Postgres will
                     // prefer it over all the others.
                     // TODO:  these are curious values that I picked out of thin air and probably need attention
-                    let per_tuple = if maybe_needs_const_projections {
-                        0.5
-                    } else {
-                        4.0
-                    };
+                    let per_tuple = 4.0;
                     let cpu_run_cost = pg_sys::cpu_tuple_cost + per_tuple;
 
                     cpu_run_cost + rows * per_tuple
                 };
+
+                let (startup_cost, total_cost, cpu_run_cost) =
+                    if is_join || maybe_needs_const_projections {
+                        // NB:  just force smallest costs possible so we'll be used in join and
+                        // other situations where we need const projections
+                        (0.0, 0.0, 0.0)
+                    } else {
+                        (startup_cost, total_cost, cpu_run_cost)
+                    };
 
                 let root = builder.args().root;
                 builder = builder.set_rows(rows);

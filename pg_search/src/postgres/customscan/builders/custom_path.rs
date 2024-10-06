@@ -147,8 +147,29 @@ impl CustomPathBuilder {
     // convenience getters for type safety
     //
 
-    pub fn base_restrict_info(&self) -> PgList<pg_sys::RestrictInfo> {
-        unsafe { PgList::from_pg(self.args.rel().baserestrictinfo) }
+    pub fn restrict_info(&self) -> PgList<pg_sys::RestrictInfo> {
+        unsafe {
+            let baseri = PgList::from_pg(self.args.rel().baserestrictinfo);
+            let joinri = PgList::from_pg(self.args.rel().joininfo);
+
+            if baseri.is_empty() && joinri.is_empty() {
+                PgList::new()
+            } else if baseri.is_empty() {
+                joinri
+            } else if joinri.is_empty() {
+                baseri
+            } else {
+                // combine them all into one large list of RestrictInfos
+                let mut combinedri = PgList::new();
+                for ri in baseri.iter_ptr() {
+                    combinedri.push(ri);
+                }
+                for ri in joinri.iter_ptr() {
+                    combinedri.push(ri);
+                }
+                combinedri
+            }
+        }
     }
 
     pub fn path_target(&self) -> *mut pg_sys::PathTarget {

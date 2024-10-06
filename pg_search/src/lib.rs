@@ -77,11 +77,11 @@ pub unsafe extern "C" fn _PG_init() {
 
     setup_telemetry_background_worker(shared::telemetry::ParadeExtension::PgSearch);
 
-    // // Register our tracing / logging hook, so that we can ensure that the logger
-    // // is initialized for all connections.
-    // #[allow(static_mut_refs)]
-    // #[allow(deprecated)]
-    // pgrx::hooks::register_hook(&mut TRACE_HOOK);
+    // Register our tracing / logging hook, so that we can ensure that the logger
+    // is initialized for all connections.
+    #[allow(static_mut_refs)]
+    #[allow(deprecated)]
+    pgrx::hooks::register_hook(&mut TRACE_HOOK);
 
     customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
 }

@@ -19,7 +19,7 @@ mod projections;
 mod qual_inspect;
 
 use crate::api::node;
-use crate::api::operator::{anyelement_jsonb_opoid, estimate_selectivity};
+use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
 use crate::index::state::{SearchResults, SearchState};
 use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -59,7 +59,6 @@ pub struct PdbScan;
 pub struct PdbScanState {
     snapshot: Option<pg_sys::Snapshot>,
     heaprel: Option<pg_sys::Relation>,
-    root: Option<*mut pg_sys::PlannerInfo>,
     index_name: String,
     index_oid: pg_sys::Oid,
     index_uuid: String,
@@ -73,6 +72,7 @@ pub struct PdbScanState {
     snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
+    var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
 }
 
 impl CustomScanState for PdbScanState {}
@@ -184,8 +184,12 @@ impl PrivateData {
         unsafe { extract_quals(base_restrict_info, anyelement_jsonb_opoid()) }
     }
 
-    fn planner_info(&self) -> Option<*mut pg_sys::PlannerInfo> {
-        self.0.get_ptr(4).map(|ptr| ptr.cast())
+    fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {
+        unsafe {
+            self.0
+                .get_ptr(4)
+                .map(|ptr| PgList::<pg_sys::Node>::from_pg(ptr.cast()))
+        }
     }
 }
 
@@ -276,7 +280,6 @@ impl CustomScan for PdbScan {
                 builder = builder.set_startup_cost(startup_cost);
                 builder = builder.set_total_cost(total_cost + cpu_run_cost);
                 builder = builder.add_private_data(restrict_info.into_pg().cast());
-                builder = builder.add_private_data(root.cast());
 
                 builder = builder.set_flag(Flags::Projection);
 
@@ -287,14 +290,11 @@ impl CustomScan for PdbScan {
         None
     }
 
-    fn plan_custom_path(builder: CustomScanBuilder) -> pg_sys::CustomScan {
+    fn plan_custom_path(mut builder: CustomScanBuilder) -> pg_sys::CustomScan {
         unsafe {
             let private_data =
                 PrivateData(PgList::<pg_sys::Node>::from_pg(builder.custom_private()));
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
-            if tlist.is_empty() {
-                return builder.build();
-            }
 
             let rti: i32 = private_data
                 .range_table_index()
@@ -304,21 +304,43 @@ impl CustomScan for PdbScan {
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
 
+            let mut attname_lookup = PgList::<pg_sys::Node>::new();
+            let score_funcoid = score_funcoid();
+            let snippet_funcoid = snippet_funcoid();
             for te in processed_tlist.iter_ptr() {
                 if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                    let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                    for arg in args.iter_ptr() {
-                        if let Some(var) = nodecast!(Var, T_Var, arg) {
-                            if (*var).varno == rti {
-                                let te =
-                                    pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
-                                (*te).resno = (tlist.len() + 1) as _;
-                                tlist.push(te);
+                    if (*funcexpr).funcid == score_funcoid || (*funcexpr).funcid == snippet_funcoid
+                    {
+                        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                        for arg in args.iter_ptr() {
+                            if let Some(var) = nodecast!(Var, T_Var, arg) {
+                                if (*var).varno == rti {
+                                    // only modify the tlist if we have one already
+                                    if !tlist.is_empty() {
+                                        let te = pg_sys::copyObjectImpl(te.cast())
+                                            .cast::<pg_sys::TargetEntry>();
+                                        (*te).resno = (tlist.len() + 1) as _;
+                                        tlist.push(te);
+                                    }
+
+                                    // track a triplet of (varno, varattno, attname) as 3 individual
+                                    // entries in the `attname_lookup` List
+                                    let attname = attname_from_var(builder.args().root, var)
+                                        .1
+                                        .expect("function call argument should be a column name");
+                                    attname_lookup.push(pg_sys::makeInteger((*var).varno).cast());
+                                    attname_lookup
+                                        .push(pg_sys::makeInteger((*var).varattno as _).cast());
+                                    attname_lookup
+                                        .push(pg_sys::makeString(attname.as_pg_cstr()).cast());
+                                }
                             }
                         }
                     }
                 }
             }
+
+            builder.add_private_data(attname_lookup.into_pg().cast());
 
             builder.build()
         }
@@ -366,24 +388,55 @@ impl CustomScan for PdbScan {
                 pg_sys::GetActiveSnapshot(),
             ));
 
-            builder.custom_state().root = private_data.planner_info();
+            unsafe fn populate_var_attname_lookup(
+                lookup: &mut HashMap<(i32, pg_sys::AttrNumber), String>,
+                iter: impl Iterator<Item = *mut pg_sys::Node>,
+            ) -> Option<()> {
+                let mut iter = iter.peekable();
+                while let Some(node) = iter.next() {
+                    let varno = nodecast!(Integer, T_Integer, node)?;
+                    let varattno = nodecast!(Integer, T_Integer, iter.next()?)?;
+                    let attname = nodecast!(String, T_String, iter.next()?)?;
+
+                    lookup.insert(
+                        ((*varno).ival, (*varattno).ival as pg_sys::AttrNumber),
+                        CStr::from_ptr((*attname).sval)
+                            .to_string_lossy()
+                            .to_string(),
+                    );
+                }
+
+                Some(())
+            }
+
+            let var_attname_lookup = private_data
+                .var_attname_lookup()
+                .expect("should have an attribute name lookup");
+            assert_eq!(var_attname_lookup.len() % 3, 0);
+
+            if populate_var_attname_lookup(
+                &mut builder.custom_state().var_attname_lookup,
+                var_attname_lookup.iter_ptr(),
+            )
+            .is_none()
+            {
+                panic!("failed to properly build `var_attname_lookup` due to mis-typed List");
+            }
+
             builder.custom_state().score_funcoid = score_funcoid();
             builder.custom_state().snippet_funcoid = snippet_funcoid();
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 builder.custom_state().score_funcoid,
             );
-            builder.custom_state().snippet_generators = uses_snippets(
-                builder
-                    .custom_state()
-                    .root
-                    .expect("PlannerInfo should have been set"),
-                builder.target_list().as_ptr().cast(),
-                builder.custom_state().snippet_funcoid,
-            )
-            .into_iter()
-            .map(|field| (field, None))
-            .collect();
+            let node = builder.target_list().as_ptr().cast();
+            let snippet_funcoid = builder.custom_state().snippet_funcoid;
+            let attname_lookup = &builder.custom_state().var_attname_lookup;
+            builder.custom_state().snippet_generators =
+                uses_snippets(attname_lookup, node, snippet_funcoid)
+                    .into_iter()
+                    .map(|field| (field, None))
+                    .collect();
 
             builder.build()
         }
@@ -507,10 +560,7 @@ impl CustomScan for PdbScan {
                         for (snippet_info, generator) in &mut state.custom_state.snippet_generators
                         {
                             const_projected_targetlist = inject_snippet(
-                                state
-                                    .custom_state
-                                    .root
-                                    .expect("PlannerInfo should have been set"),
+                                &state.custom_state.var_attname_lookup,
                                 const_projected_targetlist.cast(),
                                 snippet_funcoid,
                                 search_state,

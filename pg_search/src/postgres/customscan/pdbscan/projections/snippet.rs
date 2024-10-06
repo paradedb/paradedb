@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::index::FieldName;
-use crate::api::operator::attname_from_var;
 use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
 use crate::index::state::SearchState;
 use crate::nodecast;
@@ -25,6 +24,7 @@ use pgrx::{
     default, direct_function_call, pg_extern, pg_guard, pg_sys, AnyElement, FromDatum, IntoDatum,
     PgList,
 };
+use std::collections::HashMap;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::DocAddress;
@@ -58,12 +58,12 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
 }
 
 pub unsafe fn uses_snippets(
-    root: *mut pg_sys::PlannerInfo,
+    attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
 ) -> Vec<SnippetInfo> {
-    struct Context {
-        root: *mut pg_sys::PlannerInfo,
+    struct Context<'a> {
+        attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
         snippet_info: Vec<SnippetInfo>,
     }
@@ -91,9 +91,11 @@ pub unsafe fn uses_snippets(
                 if let (Some(field_arg), Some(start_arg), Some(end_arg), Some(max_num_chars_arg)) =
                     (field_arg, start_arg, end_arg, max_num_chars_arg)
                 {
-                    let attname = attname_from_var((*context).root, field_arg)
-                        .1
-                        .expect("<unknown field>");
+                    let attname = (*context)
+                        .attname_lookup
+                        .get(&((*field_arg).varno, (*field_arg).varattno))
+                        .cloned()
+                        .expect("Var attname should be in lookup");
                     let field = FieldName::from(attname);
                     let start_tag =
                         String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
@@ -119,7 +121,7 @@ pub unsafe fn uses_snippets(
     }
 
     let mut context = Context {
-        root,
+        attname_lookup,
         snippet_funcoid,
         snippet_info: vec![],
     };
@@ -130,7 +132,7 @@ pub unsafe fn uses_snippets(
 
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn inject_snippet(
-    root: *mut pg_sys::PlannerInfo,
+    attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
     search_state: &SearchState,
@@ -142,7 +144,7 @@ pub unsafe fn inject_snippet(
     doc_address: DocAddress,
 ) -> *mut pg_sys::Node {
     struct Context<'a> {
-        root: *mut pg_sys::PlannerInfo,
+        attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
         search_state: &'a SearchState,
         field: &'a FieldName,
@@ -171,9 +173,11 @@ pub unsafe fn inject_snippet(
                 assert!(args.len() == 4);
 
                 if let Some(first_arg) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                    let attname = attname_from_var((*context).root, first_arg)
-                        .1
-                        .expect("should have found attname for var in planner info");
+                    let attname = (*context)
+                        .attname_lookup
+                        .get(&((*first_arg).varno, (*first_arg).varattno))
+                        .cloned()
+                        .expect("Var attname should be in lookup");
                     let fieldname = FieldName::from(attname);
 
                     if &fieldname == (*context).field {
@@ -218,7 +222,7 @@ pub unsafe fn inject_snippet(
     }
 
     let mut context = Context {
-        root,
+        attname_lookup,
         snippet_funcoid,
         search_state,
         field,

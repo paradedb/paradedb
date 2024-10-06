@@ -18,7 +18,6 @@
 use crate::postgres::customscan::scan::create_custom_scan_state;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};
-use std::ffi::c_void;
 use std::fmt::{Debug, Formatter};
 
 pub struct Args {
@@ -60,8 +59,6 @@ pub struct CustomScanBuilder {
     args: Args,
 
     custom_scan_node: pg_sys::CustomScan,
-    custom_paths: PgList<c_void>,
-    custom_private: PgList<pg_sys::Node>,
 }
 
 impl CustomScanBuilder {
@@ -104,8 +101,6 @@ impl CustomScanBuilder {
                 custom_plans,
             },
             custom_scan_node: scan,
-            custom_paths: unsafe { PgList::from_pg(custom_plans) },
-            custom_private: unsafe { PgList::from_pg(scan.custom_private) },
         }
     }
 
@@ -115,6 +110,15 @@ impl CustomScanBuilder {
 
     pub fn custom_private(&self) -> *mut pg_sys::List {
         unsafe { (*self.args.best_path).custom_private }
+    }
+
+    /// Add another node of private data to the `custom_private: *mut List` we got from
+    /// the "best_path", which we created earlier in the API process
+    pub fn add_private_data(&mut self, node: *mut pg_sys::Node) {
+        unsafe {
+            let mut custom_private = PgList::<pg_sys::Node>::from_pg(self.custom_private());
+            custom_private.push(node)
+        }
     }
 
     pub fn build(self) -> pg_sys::CustomScan {

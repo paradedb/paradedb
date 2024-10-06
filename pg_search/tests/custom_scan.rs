@@ -106,7 +106,7 @@ fn scores_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score) =
-        "SELECT id, paradedb.score(bm25_search) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(bm25_search) DESC LIMIT 1"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, f32)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(score, 3.2668595);
@@ -117,7 +117,7 @@ fn snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(bm25_search) DESC LIMIT 1"
+        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(snippet, String::from("Plastic <b>Keyboard</b>"));
@@ -128,7 +128,7 @@ fn scores_and_snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score, snippet) =
-        "SELECT id, paradedb.score(bm25_search), paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(bm25_search) DESC LIMIT 1"
+        "SELECT id, paradedb.score(id), paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(id) DESC LIMIT 1"
             .fetch_one::<(i32, f32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(score, 3.2668595);
@@ -154,11 +154,11 @@ fn scores_with_expressions(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let result = r#"
-select id, 
-    description, 
-    paradedb.score(bm25_search), 
-    rating, 
-    paradedb.score(bm25_search) * rating    /* testing this, specifically */
+select id,
+    description,
+    paradedb.score(id),
+    rating,
+    paradedb.score(id) * rating    /* testing this, specifically */
 from paradedb.bm25_search 
 where metadata @@@ 'color:white' 
 order by 5 desc, score desc

@@ -16,12 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::index::FieldName;
+use crate::api::operator::attname_from_var;
 use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
 use crate::index::state::SearchState;
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
-    default, direct_function_call, pg_extern, pg_guard, pg_sys, FromDatum, IntoDatum, PgList,
+    default, direct_function_call, pg_extern, pg_guard, pg_sys, AnyElement, FromDatum, IntoDatum,
+    PgList,
 };
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -37,30 +39,31 @@ pub struct SnippetInfo {
 
 #[pg_extern(name = "snippet", stable, parallel_safe)]
 fn snippet_from_relation(
-    _relation_reference: pg_sys::ItemPointerData,
-    field: FieldName,
+    field: AnyElement,
     start_tag: default!(String, "'<b>'"),
     end_tag: default!(String, "'</b>'"),
     max_num_chars: default!(i32, "150"),
-) -> String {
-    format!("<could not generate snippet for {}>", field)
+) -> Option<String> {
+    None
 }
 
 pub fn snippet_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.snippet(tid, paradedb.fieldname, text, text, int)".into_datum()],
+            &[c"paradedb.snippet(anyelement, text, text, int)".into_datum()],
         )
-        .expect("the `paradedb.snippet(tid, paradedb.fieldname, text, text, int) type should exist")
+        .expect("the `paradedb.snippet(anyelement, text, text, int) type should exist")
     }
 }
 
 pub unsafe fn uses_snippets(
+    root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
 ) -> Vec<SnippetInfo> {
     struct Context {
+        root: *mut pg_sys::PlannerInfo,
         snippet_funcoid: pg_sys::Oid,
         snippet_info: Vec<SnippetInfo>,
     }
@@ -73,23 +76,25 @@ pub unsafe fn uses_snippets(
 
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
             let context = data.cast::<Context>();
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
 
             if (*funcexpr).funcid == (*context).snippet_funcoid {
-                // this should be equal to the number of args in the `snippet()` function above
-                assert!(args.len() == 5);
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
 
-                let field_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
-                let start_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
-                let end_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());
-                let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(4).unwrap());
+                // this should be equal to the number of args in the `snippet()` function above
+                assert!(args.len() == 4);
+
+                let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+                let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
+                let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
+                let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());
 
                 if let (Some(field_arg), Some(start_arg), Some(end_arg), Some(max_num_chars_arg)) =
                     (field_arg, start_arg, end_arg, max_num_chars_arg)
                 {
-                    let field =
-                        FieldName::from_datum((*field_arg).constvalue, (*field_arg).constisnull)
-                            .expect("`paradedb.snippet()`'s field argument cannot be NULL");
+                    let attname = attname_from_var((*context).root, field_arg)
+                        .1
+                        .expect("<unknown field>");
+                    let field = FieldName::from(attname);
                     let start_tag =
                         String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
                     let end_tag = String::from_datum((*end_arg).constvalue, (*end_arg).constisnull);
@@ -114,6 +119,7 @@ pub unsafe fn uses_snippets(
     }
 
     let mut context = Context {
+        root,
         snippet_funcoid,
         snippet_info: vec![],
     };
@@ -124,6 +130,7 @@ pub unsafe fn uses_snippets(
 
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn inject_snippet(
+    root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
     search_state: &SearchState,
@@ -135,6 +142,7 @@ pub unsafe fn inject_snippet(
     doc_address: DocAddress,
 ) -> *mut pg_sys::Node {
     struct Context<'a> {
+        root: *mut pg_sys::PlannerInfo,
         snippet_funcoid: pg_sys::Oid,
         search_state: &'a SearchState,
         field: &'a FieldName,
@@ -160,12 +168,13 @@ pub unsafe fn inject_snippet(
 
             if (*funcexpr).funcid == (*context).snippet_funcoid {
                 // this should be equal to the number of args in the `snippet()` function above
-                assert!(args.len() == 5);
+                assert!(args.len() == 4);
 
-                if let Some(second_arg) = nodecast!(Const, T_Const, args.get_ptr(1).unwrap()) {
-                    let fieldname =
-                        FieldName::from_datum((*second_arg).constvalue, (*second_arg).constisnull)
-                            .expect("`paradedb.snippet()`'s field argument cannot be NULL");
+                if let Some(first_arg) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+                    let attname = attname_from_var((*context).root, first_arg)
+                        .1
+                        .expect("should have found attname for var in planner info");
+                    let fieldname = FieldName::from(attname);
 
                     if &fieldname == (*context).field {
                         let doc = (*context)
@@ -209,6 +218,7 @@ pub unsafe fn inject_snippet(
     }
 
     let mut context = Context {
+        root,
         snippet_funcoid,
         search_state,
         field,

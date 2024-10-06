@@ -117,7 +117,7 @@ fn snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, paradedb.snippet(bm25_search, 'description') FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(bm25_search) DESC LIMIT 1"
+        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(bm25_search) DESC LIMIT 1"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(snippet, String::from("Plastic <b>Keyboard</b>"));
@@ -128,7 +128,7 @@ fn scores_and_snippets_project(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, score, snippet) =
-        "SELECT id, paradedb.score(bm25_search), paradedb.snippet(bm25_search, 'description') FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(bm25_search) DESC LIMIT 1"
+        "SELECT id, paradedb.score(bm25_search), paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'keyboard' ORDER BY paradedb.score(bm25_search) DESC LIMIT 1"
             .fetch_one::<(i32, f32, String)>(&mut conn);
     assert_eq!(id, 2);
     assert_eq!(score, 3.2668595);
@@ -140,7 +140,7 @@ fn mingets(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id, snippet) =
-        "SELECT id, paradedb.snippet(bm25_search, 'description', '<MING>', '</MING>') FROM paradedb.bm25_search WHERE description @@@ 'teddy bear'"
+        "SELECT id, paradedb.snippet(description, '<MING>', '</MING>') FROM paradedb.bm25_search WHERE description @@@ 'teddy bear'"
             .fetch_one::<(i32, String)>(&mut conn);
     assert_eq!(id, 40);
     assert_eq!(
@@ -186,8 +186,8 @@ select a.id,
     a.score, 
     b.id, 
     b.score
-from (select paradedb.score(ctid), * from paradedb.bm25_search) a
-inner join (select paradedb.score(ctid), * from paradedb.bm25_search) b on a.id = b.id
+from (select paradedb.score(id), * from paradedb.bm25_search) a
+inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' AND b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
     assert_eq!(result, (40, 3.3322046, 40, 6.664409));
@@ -203,8 +203,8 @@ select a.id,
     a.score, 
     b.id, 
     b.score
-from (select paradedb.score(bm25_search), * from paradedb.bm25_search) a
-inner join (select paradedb.score(bm25_search), * from paradedb.bm25_search) b on a.id = b.id
+from (select paradedb.score(id), * from paradedb.bm25_search) a
+inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
     assert!(a_score.is_nan());

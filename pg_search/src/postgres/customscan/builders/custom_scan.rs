@@ -113,9 +113,8 @@ impl CustomScanBuilder {
         &self.args
     }
 
-    pub fn add_private_data(mut self, data: *mut pg_sys::Node) -> Self {
-        self.custom_private.push(data);
-        self
+    pub fn custom_private(&self) -> *mut pg_sys::List {
+        unsafe { (*self.args.best_path).custom_private }
     }
 
     pub fn build(self) -> pg_sys::CustomScan {

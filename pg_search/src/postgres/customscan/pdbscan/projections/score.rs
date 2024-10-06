@@ -29,9 +29,9 @@ pub fn score_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.score(tid)".into_datum()],
+            &[c"paradedb.score(anyelement)".into_datum()],
         )
-        .expect("the `paradedb.score(tid) type should exist")
+        .expect("the `paradedb.score(anyelement) type should exist")
     }
 }
 

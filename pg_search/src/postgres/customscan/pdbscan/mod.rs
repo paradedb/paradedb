@@ -28,7 +28,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::projections::has_var_for_ctid;
+use crate::postgres::customscan::pdbscan::projections::maybe_needs_const_projections;
 use crate::postgres::customscan::pdbscan::projections::score::{
     inject_scores, score_funcoid, uses_scores,
 };
@@ -59,6 +59,7 @@ pub struct PdbScan;
 pub struct PdbScanState {
     snapshot: Option<pg_sys::Snapshot>,
     heaprel: Option<pg_sys::Relation>,
+    root: Option<*mut pg_sys::PlannerInfo>,
     index_name: String,
     index_oid: pg_sys::Oid,
     index_uuid: String,
@@ -159,9 +160,32 @@ impl PrivateData {
         }
     }
 
+    fn range_table_index(&self) -> Option<pg_sys::Index> {
+        #[cfg(any(feature = "pg13", feature = "pg14"))]
+        unsafe {
+            Some(
+                (*node::<pg_sys::Value>(self.0.get_ptr(2)?.cast(), pg_sys::NodeTag::T_Integer)?)
+                    .val
+                    .ival as pg_sys::Index,
+            )
+        }
+
+        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
+        unsafe {
+            Some(
+                (*node::<pg_sys::Integer>(self.0.get_ptr(2)?.cast(), pg_sys::NodeTag::T_Integer)?)
+                    .ival as pg_sys::Index,
+            )
+        }
+    }
+
     fn quals(&self) -> Option<Qual> {
-        let base_restrict_info = self.0.get_ptr(2)?;
+        let base_restrict_info = self.0.get_ptr(3)?;
         unsafe { extract_quals(base_restrict_info, anyelement_jsonb_opoid()) }
+    }
+
+    fn planner_info(&self) -> Option<*mut pg_sys::PlannerInfo> {
+        self.0.get_ptr(4).map(|ptr| ptr.cast())
     }
 }
 
@@ -195,7 +219,7 @@ impl CustomScan for PdbScan {
             // quick look at the PathTarget list to see if we might need to do our const projections
             let path_target = builder.path_target();
             let maybe_needs_const_projections =
-                has_var_for_ctid((*path_target).exprs.cast(), (*table.rd_rel).reltype);
+                maybe_needs_const_projections((*(*builder.args().root).parse).targetList.cast());
 
             //
             // look for quals we can support
@@ -204,9 +228,11 @@ impl CustomScan for PdbScan {
                 builder.base_restrict_info().as_ptr().cast(),
                 anyelement_jsonb_opoid(),
             ) {
+                let rti = builder.args().rti;
                 builder = builder
                     .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast());
+                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast())
+                    .add_private_data(pg_sys::makeInteger(rti as _).cast());
 
                 let restrict_info = builder.base_restrict_info();
 
@@ -245,11 +271,13 @@ impl CustomScan for PdbScan {
                     cpu_run_cost + rows * per_tuple
                 };
 
+                let root = builder.args().root;
                 builder = builder.set_rows(rows);
                 builder = builder.set_startup_cost(startup_cost);
                 builder = builder.set_total_cost(total_cost + cpu_run_cost);
-
                 builder = builder.add_private_data(restrict_info.into_pg().cast());
+                builder = builder.add_private_data(root.cast());
+
                 builder = builder.set_flag(Flags::Projection);
 
                 return Some(builder.build());
@@ -261,20 +289,18 @@ impl CustomScan for PdbScan {
 
     fn plan_custom_path(builder: CustomScanBuilder) -> pg_sys::CustomScan {
         unsafe {
+            let private_data =
+                PrivateData(PgList::<pg_sys::Node>::from_pg(builder.custom_private()));
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
             if tlist.is_empty() {
                 return builder.build();
             }
 
-            let first_te = tlist.get_ptr(0).unwrap();
-            let mut our_varno = 0;
-            if let Some(var) = nodecast!(Var, T_Var, (*first_te).expr) {
-                our_varno = (*var).varno;
-            }
-            if our_varno == 0 {
-                panic!("our varno is zero.  dunno what to do");
-            }
-
+            let rti: i32 = private_data
+                .range_table_index()
+                .expect("range table index should have been set")
+                .try_into()
+                .expect("range table index should not be negative");
             let processed_tlist =
                 PgList::<pg_sys::TargetEntry>::from_pg((*builder.args().root).processed_tlist);
 
@@ -283,7 +309,7 @@ impl CustomScan for PdbScan {
                     let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                     for arg in args.iter_ptr() {
                         if let Some(var) = nodecast!(Var, T_Var, arg) {
-                            if (*var).varno == our_varno {
+                            if (*var).varno == rti {
                                 let te =
                                     pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
                                 (*te).resno = (tlist.len() + 1) as _;
@@ -340,6 +366,7 @@ impl CustomScan for PdbScan {
                 pg_sys::GetActiveSnapshot(),
             ));
 
+            builder.custom_state().root = private_data.planner_info();
             builder.custom_state().score_funcoid = score_funcoid();
             builder.custom_state().snippet_funcoid = snippet_funcoid();
             builder.custom_state().need_scores = uses_scores(
@@ -347,6 +374,10 @@ impl CustomScan for PdbScan {
                 builder.custom_state().score_funcoid,
             );
             builder.custom_state().snippet_generators = uses_snippets(
+                builder
+                    .custom_state()
+                    .root
+                    .expect("PlannerInfo should have been set"),
                 builder.target_list().as_ptr().cast(),
                 builder.custom_state().snippet_funcoid,
             )
@@ -476,6 +507,10 @@ impl CustomScan for PdbScan {
                         for (snippet_info, generator) in &mut state.custom_state.snippet_generators
                         {
                             const_projected_targetlist = inject_snippet(
+                                state
+                                    .custom_state
+                                    .root
+                                    .expect("PlannerInfo should have been set"),
                                 const_projected_targetlist.cast(),
                                 snippet_funcoid,
                                 search_state,

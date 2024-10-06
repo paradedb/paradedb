@@ -360,9 +360,13 @@ pub unsafe fn attname_from_var(
     }
     let heaprel = PgRelation::open(heaprelid);
     let tupdesc = heaprel.tuple_desc();
-    let attname = tupdesc
-        .get(varattno as usize - 1)
-        .map(|attribute| attribute.name().to_string());
+    let attname = if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+        Some("ctid".into())
+    } else {
+        tupdesc
+            .get(varattno as usize - 1)
+            .map(|attribute| attribute.name().to_string())
+    };
     (heaprelid, attname)
 }
 

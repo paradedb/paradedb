@@ -19,20 +19,24 @@ pub mod score;
 pub mod snippet;
 
 use crate::nodecast;
+use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
+use crate::postgres::customscan::pdbscan::projections::snippet::snippet_funcoid;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_guard, pg_sys};
 use std::ptr::addr_of_mut;
 
-pub unsafe fn has_var_for_ctid(node: *mut pg_sys::Node, mut relid: pg_sys::Oid) -> bool {
+pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     #[pg_guard]
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
         if node.is_null() {
             return false;
         }
 
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            let relid = *data.cast::<pg_sys::Oid>();
-            if (*var).varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let data = &*data.cast::<Data>();
+            if (*funcexpr).funcid == data.score_funcoid
+                || (*funcexpr).funcid == data.snipped_funcoid
+            {
                 return true;
             }
         }
@@ -40,6 +44,16 @@ pub unsafe fn has_var_for_ctid(node: *mut pg_sys::Node, mut relid: pg_sys::Oid) 
         expression_tree_walker(node, Some(walker), data)
     }
 
-    let data = addr_of_mut!(relid).cast();
+    struct Data {
+        score_funcoid: pg_sys::Oid,
+        snipped_funcoid: pg_sys::Oid,
+    }
+
+    let mut data = Data {
+        score_funcoid: score_funcoid(),
+        snipped_funcoid: snippet_funcoid(),
+    };
+
+    let data = addr_of_mut!(data).cast();
     walker(node, data)
 }

@@ -130,5 +130,12 @@ fn explain_row_estimate(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     eprintln!("{plan:#?}");
-    assert_eq!(plan.get("Plan Rows"), Some(&Value::Number(Number::from(2))));
+
+    // depending on how tantivy distributes docs per segment, it seems the estimated rows could be 2 or 3
+    // with our little test table
+    let plan_rows = plan.get("Plan Rows");
+    assert!(
+        plan_rows == Some(&Value::Number(Number::from(2)))
+            || plan_rows == Some(&Value::Number(Number::from(3)))
+    );
 }

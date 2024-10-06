@@ -31,6 +31,21 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
+      # save the cache on the 'dev' branch, but load it on all branches.
+      - name: Install Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1"
+          shared-key: ${{ runner.os }}-rust-cache-pg_analytics-${{ HashFiles('Cargo.lock') }}
+          cache-targets: true
+          cache-on-failure: true
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -

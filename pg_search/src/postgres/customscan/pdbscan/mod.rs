@@ -19,7 +19,6 @@
 mod projections;
 mod qual_inspect;
 
-use crate::api::node;
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
 use crate::index::state::{SearchResults, SearchState};
 use crate::index::{SearchIndex, WriterDirectory};
@@ -125,61 +124,31 @@ impl PdbScanState {
 struct PrivateData(PgList<pg_sys::Node>);
 
 impl PrivateData {
-    fn heaprelid(&self) -> Option<pg_sys::Oid> {
+    #[inline(always)]
+    fn get_u32(&self, idx: usize) -> Option<u32> {
         #[cfg(any(feature = "pg13", feature = "pg14"))]
         unsafe {
-            Some(pg_sys::Oid::from(
-                (*node::<pg_sys::Value>(self.0.get_ptr(0)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .val
-                    .ival as u32,
-            ))
+            let node = nodecast!(Value, T_Integer, self.0.get_ptr(idx)?)?;
+            Some((*node).val.ival as u32)
         }
 
         #[cfg(not(any(feature = "pg13", feature = "pg14")))]
         unsafe {
-            Some(pg_sys::Oid::from(
-                (*node::<pg_sys::Integer>(self.0.get_ptr(0)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .ival as u32,
-            ))
+            let node = nodecast!(Integer, T_Integer, self.0.get_ptr(idx)?)?;
+            Some((*node).ival as u32)
         }
+    }
+
+    fn heaprelid(&self) -> Option<pg_sys::Oid> {
+        self.get_u32(0).map(pg_sys::Oid::from)
     }
 
     fn indexrelid(&self) -> Option<pg_sys::Oid> {
-        #[cfg(any(feature = "pg13", feature = "pg14"))]
-        unsafe {
-            Some(pg_sys::Oid::from(
-                (*node::<pg_sys::Value>(self.0.get_ptr(1)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .val
-                    .ival as u32,
-            ))
-        }
-
-        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
-        unsafe {
-            Some(pg_sys::Oid::from(
-                (*node::<pg_sys::Integer>(self.0.get_ptr(1)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .ival as u32,
-            ))
-        }
+        self.get_u32(1).map(pg_sys::Oid::from)
     }
 
     fn range_table_index(&self) -> Option<pg_sys::Index> {
-        #[cfg(any(feature = "pg13", feature = "pg14"))]
-        unsafe {
-            Some(
-                (*node::<pg_sys::Value>(self.0.get_ptr(2)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .val
-                    .ival as pg_sys::Index,
-            )
-        }
-
-        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
-        unsafe {
-            Some(
-                (*node::<pg_sys::Integer>(self.0.get_ptr(2)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .ival as pg_sys::Index,
-            )
-        }
+        self.get_u32(2)
     }
 
     fn quals(&self) -> Option<Qual> {

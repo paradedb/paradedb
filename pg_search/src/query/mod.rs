@@ -616,7 +616,7 @@ impl SearchQueryInput {
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
                     let term = value_to_term(field, &value, &field_type, path, is_datetime)?;
 
-                    Ok(Box::new(TermQuery::new(term, record_option)))
+                    Ok(Box::new(TermQuery::new(term, record_option.into())))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();

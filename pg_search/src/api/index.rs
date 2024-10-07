@@ -237,7 +237,7 @@ pub fn fuzzy_term(
 ) -> SearchQueryInput {
     let (field, path) = split_field_and_path(&field);
     SearchQueryInput::FuzzyTerm {
-        field: field.into_inner(),
+        field,
         value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
@@ -257,7 +257,7 @@ pub fn fuzzy_phrase(
 ) -> SearchQueryInput {
     let (field, path) = split_field_and_path(&field);
     SearchQueryInput::FuzzyPhrase {
-        field: field.into_inner(),
+        field,
         value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
@@ -359,7 +359,7 @@ pub fn phrase(
 ) -> SearchQueryInput {
     let (field, path) = split_field_and_path(&field);
     SearchQueryInput::Phrase {
-        field: field.into_inner(),
+        field,
         phrases,
         slop: slop.map(|n| n as u32),
         path,
@@ -374,7 +374,7 @@ pub fn phrase_prefix(
 ) -> SearchQueryInput {
     let (field, path) = split_field_and_path(&field);
     SearchQueryInput::PhrasePrefix {
-        field: field.into_inner(),
+        field,
         phrases,
         max_expansions: max_expansion.map(|n| n as u32),
         path,
@@ -383,16 +383,17 @@ pub fn phrase_prefix(
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
             path,
             is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
@@ -411,16 +412,17 @@ pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
             path,
             is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
@@ -439,16 +441,17 @@ pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: Bound::Included(OwnedValue::F64(0.0)),
             upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
             path,
             is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
@@ -477,9 +480,10 @@ macro_rules! datetime_range_fn {
     ($func_name:ident, $value_type:ty) => {
         #[pg_extern(name = "range", immutable, parallel_safe)]
         pub fn $func_name(field: FieldName, range: Range<$value_type>) -> SearchQueryInput {
+            let (field, path) = split_field_and_path(&field);
             match range.into_inner() {
                 None => SearchQueryInput::Range {
-                    field: field.into_inner(),
+                    field,
                     lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
                         tantivy::DateTime::from_timestamp_micros(0),
                     )),
@@ -490,7 +494,7 @@ macro_rules! datetime_range_fn {
                     is_datetime: true,
                 },
                 Some((lower, upper)) => SearchQueryInput::Range {
-                    field: field.into_inner(),
+                    field,
                     lower_bound: match lower {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
@@ -728,10 +732,10 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
 }
 
 #[inline]
-pub fn split_field_and_path(field: &str) -> (String, Option<String>) {
-    let json_path = split_json_path(field);
+pub fn split_field_and_path(field: &FieldName) -> (String, Option<String>) {
+    let json_path = split_json_path(&field.clone().into_inner());
     if json_path.len() == 1 {
-        (field.to_string(), None)
+        (field.clone().into_inner(), None)
     } else {
         (json_path[0].clone(), Some(json_path[1..].join(".")))
     }

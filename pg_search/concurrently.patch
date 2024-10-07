@@ -1,0 +1,58 @@
+diff --git a/pg_search/src/bootstrap/create_bm25.rs b/pg_search/src/bootstrap/create_bm25.rs
+index e14b877..82ac25c 100644
+--- a/pg_search/src/bootstrap/create_bm25.rs
++++ b/pg_search/src/bootstrap/create_bm25.rs
+@@ -45,7 +45,8 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
+     boolean_fields jsonb DEFAULT '{}',
+     json_fields jsonb DEFAULT '{}',
+     datetime_fields jsonb DEFAULT '{}',
+-    predicates text DEFAULT ''
++    predicates text DEFAULT '',
++    concurrently boolean DEFAULT FALSE
+ )
+ LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
+ ",
+@@ -63,6 +64,7 @@ fn create_bm25_jsonb(
+     json_fields: JsonB,
+     datetime_fields: JsonB,
+     predicates: &str,
++    concurrently: bool,
+ ) -> Result<()> {
+     create_bm25_impl(
+         index_name,
+@@ -75,6 +77,7 @@ fn create_bm25_jsonb(
+         &serde_json::to_string(&json_fields)?,
+         &serde_json::to_string(&datetime_fields)?,
+         predicates,
++        concurrently,
+     )
+ }
+ 
+@@ -91,6 +94,7 @@ fn create_bm25_impl(
+     json_fields: &str,
+     datetime_fields: &str,
+     predicates: &str,
++    concurrently: bool,
+ ) -> Result<()> {
+     let original_client_min_messages =
+         Spi::get_one::<String>("SHOW client_min_messages")?.unwrap_or_default();
+@@ -205,11 +209,18 @@ fn create_bm25_impl(
+         "".to_string()
+     };
+ 
++    let is_concurrently = if !concurrently {
++        "".to_string()
++    } else {
++        "CONCURRENTLY".to_string()
++    };
++
+     let index_uuid = Uuid::new_v4().to_string();
+     let index_name_suffixed = format!("{}_bm25_index", index_name);
+ 
+     Spi::run(&format!(
+-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}, uuid={}) {};",
++        "CREATE INDEX {} {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}, uuid={}) {};",
++        is_concurrently,
+         spi::quote_identifier(index_name_suffixed.clone()),
+         spi::quote_identifier(schema_name),
+         spi::quote_identifier(table_name),

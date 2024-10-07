@@ -24,6 +24,7 @@ use crate::index::WriterDirectory;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
+use crate::DataDir;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -129,6 +130,7 @@ pub(crate) fn estimate_selectivity(
     }
 
     let directory = WriterDirectory::from_oids(
+        DataDir(),
         search_config.database_oid,
         search_config.index_oid,
         relfilenode.as_u32(),

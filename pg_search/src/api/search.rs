@@ -20,6 +20,7 @@ use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
 use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
 use crate::schema::SearchConfig;
+use crate::DataDir;
 use pgrx::pg_sys::FunctionCallInfo;
 use pgrx::{prelude::TableIterator, *};
 use tantivy::TantivyDocument;
@@ -74,7 +75,8 @@ unsafe fn score_bm25(
     let relfilenode = relfilenode_from_index_oid(index_oid);
     let database_oid = crate::MyDatabaseId();
 
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
+    let directory =
+        WriterDirectory::from_oids(DataDir(), database_oid, index_oid, relfilenode.as_u32());
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
@@ -137,7 +139,8 @@ unsafe fn snippet(
     let database_oid = crate::MyDatabaseId();
     let relfilenode = relfilenode_from_index_oid(*index_oid);
 
-    let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
+    let directory =
+        WriterDirectory::from_oids(DataDir(), database_oid, *index_oid, relfilenode.as_u32());
 
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
@@ -199,7 +202,7 @@ unsafe fn snippet(
 }
 
 pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
-    let relfile_paths = WriterDirectory::relfile_paths(database_oid, index_oid)
+    let relfile_paths = WriterDirectory::relfile_paths(DataDir(), database_oid, index_oid)
         .expect("could not look up pg_search relfilenode directory");
 
     for directory in relfile_paths {

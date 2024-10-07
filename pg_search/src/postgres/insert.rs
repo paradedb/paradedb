@@ -20,6 +20,7 @@ use crate::index::SearchIndex;
 use crate::index::SearchIndexWriter;
 use crate::index::WriterDirectory;
 use crate::postgres::utils::row_to_search_document;
+use crate::DataDir;
 use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
@@ -62,6 +63,7 @@ impl InsertState {
         relfilenode: pg_sys::Oid,
     ) -> anyhow::Result<Self> {
         let directory = WriterDirectory::from_oids(
+            DataDir(),
             database_oid.as_u32(),
             index_oid.as_u32(),
             relfilenode.as_u32(),

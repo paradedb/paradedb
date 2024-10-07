@@ -17,7 +17,6 @@
 
 mod api;
 mod bootstrap;
-mod env;
 mod index;
 mod postgres;
 mod query;
@@ -30,6 +29,7 @@ use self::postgres::customscan;
 use pgrx::*;
 use shared::gucs::PostgresGlobalGucSettings;
 use shared::telemetry::setup_telemetry_background_worker;
+use std::path::PathBuf;
 
 // A static variable is required to host grand unified configuration settings.
 pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
@@ -60,6 +60,19 @@ pub fn MyDatabaseId() -> u32 {
         // SAFETY:  this static is set by Postgres when the backend first connects and is
         // never changed afterwards.  As such, it'll always be set whenever this code runs
         pg_sys::MyDatabaseId.as_u32()
+    }
+}
+
+#[allow(non_snake_case)]
+#[inline(always)]
+pub fn DataDir() -> PathBuf {
+    unsafe {
+        // SAFETY:  this static is set by Postgres when it's first started and is
+        // never changed afterwards.  As such, it'll always be set whenever this code runs
+        std::ffi::CStr::from_ptr(pg_sys::DataDir)
+            .to_str()
+            .expect("`pg_sys::DataDir` must be valid UTF8")
+            .into()
     }
 }
 

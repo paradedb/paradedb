@@ -19,7 +19,7 @@ use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::relfilenode_from_index_oid;
-use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
+use crate::{DataDir, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -55,7 +55,7 @@ pub unsafe extern "C" fn amcostestimate(
         let database_oid = crate::MyDatabaseId();
         let index_oid = indexrel.oid().as_u32();
         let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
-        let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
+        let directory = WriterDirectory::from_oids(DataDir(), database_oid, index_oid, relfilenode);
         let search_index = SearchIndex::from_cache(
             &directory,
             &(*options)

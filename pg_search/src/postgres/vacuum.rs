@@ -20,6 +20,7 @@ use pgrx::*;
 use crate::{
     index::{SearchIndex, WriterDirectory},
     postgres::utils::relfilenode_from_index_oid,
+    DataDir,
 };
 
 #[pg_guard]
@@ -47,7 +48,7 @@ pub extern "C" fn amvacuumcleanup(
     let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
     let database_oid = crate::MyDatabaseId();
 
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
+    let directory = WriterDirectory::from_oids(DataDir(), database_oid, index_oid, relfilenode);
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

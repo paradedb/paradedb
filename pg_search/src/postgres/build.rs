@@ -21,6 +21,7 @@ use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::DataDir;
 use pgrx::*;
 use std::collections::HashMap;
 use tokenizers::manager::SearchTokenizerFilters;
@@ -221,8 +222,12 @@ pub extern "C" fn ambuild(
         panic!("no fields specified")
     }
 
-    let directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
+    let directory = WriterDirectory::from_oids(
+        DataDir(),
+        database_oid,
+        index_oid.as_u32(),
+        relfilenode.as_u32(),
+    );
 
     SearchIndex::create_index(directory, fields, uuid.clone(), key_field_index)
         .expect("error creating new index instance");
@@ -303,7 +308,7 @@ unsafe fn build_callback_internal(
             let database_oid = crate::MyDatabaseId();
 
             let directory =
-                WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
+                WriterDirectory::from_oids(DataDir(), database_oid, index_oid.as_u32(), relfilenode.as_u32());
             let search_index = SearchIndex::from_cache(&directory, &state.uuid)
                 .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
             let search_document =

@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::env;
 use anyhow::Result;
 use derive_more::AsRef;
 use fs2::FileExt;
@@ -87,20 +86,28 @@ pub struct WriterDirectory {
 
 impl WriterDirectory {
     /// Useful in a connection process, where the database oid is available in the environment.
-    pub fn from_oids(database_oid: u32, index_oid: u32, relfilenode: u32) -> Self {
+    pub fn from_oids(
+        postgres_data_dir_path: PathBuf,
+        database_oid: u32,
+        index_oid: u32,
+        relfilenode: u32,
+    ) -> Self {
         Self {
             database_oid,
             index_oid,
             relfilenode,
-            postgres_data_dir_path: Self::postgres_data_dir_path(),
+            postgres_data_dir_path,
         }
     }
 
-    pub fn relfile_paths(database_oid: u32, index_oid: u32) -> Result<Vec<Self>> {
+    pub fn relfile_paths(
+        postgres_data_dir_path: PathBuf,
+        database_oid: u32,
+        index_oid: u32,
+    ) -> Result<Vec<Self>> {
         // We are going to ask Postgres for the data_dir_path here, so its important
         // to note that this function will cause a runtime in certain contexts,
         // like within background processes.
-        let postgres_data_dir_path = Self::postgres_data_dir_path();
         let index_dir_path =
             postgres_data_dir_path.join(Self::index_dir_path(database_oid, index_oid));
 
@@ -135,10 +142,6 @@ impl WriterDirectory {
         PathBuf::from(SEARCH_DIR_NAME)
             .join(database_oid.to_string())
             .join(index_oid.to_string())
-    }
-
-    fn postgres_data_dir_path() -> PathBuf {
-        env::postgres_data_dir_path()
     }
 
     /// The root path for the directory tree.

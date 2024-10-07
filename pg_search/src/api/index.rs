@@ -24,6 +24,7 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
+use crate::DataDir;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -53,8 +54,12 @@ pub fn schema_bm25(
     let index_oid = index_oid_from_index_name(&bm25_index_name);
     let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
-    let directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
+    let directory = WriterDirectory::from_oids(
+        DataDir(),
+        database_oid,
+        index_oid.as_u32(),
+        relfilenode.as_u32(),
+    );
     let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

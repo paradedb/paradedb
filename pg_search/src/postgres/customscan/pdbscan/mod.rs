@@ -44,7 +44,7 @@ use crate::postgres::utils::{
     relfilenode_from_index_oid, relfilenode_from_pg_relation, VisibilityChecker,
 };
 use crate::schema::SearchConfig;
-use crate::{nodecast, DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
+use crate::{nodecast, DataDir, DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation};
 use shared::gucs::GlobalGucSettings;
@@ -666,8 +666,12 @@ impl CustomScan for PdbScan {
         let database_oid = crate::MyDatabaseId();
         let relfilenode = relfilenode_from_index_oid(indexrelid.as_u32());
 
-        let directory =
-            WriterDirectory::from_oids(database_oid, indexrelid.as_u32(), relfilenode.as_u32());
+        let directory = WriterDirectory::from_oids(
+            DataDir(),
+            database_oid,
+            indexrelid.as_u32(),
+            relfilenode.as_u32(),
+        );
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

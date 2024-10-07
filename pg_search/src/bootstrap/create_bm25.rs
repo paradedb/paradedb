@@ -15,15 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::{SearchFs, WriterDirectory};
+use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
+use crate::DataDir;
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
 use pgrx::{JsonB, PgRelation, Spi};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
-
-use crate::index::{SearchFs, WriterDirectory};
-use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 
 use super::format::format_bm25_function;
 use super::format::format_empty_function;
@@ -470,8 +470,12 @@ fn index_size(index_name: &str) -> Result<i64> {
     let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
     // Create a WriterDirectory with the obtained index_oid
-    let writer_directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
+    let writer_directory = WriterDirectory::from_oids(
+        DataDir(),
+        database_oid,
+        index_oid.as_u32(),
+        relfilenode.as_u32(),
+    );
 
     // Call the total_size method to get the size in bytes
     let total_size = writer_directory.total_size()?;

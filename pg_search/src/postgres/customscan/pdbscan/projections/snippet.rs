@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::index::FieldName;
 use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
 use crate::index::state::SearchState;
 use crate::nodecast;
@@ -31,7 +30,7 @@ use tantivy::DocAddress;
 
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct SnippetInfo {
-    pub field: FieldName,
+    pub field: String,
     pub start_tag: String,
     pub end_tag: String,
     pub max_num_chars: usize,
@@ -96,7 +95,6 @@ pub unsafe fn uses_snippets(
                         .get(&((*field_arg).varno as _, (*field_arg).varattno as _))
                         .cloned()
                         .expect("Var attname should be in lookup");
-                    let field = FieldName::from(attname);
                     let start_tag =
                         String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
                     let end_tag = String::from_datum((*end_arg).constvalue, (*end_arg).constisnull);
@@ -106,7 +104,7 @@ pub unsafe fn uses_snippets(
                     );
 
                     (*context).snippet_info.push(SnippetInfo {
-                        field,
+                        field: attname,
                         start_tag: start_tag.unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX.to_string()),
                         end_tag: end_tag.unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string()),
                         max_num_chars: max_num_chars_arg as usize,
@@ -136,7 +134,7 @@ pub unsafe fn inject_snippet(
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
     search_state: &SearchState,
-    field: &FieldName,
+    field: &str,
     start: &str,
     end: &str,
     max_num_chars: usize,
@@ -147,7 +145,7 @@ pub unsafe fn inject_snippet(
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
         search_state: &'a SearchState,
-        field: &'a FieldName,
+        field: &'a str,
         start: &'a str,
         end: &'a str,
         max_num_chars: usize,
@@ -178,9 +176,7 @@ pub unsafe fn inject_snippet(
                         .get(&((*first_arg).varno as _, (*first_arg).varattno as _))
                         .cloned()
                         .expect("Var attname should be in lookup");
-                    let fieldname = FieldName::from(attname);
-
-                    if &fieldname == (*context).field {
+                    if attname == (*context).field {
                         let doc = (*context)
                             .search_state
                             .get_doc((*context).doc_address)

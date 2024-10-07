@@ -46,7 +46,7 @@ use crate::postgres::utils::{
 use crate::schema::SearchConfig;
 use crate::{nodecast, DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation, PgTupleDesc};
+use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation};
 use shared::gucs::GlobalGucSettings;
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -58,17 +58,24 @@ pub struct PdbScan;
 
 #[derive(Default)]
 pub struct PdbScanState {
-    snapshot: Option<pg_sys::Snapshot>,
-    heaprel: Option<pg_sys::Relation>,
+    heaprelid: pg_sys::Oid,
+    indexrelid: pg_sys::Oid,
+    rti: pg_sys::Index,
+
     index_name: String,
-    index_oid: pg_sys::Oid,
     index_uuid: String,
     key_field: String,
     search_state: Option<SearchState>,
     search_config: SearchConfig,
     search_results: SearchResults,
 
+    heaprel: Option<pg_sys::Relation>,
+    indexrel: Option<pg_sys::Relation>,
+    lockmode: pg_sys::LOCKMODE,
+
+    snapshot: Option<pg_sys::Snapshot>,
     visibility_checker: Option<VisibilityChecker>,
+
     need_scores: bool,
     snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
     score_funcoid: pg_sys::Oid,
@@ -97,11 +104,6 @@ impl PdbScanState {
     #[inline(always)]
     pub fn heaprel(&self) -> pg_sys::Relation {
         self.heaprel.unwrap()
-    }
-
-    #[inline(always)]
-    pub fn heaprelid(&self) -> pg_sys::Oid {
-        unsafe { (*self.heaprel()).rd_id }
     }
 
     #[inline(always)]
@@ -368,6 +370,9 @@ impl CustomScan for PdbScan {
                 .indexrelid()
                 .expect("indexrelid should have a value");
 
+            builder.custom_state().heaprelid = heaprelid;
+            builder.custom_state().indexrelid = indexrelid;
+
             {
                 let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
                 let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
@@ -379,24 +384,16 @@ impl CustomScan for PdbScan {
                     .expect("`USING bm25` index should have a valued `key_field` option")
                     .0;
 
-                builder.custom_state().index_oid = indexrel.oid();
                 builder.custom_state().index_name = indexrel.name().to_string();
                 builder.custom_state().index_uuid = uuid;
                 builder.custom_state().key_field = key_field;
+                builder.custom_state().rti = private_data
+                    .range_table_index()
+                    .expect("range table index should have been set");
             }
 
-            let heaprel = pg_sys::relation_open(heaprelid, pg_sys::AccessShareLock as _);
-            let tupdesc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
-
             let quals = private_data.quals().expect("should have a Qual structure");
-
             builder.custom_state().search_config = SearchConfig::from(quals);
-            builder.custom_state().heaprel = Some(heaprel);
-            builder.custom_state().snapshot = Some(pg_sys::GetActiveSnapshot());
-            builder.custom_state().visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
-                heaprel,
-                pg_sys::GetActiveSnapshot(),
-            ));
 
             unsafe fn populate_var_attname_lookup(
                 lookup: &mut HashMap<(i32, pg_sys::AttrNumber), String>,
@@ -489,8 +486,25 @@ impl CustomScan for PdbScan {
         eflags: i32,
     ) {
         unsafe {
-            let tupdesc = state.custom_state.heaptupdesc();
+            // open the heap and index relations with the proper locks
+            let rte = pg_sys::exec_rt_fetch(state.custom_state().rti, estate);
+            assert!(!rte.is_null());
+            let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
+            let heaprel = pg_sys::relation_open(state.custom_state().heaprelid, lockmode);
+            let indexrel = pg_sys::relation_open(state.custom_state().indexrelid, lockmode);
+            state.custom_state().heaprel = Some(heaprel);
+            state.custom_state().indexrel = Some(indexrel);
+            state.custom_state().lockmode = lockmode;
 
+            // setup the structures we need to do mvcc checking
+            state.custom_state().snapshot = Some(pg_sys::GetActiveSnapshot());
+            state.custom_state().visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
+                heaprel,
+                pg_sys::GetActiveSnapshot(),
+            ));
+
+            // and finally, get the custom scan itself properly initialized
+            let tupdesc = state.custom_state.heaptupdesc();
             pg_sys::ExecInitScanTupleSlot(
                 estate,
                 addr_of_mut!(state.csstate.ss),
@@ -520,7 +534,7 @@ impl CustomScan for PdbScan {
                 Some((scored, _)) => {
                     let scanslot = state.scanslot();
                     let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
-                    let heaprelid = state.custom_state().heaprelid();
+                    let heaprelid = state.custom_state().heaprelid;
 
                     // ask the visibility checker to find the document in the postgres heap
                     match state.custom_state().visibility_checker().exec_if_visible(
@@ -625,17 +639,22 @@ impl CustomScan for PdbScan {
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // get the VisibilityChecker dropped
-        state.custom_state.visibility_checker.take();
+        state.custom_state().visibility_checker.take();
 
-        if let Some(heaprel) = state.custom_state.heaprel.take() {
+        if let Some(heaprel) = state.custom_state().heaprel.take() {
             unsafe {
-                pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
+                pg_sys::relation_close(heaprel, state.custom_state().lockmode);
+            }
+        }
+        if let Some(indexrel) = state.custom_state().indexrel.take() {
+            unsafe {
+                pg_sys::relation_close(indexrel, state.custom_state().lockmode);
             }
         }
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        let indexrelid = state.custom_state.index_oid.as_u32();
+        let indexrelid = state.custom_state.indexrelid;
         let need_scores = state.custom_state.need_scores();
         let need_snippets = state.custom_state.need_snippets();
         let search_config = &mut state.custom_state.search_config;
@@ -644,11 +663,11 @@ impl CustomScan for PdbScan {
         search_config.need_scores = need_scores;
 
         // Create the index and scan state
-        let index_oid = &search_config.index_oid;
         let database_oid = crate::MyDatabaseId();
-        let relfilenode = relfilenode_from_index_oid(*index_oid);
+        let relfilenode = relfilenode_from_index_oid(indexrelid.as_u32());
 
-        let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
+        let directory =
+            WriterDirectory::from_oids(database_oid, indexrelid.as_u32(), relfilenode.as_u32());
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 

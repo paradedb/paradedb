@@ -26,6 +26,7 @@ mod schema;
 #[cfg(test)]
 pub mod fixtures;
 
+use self::postgres::customscan;
 use pgrx::*;
 use shared::gucs::PostgresGlobalGucSettings;
 use shared::telemetry::setup_telemetry_background_worker;
@@ -81,6 +82,8 @@ pub unsafe extern "C" fn _PG_init() {
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     pgrx::hooks::register_hook(&mut TRACE_HOOK);
+
+    customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
 }
 
 /// This module is required by `cargo pgrx test` invocations.

@@ -120,17 +120,17 @@ jobs:
               echo '```'
 
               #
-              # cargo-pgrx schema doesn't output its generated schema in a stable format
-              # so including the entire diff is garbage.  We still generate it, tho, because
-              # cargo-pgrx will improve someday, and when it does we can uncomment these lines
+              # Include the full schema diff, for informational purposes
               #
 
-              # echo
-              # echo 'The full diff between both schemas is:'
-              # echo
-              # echo '```diff'
-              # cat ~/diff.patch
-              # echo '```'
+              echo
+              echo '<details>'
+              echo '<summary>The full diff between both schemas is:</summary>'
+              echo
+              echo '```diff'
+              cat ~/diff.patch
+              echo '```'
+              echo '</details>'
               echo EOF
             } >> "$GITHUB_ENV"
 

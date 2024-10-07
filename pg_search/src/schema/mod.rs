@@ -26,9 +26,10 @@ use pgrx::{PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use tantivy::schema::{
-    DateOptions, Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema,
-    TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
+    DateOptions, Field, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing, TextOptions,
+    FAST, INDEXED, STORED,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -419,7 +420,7 @@ impl From<SearchFieldConfig> for TextOptions {
                 }
                 if indexed {
                     let text_field_indexing = TextFieldIndexing::default()
-                        .set_index_option(record)
+                        .set_index_option(record.into())
                         .set_fieldnorms(fieldnorms)
                         .set_tokenizer(&tokenizer.name());
 
@@ -487,7 +488,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 }
                 if indexed {
                     let text_field_indexing = TextFieldIndexing::default()
-                        .set_index_option(record)
+                        .set_index_option(record.into())
                         .set_tokenizer(&tokenizer.name());
 
                     json_options = json_options.set_indexing_options(text_field_indexing);
@@ -670,16 +671,39 @@ pub enum IndexRecordOptionSchema {
     WithFreqsAndPositions,
 }
 
-pub trait ToString {
-    fn to_string(&self) -> String;
+#[derive(Debug, Serialize, Deserialize, Clone, Ord, PartialOrd, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct IndexRecordOption(tantivy::schema::IndexRecordOption);
+
+#[allow(non_upper_case_globals)]
+impl IndexRecordOption {
+    pub const Basic: IndexRecordOption =
+        IndexRecordOption(tantivy::schema::IndexRecordOption::Basic);
+    pub const WithFreqs: IndexRecordOption =
+        IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqs);
+    pub const WithFreqsAndPositions: IndexRecordOption =
+        IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions);
 }
 
-impl ToString for IndexRecordOption {
-    fn to_string(&self) -> String {
-        match self {
-            IndexRecordOption::Basic => "basic".to_string(),
-            IndexRecordOption::WithFreqs => "freq".to_string(),
-            IndexRecordOption::WithFreqsAndPositions => "position".to_string(),
+impl From<tantivy::schema::IndexRecordOption> for IndexRecordOption {
+    #[inline]
+    fn from(value: tantivy::schema::IndexRecordOption) -> Self {
+        Self(value)
+    }
+}
+
+impl From<IndexRecordOption> for tantivy::schema::IndexRecordOption {
+    fn from(value: IndexRecordOption) -> Self {
+        value.0
+    }
+}
+
+impl Display for IndexRecordOption {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            tantivy::schema::IndexRecordOption::Basic => write!(f, "basic"),
+            tantivy::schema::IndexRecordOption::WithFreqs => write!(f, "freq"),
+            tantivy::schema::IndexRecordOption::WithFreqsAndPositions => write!(f, "position"),
         }
     }
 }
@@ -701,7 +725,7 @@ fn default_as_true() -> bool {
 }
 
 fn default_as_freqs_and_positions() -> IndexRecordOption {
-    IndexRecordOption::WithFreqsAndPositions
+    IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions)
 }
 
 impl AsFieldType<String> for SearchIndexSchema {

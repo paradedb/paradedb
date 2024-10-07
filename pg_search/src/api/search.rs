@@ -24,8 +24,8 @@ use pgrx::pg_sys::FunctionCallInfo;
 use pgrx::{prelude::TableIterator, *};
 use tantivy::TantivyDocument;
 
-const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
-const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
+pub const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
+pub const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
 #[pg_extern(name = "rank_bm25")]
 pub fn rank_bm25(_key: AnyElement, _alias: default!(Option<String>, "NULL")) -> f32 {

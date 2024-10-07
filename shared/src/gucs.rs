@@ -20,6 +20,9 @@ use pgrx::{GucContext, GucFlags, GucRegistry, GucSetting};
 pub trait GlobalGucSettings {
     fn telemetry_enabled(&self) -> bool;
 
+    /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
+    fn enable_custom_scan(&self) -> bool;
+
     /// The `per_tuple_cost` is an arbitrary value that needs to be really high.  In fact, we default
     /// to one hundred million.
     ///
@@ -38,6 +41,7 @@ pub trait GlobalGucSettings {
 
 pub struct PostgresGlobalGucSettings {
     telemetry: GucSetting<bool>,
+    enable_custom_scan: GucSetting<bool>,
     per_tuple_cost: GucSetting<f64>,
 }
 
@@ -45,6 +49,7 @@ impl PostgresGlobalGucSettings {
     pub const fn new() -> Self {
         Self {
             telemetry: GucSetting::<bool>::new(true),
+            enable_custom_scan: GucSetting::<bool>::new(true),
             per_tuple_cost: GucSetting::<f64>::new(100_000_000.0),
         }
     }
@@ -60,6 +65,15 @@ impl PostgresGlobalGucSettings {
             &format!("Enable telemetry on the ParadeDB {extension_name} extension.",),
             &format!("Enable telemetry on the ParadeDB {extension_name} extension.",),
             &self.telemetry,
+            GucContext::Userset,
+            GucFlags::default(),
+        );
+
+        GucRegistry::define_bool_guc(
+            "paradedb.enable_custom_scan",
+            "Enable ParadeDB's custom scan",
+            "Enable ParadeDB's custom scan",
+            &self.enable_custom_scan,
             GucContext::Userset,
             GucFlags::default(),
         );
@@ -89,6 +103,10 @@ impl GlobalGucSettings for PostgresGlobalGucSettings {
         // If PARADEDB_TELEMETRY is not 'true' at compile time, then we will never enable.
         // This is useful for test builds and CI.
         option_env!("PARADEDB_TELEMETRY") == Some("true") && self.telemetry.get()
+    }
+
+    fn enable_custom_scan(&self) -> bool {
+        self.enable_custom_scan.get()
     }
 
     fn per_tuple_cost(&self) -> f64 {

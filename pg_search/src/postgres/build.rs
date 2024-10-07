@@ -20,10 +20,9 @@ use crate::index::WriterDirectory;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
-use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
 use std::collections::HashMap;
-use tantivy::schema::IndexRecordOption;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 

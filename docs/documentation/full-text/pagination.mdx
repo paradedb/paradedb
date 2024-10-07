@@ -4,18 +4,22 @@ title: Pagination
 
 ## Limit
 
-The `search`, `score_bm25`, and `snippet` functions accept a `limit_rows` option which pushes limits down to the search query. Using `limit_rows`
-instead of the SQL `LIMIT` clause can significantly improve query performance.
+Passing `LIMIT` into a query can significantly improve query times for queries that return large result sets.
 
 ```sql
-SELECT * FROM search_idx.search('description:shoes', limit_rows => 2);
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+LIMIT 5;
 ```
 
 ## Offset
 
-Similarly, `offset_rows` efficiently pushes down offsets to the search query and should be used instead of
-the SQL `OFFSET` clause.
+`OFFSET` can be used with `LIMIT` to paginate through results.
 
 ```sql
-SELECT * FROM search_idx.search('description:shoes', offset_rows => 2);
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+LIMIT 1 OFFSET 2;
 ```

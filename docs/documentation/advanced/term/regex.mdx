@@ -1,0 +1,20 @@
+---
+title: Regex
+---
+
+## Basic Usage
+
+Finds documents containing terms that match a specific regex pattern.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.regex('description', '(plush|leather)');
+```
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="pattern" required>
+  A regex pattern string.
+</ParamField>

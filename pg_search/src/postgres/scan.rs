@@ -172,6 +172,7 @@ pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
+    info!("get tuple");
     let state = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
@@ -214,6 +215,8 @@ pub extern "C" fn amgettuple(
                     state.itup.1.as_mut_ptr(),
                 );
             }
+
+            info!("returning tuple {:?}", state.itup);
 
             true
         },

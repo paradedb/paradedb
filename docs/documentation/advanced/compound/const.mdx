@@ -1,0 +1,25 @@
+---
+title: Const Score
+---
+
+## Basic Usage
+
+Applies a constant score across all documents matched by the underlying query. It can avoid unnecessary score computation on the wrapped query.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.boolean(
+  should => ARRAY[
+    paradedb.const_score(1.0, paradedb.term('description', 'shoes')),
+    paradedb.term('description', 'running')
+  ]
+);
+```
+
+<ParamField body="score" required>
+  The constant score to use for each result.
+</ParamField>
+<ParamField body="query" required>
+  The query to perform.
+</ParamField>

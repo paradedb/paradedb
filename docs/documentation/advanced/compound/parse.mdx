@@ -1,0 +1,30 @@
+---
+title: Tantivy Query String
+---
+
+## Basic Usage
+
+Tantivy comes with its own [string-based query language](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html).
+
+`paradedb.parse` accepts Tantivy query strings, which is useful for concisely expressing complex queries. For instance,
+the following two queries are equivalent:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear')
+ORDER BY id;
+
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.boolean(should => ARRAY[
+    paradedb.phrase('description', ARRAY['running', 'shoes']),
+    paradedb.term('category', 'footwear')
+])
+ORDER BY id;
+```
+
+<Note>
+  `paradedb.parse` uses strict syntax parsing, which means that the field name
+  must be provided before every query.
+</Note>

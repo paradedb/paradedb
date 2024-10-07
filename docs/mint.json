@@ -106,37 +106,64 @@
                 "documentation/full-text/overview",
                 "documentation/full-text/term",
                 "documentation/full-text/phrase",
-                "documentation/full-text/json",
                 "documentation/full-text/filtering",
                 "documentation/full-text/pagination",
                 "documentation/full-text/scoring",
                 "documentation/full-text/highlighting",
                 "documentation/full-text/sorting",
-                "documentation/full-text/boosting",
-                "documentation/full-text/conjunction",
-                "documentation/full-text/lenient_parsing"
+                "documentation/full-text/boosting"
               ]
             },
             {
               "group": "Query Builder",
               "pages": [
                 "documentation/advanced/overview",
-                "documentation/advanced/all",
-                "documentation/advanced/boolean",
-                "documentation/advanced/boost",
-                "documentation/advanced/const",
-                "documentation/advanced/disjunction_max",
-                "documentation/advanced/empty",
-                "documentation/advanced/exists",
-                "documentation/advanced/fuzzy_term",
-                "documentation/advanced/fuzzy_phrase",
-                "documentation/advanced/more_like_this",
-                "documentation/advanced/phrase",
-                "documentation/advanced/phrase_prefix",
-                "documentation/advanced/range",
-                "documentation/advanced/regex",
-                "documentation/advanced/term",
-                "documentation/advanced/term_set"
+                {
+                  "group": "Term-Level Queries",
+                  "pages": [
+                    "documentation/advanced/term/exists",
+                    "documentation/advanced/term/fuzzy_term",
+                    "documentation/advanced/term/range",
+                    "documentation/advanced/term/regex",
+                    "documentation/advanced/term/term",
+                    "documentation/advanced/term/term_set"
+                  ]
+                },
+                {
+                  "group": "Phrase-Level Queries",
+                  "pages": [
+                    "documentation/advanced/phrase/fuzzy_phrase",
+                    "documentation/advanced/phrase/phrase",
+                    "documentation/advanced/phrase/phrase_prefix"
+                  ]
+                },
+                {
+                  "group": "JSON Queries",
+                  "pages": [
+                    "documentation/advanced/json/overview",
+                    "documentation/advanced/json/arrays",
+                    "documentation/advanced/json/range"
+                  ]
+                },
+                {
+                  "group": "Compound Queries",
+                  "pages": [
+                    "documentation/advanced/compound/overview",
+                    "documentation/advanced/compound/all",
+                    "documentation/advanced/compound/boolean",
+                    "documentation/advanced/compound/boost",
+                    "documentation/advanced/compound/const",
+                    "documentation/advanced/compound/disjunction_max",
+                    "documentation/advanced/compound/empty",
+                    "documentation/advanced/compound/parse"
+                  ]
+                },
+                {
+                  "group": "Specialized Queries",
+                  "pages": [
+                    "documentation/advanced/specialized/more_like_this"
+                  ]
+                }
               ]
             },
             {
@@ -153,15 +180,6 @@
                 "documentation/similarity/overview",
                 "documentation/similarity/index",
                 "documentation/similarity/search"
-              ]
-            },
-            {
-              "group": "Optimization",
-              "pages": [
-                "documentation/optimization/overview",
-                "documentation/optimization/joins",
-                "documentation/optimization/pagination",
-                "documentation/optimization/sorting"
               ]
             }
           ]

@@ -1,0 +1,25 @@
+---
+title: Boost
+---
+
+## Basic Usage
+
+A boost query wraps around another query to amplify its scoring impact, without altering the set of matched documents.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.boolean(
+  should => ARRAY[
+    paradedb.term('description', 'shoes'),
+    paradedb.boost(2.0, paradedb.term('description', 'running'))
+  ]
+);
+```
+
+<ParamField body="boost" required>
+  The factor by which to multiply the score of each result.
+</ParamField>
+<ParamField body="query" required>
+  The query to perform.
+</ParamField>

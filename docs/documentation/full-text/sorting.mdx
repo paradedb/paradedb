@@ -2,37 +2,40 @@
 title: Sorting
 ---
 
-## Tiebreaking
+## Order by Relevance
 
-By default, search results are ordered in descending order by their BM25 score. If multiple results have identical BM25 scores, the `key_field` is used as a tie-breaker.
-This behavior can be controlled with the `stable_sort` parameter.
-
-If `true`, equally-scored or ordered results will be sub-sorted by their `key_field`. As a
-consequence of score evaluation and sorting, query times will be slower. This is useful for testing or anytime where
-results need to be deterministic but the score itself is not necessary. See the `<index_name>.score_bm25()` function
-for retrieving document scores.
-
-If `false`, scores are not generated and instead results are returned in an un-deterministic index order. The benefit
-of this is that the results are returned as quickly as possible. This is useful for queries that are known to return
-many thousands or millions of rows.
-
-`stable_sort` defaults to `true` and can be passed into `search`, `score_bm25`, and `snippet`.
+The `score` column returned by [`paradedb.score`](/documentation/full-text/scoring) can by ordered on to sort results by
+BM25 relevance.
 
 ```sql
-SELECT * FROM search_idx.search('description:keyboard', stable_sort => false);
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY score DESC
+LIMIT 5;
 ```
 
-## Custom Ordering
+## Order by Field
 
-By default, the rows are ordered by their BM25 score but can be ordered by any [fast field](/documentation/indexing/fast_fields) instead by specifying `order_by_field`.
-
-The sort order can be changed by specifying `order_by_direction`. The default is `asc`. These arguments can be passed into
-`search`, `score_bm25`, and `snippet`.
+The result set can be ordered by any field in `ASC` or `DESC` order. By default, Postgres orders by `ASC`.
 
 ```sql
-SELECT * FROM search_idx.search(
-  'description:keyboard',
-  order_by_field => 'rating',
-  order_by_direction => 'asc' | 'desc'
-)
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY rating DESC
+LIMIT 5;
+```
+
+## Tiebreaking
+
+Postgres can `ORDER BY` multiple columns to break ties in BM25 scores. In the following query, rows with the same
+`score` will be sorted by `rating` in descending order.
+
+```sql
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE category @@@ 'electronics'
+ORDER BY score DESC, rating DESC
+LIMIT 5;
 ```

@@ -1,0 +1,54 @@
+---
+title: Range
+---
+
+## Basic Usage
+
+Finds documents containing a term that falls within a specified range of values.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.range(
+    field => 'rating',
+    range => int4range(1, 3, '[)')
+);
+```
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="range" required>
+  A postgres range specifying the range of values to match the field against.
+  Range types include `int4range`, `int8range`, `daterange`, `tsrange`, and
+  `tstzrange`.
+</ParamField>
+
+## Inclusive vs. Exclusive Range
+
+The `range` argument accepts a Postgres [range type](https://www.postgresql.org/docs/current/rangetypes.html).
+An inclusive lower bound is represented by `[` while an exclusive lower bound is represented by `(`. Likewise, an inclusive upper bound is represented by `]`, while an exclusive upper bound is represented by `)`.
+For instance, the following query selects ratings between `1` and `3`, inclusive.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.range(
+    field => 'rating',
+    range => int4range(1, 3, '[]')
+);
+```
+
+## Unbounded Range
+
+Passing `NULL` into either the upper or lower bound causes Postgres to treat the upper/lower bounds as
+postive/negative infinity.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.range(
+    field => 'rating',
+    range => int4range(1, NULL, '[)')
+);
+```

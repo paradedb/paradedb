@@ -80,7 +80,7 @@ pub unsafe fn pullout_funcexprs(
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 for arg in args.iter_ptr() {
                     if let Some(var) = nodecast!(Var, T_Var, arg) {
-                        if (*var).varno == data.rti {
+                        if (*var).varno as i32 == data.rti as i32 {
                             data.matches.push((funcexpr, var));
                         }
                     }

@@ -34,6 +34,10 @@ pub trait AsInt {
     unsafe fn as_int(&self) -> Option<i32>;
 }
 
+pub trait AsBool {
+    unsafe fn as_bool(&self) -> Option<bool>;
+}
+
 pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
 }
@@ -51,6 +55,22 @@ impl AsInt for *mut pgrx::pg_sys::Node {
     unsafe fn as_int(&self) -> Option<i32> {
         let node = nodecast!(Integer, T_Integer, *self)?;
         Some((*node).ival)
+    }
+}
+
+#[cfg(not(not(any(feature = "pg13", feature = "pg14"))))]
+impl AsBool for *mut pgrx::pg_sys::Node {
+    unsafe fn as_bool(&self) -> Option<bool> {
+        let node = nodecast!(Value, T_Boolean, *self)?;
+        Some((*node).val.ival != 0)
+    }
+}
+
+#[cfg(not(any(feature = "pg13", feature = "pg14")))]
+impl AsBool for *mut pgrx::pg_sys::Node {
+    unsafe fn as_bool(&self) -> Option<bool> {
+        let node = nodecast!(Boolean, T_Boolean, *self)?;
+        Some((*node).boolval)
     }
 }
 

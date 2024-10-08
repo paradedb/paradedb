@@ -176,6 +176,10 @@ impl CustomPathBuilder {
         self.args.rel().reltarget
     }
 
+    pub fn limit(&self) -> i32 {
+        unsafe { (*self.args().root).limit_tuples.round() as i32 }
+    }
+
     //
     // public settings
     //
@@ -213,6 +217,18 @@ impl CustomPathBuilder {
     pub fn set_total_cost(mut self, cost: pg_sys::Cost) -> Self {
         self.custom_path_node.path.total_cost = cost;
         self
+    }
+
+    pub fn add_path_key(mut self, pathkey: Option<*mut pg_sys::PathKey>) -> Self {
+        unsafe {
+            if let Some(pathkey) = pathkey {
+                let mut pklist =
+                    PgList::<pg_sys::PathKey>::from_pg(self.custom_path_node.path.pathkeys);
+                pklist.push(pathkey);
+                self.custom_path_node.path.pathkeys = pklist.into_pg();
+            }
+            self
+        }
     }
 
     pub fn build(mut self) -> pg_sys::CustomPath {

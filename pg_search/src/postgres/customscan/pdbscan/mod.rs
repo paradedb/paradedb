@@ -20,7 +20,7 @@ mod projections;
 mod qual_inspect;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
-use crate::api::{AsCStr, AsInt};
+use crate::api::{AsBool, AsCStr, AsInt};
 use crate::index::state::{SearchResults, SearchState};
 use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -36,7 +36,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
     inject_snippet, snippet_funcoid, uses_snippets, SnippetInfo,
 };
 use crate::postgres::customscan::pdbscan::projections::{
-    maybe_needs_const_projections, pullout_funcexprs,
+    maybe_needs_const_projections, pullout_funcexprs, pullout_pathkeys,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::{CustomScan, CustomScanState};
@@ -47,7 +47,7 @@ use crate::postgres::utils::{
 };
 use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
-use pgrx::pg_sys::AsPgCStr;
+use pgrx::pg_sys::{AsPgCStr, Index, PathKey};
 use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation};
 use shared::gucs::GlobalGucSettings;
 use std::collections::HashMap;
@@ -70,6 +70,9 @@ pub struct PdbScanState {
     search_state: Option<SearchState>,
     search_config: SearchConfig,
     search_results: SearchResults,
+
+    limit: Option<usize>,
+    sort_by_score: bool,
 
     heaprel: Option<pg_sys::Relation>,
     indexrel: Option<pg_sys::Relation>,
@@ -150,10 +153,21 @@ impl PrivateData {
         unsafe { extract_quals(base_restrict_info, anyelement_jsonb_opoid()) }
     }
 
+    unsafe fn limit(&self) -> Option<usize> {
+        self.0.get_ptr(4).and_then(|node| {
+            node.as_int()
+                .and_then(|i| if i >= 0 { Some(i as usize) } else { None })
+        })
+    }
+
+    unsafe fn sort_by_score(&self) -> Option<bool> {
+        self.0.get_ptr(5).and_then(|node| node.as_bool())
+    }
+
     fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {
         unsafe {
             self.0
-                .get_ptr(4)
+                .get_ptr(6)
                 .map(|ptr| PgList::<pg_sys::Node>::from_pg(ptr.cast()))
         }
     }
@@ -172,27 +186,34 @@ impl CustomScan for PdbScan {
             if builder.restrict_info().is_empty() {
                 return None;
             }
-            let rte = builder.args().rte();
+            let rti = builder.args().rti;
+            let (table, bm25_index, is_join) = {
+                let rte = builder.args().rte();
 
-            // first, we only work on plain relations
-            if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
-                && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
-            {
-                return None;
-            }
-            let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
-            if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
-                return None;
-            }
+                // first, we only work on plain relations
+                if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
+                    && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
+                {
+                    return None;
+                }
+                let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
+                if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
+                    return None;
+                }
 
-            // and that relation must have a `USING bm25` index
-            let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
+                // and that relation must have a `USING bm25` index
+                let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
+
+                (table, bm25_index, rte.rtekind == pg_sys::RTEKind::RTE_JOIN)
+            };
+
+            let limit = (*builder.args().root).limit_tuples.round() as i32;
+            let pathkey = Self::find_orderby_pathkey(&mut builder, rti);
 
             // quick look at the PathTarget list to see if we might need to do our const projections
             let path_target = builder.path_target();
             let maybe_needs_const_projections =
                 maybe_needs_const_projections((*(*builder.args().root).parse).targetList.cast());
-            let is_join = rte.rtekind == pg_sys::RTEKind::RTE_JOIN;
 
             //
             // look for quals we can support
@@ -201,15 +222,12 @@ impl CustomScan for PdbScan {
                 builder.restrict_info().as_ptr().cast(),
                 anyelement_jsonb_opoid(),
             ) {
-                let rti = builder.args().rti;
-                builder = builder
-                    .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeInteger(rti as _).cast());
-
                 let restrict_info = builder.restrict_info();
-
-                let selectivity = if restrict_info.len() == 1 {
+                let selectivity = if limit > 0 {
+                    // use the limit
+                    limit as pg_sys::Selectivity
+                        / (table.reltuples().unwrap_or(limit as f32) as pg_sys::Selectivity)
+                } else if restrict_info.len() == 1 {
                     // we can use the norm_selec that already happened
                     (*restrict_info.get_ptr(0).unwrap()).norm_selec
                 } else {
@@ -222,6 +240,14 @@ impl CustomScan for PdbScan {
                     )
                     .unwrap_or(UNKNOWN_SELECTIVITY)
                 };
+
+                builder = builder
+                    .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
+                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast())
+                    .add_private_data(pg_sys::makeInteger(rti as _).cast())
+                    .add_private_data(restrict_info.into_pg().cast())
+                    .add_private_data(pg_sys::makeInteger(limit as _).cast())
+                    .add_private_data(pg_sys::makeBoolean(pathkey.is_some()).cast());
 
                 let reltuples = table.reltuples().unwrap_or(1.0) as f64;
                 let rows = (reltuples * selectivity).max(1.0);
@@ -249,12 +275,10 @@ impl CustomScan for PdbScan {
                         (startup_cost, total_cost, cpu_run_cost)
                     };
 
-                let root = builder.args().root;
                 builder = builder.set_rows(rows);
                 builder = builder.set_startup_cost(startup_cost);
                 builder = builder.set_total_cost(total_cost + cpu_run_cost);
-                builder = builder.add_private_data(restrict_info.into_pg().cast());
-
+                builder = builder.add_path_key(pathkey);
                 builder = builder.set_flag(Flags::Projection);
 
                 return Some(builder.build());
@@ -349,6 +373,12 @@ impl CustomScan for PdbScan {
                     .expect("range table index should have been set");
             }
 
+            // information about if we're sorted by score and our limit
+            builder.custom_state().limit = private_data.limit();
+            builder.custom_state().sort_by_score = private_data
+                .sort_by_score()
+                .expect("should have determined if sorting by score is necessary");
+
             let quals = private_data.quals().expect("should have a Qual structure");
             builder.custom_state().search_config = SearchConfig::from(quals);
 
@@ -378,7 +408,11 @@ impl CustomScan for PdbScan {
             let var_attname_lookup = private_data
                 .var_attname_lookup()
                 .expect("should have an attribute name lookup");
-            assert_eq!(var_attname_lookup.len() % 3, 0);
+            assert_eq!(
+                var_attname_lookup.len() % 3,
+                0,
+                "correct number of var_attname_lookup entries"
+            );
 
             if populate_var_attname_lookup(
                 &mut builder.custom_state().var_attname_lookup,
@@ -622,8 +656,16 @@ impl CustomScan for PdbScan {
             .search_state(search_config)
             .expect("`SearchState` should have been constructed correctly");
 
-        state.custom_state.search_results =
-            search_state.search_minimal(false, SearchIndex::executor());
+        if let (Some(limit), true) = (
+            state.custom_state().limit,
+            state.custom_state().sort_by_score,
+        ) {
+            state.custom_state.search_results =
+                search_state.search_top_n(SearchIndex::executor(), limit);
+        } else {
+            state.custom_state.search_results =
+                search_state.search_minimal(false, SearchIndex::executor());
+        }
 
         if need_snippets {
             for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {
@@ -631,6 +673,28 @@ impl CustomScan for PdbScan {
             }
             state.custom_state.search_state = Some(search_state);
         }
+    }
+}
+
+impl PdbScan {
+    unsafe fn find_orderby_pathkey(
+        builder: &mut CustomPathBuilder,
+        rti: Index,
+    ) -> Option<*mut PathKey> {
+        let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
+        let mut pathkey = None;
+        if let Some(first_pathkey) = pathkeys.get_ptr(0) {
+            let equivclass = (*first_pathkey).pk_eclass;
+            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+            for member in members.iter_ptr() {
+                if pullout_pathkeys((*member).em_expr.cast(), score_funcoid(), rti as _) {
+                    pathkey = Some(first_pathkey);
+                    break;
+                }
+            }
+        }
+        pathkey
     }
 }
 

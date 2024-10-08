@@ -12,16 +12,14 @@ the following two queries are equivalent:
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear')
-ORDER BY id;
+WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear');
 
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.boolean(should => ARRAY[
     paradedb.phrase('description', ARRAY['running', 'shoes']),
     paradedb.term('category', 'footwear')
-])
-ORDER BY id;
+]);
 ```
 
 <Note>

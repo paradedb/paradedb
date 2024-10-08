@@ -7,7 +7,7 @@ title: Boost
 A boost query wraps around another query to amplify its scoring impact, without altering the set of matched documents.
 
 ```sql
-SELECT description, rating, category
+SELECT description, rating, category, paradedb.score(id)
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
   should => ARRAY[

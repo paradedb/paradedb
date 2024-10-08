@@ -7,9 +7,10 @@ title: Boosting
 The `^` operator is used to boost the scores of individual fields by a constant. In the following query, `category` is weighted twice as heavily as `description` in the final BM25 score.
 
 ```sql
-SELECT id, paradedb.score(mock_items)
+SELECT id, paradedb.score(id)
 FROM mock_items
 WHERE description @@@ 'shoes^2' OR category @@@ 'footwear'
+ORDER BY score DESC
 LIMIT 5;
 ```
 
@@ -22,6 +23,7 @@ the same score but a higher `rating` will score higher overall.
 SELECT id, paradedb.score(mock_items) * COALESCE(rating, 1) as score
 FROM mock_items
 WHERE description @@@ 'shoes'
+ORDER BY score DESC
 LIMIT 5;
 ```
 

@@ -7,7 +7,7 @@ title: Const Score
 Applies a constant score across all documents matched by the underlying query. It can avoid unnecessary score computation on the wrapped query.
 
 ```sql
-SELECT description, rating, category
+SELECT description, rating, category, paradedb.score(id)
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
   should => ARRAY[

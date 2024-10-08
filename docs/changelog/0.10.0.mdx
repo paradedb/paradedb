@@ -75,7 +75,7 @@ Similar to above, our internal locking structures are now more resilient to unex
 
 With this, our pseudo-secret `@@@` operator is now ready for direct use.
 
-The [documentation](/documentation/optimization/overview) covers its usage, but it's worth mentioning that using the `@@@` operator in a WHERE clause, as opposed to SELECTing directly from `idxname.search(...)`, can lean to drastically improved query execution times in situations where scores (or the effects of scoring on ordering) are not necessary.
+The documentation covers its usage, but it's worth mentioning that using the `@@@` operator in a WHERE clause, as opposed to SELECTing directly from `idxname.search(...)`, can lean to drastically improved query execution times in situations where scores (or the effects of scoring on ordering) are not necessary.
 
 The `@@@` operator also allows combining standard SQL `WHERE` clause predicates with advanced text-search queries. Additionally, it's our recommended way of working with `JOIN`ed tables where one (or both) sides of the `JOIN` require some kind of text-search filtering.
 

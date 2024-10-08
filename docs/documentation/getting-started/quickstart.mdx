@@ -234,25 +234,25 @@ While not required, an HNSW index can drastically improve query performance over
 
 ```sql
 CREATE INDEX on mock_items
-USING hnsw (embedding vector_l2_ops);
+USING hnsw (embedding vector_cosine_ops);
 ```
 
-Next, let's query our table with a vector and order the results by L2 distance:
+Next, let's query our table with a vector and order the results by cosine distance:
 
 ```sql
 SELECT description, category, rating, embedding
 FROM mock_items
-ORDER BY embedding <-> '[1,2,3]'
+ORDER BY embedding <=> '[1,2,3]', description
 LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-       description       |  category  | rating | embedding
--------------------------+------------+--------+-----------
- Artistic ceramic vase   | Home Decor |      4 | [1,2,3]
- Modern wall clock       | Home Decor |      4 | [1,2,3]
- Designer wall paintings | Home Decor |      5 | [1,2,3]
+```csv
+       description        |  category  | rating | embedding
+--------------------------+------------+--------+-----------
+ Artistic ceramic vase    | Home Decor |      4 | [1,2,3]
+ Designer wall paintings  | Home Decor |      5 | [1,2,3]
+ Handcrafted wooden frame | Home Decor |      5 | [1,2,3]
 (3 rows)
 ```
 </Accordion>

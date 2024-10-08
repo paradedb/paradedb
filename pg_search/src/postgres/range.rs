@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TantivyRange<T> {
-    lower: T,
-    upper: T,
+    lower: Option<T>,
+    upper: Option<T>,
     lower_inclusive: bool,
     upper_inclusive: bool,
     lower_unbounded: bool,
@@ -21,7 +21,7 @@ pub(crate) struct TantivyRangeBuilder<T> {
 
 impl<T> TantivyRangeBuilder<T>
 where
-    T: Clone + Default,
+    T: Clone,
 {
     pub fn new() -> Self {
         Self {
@@ -34,13 +34,13 @@ where
         }
     }
 
-    pub fn lower(mut self, lower: T) -> Self {
-        self.lower = Some(lower);
+    pub fn lower(mut self, lower: Option<T>) -> Self {
+        self.lower = lower;
         self
     }
 
-    pub fn upper(mut self, upper: T) -> Self {
-        self.upper = Some(upper);
+    pub fn upper(mut self, upper: Option<T>) -> Self {
+        self.upper = upper;
         self
     }
 
@@ -66,8 +66,8 @@ where
 
     pub fn build(self) -> TantivyRange<T> {
         TantivyRange {
-            lower: self.lower.unwrap_or_default(),
-            upper: self.upper.unwrap_or_default(),
+            lower: self.lower,
+            upper: self.upper,
             lower_inclusive: self.lower_inclusive.unwrap_or(true),
             upper_inclusive: self.upper_inclusive.unwrap_or(false),
             lower_unbounded: self.lower_unbounded.unwrap_or(false),

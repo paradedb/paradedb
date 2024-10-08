@@ -122,6 +122,11 @@ pub unsafe fn row_to_search_document(
                 document.insert(search_field.id, value.tantivy_schema_value());
             }
         } else {
+            pgrx::info!(
+                "inserting oid {:?} {:?}",
+                base_oid,
+                TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value()
+            );
             document.insert(
                 search_field.id,
                 TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),

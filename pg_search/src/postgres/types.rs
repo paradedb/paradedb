@@ -227,6 +227,28 @@ impl TantivyValue {
                     pgrx::datum::Range::<i64>::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
+                PgBuiltInOids::NUMRANGEOID => TantivyValue::try_from(
+                    pgrx::datum::Range::<pgrx::AnyNumeric>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::DATERANGEOID => TantivyValue::try_from(
+                    pgrx::datum::Range::<pgrx::datum::TimestampWithTimeZone>::from_datum(
+                        datum, false,
+                    )
+                    .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TSRANGEOID => TantivyValue::try_from(
+                    pgrx::datum::Range::<pgrx::datum::TimestampWithTimeZone>::from_datum(
+                        datum, false,
+                    )
+                    .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TSTZRANGEOID => TantivyValue::try_from(
+                    pgrx::datum::Range::<pgrx::datum::TimestampWithTimeZone>::from_datum(
+                        datum, false,
+                    )
+                    .ok_or(TantivyValueError::DatumDeref)?,
+                ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
             _ => Err(TantivyValueError::InvalidOid),
@@ -921,30 +943,25 @@ impl TryFrom<pgrx::Inet> for TantivyValue {
 
 impl<T> TryFrom<pgrx::Range<T>> for TantivyValue
 where
-    T: Clone + Default + Serialize + pgrx::datum::RangeSubType,
+    T: Clone + Serialize + pgrx::datum::RangeSubType,
 {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Range<T>) -> Result<Self, Self::Error> {
         match val.is_empty() {
             true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                serde_json::to_value(
-                    TantivyRangeBuilder::new()
-                        .lower(T::default())
-                        .upper(T::default())
-                        .build(),
-                )?,
+                serde_json::to_value(TantivyRangeBuilder::<T>::new().build())?,
             ))),
             false => {
                 let lower = match val.lower() {
-                    Some(RangeBound::Inclusive(val)) => val.clone(),
-                    Some(RangeBound::Exclusive(val)) => val.clone(),
-                    Some(RangeBound::Infinite) | None => T::default(),
+                    Some(RangeBound::Inclusive(val)) => Some(val.clone()),
+                    Some(RangeBound::Exclusive(val)) => Some(val.clone()),
+                    Some(RangeBound::Infinite) | None => None,
                 };
                 let upper = match val.upper() {
-                    Some(RangeBound::Inclusive(val)) => val.clone(),
-                    Some(RangeBound::Exclusive(val)) => val.clone(),
-                    Some(RangeBound::Infinite) | None => T::default(),
+                    Some(RangeBound::Inclusive(val)) => Some(val.clone()),
+                    Some(RangeBound::Exclusive(val)) => Some(val.clone()),
+                    Some(RangeBound::Infinite) | None => None,
                 };
 
                 let lower_inclusive = matches!(val.lower(), Some(RangeBound::Inclusive(_)));
@@ -968,72 +985,6 @@ where
         }
     }
 }
-
-impl TryFrom<TantivyValue> for pgrx::Range<i32> {
-    type Error = TantivyValueError;
-
-    fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(_) = value.0 {
-            todo!("implement tantivyvalue to int4range")
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
-                "int4range".to_string(),
-            ))
-        }
-    }
-}
-
-// impl TryFrom<pgrx::Range<i64>> for TantivyValue {
-//     type Error = TantivyValueError;
-
-//     fn try_from(_val: pgrx::Range<i64>) -> Result<Self, Self::Error> {
-//         Err(TantivyValueError::UnsupportedFromConversion(
-//             "int8 range".to_string(),
-//         ))
-//     }
-// }
-
-// impl TryFrom<pgrx::Range<pgrx::AnyNumeric>> for TantivyValue {
-//     type Error = TantivyValueError;
-
-//     fn try_from(_val: pgrx::Range<pgrx::AnyNumeric>) -> Result<Self, Self::Error> {
-//         Err(TantivyValueError::UnsupportedFromConversion(
-//             "nuemric range".to_string(),
-//         ))
-//     }
-// }
-
-// impl TryFrom<pgrx::Range<pgrx::datum::Date>> for TantivyValue {
-//     type Error = TantivyValueError;
-
-//     fn try_from(_val: pgrx::Range<pgrx::datum::Date>) -> Result<Self, Self::Error> {
-//         Err(TantivyValueError::UnsupportedFromConversion(
-//             "date range".to_string(),
-//         ))
-//     }
-// }
-
-// impl TryFrom<pgrx::Range<pgrx::datum::Timestamp>> for TantivyValue {
-//     type Error = TantivyValueError;
-
-//     fn try_from(_val: pgrx::Range<pgrx::datum::Timestamp>) -> Result<Self, Self::Error> {
-//         Err(TantivyValueError::UnsupportedFromConversion(
-//             "timestamp range".to_string(),
-//         ))
-//     }
-// }
-
-// impl TryFrom<pgrx::Range<pgrx::datum::TimestampWithTimeZone>> for TantivyValue {
-//     type Error = TantivyValueError;
-
-//     fn try_from(
-//         _val: pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
-//     ) -> Result<Self, Self::Error> {
-//         Err(TantivyValueError::UnsupportedFromConversion(
-//             "timestamp with time zone range".to_string(),
-//         ))
-//     }
-// }
 
 #[derive(Error, Debug)]
 pub enum TantivyValueError {

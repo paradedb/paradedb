@@ -209,3 +209,49 @@ where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
     assert_eq!(result, (40, 9.9966135, 40, 9.9966135));
 }
+
+#[rstest]
+fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
+    r#"
+CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+CALL paradedb.create_bm25(
+    	index_name => 'mock_items',
+        table_name => 'mock_items',
+    	schema_name => 'public',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('category'),
+    	numeric_fields => paradedb.field('rating'),
+    	boolean_fields => paradedb.field('in_stock'),
+    	json_fields => paradedb.field('metadata'),
+        datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date') || paradedb.field('latest_available_time'));
+
+
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'orders',
+  table_type => 'Orders'
+);
+CALL paradedb.create_bm25(
+  index_name => 'orders_idx',
+  table_name => 'orders',
+  key_field => 'order_id',
+  text_fields => paradedb.field('customer_name')
+);
+
+ALTER TABLE orders
+ADD CONSTRAINT foreign_key_product_id
+FOREIGN KEY (product_id)
+REFERENCES mock_items(id);   
+    "#.execute(&mut conn);
+
+    // this one doesn't plan a custom scan at all, so scores come back as NaN
+    let result = r#"
+SELECT o.order_id, m.description, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+FROM orders o
+JOIN mock_items m ON o.product_id = m.id
+WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes'
+ORDER BY order_id
+LIMIT 1;"#
+        .fetch_one::<(i32, String, f32)>(&mut conn);
+    assert_eq!(result, (3, "Sleek running shoes".into(), 5.406531));
+}

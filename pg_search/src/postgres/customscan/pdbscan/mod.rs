@@ -29,12 +29,14 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::projections::maybe_needs_const_projections;
 use crate::postgres::customscan::pdbscan::projections::score::{
     inject_scores, score_funcoid, uses_scores,
 };
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     inject_snippet, snippet_funcoid, uses_snippets, SnippetInfo,
+};
+use crate::postgres::customscan::pdbscan::projections::{
+    maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::{CustomScan, CustomScanState};
@@ -319,36 +321,30 @@ impl CustomScan for PdbScan {
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
             for te in processed_tlist.iter_ptr() {
-                if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                    if (*funcexpr).funcid == score_funcoid || (*funcexpr).funcid == snippet_funcoid
-                    {
-                        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                        for arg in args.iter_ptr() {
-                            if let Some(var) = nodecast!(Var, T_Var, arg) {
-                                if (*var).varno as i32 == rti as i32 {
-                                    // only modify the tlist if we have one already
-                                    if !tlist.is_empty() {
-                                        let te = pg_sys::copyObjectImpl(te.cast())
-                                            .cast::<pg_sys::TargetEntry>();
-                                        (*te).resno = (tlist.len() + 1) as _;
-                                        tlist.push(te);
-                                    }
+                let func_vars_at_level =
+                    pullout_funcexprs(te.cast(), &[score_funcoid, snippet_funcoid], rti);
 
-                                    // track a triplet of (varno, varattno, attname) as 3 individual
-                                    // entries in the `attname_lookup` List
-                                    let attname = attname_from_var(builder.args().root, var)
-                                        .1
-                                        .expect("function call argument should be a column name");
-                                    attname_lookup
-                                        .push(pg_sys::makeInteger((*var).varno as _).cast());
-                                    attname_lookup
-                                        .push(pg_sys::makeInteger((*var).varattno as _).cast());
-                                    attname_lookup
-                                        .push(pg_sys::makeString(attname.as_pg_cstr()).cast());
-                                }
-                            }
-                        }
+                for (funcexpr, var) in func_vars_at_level {
+                    // if we have a tlist, then we need to add the specific function that uses
+                    // a Var at our level to that tlist.
+                    //
+                    // if we don't have a tlist (it's empty), then that means Postgres will later
+                    // give us everything we need
+                    if !tlist.is_empty() {
+                        let te = pg_sys::copyObjectImpl(te.cast()).cast::<pg_sys::TargetEntry>();
+                        (*te).resno = (tlist.len() + 1) as _;
+                        (*te).expr = funcexpr.cast();
+                        tlist.push(te);
                     }
+
+                    // track a triplet of (varno, varattno, attname) as 3 individual
+                    // entries in the `attname_lookup` List
+                    let attname = attname_from_var(builder.args().root, var)
+                        .1
+                        .expect("function call argument should be a column name");
+                    attname_lookup.push(pg_sys::makeInteger((*var).varno as _).cast());
+                    attname_lookup.push(pg_sys::makeInteger((*var).varattno as _).cast());
+                    attname_lookup.push(pg_sys::makeString(attname.as_pg_cstr()).cast());
                 }
             }
 

@@ -77,7 +77,9 @@ impl TryFrom<&PgOid> for SearchFieldType {
                     Ok(SearchFieldType::F64)
                 }
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool),
-                PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => Ok(SearchFieldType::Json),
+                PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID | PgBuiltInOids::INT4RANGEOID => {
+                    Ok(SearchFieldType::Json)
+                }
                 PgBuiltInOids::DATEOID
                 | PgBuiltInOids::TIMESTAMPOID
                 | PgBuiltInOids::TIMESTAMPTZOID

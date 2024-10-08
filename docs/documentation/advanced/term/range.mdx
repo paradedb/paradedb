@@ -42,7 +42,7 @@ WHERE id @@@ paradedb.range(
 ## Unbounded Range
 
 Passing `NULL` into either the upper or lower bound causes Postgres to treat the upper/lower bounds as
-postive/negative infinity.
+positive/negative infinity.
 
 ```sql
 SELECT description, rating, category

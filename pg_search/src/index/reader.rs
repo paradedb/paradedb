@@ -128,8 +128,8 @@ impl SearchIndexReader {
 
     /// Scan the index and use the provided callback to search for Documents with ctid
     /// values that need to be deleted.
-    pub fn get_ctids_to_delete<'a>(
-        &'a self,
+    pub fn get_ctids_to_delete(
+        &self,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(Vec<u64>, u32)> {
         let mut not_deleted: u32 = 0;

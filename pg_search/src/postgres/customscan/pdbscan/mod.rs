@@ -622,9 +622,9 @@ impl CustomScan for PdbScan {
             .get_reader()
             .expect("search index reader should have been constructed correctly");
 
-        let query = search_index.query(&search_config, &search_reader);
+        let query = search_index.query(search_config, &search_reader);
         state.custom_state.search_results =
-            search_reader.search_minimal(false, SearchIndex::executor(), &search_config, &query);
+            search_reader.search_minimal(false, SearchIndex::executor(), search_config, &query);
 
         if need_snippets {
             for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {

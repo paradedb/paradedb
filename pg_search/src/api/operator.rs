@@ -138,7 +138,7 @@ pub(crate) fn estimate_selectivity(
     let search_reader = search_index
         .get_reader()
         .expect("search reader creation should not fail");
-    let query = search_index.query(&search_config, &search_reader);
+    let query = search_index.query(search_config, &search_reader);
     let estimate = search_reader.estimate_docs(&query).unwrap_or(1) as f64;
 
     let mut selectivity = estimate / reltuples;

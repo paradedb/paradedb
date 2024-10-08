@@ -95,7 +95,7 @@ impl SearchIndex {
     }
 
     pub fn get_reader(&self) -> Result<SearchIndexReader> {
-        Ok(SearchIndexReader::new(self)?)
+        SearchIndexReader::new(self)
     }
 
     /// Retrieve an owned writer for a given index. This will block until this process

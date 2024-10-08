@@ -84,7 +84,7 @@ unsafe fn score_bm25(
     };
     let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
-    let query = search_index.query(&search_config, &search_reader);
+    let query = search_index.query(&search_config, search_reader);
     let top_docs = search_reader
         .search(SearchIndex::executor(), &search_config, &query)
         .filter(move |(scored, _)| vischeck.ctid_satisfies_snapshot(scored.ctid))
@@ -153,8 +153,8 @@ unsafe fn snippet(
         .highlight_field
         .as_ref()
         .expect("highlight_field is required");
-    let query = search_index.query(&search_config, &search_reader);
-    let mut snippet_generator = search_reader.snippet_generator(&highlight_field, &query);
+    let query = search_index.query(&search_config, search_reader);
+    let mut snippet_generator = search_reader.snippet_generator(highlight_field, &query);
     if let Some(max_num_chars) = search_config.max_num_chars {
         snippet_generator.set_max_num_chars(max_num_chars)
     }

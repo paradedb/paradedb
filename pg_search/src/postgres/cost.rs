@@ -63,7 +63,12 @@ pub unsafe extern "C" fn amcostestimate(
                 .expect("`SearchIndexCreateOptions` must have a `uuid` property"),
         )
         .expect("should be able to retrieve a SearchIndex from internal cache");
-        search_index.byte_size().unwrap_or(0) / pg_sys::BLCKSZ as u64
+        search_index
+            .get_reader()
+            .expect("must be able to initialize index reader in amcostestimate")
+            .byte_size()
+            .unwrap_or(0)
+            / pg_sys::BLCKSZ as u64
     };
     drop(indexrel);
 

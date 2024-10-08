@@ -619,15 +619,17 @@ impl CustomScan for PdbScan {
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
         let search_state = search_index
-            .search_state(search_config)
-            .expect("`SearchState` should have been constructed correctly");
+            .get_reader()
+            .expect("search index reader should have been constructed correctly");
 
+        let query = search_index.query(&search_config, &search_state);
         state.custom_state.search_results =
-            search_state.search_minimal(false, SearchIndex::executor());
+            search_state.search_minimal(false, SearchIndex::executor(), &search_config, &query);
 
         if need_snippets {
             for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {
-                *generator = Some(search_state.snippet_generator(snippet_info.field.as_ref()))
+                *generator =
+                    Some(search_state.snippet_generator(snippet_info.field.as_ref(), &query))
             }
             state.custom_state.search_state = Some(search_state);
         }

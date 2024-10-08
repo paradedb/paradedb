@@ -90,18 +90,6 @@ unsafe extern "C" fn pg_search_xact_callback(
                         index.directory, err
                     )
                 });
-                // SAFETY:  We don't have an outstanding reference to the SearchIndex cache here
-                // because we collected the pending create directories into an owned Vec
-                SearchIndex::drop_from_cache(&index.directory)
-            }
-
-            // finally, any index that was pending drop is no longer to be dropped because the
-            // transaction has aborted
-            for search_index in SearchIndex::get_cache()
-                .values_mut()
-                .filter(|index| index.is_pending_drop())
-            {
-                search_index.is_pending_drop = false;
             }
         }
 

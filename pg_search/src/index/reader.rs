@@ -100,13 +100,13 @@ impl Iterator for SearchResults {
 }
 
 #[derive(Clone)]
-pub struct SearchState {
+pub struct SearchIndexReader {
     pub searcher: Searcher,
     pub schema: SearchIndexSchema,
     pub underlying_reader: tantivy::IndexReader,
 }
 
-impl SearchState {
+impl SearchIndexReader {
     pub fn new(search_index: &SearchIndex) -> Result<Self> {
         let schema = search_index.schema.clone();
         let reader = search_index
@@ -115,7 +115,7 @@ impl SearchState {
             .reload_policy(tantivy::ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        Ok(SearchState {
+        Ok(SearchIndexReader {
             searcher,
             schema: schema.clone(),
             underlying_reader: reader,
@@ -485,8 +485,8 @@ impl FFType {
 }
 
 mod collector {
+    use crate::index::reader::FFType;
     use crate::index::score::SearchIndexScore;
-    use crate::index::state::FFType;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 

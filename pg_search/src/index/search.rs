@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::state::SearchState;
+use super::reader::SearchIndexReader;
 use super::IndexError;
 use crate::index::SearchIndexWriter;
 use crate::index::{
@@ -94,8 +94,8 @@ impl SearchIndex {
         Ok(new_self_ref)
     }
 
-    pub fn get_reader(&self) -> Result<SearchState> {
-        Ok(SearchState::new(self)?)
+    pub fn get_reader(&self) -> Result<SearchIndexReader> {
+        Ok(SearchIndexReader::new(self)?)
     }
 
     /// Retrieve an owned writer for a given index. This will block until this process
@@ -221,7 +221,7 @@ impl SearchIndex {
         query_parser
     }
 
-    pub fn query(&self, config: &SearchConfig, reader: &SearchState) -> Box<dyn Query> {
+    pub fn query(&self, config: &SearchConfig, reader: &SearchIndexReader) -> Box<dyn Query> {
         let mut parser = self.query_parser(config);
         let searcher = reader.underlying_reader.searcher();
         config
@@ -251,7 +251,7 @@ impl SearchIndex {
     /// are committed before returning an [`Ok`] response.
     pub fn delete(
         &mut self,
-        reader: &SearchState,
+        reader: &SearchIndexReader,
         writer: &mut SearchIndexWriter,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {

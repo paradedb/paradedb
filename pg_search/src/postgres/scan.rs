@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::state::SearchResults;
+use crate::index::reader::SearchResults;
 use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
 use crate::postgres::utils::relfilenode_from_index_oid;

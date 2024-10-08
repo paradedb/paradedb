@@ -18,7 +18,7 @@
 pub mod directory;
 pub mod score;
 pub mod search;
-pub mod state;
+pub mod reader;
 pub mod writer;
 
 pub use directory::*;

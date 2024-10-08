@@ -19,6 +19,7 @@ use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
+use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
@@ -29,6 +30,12 @@ use tantivy::{
     query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyDocument, TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
 
 /// An iterator of the different styles of search results we can return
 #[derive(Default)]
@@ -207,8 +214,34 @@ impl SearchState {
         }
     }
 
-    pub fn search_top_n(&self, executor: &'static Executor, n: usize) -> SearchResults {
-        let collector = TopDocs::with_limit(n);
+    pub fn search_top_n(
+        &self,
+        executor: &'static Executor,
+        n: usize,
+        sortdir: SortDirection,
+    ) -> SearchResults {
+        #[derive(PartialEq, Clone)]
+        struct OrderedScore {
+            dir: SortDirection,
+            score: Score,
+        }
+
+        impl PartialOrd for OrderedScore {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                let cmp = self.score.partial_cmp(&other.score);
+                match self.dir {
+                    SortDirection::Desc => cmp,
+                    SortDirection::Asc => cmp.map(|o| o.reverse()),
+                }
+            }
+        }
+
+        let collector = TopDocs::with_limit(n).tweak_score(move |_: &tantivy::SegmentReader| {
+            move |_: DocId, original_score: Score| OrderedScore {
+                dir: sortdir,
+                score: original_score,
+            }
+        });
 
         let results = self
             .searcher
@@ -225,7 +258,7 @@ impl SearchState {
             .into_iter();
 
         let mut top_docs = Vec::with_capacity(results.len());
-        for (score, doc_address) in results {
+        for (OrderedScore { score, .. }, doc_address) in results {
             let segment_reader = self.searcher.segment_reader(doc_address.segment_ord);
             let fast_fields = segment_reader.fast_fields();
             let ctid_ff = FFType::new(fast_fields, "ctid");

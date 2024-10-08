@@ -55,6 +55,36 @@ use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
 use tantivy::snippet::SnippetGenerator;
 
+const SORT_ASCENDING: i32 = pg_sys::BTLessStrategyNumber as _;
+const SORT_DESCENDING: i32 = pg_sys::BTGreaterStrategyNumber as _;
+
+#[derive(Debug, Default, Copy, Clone)]
+#[repr(i32)]
+enum SortDirection {
+    #[default]
+    Asc = pg_sys::BTLessStrategyNumber as i32,
+    Desc = pg_sys::BTGreaterStrategyNumber as i32,
+}
+
+impl From<SortDirection> for crate::index::state::SortDirection {
+    fn from(value: SortDirection) -> Self {
+        match value {
+            SortDirection::Asc => crate::index::state::SortDirection::Asc,
+            SortDirection::Desc => crate::index::state::SortDirection::Desc,
+        }
+    }
+}
+
+impl From<i32> for SortDirection {
+    fn from(value: i32) -> Self {
+        match value as u32 {
+            pg_sys::BTLessStrategyNumber => SortDirection::Asc,
+            pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
+            _ => panic!("unrecognized sort strategy number: {value}"),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct PdbScan;
 
@@ -73,6 +103,7 @@ pub struct PdbScanState {
 
     limit: Option<usize>,
     sort_by_score: bool,
+    sort_direction: SortDirection,
 
     heaprel: Option<pg_sys::Relation>,
     indexrel: Option<pg_sys::Relation>,
@@ -164,10 +195,18 @@ impl PrivateData {
         self.0.get_ptr(5).and_then(|node| node.as_bool())
     }
 
+    unsafe fn sort_direction(&self) -> SortDirection {
+        self.0
+            .get_ptr(6)
+            .and_then(|node| node.as_int())
+            .unwrap_or(SORT_ASCENDING)
+            .into()
+    }
+
     fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {
         unsafe {
             self.0
-                .get_ptr(6)
+                .get_ptr(7)
                 .map(|ptr| PgList::<pg_sys::Node>::from_pg(ptr.cast()))
         }
     }
@@ -247,7 +286,8 @@ impl CustomScan for PdbScan {
                     .add_private_data(pg_sys::makeInteger(rti as _).cast())
                     .add_private_data(restrict_info.into_pg().cast())
                     .add_private_data(pg_sys::makeInteger(limit as _).cast())
-                    .add_private_data(pg_sys::makeBoolean(pathkey.is_some()).cast());
+                    .add_private_data(pg_sys::makeBoolean(pathkey.is_some()).cast())
+                    .add_private_data(pg_sys::makeInteger(pathkey_sort_direction(pathkey)).cast());
 
                 let reltuples = table.reltuples().unwrap_or(1.0) as f64;
                 let rows = (reltuples * selectivity).max(1.0);
@@ -378,10 +418,13 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_by_score = private_data
                 .sort_by_score()
                 .expect("should have determined if sorting by score is necessary");
+            builder.custom_state().sort_direction = private_data.sort_direction();
 
+            // store our query quals into our custom state too
             let quals = private_data.quals().expect("should have a Qual structure");
             builder.custom_state().search_config = SearchConfig::from(quals);
 
+            // now build up the var attribute name lookup map
             unsafe fn populate_var_attname_lookup(
                 lookup: &mut HashMap<(i32, pg_sys::AttrNumber), String>,
                 iter: impl Iterator<Item = *mut pg_sys::Node>,
@@ -660,10 +703,13 @@ impl CustomScan for PdbScan {
             state.custom_state().limit,
             state.custom_state().sort_by_score,
         ) {
-            state.custom_state.search_results =
-                search_state.search_top_n(SearchIndex::executor(), limit);
+            state.custom_state().search_results = search_state.search_top_n(
+                SearchIndex::executor(),
+                limit,
+                state.custom_state().sort_direction.into(),
+            );
         } else {
-            state.custom_state.search_results =
+            state.custom_state().search_results =
                 search_state.search_minimal(false, SearchIndex::executor());
         }
 
@@ -671,7 +717,7 @@ impl CustomScan for PdbScan {
             for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {
                 *generator = Some(search_state.snippet_generator(snippet_info.field.as_ref()))
             }
-            state.custom_state.search_state = Some(search_state);
+            state.custom_state().search_state = Some(search_state);
         }
     }
 }
@@ -712,4 +758,11 @@ fn tts_ops_name(slot: *mut pg_sys::TupleTableSlot) -> &'static str {
             "Unknown"
         }
     }
+}
+
+unsafe fn pathkey_sort_direction(pathkey: Option<*mut pg_sys::PathKey>) -> i32 {
+    pathkey
+        .as_ref()
+        .map(|pathkey| (**pathkey).pk_strategy)
+        .unwrap_or(pg_sys::BTLessStrategyNumber as _)
 }

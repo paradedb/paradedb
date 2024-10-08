@@ -22,7 +22,7 @@ use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::projections::snippet::snippet_funcoid;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{pg_guard, pg_sys};
+use pgrx::{pg_guard, pg_sys, PgList};
 use std::ptr::addr_of_mut;
 
 pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
@@ -56,4 +56,55 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
 
     let data = addr_of_mut!(data).cast();
     walker(node, data)
+}
+
+/// find all [`pg_sys::FuncExpr`] nodes matching a set of known function Oids that also contain
+/// a [`pg_sys::Var`] as an argument that the specified `rti` level.
+///
+/// Returns a [`Vec`] of the matching `FuncExpr`s and the argument `Var` that finally matched.  If
+/// the function has multiple arguments that match, it's returned multiple times.
+pub unsafe fn pullout_funcexprs(
+    node: *mut pg_sys::Node,
+    funcids: &[pg_sys::Oid],
+    rti: i32,
+) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)> {
+    #[pg_guard]
+    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let data = &mut *data.cast::<Data>();
+            if data.funcids.contains(&(*funcexpr).funcid) {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                for arg in args.iter_ptr() {
+                    if let Some(var) = nodecast!(Var, T_Var, arg) {
+                        if (*var).varno == data.rti {
+                            data.matches.push((funcexpr, var));
+                        }
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Data<'a> {
+        funcids: &'a [pg_sys::Oid],
+        rti: i32,
+        matches: Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var)>,
+    }
+
+    let mut data = Data {
+        funcids,
+        rti,
+        matches: vec![],
+    };
+
+    walker(node, addr_of_mut!(data).cast());
+    data.matches
 }

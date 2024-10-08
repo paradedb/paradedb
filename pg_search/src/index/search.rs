@@ -153,7 +153,7 @@ impl SearchIndex {
             .expect("global SEARCH_INDEX_MEMORY must not be null")
     }
 
-    pub fn from_disk<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
+    pub fn from_disk(directory: &WriterDirectory) -> Result<&'static mut Self, SearchIndexError> {
         let mut new_self: Self = directory.load_index()?;
         let uuid = new_self.uuid.clone();
 
@@ -175,10 +175,10 @@ impl SearchIndex {
         directory.load_index()
     }
 
-    pub fn from_cache<'a>(
+    pub fn from_cache(
         directory: &WriterDirectory,
         uuid: &str,
-    ) -> Result<&'a mut Self, SearchIndexError> {
+    ) -> Result<&'static mut Self, SearchIndexError> {
         unsafe {
             if let Some(new_self) = SEARCH_INDEX_MEMORY.get_mut(directory) {
                 let cached_uuid = &new_self.uuid;

@@ -99,37 +99,6 @@ impl From<Qual> for SearchConfig {
     }
 }
 
-pub unsafe fn can_use_quals(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> Option<()> {
-    match (*node).type_ {
-        pg_sys::NodeTag::T_List => list(node.cast(), pdbopoid).map(|_| ()),
-
-        pg_sys::NodeTag::T_RestrictInfo => {
-            let ri = nodecast!(RestrictInfo, T_RestrictInfo, node)?;
-            can_use_quals((*ri).clause.cast(), pdbopoid)
-        }
-
-        pg_sys::NodeTag::T_OpExpr => opexpr(node, pdbopoid).map(|_| ()),
-
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-
-            match (*boolexpr).boolop {
-                pg_sys::BoolExprType::AND_EXPR => Some(()),
-                pg_sys::BoolExprType::OR_EXPR => Some(()),
-                pg_sys::BoolExprType::NOT_EXPR => Some(()),
-                _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
-            }
-        }
-
-        // we don't understand this clause so we can't do anything
-        _ => {
-            pgrx::warning!("unsupported qual node kind: {:?}", (*node).type_);
-            None
-        }
-    }
-}
-
 pub unsafe fn extract_quals(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> Option<Qual> {
     match (*node).type_ {
         pg_sys::NodeTag::T_List => {

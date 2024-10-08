@@ -19,8 +19,8 @@
 mod projections;
 mod qual_inspect;
 
-use crate::api::node;
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
+use crate::api::{AsCStr, AsInt};
 use crate::index::state::{SearchResults, SearchState};
 use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -46,7 +46,7 @@ use crate::postgres::utils::{
     relfilenode_from_index_oid, relfilenode_from_pg_relation, VisibilityChecker,
 };
 use crate::schema::SearchConfig;
-use crate::{nodecast, DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
+use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation};
 use shared::gucs::GlobalGucSettings;
@@ -127,61 +127,22 @@ impl PdbScanState {
 struct PrivateData(PgList<pg_sys::Node>);
 
 impl PrivateData {
-    fn heaprelid(&self) -> Option<pg_sys::Oid> {
-        #[cfg(any(feature = "pg13", feature = "pg14"))]
-        unsafe {
-            Some(pg_sys::Oid::from(
-                (*node::<pg_sys::Value>(self.0.get_ptr(0)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .val
-                    .ival as u32,
-            ))
-        }
-
-        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
-        unsafe {
-            Some(pg_sys::Oid::from(
-                (*node::<pg_sys::Integer>(self.0.get_ptr(0)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .ival as u32,
-            ))
-        }
+    unsafe fn heaprelid(&self) -> Option<pg_sys::Oid> {
+        self.0
+            .get_ptr(0)
+            .and_then(|node| node.as_int().map(|i| pg_sys::Oid::from(i as u32)))
     }
 
-    fn indexrelid(&self) -> Option<pg_sys::Oid> {
-        #[cfg(any(feature = "pg13", feature = "pg14"))]
-        unsafe {
-            Some(pg_sys::Oid::from(
-                (*node::<pg_sys::Value>(self.0.get_ptr(1)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .val
-                    .ival as u32,
-            ))
-        }
-
-        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
-        unsafe {
-            Some(pg_sys::Oid::from(
-                (*node::<pg_sys::Integer>(self.0.get_ptr(1)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .ival as u32,
-            ))
-        }
+    unsafe fn indexrelid(&self) -> Option<pg_sys::Oid> {
+        self.0
+            .get_ptr(1)
+            .and_then(|node| node.as_int().map(|i| pg_sys::Oid::from(i as u32)))
     }
 
-    fn range_table_index(&self) -> Option<pg_sys::Index> {
-        #[cfg(any(feature = "pg13", feature = "pg14"))]
-        unsafe {
-            Some(
-                (*node::<pg_sys::Value>(self.0.get_ptr(2)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .val
-                    .ival as pg_sys::Index,
-            )
-        }
-
-        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
-        unsafe {
-            Some(
-                (*node::<pg_sys::Integer>(self.0.get_ptr(2)?.cast(), pg_sys::NodeTag::T_Integer)?)
-                    .ival as pg_sys::Index,
-            )
-        }
+    unsafe fn range_table_index(&self) -> Option<pg_sys::Index> {
+        self.0
+            .get_ptr(2)
+            .and_then(|node| node.as_int().map(|i| i as pg_sys::Index))
     }
 
     fn quals(&self) -> Option<Qual> {
@@ -397,22 +358,12 @@ impl CustomScan for PdbScan {
             ) -> Option<()> {
                 let mut iter = iter.peekable();
                 while let Some(node) = iter.next() {
-                    #[cfg(any(feature = "pg13", feature = "pg14"))]
                     let (varno, varattno, attname) = {
-                        let varno = nodecast!(Value, T_Integer, node)?;
-                        let varattno = nodecast!(Value, T_Integer, iter.next()?)?;
-                        let attname = nodecast!(Value, T_String, iter.next()?)?;
+                        let varno = node.as_int()?;
+                        let varattno = iter.next()?.as_int()?;
+                        let attname = iter.next()?.as_c_str()?.as_ptr();
 
-                        ((*varno).val.ival, (*varattno).val.ival, (*attname).val.str_)
-                    };
-
-                    #[cfg(not(any(feature = "pg13", feature = "pg14")))]
-                    let (varno, varattno, attname) = {
-                        let varno = nodecast!(Integer, T_Integer, node)?;
-                        let varattno = nodecast!(Integer, T_Integer, iter.next()?)?;
-                        let attname = nodecast!(String, T_String, iter.next()?)?;
-
-                        ((*varno).ival, (*varattno).ival, (*attname).sval)
+                        (varno, varattno, attname)
                     };
 
                     lookup.insert(

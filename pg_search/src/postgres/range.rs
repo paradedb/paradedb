@@ -66,8 +66,8 @@ where
 
     pub fn build(self) -> TantivyRange<T> {
         TantivyRange {
-            lower: self.lower.unwrap_or_else(T::default),
-            upper: self.upper.unwrap_or_else(T::default),
+            lower: self.lower.unwrap_or_default(),
+            upper: self.upper.unwrap_or_default(),
             lower_inclusive: self.lower_inclusive.unwrap_or(true),
             upper_inclusive: self.upper_inclusive.unwrap_or(false),
             lower_unbounded: self.lower_unbounded.unwrap_or(false),

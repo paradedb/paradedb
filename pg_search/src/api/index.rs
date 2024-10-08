@@ -647,131 +647,278 @@ term_fn_unsupported!(
     "timestamp ranges with time zone"
 );
 
-#[pg_extern(immutable, parallel_safe)]
-pub fn range_field(field: FieldName, term: i32) -> SearchQueryInput {
-    SearchQueryInput::Boolean {
-        should: vec![],
-        must_not: vec![],
-        must: vec![
+// #[pg_extern(immutable, parallel_safe)]
+// pub fn range_term(field: FieldName, term: i32) -> SearchQueryInput {
+//     SearchQueryInput::Boolean {
+//         should: vec![],
+//         must_not: vec![],
+//         must: vec![
+//             SearchQueryInput::Boolean {
+//                 should: vec![
+//                     SearchQueryInput::Term {
+//                         field: Some(field.clone().into_inner()),
+//                         value: OwnedValue::Bool(true),
+//                         path: Some("lower_unbounded".into()),
+//                         is_datetime: false,
+//                     },
+//                     SearchQueryInput::Boolean {
+//                         should: vec![
+//                             SearchQueryInput::Boolean {
+//                                 must: vec![
+//                                     SearchQueryInput::Term {
+//                                         field: Some(field.clone().into_inner()),
+//                                         value: OwnedValue::Bool(true),
+//                                         path: Some("lower_inclusive".into()),
+//                                         is_datetime: false,
+//                                     },
+//                                     SearchQueryInput::Range {
+//                                         field: field.clone().into_inner(),
+//                                         lower_bound: Bound::Unbounded,
+//                                         upper_bound: Bound::Included(OwnedValue::I64(term as i64)),
+//                                         path: Some("lower".into()),
+//                                         is_datetime: false,
+//                                     },
+//                                 ],
+//                                 should: vec![],
+//                                 must_not: vec![],
+//                             },
+//                             SearchQueryInput::Boolean {
+//                                 must: vec![
+//                                     SearchQueryInput::Term {
+//                                         field: Some(field.clone().into_inner()),
+//                                         value: OwnedValue::Bool(false),
+//                                         path: Some("lower_inclusive".into()),
+//                                         is_datetime: false,
+//                                     },
+//                                     SearchQueryInput::Range {
+//                                         field: field.clone().into_inner(),
+//                                         lower_bound: Bound::Unbounded,
+//                                         upper_bound: Bound::Excluded(OwnedValue::I64(term as i64)),
+//                                         path: Some("lower".into()),
+//                                         is_datetime: false,
+//                                     },
+//                                 ],
+//                                 should: vec![],
+//                                 must_not: vec![],
+//                             },
+//                         ],
+//                         must: vec![],
+//                         must_not: vec![],
+//                     },
+//                 ],
+//                 must_not: vec![],
+//                 must: vec![],
+//             },
+//             // Check if the upper bound is unbounded or inclusive
+//             SearchQueryInput::Boolean {
+//                 should: vec![
+//                     // If upper_unbounded is true, no need to check the upper bound
+//                     SearchQueryInput::Term {
+//                         field: Some(field.clone().into_inner()),
+//                         value: OwnedValue::Bool(true),
+//                         path: Some("upper_unbounded".into()),
+//                         is_datetime: false,
+//                     },
+//                     SearchQueryInput::Boolean {
+//                         should: vec![
+//                             // Upper bound is inclusive (term <= upper)
+//                             SearchQueryInput::Boolean {
+//                                 must: vec![
+//                                     SearchQueryInput::Term {
+//                                         field: Some(field.clone().into_inner()),
+//                                         value: OwnedValue::Bool(true),
+//                                         path: Some("upper_inclusive".into()),
+//                                         is_datetime: false,
+//                                     },
+//                                     SearchQueryInput::Range {
+//                                         field: field.clone().into_inner(),
+//                                         upper_bound: Bound::Unbounded,
+//                                         lower_bound: Bound::Included(OwnedValue::I64(term as i64)),
+//                                         path: Some("upper".into()),
+//                                         is_datetime: false,
+//                                     },
+//                                 ],
+//                                 should: vec![],
+//                                 must_not: vec![],
+//                             },
+//                             // Upper bound is exclusive (term < upper)
+//                             SearchQueryInput::Boolean {
+//                                 must: vec![
+//                                     SearchQueryInput::Term {
+//                                         field: Some(field.clone().into_inner()),
+//                                         value: OwnedValue::Bool(false),
+//                                         path: Some("upper_inclusive".into()),
+//                                         is_datetime: false,
+//                                     },
+//                                     SearchQueryInput::Range {
+//                                         field: field.clone().into_inner(),
+//                                         upper_bound: Bound::Unbounded,
+//                                         lower_bound: Bound::Excluded(OwnedValue::I64(term as i64)),
+//                                         path: Some("upper".into()),
+//                                         is_datetime: false,
+//                                     },
+//                                 ],
+//                                 should: vec![],
+//                                 must_not: vec![],
+//                             },
+//                         ],
+//                         must: vec![],
+//                         must_not: vec![],
+//                     },
+//                 ],
+//                 must_not: vec![],
+//                 must: vec![],
+//             },
+//         ],
+//     }
+// }
+
+macro_rules! range_term_fn {
+    ($func_name:ident, $value_type:ty) => {
+        #[pg_extern(name = "range_term", immutable, parallel_safe)]
+        pub fn $func_name(field: FieldName, term: $value_type) -> SearchQueryInput {
             SearchQueryInput::Boolean {
-                should: vec![
-                    SearchQueryInput::Term {
-                        field: Some(field.clone().into_inner()),
-                        value: OwnedValue::Bool(true),
-                        path: Some("lower_unbounded".into()),
-                        is_datetime: false,
-                    },
+                should: vec![],
+                must_not: vec![],
+                must: vec![
+                    // Handle the lower bound: unbounded, inclusive, or exclusive
                     SearchQueryInput::Boolean {
                         should: vec![
-                            SearchQueryInput::Boolean {
-                                must: vec![
-                                    SearchQueryInput::Term {
-                                        field: Some(field.clone().into_inner()),
-                                        value: OwnedValue::Bool(true),
-                                        path: Some("lower_inclusive".into()),
-                                        is_datetime: false,
-                                    },
-                                    SearchQueryInput::Range {
-                                        field: field.clone().into_inner(),
-                                        lower_bound: Bound::Unbounded,
-                                        upper_bound: Bound::Included(OwnedValue::I64(term as i64)),
-                                        path: Some("lower".into()),
-                                        is_datetime: false,
-                                    },
-                                ],
-                                should: vec![],
-                                must_not: vec![],
+                            // If lower_unbounded is true, no need to check the lower bound
+                            SearchQueryInput::Term {
+                                field: Some(field.clone().into_inner()),
+                                value: OwnedValue::Bool(true),
+                                path: Some("lower_unbounded".into()),
+                                is_datetime: false,
                             },
+                            // Handle inclusivity and exclusivity for the lower bound
                             SearchQueryInput::Boolean {
-                                must: vec![
-                                    SearchQueryInput::Term {
-                                        field: Some(field.clone().into_inner()),
-                                        value: OwnedValue::Bool(false),
-                                        path: Some("lower_inclusive".into()),
-                                        is_datetime: false,
+                                should: vec![
+                                    // Lower bound is inclusive (term >= lower)
+                                    SearchQueryInput::Boolean {
+                                        must: vec![
+                                            SearchQueryInput::Term {
+                                                field: Some(field.clone().into_inner()),
+                                                value: OwnedValue::Bool(true),
+                                                path: Some("lower_inclusive".into()),
+                                                is_datetime: false,
+                                            },
+                                            SearchQueryInput::Range {
+                                                field: field.clone().into_inner(),
+                                                lower_bound: Bound::Unbounded,
+                                                upper_bound: Bound::Included(OwnedValue::I64(
+                                                    term as i64,
+                                                )),
+                                                path: Some("lower".into()),
+                                                is_datetime: false,
+                                            },
+                                        ],
+                                        should: vec![],
+                                        must_not: vec![],
                                     },
-                                    SearchQueryInput::Range {
-                                        field: field.clone().into_inner(),
-                                        lower_bound: Bound::Unbounded,
-                                        upper_bound: Bound::Excluded(OwnedValue::I64(term as i64)),
-                                        path: Some("lower".into()),
-                                        is_datetime: false,
+                                    // Lower bound is exclusive (term > lower)
+                                    SearchQueryInput::Boolean {
+                                        must: vec![
+                                            SearchQueryInput::Term {
+                                                field: Some(field.clone().into_inner()),
+                                                value: OwnedValue::Bool(false),
+                                                path: Some("lower_inclusive".into()),
+                                                is_datetime: false,
+                                            },
+                                            SearchQueryInput::Range {
+                                                field: field.clone().into_inner(),
+                                                lower_bound: Bound::Unbounded,
+                                                upper_bound: Bound::Excluded(OwnedValue::I64(
+                                                    term as i64,
+                                                )),
+                                                path: Some("lower".into()),
+                                                is_datetime: false,
+                                            },
+                                        ],
+                                        should: vec![],
+                                        must_not: vec![],
                                     },
                                 ],
-                                should: vec![],
+                                must: vec![],
                                 must_not: vec![],
                             },
                         ],
-                        must: vec![],
                         must_not: vec![],
+                        must: vec![],
                     },
-                ],
-                must_not: vec![],
-                must: vec![],
-            },
-            // Check if the upper bound is unbounded or inclusive
-            SearchQueryInput::Boolean {
-                should: vec![
-                    // If upper_unbounded is true, no need to check the upper bound
-                    SearchQueryInput::Term {
-                        field: Some(field.clone().into_inner()),
-                        value: OwnedValue::Bool(true),
-                        path: Some("upper_unbounded".into()),
-                        is_datetime: false,
-                    },
+                    // Handle the upper bound: unbounded, inclusive, or exclusive
                     SearchQueryInput::Boolean {
                         should: vec![
-                            // Upper bound is inclusive (term <= upper)
-                            SearchQueryInput::Boolean {
-                                must: vec![
-                                    SearchQueryInput::Term {
-                                        field: Some(field.clone().into_inner()),
-                                        value: OwnedValue::Bool(true),
-                                        path: Some("upper_inclusive".into()),
-                                        is_datetime: false,
-                                    },
-                                    SearchQueryInput::Range {
-                                        field: field.clone().into_inner(),
-                                        upper_bound: Bound::Unbounded,
-                                        lower_bound: Bound::Included(OwnedValue::I64(term as i64)),
-                                        path: Some("upper".into()),
-                                        is_datetime: false,
-                                    },
-                                ],
-                                should: vec![],
-                                must_not: vec![],
+                            // If upper_unbounded is true, no need to check the upper bound
+                            SearchQueryInput::Term {
+                                field: Some(field.clone().into_inner()),
+                                value: OwnedValue::Bool(true),
+                                path: Some("upper_unbounded".into()),
+                                is_datetime: false,
                             },
-                            // Upper bound is exclusive (term < upper)
+                            // Handle inclusivity and exclusivity for the upper bound
                             SearchQueryInput::Boolean {
-                                must: vec![
-                                    SearchQueryInput::Term {
-                                        field: Some(field.clone().into_inner()),
-                                        value: OwnedValue::Bool(false),
-                                        path: Some("upper_inclusive".into()),
-                                        is_datetime: false,
+                                should: vec![
+                                    // Upper bound is inclusive (term <= upper)
+                                    SearchQueryInput::Boolean {
+                                        must: vec![
+                                            SearchQueryInput::Term {
+                                                field: Some(field.clone().into_inner()),
+                                                value: OwnedValue::Bool(true),
+                                                path: Some("upper_inclusive".into()),
+                                                is_datetime: false,
+                                            },
+                                            SearchQueryInput::Range {
+                                                field: field.clone().into_inner(),
+                                                lower_bound: Bound::Included(OwnedValue::I64(
+                                                    term as i64,
+                                                )),
+                                                upper_bound: Bound::Unbounded,
+                                                path: Some("upper".into()),
+                                                is_datetime: false,
+                                            },
+                                        ],
+                                        should: vec![],
+                                        must_not: vec![],
                                     },
-                                    SearchQueryInput::Range {
-                                        field: field.clone().into_inner(),
-                                        upper_bound: Bound::Unbounded,
-                                        lower_bound: Bound::Excluded(OwnedValue::I64(term as i64)),
-                                        path: Some("upper".into()),
-                                        is_datetime: false,
+                                    // Upper bound is exclusive (term < upper)
+                                    SearchQueryInput::Boolean {
+                                        must: vec![
+                                            SearchQueryInput::Term {
+                                                field: Some(field.clone().into_inner()),
+                                                value: OwnedValue::Bool(false),
+                                                path: Some("upper_inclusive".into()),
+                                                is_datetime: false,
+                                            },
+                                            SearchQueryInput::Range {
+                                                field: field.clone().into_inner(),
+                                                lower_bound: Bound::Excluded(OwnedValue::I64(
+                                                    term as i64,
+                                                )),
+                                                upper_bound: Bound::Unbounded,
+                                                path: Some("upper".into()),
+                                                is_datetime: false,
+                                            },
+                                        ],
+                                        should: vec![],
+                                        must_not: vec![],
                                     },
                                 ],
-                                should: vec![],
+                                must: vec![],
                                 must_not: vec![],
                             },
                         ],
-                        must: vec![],
                         must_not: vec![],
+                        must: vec![],
                     },
                 ],
-                must_not: vec![],
-                must: vec![],
-            },
-        ],
-    }
+            }
+        }
+    };
 }
+
+range_term_fn!(range_term_i32, i32);
+range_term_fn!(range_term_i64, i64);
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(

@@ -26,12 +26,11 @@ use pgrx::PostgresType;
 use pgrx::{datum::RangeBound, FromDatum, PgBuiltInOids, PgOid};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::{Deserialize, Deserializer};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::num::ParseFloatError;
-use std::ops::Bound;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 use thiserror::Error;
@@ -77,9 +76,6 @@ impl TantivyValue {
                         pgrx::datum::TimeWithTimeZone::try_from(self)?.into_datum()
                     }
                     PgBuiltInOids::UUIDOID => pgrx::datum::Uuid::try_from(self)?.into_datum(),
-                    PgBuiltInOids::INT4RANGEOID => {
-                        pgrx::datum::Range::<i32>::try_from(self)?.into_datum()
-                    }
                     _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
                 };
                 Ok(datum)
@@ -225,6 +221,10 @@ impl TantivyValue {
                 ),
                 PgBuiltInOids::INT4RANGEOID => TantivyValue::try_from(
                     pgrx::datum::Range::<i32>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::INT8RANGEOID => TantivyValue::try_from(
+                    pgrx::datum::Range::<i64>::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
@@ -919,25 +919,34 @@ impl TryFrom<pgrx::Inet> for TantivyValue {
     }
 }
 
-impl TryFrom<pgrx::Range<i32>> for TantivyValue {
+impl<T> TryFrom<pgrx::Range<T>> for TantivyValue
+where
+    T: Clone + Default + Serialize + pgrx::datum::RangeSubType,
+{
     type Error = TantivyValueError;
 
-    fn try_from(val: pgrx::Range<i32>) -> Result<Self, Self::Error> {
+    fn try_from(val: pgrx::Range<T>) -> Result<Self, Self::Error> {
         match val.is_empty() {
             true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                serde_json::to_value(TantivyRangeBuilder::new().lower(0).upper(0).build())?,
+                serde_json::to_value(
+                    TantivyRangeBuilder::new()
+                        .lower(T::default())
+                        .upper(T::default())
+                        .build(),
+                )?,
             ))),
             false => {
                 let lower = match val.lower() {
                     Some(RangeBound::Inclusive(val)) => val.clone(),
                     Some(RangeBound::Exclusive(val)) => val.clone(),
-                    Some(RangeBound::Infinite) | None => 0,
+                    Some(RangeBound::Infinite) | None => T::default(),
                 };
                 let upper = match val.upper() {
                     Some(RangeBound::Inclusive(val)) => val.clone(),
                     Some(RangeBound::Exclusive(val)) => val.clone(),
-                    Some(RangeBound::Infinite) | None => 0,
+                    Some(RangeBound::Infinite) | None => T::default(),
                 };
+
                 let lower_inclusive = matches!(val.lower(), Some(RangeBound::Inclusive(_)));
                 let upper_inclusive = matches!(val.upper(), Some(RangeBound::Inclusive(_)));
                 let lower_unbounded = matches!(val.lower(), Some(RangeBound::Infinite) | None);
@@ -964,7 +973,7 @@ impl TryFrom<TantivyValue> for pgrx::Range<i32> {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
+        if let tantivy::schema::OwnedValue::Object(_) = value.0 {
             todo!("implement tantivyvalue to int4range")
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(

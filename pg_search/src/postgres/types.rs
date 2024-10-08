@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
+use crate::postgres::range::TantivyRangeBuilder;
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
@@ -922,24 +923,39 @@ impl TryFrom<pgrx::Range<i32>> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Range<i32>) -> Result<Self, Self::Error> {
-        pgrx::info!("try from  {:?}", val);
         match val.is_empty() {
-            true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(json!({
-                "lower": Bound::Included(0),
-                "upper": Bound::Excluded(0)
-            })))),
-            false => Ok(TantivyValue(tantivy::schema::OwnedValue::from(json!({
-                "lower": match val.lower() {
-                    Some(RangeBound::Inclusive(value)) => Bound::Included(value.clone()),
-                    Some(RangeBound::Exclusive(value)) => Bound::Excluded(value.clone()),
-                    Some(RangeBound::Infinite) | None => Bound::Unbounded,
-                },
-                "upper": match val.upper() {
-                    Some(RangeBound::Inclusive(value)) => Bound::Included(value.clone()),
-                    Some(RangeBound::Exclusive(value)) => Bound::Excluded(value.clone()),
-                    Some(RangeBound::Infinite) | None => Bound::Unbounded,
-                }
-            })))),
+            true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
+                serde_json::to_value(TantivyRangeBuilder::new().lower(0).upper(0).build())?,
+            ))),
+            false => {
+                let lower = match val.lower() {
+                    Some(RangeBound::Inclusive(val)) => val.clone(),
+                    Some(RangeBound::Exclusive(val)) => val.clone(),
+                    Some(RangeBound::Infinite) | None => 0,
+                };
+                let upper = match val.upper() {
+                    Some(RangeBound::Inclusive(val)) => val.clone(),
+                    Some(RangeBound::Exclusive(val)) => val.clone(),
+                    Some(RangeBound::Infinite) | None => 0,
+                };
+                let lower_inclusive = matches!(val.lower(), Some(RangeBound::Inclusive(_)));
+                let upper_inclusive = matches!(val.upper(), Some(RangeBound::Inclusive(_)));
+                let lower_unbounded = matches!(val.lower(), Some(RangeBound::Infinite) | None);
+                let upper_unbounded = matches!(val.upper(), Some(RangeBound::Infinite) | None);
+
+                Ok(TantivyValue(tantivy::schema::OwnedValue::from(
+                    serde_json::to_value(
+                        TantivyRangeBuilder::new()
+                            .lower(lower)
+                            .upper(upper)
+                            .lower_inclusive(lower_inclusive)
+                            .upper_inclusive(upper_inclusive)
+                            .lower_unbounded(lower_unbounded)
+                            .upper_unbounded(upper_unbounded)
+                            .build(),
+                    )?,
+                )))
+            }
         }
     }
 }
@@ -949,8 +965,7 @@ impl TryFrom<TantivyValue> for pgrx::Range<i32> {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         if let tantivy::schema::OwnedValue::Object(val) = value.0 {
-            pgrx::info!("try from tantivy value {:?}", val);
-            Ok(pgrx::Range::<i32>::new(0, 0))
+            todo!("implement tantivyvalue to int4range")
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "int4range".to_string(),

@@ -648,6 +648,132 @@ term_fn_unsupported!(
 );
 
 #[pg_extern(immutable, parallel_safe)]
+pub fn range_field(field: FieldName, term: i32) -> SearchQueryInput {
+    SearchQueryInput::Boolean {
+        should: vec![],
+        must_not: vec![],
+        must: vec![
+            SearchQueryInput::Boolean {
+                should: vec![
+                    SearchQueryInput::Term {
+                        field: Some(field.clone().into_inner()),
+                        value: OwnedValue::Bool(true),
+                        path: Some("lower_unbounded".into()),
+                        is_datetime: false,
+                    },
+                    SearchQueryInput::Boolean {
+                        should: vec![
+                            SearchQueryInput::Boolean {
+                                must: vec![
+                                    SearchQueryInput::Term {
+                                        field: Some(field.clone().into_inner()),
+                                        value: OwnedValue::Bool(true),
+                                        path: Some("lower_inclusive".into()),
+                                        is_datetime: false,
+                                    },
+                                    SearchQueryInput::Range {
+                                        field: field.clone().into_inner(),
+                                        lower_bound: Bound::Unbounded,
+                                        upper_bound: Bound::Included(OwnedValue::I64(term as i64)),
+                                        path: Some("lower".into()),
+                                        is_datetime: false,
+                                    },
+                                ],
+                                should: vec![],
+                                must_not: vec![],
+                            },
+                            SearchQueryInput::Boolean {
+                                must: vec![
+                                    SearchQueryInput::Term {
+                                        field: Some(field.clone().into_inner()),
+                                        value: OwnedValue::Bool(false),
+                                        path: Some("lower_inclusive".into()),
+                                        is_datetime: false,
+                                    },
+                                    SearchQueryInput::Range {
+                                        field: field.clone().into_inner(),
+                                        lower_bound: Bound::Unbounded,
+                                        upper_bound: Bound::Excluded(OwnedValue::I64(term as i64)),
+                                        path: Some("lower".into()),
+                                        is_datetime: false,
+                                    },
+                                ],
+                                should: vec![],
+                                must_not: vec![],
+                            },
+                        ],
+                        must: vec![],
+                        must_not: vec![],
+                    },
+                ],
+                must_not: vec![],
+                must: vec![],
+            },
+            // Check if the upper bound is unbounded or inclusive
+            SearchQueryInput::Boolean {
+                should: vec![
+                    // If upper_unbounded is true, no need to check the upper bound
+                    SearchQueryInput::Term {
+                        field: Some(field.clone().into_inner()),
+                        value: OwnedValue::Bool(true),
+                        path: Some("upper_unbounded".into()),
+                        is_datetime: false,
+                    },
+                    SearchQueryInput::Boolean {
+                        should: vec![
+                            // Upper bound is inclusive (term <= upper)
+                            SearchQueryInput::Boolean {
+                                must: vec![
+                                    SearchQueryInput::Term {
+                                        field: Some(field.clone().into_inner()),
+                                        value: OwnedValue::Bool(true),
+                                        path: Some("upper_inclusive".into()),
+                                        is_datetime: false,
+                                    },
+                                    SearchQueryInput::Range {
+                                        field: field.clone().into_inner(),
+                                        upper_bound: Bound::Unbounded,
+                                        lower_bound: Bound::Included(OwnedValue::I64(term as i64)),
+                                        path: Some("upper".into()),
+                                        is_datetime: false,
+                                    },
+                                ],
+                                should: vec![],
+                                must_not: vec![],
+                            },
+                            // Upper bound is exclusive (term < upper)
+                            SearchQueryInput::Boolean {
+                                must: vec![
+                                    SearchQueryInput::Term {
+                                        field: Some(field.clone().into_inner()),
+                                        value: OwnedValue::Bool(false),
+                                        path: Some("upper_inclusive".into()),
+                                        is_datetime: false,
+                                    },
+                                    SearchQueryInput::Range {
+                                        field: field.clone().into_inner(),
+                                        upper_bound: Bound::Unbounded,
+                                        lower_bound: Bound::Excluded(OwnedValue::I64(term as i64)),
+                                        path: Some("upper".into()),
+                                        is_datetime: false,
+                                    },
+                                ],
+                                should: vec![],
+                                must_not: vec![],
+                            },
+                        ],
+                        must: vec![],
+                        must_not: vec![],
+                    },
+                ],
+                must_not: vec![],
+                must: vec![],
+            },
+        ],
+    }
+}
+
+#[pg_extern(immutable, parallel_safe)]
 pub fn term_set(
     terms: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
 ) -> SearchQueryInput {

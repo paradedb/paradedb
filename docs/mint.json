@@ -181,7 +181,8 @@
                 "documentation/similarity/index",
                 "documentation/similarity/search"
               ]
-            }
+            },
+            "documentation/configuration"
           ]
         },
         {

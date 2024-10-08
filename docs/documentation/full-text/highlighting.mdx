@@ -36,3 +36,9 @@ FROM mock_items
 WHERE description @@@ 'shoes'
 LIMIT 5;
 ```
+
+<Note>
+Highlighting is an expensive process and can slow down query times.
+We recommend passing a `LIMIT` to any query where `paradedb.snippet` is called to restrict the
+number of snippets that need to be generated.
+</Note>

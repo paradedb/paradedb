@@ -132,7 +132,7 @@ pub unsafe fn extract_quals(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> O
 
         // we don't understand this clause so we can't do anything
         _ => {
-//            pgrx::warning!("unsupported qual node kind: {:?}", (*node).type_);
+            // pgrx::warning!("unsupported qual node kind: {:?}", (*node).type_);
             None
         }
     }

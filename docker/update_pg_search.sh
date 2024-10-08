@@ -11,8 +11,9 @@ export PGUSER="$POSTGRES_USER"
 
 PARADEDB_VERSION="${PARADEDB_VERSION%%+*}"
 
-# Update ParadeDB pg_search into both template_database and $POSTGRES_DB
-for DB in template_paradedb "$POSTGRES_DB" "${@}"; do
+# Update ParadeDB pg_search into both template1 and $POSTGRES_DB
+# Creating the extension in template1 ensures that it is available in all new databases.
+for DB in template1 "$POSTGRES_DB" "${@}"; do
   echo "Updating ParadeDB pg_search '$DB' to $PARADEDB_VERSION"
   psql -d "$DB" -c "
     -- Upgrade ParadeDB extensions

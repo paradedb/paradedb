@@ -1375,6 +1375,7 @@ dependencies = [
  "rand",
  "rayon",
  "reqwest 0.12.8",
+ "rstest",
  "serde",
  "serde_json",
  "sqlx",

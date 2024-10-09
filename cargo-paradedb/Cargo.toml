@@ -42,3 +42,9 @@ cargo_metadata = { version = "0.18.0" }
 camino = { version = "1.0.7", features = ["serde1"] }
 rayon = { version = "1.5" }
 url = { version = "2.3" }
+
+[dev-dependencies]
+rstest = "0.18.2"
+
+[package.metadata.cargo-machete]
+ignored = ["chrono"]

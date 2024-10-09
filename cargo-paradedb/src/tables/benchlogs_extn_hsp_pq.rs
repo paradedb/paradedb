@@ -26,6 +26,9 @@ use datafusion::arrow::datatypes::{DataType, Field, Fields, Schema, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::parquet::arrow::ArrowWriter;
 use datafusion::prelude::*;
+use rand::rngs::StdRng;
+use rand::Rng;
+use rand::SeedableRng;
 use rayon::prelude::*;
 use sqlx::Executor;
 use sqlx::PgConnection;
@@ -291,7 +294,7 @@ impl EsLogParquetManager {
     pub fn create_hive_partitioned_parquet(
         events: u64,
         seed: u64,
-        chunk_size: usize,
+        chunk_size: u64,
         base_path: &Path,
     ) -> Result<()> {
         tracing::info!(
@@ -319,7 +322,7 @@ impl EsLogParquetManager {
 
             log_cache.entry(key).or_default().push(log);
 
-            if log_cache.get(&key).unwrap().len() >= chunk_size {
+            if log_cache.get(&key).unwrap().len() >= chunk_size as usize {
                 let partition_path = base_path.join(format!("year={}/month={:02}", year, month));
                 tracing::debug!("Creating partition directory: {:?}", partition_path);
                 fs::create_dir_all(&partition_path).with_context(|| {
@@ -813,6 +816,7 @@ impl EsLogBenchManager {
         pg_conn: &mut PgConnection,
         eslogs_local_df: &DataFrame,
         foreign_table_id: &str,
+        num_queries: usize,
     ) -> Result<()> {
         // Calculate min and max timestamps
         let min_max_df = eslogs_local_df
@@ -849,21 +853,30 @@ impl EsLogBenchManager {
             })?
             .value(0);
 
-        let min_ts_str = DateTime::from_timestamp_millis(min_ts)
-            .ok_or_else(|| anyhow::anyhow!("Invalid min timestamp"))?
-            .format("%Y-%m-%d %H:%M:%S%.3f")
-            .to_string();
-        let max_ts_str = DateTime::from_timestamp_millis(max_ts)
-            .ok_or_else(|| anyhow::anyhow!("Invalid max timestamp"))?
-            .format("%Y-%m-%d %H:%M:%S%.3f")
-            .to_string();
+        // Replace thread_rng with a thread-safe RNG
+        let mut rng = StdRng::from_entropy();
 
-        let query = format!(
-            "SELECT * FROM {} WHERE timestamp >= '{}' AND timestamp < '{}'",
-            foreign_table_id, min_ts_str, max_ts_str
-        );
+        for _ in 0..num_queries {
+            // Generate random start and end timestamps within the range
+            let random_start = rng.gen_range(min_ts..max_ts);
+            let random_end = rng.gen_range(random_start..max_ts);
 
-        let _pg_result = sqlx::query(&query).fetch_all(pg_conn).await?;
+            let random_start_str = DateTime::from_timestamp_millis(random_start)
+                .ok_or_else(|| anyhow::anyhow!("Invalid random start timestamp"))?
+                .format("%Y-%m-%d %H:%M:%S%.3f")
+                .to_string();
+            let random_end_str = DateTime::from_timestamp_millis(random_end)
+                .ok_or_else(|| anyhow::anyhow!("Invalid random end timestamp"))?
+                .format("%Y-%m-%d %H:%M:%S%.3f")
+                .to_string();
+
+            let query = format!(
+                "SELECT * FROM {} WHERE timestamp >= '{}' AND timestamp < '{}'",
+                foreign_table_id, random_start_str, random_end_str
+            );
+
+            let _pg_result = sqlx::query(&query).fetch_all(&mut *pg_conn).await?;
+        }
 
         Ok(())
     }

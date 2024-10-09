@@ -25,28 +25,30 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::fixtures::postgres_test_client::{ActivePoolConnGuard, PostgresTestClient};
+use crate::fixtures::postgres_test_client::{ConnectionType, PostgresTestClient};
 use crate::tables::benchlogs_extn_hsp_pq::{
     EsLogBenchManager, EsLogParquetForeignTableManager, EsLogParquetManager,
 };
 use camino::Utf8PathBuf;
 
+// Constants for benchmark configuration
+const SAMPLE_SIZE: usize = 60;
+const MEASUREMENT_TIME_SECS: u64 = 200;
+const WARM_UP_TIME_SECS: u64 = 2;
+const DS_ESLOG_TOTAL_EVENTS: u64 = 10_000;
+const DS_ESLOG_CHUNK_SIZE: u64 = 1_000;
 const TOTAL_RECORDS: usize = 10_000;
 
-// Constants for benchmark configuration
-const SAMPLE_SIZE: usize = 10;
-const MEASUREMENT_TIME_SECS: u64 = 30;
-const WARM_UP_TIME_SECS: u64 = 2;
-
-const PG_POOL_CONN_MAX: usize = 1;
+const PG_POOL_CONN_MAX: usize = 2;
 
 const S3_BUCKET_ID: &str = "demo-mlp-eslogs";
 const S3_PREFIX: &str = "eslogs_dataset";
 
+const RUN_BENCH_WITH_PG_CONN_TYPE: ConnectionType = ConnectionType::Exclusive;
+
 #[derive(Clone)]
 struct BenchResource {
     df: Arc<DataFrame>,
-    // pg_conn: Arc<Mutex<PgConnection>>,
     s3_storage: Arc<LocalStackS3Client>,
     db: Arc<PostgresTestClient>,
 }
@@ -59,7 +61,6 @@ impl BenchResource {
 
         Ok(Self {
             df: Arc::new(df),
-            // pg_conn: Arc::new(Mutex::new(pg_conn)),
             s3_storage: Arc::new(s3_storage),
             db: Arc::new(db),
         })
@@ -70,11 +71,16 @@ impl BenchResource {
     ) -> Result<(DataFrame, LocalStackS3Client, PostgresTestClient)> {
         // Initialize database
         let db = PostgresTestClient::new(postgres_url, PG_POOL_CONN_MAX).await?;
-        let mut pg_conn: ActivePoolConnGuard = db.acquire_connection().await?;
 
-        sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_analytics;")
-            .execute(&mut pg_conn.inner_conn)
-            .await?;
+        db.execute_with_connection(ConnectionType::Exclusive, |pg_conn| {
+            Box::pin(async move {
+                sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_analytics;")
+                    .execute(pg_conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .await?;
 
         // Generate and load data
         let parquet_dataset_path = Self::parquet_path();
@@ -85,9 +91,9 @@ impl BenchResource {
             let seed = Self::generate_seed();
             tracing::info!("Generating ESLogs dataset with seed: {}", seed);
             EsLogParquetManager::create_hive_partitioned_parquet(
-                10000,
+                DS_ESLOG_TOTAL_EVENTS,
                 seed,
-                1000,
+                DS_ESLOG_CHUNK_SIZE,
                 &parquet_dataset_path,
             )
             .context("Failed to generate and save ESLogs dataset as local Parquet")?;
@@ -192,56 +198,51 @@ impl BenchResource {
     #[allow(clippy::await_holding_lock)]
     async fn setup_tables(
         &self,
-        foreign_table_id: &str,
+        foreign_table_id: String,
         with_disk_cache: bool,
         with_mem_cache: bool,
     ) -> Result<()> {
         // Clone Arc to avoid holding the lock across await points
+
         let db = Arc::clone(&self.db);
-        // let pg_conn = Arc::clone(&self.pg_conn);
         let s3_storage = Arc::clone(&self.s3_storage);
 
-        // Use a separate block to ensure the lock is released as soon as possible
-        {
-            let mut pg_conn: ActivePoolConnGuard = db.acquire_connection().await?;
+        db.execute_with_connection(RUN_BENCH_WITH_PG_CONN_TYPE, |pg_conn| {
+            Box::pin(async move {
+                EsLogParquetForeignTableManager::setup_tables(
+                    pg_conn,
+                    &s3_storage,
+                    S3_BUCKET_ID,
+                    S3_PREFIX,
+                    &foreign_table_id,
+                    with_disk_cache,
+                )
+                .await?;
 
-            EsLogParquetForeignTableManager::setup_tables(
-                &mut pg_conn.inner_conn,
-                &s3_storage,
-                S3_BUCKET_ID,
-                S3_PREFIX,
-                foreign_table_id,
-                with_disk_cache,
-            )
-            .await?;
+                let with_mem_cache_cfg = if with_mem_cache { "true" } else { "false" };
+                let query = format!(
+                    "SELECT duckdb_execute($$SET enable_object_cache={}$$)",
+                    with_mem_cache_cfg
+                );
+                sqlx::query(&query).execute(pg_conn).await?;
 
-            let with_mem_cache_cfg = if with_mem_cache { "true" } else { "false" };
-            let query = format!(
-                "SELECT duckdb_execute($$SET enable_object_cache={}$$)",
-                with_mem_cache_cfg
-            );
-            sqlx::query(&query).execute(&mut pg_conn.inner_conn).await?;
-        }
-
-        Ok(())
+                Ok(())
+            })
+        })
+        .await
     }
 
     #[allow(clippy::await_holding_lock)]
-    async fn bench_total_sales(&self, foreign_table_id: &str) -> Result<()> {
+    async fn bench_total_sales(&self, foreign_table_id: String) -> Result<()> {
         let db = Arc::clone(&self.db);
-        // let pg_conn = Arc::clone(&self.pg_conn);
-        // let mut conn = pg_conn.lock().await;
+        let df = Arc::clone(&self.df);
 
-        let mut pg_conn: ActivePoolConnGuard = db.acquire_connection().await?;
-
-        let _ = EsLogBenchManager::bench_time_range_query(
-            &mut pg_conn.inner_conn,
-            &self.df,
-            foreign_table_id,
-        )
-        .await;
-
-        Ok(())
+        db.execute_with_connection(RUN_BENCH_WITH_PG_CONN_TYPE, |pg_conn| {
+            Box::pin(async move {
+                EsLogBenchManager::bench_time_range_query(pg_conn, &df, &foreign_table_id, 10).await
+            })
+        })
+        .await
     }
 }
 
@@ -256,14 +257,14 @@ async fn eslog_pq_disk_cache_bench(postgres_url: &str, c: &mut Criterion) {
         }
     };
 
-    let foreign_table_id = "eslog_pq_disk_cache";
+    let foreign_table_id: String = String::from("eslog_pq_disk_cache");
 
     let mut group = c.benchmark_group("Eslog PQ Disk Cache Benchmarks");
     group.sample_size(10); // Adjust sample size if necessary
 
     // Setup tables for the benchmark
     if let Err(e) = bench_resource
-        .setup_tables(foreign_table_id, true, false)
+        .setup_tables(foreign_table_id.clone(), true, false)
         .await
     {
         tracing::error!("Table setup failed: {}", e);
@@ -276,9 +277,10 @@ async fn eslog_pq_disk_cache_bench(postgres_url: &str, c: &mut Criterion) {
         .throughput(criterion::Throughput::Elements(TOTAL_RECORDS as u64))
         .bench_function(BenchmarkId::new("ESLog PQ", "Disk Cache"), |runner| {
             runner.iter(|| {
-                let _ =
-                    async_std::task::block_on(bench_resource.bench_total_sales(foreign_table_id))
-                        .context("Benchmark execution failed");
+                let _ = async_std::task::block_on(
+                    bench_resource.bench_total_sales(foreign_table_id.clone()),
+                )
+                .context("Benchmark execution failed");
             });
         });
 
@@ -297,21 +299,21 @@ async fn eslog_pq_mem_cache_bench(postgres_url: &str, c: &mut Criterion) {
         }
     };
 
-    let foreign_table_id = "eslog_pq_mem_cache";
+    let foreign_table_id: String = String::from("eslog_pq_mem_cache");
 
     let mut group = c.benchmark_group("Eslog PQ Mem Cache Benchmarks");
     group.sample_size(10); // Adjust sample size if necessary
 
     // Setup tables for the benchmark
     if let Err(e) = bench_resource
-        .setup_tables(foreign_table_id, false, true)
+        .setup_tables(foreign_table_id.clone(), false, true)
         .await
     {
         tracing::error!("Table setup failed: {}", e);
     }
 
     bench_resource
-        .bench_total_sales(foreign_table_id)
+        .bench_total_sales(foreign_table_id.clone())
         .await
         .unwrap();
 
@@ -322,9 +324,10 @@ async fn eslog_pq_mem_cache_bench(postgres_url: &str, c: &mut Criterion) {
         .throughput(criterion::Throughput::Elements(TOTAL_RECORDS as u64))
         .bench_function(BenchmarkId::new("ESLog PQ", "Mem Cache"), |runner| {
             runner.iter(|| {
-                let _ =
-                    async_std::task::block_on(bench_resource.bench_total_sales(foreign_table_id))
-                        .context("Benchmark execution failed");
+                let _ = async_std::task::block_on(
+                    bench_resource.bench_total_sales(foreign_table_id.clone()),
+                )
+                .context("Benchmark execution failed");
             });
         });
 
@@ -343,21 +346,21 @@ async fn eslog_pq_full_cache_bench(postgres_url: &str, c: &mut Criterion) {
         }
     };
 
-    let foreign_table_id = "eslog_pq_full_cache";
+    let foreign_table_id: String = String::from("eslog_pq_full_cache");
 
     let mut group = c.benchmark_group("Eslog PQ Full Cache Benchmarks");
     group.sample_size(10); // Adjust sample size if necessary
 
     // Setup tables for the benchmark
     if let Err(e) = bench_resource
-        .setup_tables(foreign_table_id, true, true)
+        .setup_tables(foreign_table_id.clone(), true, true)
         .await
     {
         tracing::error!("Table setup failed: {}", e);
     }
 
     bench_resource
-        .bench_total_sales(foreign_table_id)
+        .bench_total_sales(foreign_table_id.clone())
         .await
         .unwrap();
 
@@ -369,9 +372,10 @@ async fn eslog_pq_full_cache_bench(postgres_url: &str, c: &mut Criterion) {
         .throughput(criterion::Throughput::Elements(TOTAL_RECORDS as u64))
         .bench_function(BenchmarkId::new("ESLog PQ", "Full Cache"), |runner| {
             runner.iter(|| {
-                let _ =
-                    async_std::task::block_on(bench_resource.bench_total_sales(foreign_table_id))
-                        .context("Benchmark execution failed");
+                let _ = async_std::task::block_on(
+                    bench_resource.bench_total_sales(foreign_table_id.clone()),
+                )
+                .context("Benchmark execution failed");
             });
         });
 
@@ -390,21 +394,21 @@ async fn eslog_pq_no_cache_bench(postgres_url: &str, c: &mut Criterion) {
         }
     };
 
-    let foreign_table_id = "eslog_no_cache";
+    let foreign_table_id: String = String::from("eslog_no_cache");
 
     let mut group = c.benchmark_group("Eslog PQ No Cache Benchmarks");
     group.sample_size(10); // Adjust sample size if necessary
 
     // Setup tables for the benchmark
     if let Err(e) = bench_resource
-        .setup_tables(foreign_table_id, false, false)
+        .setup_tables(foreign_table_id.clone(), false, false)
         .await
     {
         tracing::error!("Table setup failed: {}", e);
     }
 
     bench_resource
-        .bench_total_sales(foreign_table_id)
+        .bench_total_sales(foreign_table_id.clone())
         .await
         .unwrap();
 
@@ -416,9 +420,10 @@ async fn eslog_pq_no_cache_bench(postgres_url: &str, c: &mut Criterion) {
         .throughput(criterion::Throughput::Elements(TOTAL_RECORDS as u64))
         .bench_function(BenchmarkId::new("ESLog PQ", "No Cache"), |runner| {
             runner.iter(|| {
-                let _ =
-                    async_std::task::block_on(bench_resource.bench_total_sales(foreign_table_id))
-                        .context("Benchmark execution failed");
+                let _ = async_std::task::block_on(
+                    bench_resource.bench_total_sales(foreign_table_id.clone()),
+                )
+                .context("Benchmark execution failed");
             });
         });
 

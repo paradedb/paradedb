@@ -21,19 +21,8 @@ const DEFAULT_BENCH_ESLOGS_TABLE: &str = "benchmark_eslogs";
 const DEFAULT_BENCH_ESLOGS_INDEX_NAME: &str = "benchmark_eslogs_pg_search";
 
 #[derive(Debug, Parser)]
-#[command(bin_name = "cargo-paradedb")]
+#[command(version, about, long_about = None, bin_name = "cargo")]
 pub struct Cli {
-    #[command(subcommand)]
-    pub command: Commands,
-}
-
-#[derive(Debug, clap::Subcommand)]
-pub enum Commands {
-    Paradedb(ParadedbCommands),
-}
-
-#[derive(Debug, clap::Parser)]
-pub struct ParadedbCommands {
     #[command(subcommand)]
     pub subcommand: Subcommand,
 }
@@ -228,10 +217,10 @@ impl Cli {
 
         tracing::trace!("Entering parse_args method");
 
-        // Parse all arguments without skipping
-        let parsed = Self::parse();
-        tracing::debug!("Parsed result: {:#?}", parsed);
-        parsed
+        match args.get(1) {
+            Some(arg) if arg == "paradedb" => Self::parse_from(&args[1..]),
+            _ => Self::parse(),
+        }
     }
 }
 

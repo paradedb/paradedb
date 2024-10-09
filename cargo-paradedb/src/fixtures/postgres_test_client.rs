@@ -23,10 +23,20 @@
 use anyhow::{Context, Result};
 use async_lock::{Semaphore, SemaphoreGuardArc};
 use rand::Rng;
-use sqlx::{postgres::PgPoolOptions, ConnectOptions, PgConnection, PgPool};
+use sqlx::{
+    postgres::PgConnectOptions, postgres::PgPoolOptions, ConnectOptions, Connection, PgConnection,
+    PgPool,
+};
 // use sqlx::Connection;
-use std::sync::Arc;
+use futures::future::BoxFuture;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use url::Url;
+
+pub enum ConnectionType {
+    Parallel,
+    Exclusive,
+}
 
 pub struct ActivePoolConnGuard {
     pub inner_conn: PgConnection,
@@ -40,13 +50,18 @@ impl ActivePoolConnGuard {
             guard,
         }
     }
+
+    pub async fn release(self) {
+        let _ = self.inner_conn.close().await;
+    }
 }
 
 pub struct PostgresTestClient {
     admin_pool: PgPool,
     test_pool: PgPool,
     test_db_name: String,
-    connection_semaphore: Arc<Semaphore>,
+    parallel_connection_semaphore: Arc<Semaphore>,
+    exclusive_connection: Arc<Mutex<PgConnection>>,
 }
 
 impl PostgresTestClient {
@@ -81,16 +96,23 @@ impl PostgresTestClient {
 
         let connection_semaphore = Arc::new(Semaphore::new(max_connections));
 
+        let conn_opts = &PgConnectOptions::from_str(test_url.as_str()).unwrap();
+
+        let exclusive_connection = Arc::new(Mutex::new(
+            PgConnection::connect_with(conn_opts).await.unwrap(),
+        ));
+
         Ok(Self {
             admin_pool,
             test_pool,
             test_db_name,
-            connection_semaphore,
+            parallel_connection_semaphore: connection_semaphore,
+            exclusive_connection,
         })
     }
 
     pub async fn acquire_connection(&self) -> Result<ActivePoolConnGuard> {
-        let guard = self.connection_semaphore.acquire_arc().await;
+        let guard = self.parallel_connection_semaphore.acquire_arc().await;
 
         let connect_options = self.test_pool.connect_options().clone();
 
@@ -98,6 +120,36 @@ impl PostgresTestClient {
             Ok(conn) => Ok(ActivePoolConnGuard::new(conn, guard)),
 
             Err(e) => Err(e).context("Failed to acquire a connection from the test database pool"),
+        }
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    pub async fn execute_with_connection<F, R>(
+        &self,
+        connection_type: ConnectionType,
+        f: F,
+    ) -> Result<R>
+    where
+        F: for<'a> FnOnce(&'a mut PgConnection) -> BoxFuture<'a, Result<R>>,
+    {
+        match connection_type {
+            ConnectionType::Parallel => {
+                let mut conn_guard = self.acquire_connection().await?;
+                let rval = f(&mut conn_guard.inner_conn)
+                    .await
+                    .context("Error executing function with parallel connection")?;
+                conn_guard.release().await;
+                Ok(rval)
+            }
+            ConnectionType::Exclusive => {
+                let mut conn = self
+                    .exclusive_connection
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("Failed to acquire database lock: {}", e))?;
+                f(&mut conn)
+                    .await
+                    .context("Error executing function with exclusive connection")
+            }
         }
     }
 

@@ -131,15 +131,10 @@ fn main() -> Result<()> {
     let cli = Cli::default();
     tracing::info!("Parsed CLI structure: {:#?}", cli);
 
-    let _ = match cli.command {
-        cli::Commands::Paradedb(paradedb_cmd) => {
-            tracing::info!("Handling Paradedb command with args: {:#?}", paradedb_cmd);
-            match paradedb_cmd.subcommand {
-                Subcommand::Install => subcommand::install(),
-                Subcommand::Bench(bench_args) => handle_bench_command(bench_args),
-                Subcommand::PgaBench(pga_bench_args) => handle_pga_bench_command(pga_bench_args),
-            }
-        }
+    let _ = match cli.subcommand {
+        Subcommand::Install => subcommand::install(),
+        Subcommand::Bench(bench_args) => handle_bench_command(bench_args),
+        Subcommand::PgaBench(pga_bench_args) => handle_pga_bench_command(pga_bench_args),
     };
 
     Ok(())

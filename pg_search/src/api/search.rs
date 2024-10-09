@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::state::SearchState;
+use crate::index::reader::SearchIndexReader;
 use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
 use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
@@ -78,14 +78,15 @@ unsafe fn score_bm25(
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
-    let scan_state = unsafe {
+    let search_reader = unsafe {
         // SAFETY:  caller has asserted that `fcinfo` is valid for this function
-        create_and_leak_scan_state(fcinfo, &search_config, search_index)
+        create_and_leak_reader(fcinfo, search_index)
     };
     let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
-    let top_docs = scan_state
-        .search(SearchIndex::executor())
+    let query = search_index.query(&search_config, search_reader);
+    let top_docs = search_reader
+        .search(SearchIndex::executor(), &search_config, &query)
         .filter(move |(scored, _)| vischeck.ctid_satisfies_snapshot(scored.ctid))
         .map(move |(scored, _)| {
             let key = unsafe {
@@ -142,22 +143,24 @@ unsafe fn snippet(
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
-    let scan_state = unsafe {
+    let search_reader = unsafe {
         // SAFETY:  caller has asserted that `fcinfo` is valid for this function
-        create_and_leak_scan_state(fcinfo, &search_config, search_index)
+        create_and_leak_reader(fcinfo, search_index)
     };
     let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
-    let highlight_field = search_config
+    let highlight_field = &search_config
         .highlight_field
+        .as_ref()
         .expect("highlight_field is required");
-    let mut snippet_generator = scan_state.snippet_generator(&highlight_field);
+    let query = search_index.query(&search_config, search_reader);
+    let mut snippet_generator = search_reader.snippet_generator(highlight_field, &query);
     if let Some(max_num_chars) = search_config.max_num_chars {
         snippet_generator.set_max_num_chars(max_num_chars)
     }
 
-    let top_docs = scan_state
-        .search(SearchIndex::executor())
+    let top_docs = search_reader
+        .search(SearchIndex::executor(), &search_config, &query)
         .filter(move |(scored, _)| vischeck.ctid_satisfies_snapshot(scored.ctid))
         .map(move |(scored, doc_address)| {
             let key = unsafe {
@@ -175,7 +178,7 @@ unsafe fn snippet(
                 .expect("null found in key_field")
             };
 
-            let doc: TantivyDocument = scan_state
+            let doc: TantivyDocument = search_reader
                 .searcher
                 .doc(doc_address)
                 .expect("could not find document in searcher");
@@ -221,20 +224,17 @@ pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
 /// specifically its `.flinfo.fn_mcxt` field.  This is your responsibility.
 ///
 /// In practice, it always will be valid as Postgres sets that properly when it calls us
-unsafe fn create_and_leak_scan_state(
+unsafe fn create_and_leak_reader(
     fcinfo: FunctionCallInfo,
-    search_config: &SearchConfig,
     search_index: &mut SearchIndex,
-) -> &'static SearchState {
+) -> &'static SearchIndexReader {
     // after instantiating the `SearchState`, we leak it to the MemoryContext governing this
     // function call.  This function is a SRF, and all calls to this function will have the
     // same MemoryContext.
     //
     // Leaking the scan state allows us to avoid a `.collect::<Vec<_>>()` on the search results
     // of `top_docs` down below
-    let scan_state = search_index
-        .search_state(search_config)
-        .expect("could not get scan state");
+    let scan_state = search_index.get_reader().expect("could not get scan state");
 
     unsafe {
         // SAFETY:  `fcinfo` and `fcinfo.flinfo` are provided to us by Postgres and are always valid

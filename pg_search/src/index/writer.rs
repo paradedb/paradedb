@@ -168,7 +168,6 @@ impl SearchIndexWriter {
         SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
 
         let new_self = SearchIndex {
-            reader: SearchIndex::reader(&underlying_index)?,
             underlying_index,
             directory: directory.clone(),
             schema,

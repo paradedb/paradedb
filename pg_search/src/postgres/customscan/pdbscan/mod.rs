@@ -21,7 +21,7 @@ mod qual_inspect;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
 use crate::api::{AsCStr, AsInt};
-use crate::index::state::{SearchResults, SearchState};
+use crate::index::reader::{SearchIndexReader, SearchResults};
 use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -67,7 +67,7 @@ pub struct PdbScanState {
     index_name: String,
     index_uuid: String,
     key_field: String,
-    search_state: Option<SearchState>,
+    search_reader: Option<SearchIndexReader>,
     search_config: SearchConfig,
     search_results: SearchResults,
 
@@ -537,8 +537,8 @@ impl CustomScan for PdbScan {
                     }
                     if state.custom_state().need_snippets() {
                         let snippet_funcoid = state.custom_state.snippet_funcoid;
-                        let search_state = state.custom_state.search_state.as_ref().expect(
-                            "CustomState should hae a SearchState since it requires snippets",
+                        let search_reader = state.custom_state.search_reader.as_ref().expect(
+                            "CustomState should have a SearchIndexReader since it requires snippets",
                         );
                         for (snippet_info, generator) in &mut state.custom_state.snippet_generators
                         {
@@ -546,7 +546,7 @@ impl CustomScan for PdbScan {
                                 &state.custom_state.var_attname_lookup,
                                 const_projected_targetlist.cast(),
                                 snippet_funcoid,
-                                search_state,
+                                search_reader,
                                 &snippet_info.field,
                                 &snippet_info.start_tag,
                                 &snippet_info.end_tag,
@@ -618,18 +618,20 @@ impl CustomScan for PdbScan {
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
-        let search_state = search_index
-            .search_state(search_config)
-            .expect("`SearchState` should have been constructed correctly");
+        let search_reader = search_index
+            .get_reader()
+            .expect("search index reader should have been constructed correctly");
 
+        let query = search_index.query(search_config, &search_reader);
         state.custom_state.search_results =
-            search_state.search_minimal(false, SearchIndex::executor());
+            search_reader.search_minimal(false, SearchIndex::executor(), search_config, &query);
 
         if need_snippets {
             for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {
-                *generator = Some(search_state.snippet_generator(snippet_info.field.as_ref()))
+                *generator =
+                    Some(search_reader.snippet_generator(snippet_info.field.as_ref(), &query))
             }
-            state.custom_state.search_state = Some(search_state);
+            state.custom_state.search_reader = Some(search_reader);
         }
     }
 }

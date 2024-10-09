@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
-use crate::index::state::SearchState;
+use crate::index::reader::SearchIndexReader;
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
@@ -133,7 +133,7 @@ pub unsafe fn inject_snippet(
     attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
-    search_state: &SearchState,
+    search_reader: &SearchIndexReader,
     field: &str,
     start: &str,
     end: &str,
@@ -144,7 +144,7 @@ pub unsafe fn inject_snippet(
     struct Context<'a> {
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
-        search_state: &'a SearchState,
+        search_reader: &'a SearchIndexReader,
         field: &'a str,
         start: &'a str,
         end: &'a str,
@@ -178,7 +178,7 @@ pub unsafe fn inject_snippet(
                         .expect("Var attname should be in lookup");
                     if attname == (*context).field {
                         let doc = (*context)
-                            .search_state
+                            .search_reader
                             .get_doc((*context).doc_address)
                             .expect("should be able to retrieve doc for snippet generation");
 
@@ -220,7 +220,7 @@ pub unsafe fn inject_snippet(
     let mut context = Context {
         attname_lookup,
         snippet_funcoid,
-        search_state,
+        search_reader,
         field,
         start,
         end,

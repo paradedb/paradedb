@@ -19,16 +19,20 @@ use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
+use anyhow::Result;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
-use tantivy::schema::FieldType;
+use tantivy::schema::{FieldType, Value};
 use tantivy::{
     query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyDocument, TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
+use tracing::debug;
+
+const CACHE_NUM_BLOCKS: usize = 10;
 
 /// An iterator of the different styles of search results we can return
 #[derive(Default)]
@@ -96,47 +100,82 @@ impl Iterator for SearchResults {
 }
 
 #[derive(Clone)]
-pub struct SearchState {
-    pub query: Arc<dyn Query>,
+pub struct SearchIndexReader {
     pub searcher: Searcher,
-    pub config: SearchConfig,
     pub schema: SearchIndexSchema,
+    pub underlying_reader: tantivy::IndexReader,
 }
 
-impl SearchState {
-    pub fn new(search_index: &SearchIndex, config: &SearchConfig) -> Self {
+impl SearchIndexReader {
+    pub fn new(search_index: &SearchIndex) -> Result<Self> {
         let schema = search_index.schema.clone();
-        let mut parser = search_index.query_parser(config);
-        let searcher = search_index.searcher();
-        let mut requires_scoring = config.need_scores;
-        let query = config
-            .query
-            .clone()
-            .into_tantivy_query(
-                &schema,
-                &mut parser,
-                &searcher,
-                config,
-                &mut requires_scoring,
-            )
-            .expect("could not parse query");
-
-        let mut config = config.clone();
-        config.need_scores = requires_scoring;
-
-        SearchState {
-            query: Arc::new(query),
-            config,
+        let reader = search_index
+            .underlying_index
+            .reader_builder()
+            .reload_policy(tantivy::ReloadPolicy::Manual)
+            .try_into()?;
+        let searcher = reader.searcher();
+        Ok(SearchIndexReader {
             searcher,
             schema: schema.clone(),
-        }
+            underlying_reader: reader,
+        })
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {
         self.searcher.doc(doc_address)
     }
 
-    pub fn snippet_generator(&self, field_name: &str) -> SnippetGenerator {
+    /// Scan the index and use the provided callback to search for Documents with ctid
+    /// values that need to be deleted.
+    pub fn get_ctids_to_delete(
+        &self,
+        should_delete: impl Fn(u64) -> bool,
+    ) -> Result<(Vec<u64>, u32)> {
+        let mut not_deleted: u32 = 0;
+        let mut ctids_to_delete: Vec<u64> = vec![];
+
+        let ctid_field = self.schema.ctid_field().id.0;
+        for segment_reader in self.searcher.segment_readers() {
+            let store_reader = segment_reader
+                .get_store_reader(CACHE_NUM_BLOCKS)
+                .expect("Failed to get store reader");
+
+            for doc in store_reader.iter::<TantivyDocument>(segment_reader.alive_bitset()) {
+                // if a document failed to deserialize, that's probably a hard error indicating the
+                // index is corrupt.  So return that back to the caller immediately
+                let doc = doc?;
+
+                if let Some(ctid) = doc.get_first(ctid_field).and_then(|ctid| ctid.as_u64()) {
+                    if should_delete(ctid) {
+                        ctids_to_delete.push(ctid);
+                    } else {
+                        not_deleted += 1;
+                    }
+                } else {
+                    // NB:  in a perfect world, this shouldn't happen.  But we did have a bug where
+                    // the "ctid" field was not being `STORED`, which caused this
+                    debug!(
+                        "document `{doc:?}` in segment `{}` has no ctid",
+                        segment_reader.segment_id()
+                    );
+                }
+            }
+        }
+
+        Ok((ctids_to_delete, not_deleted))
+    }
+
+    /// Returns the index size, in bytes, according to tantivy
+    pub fn byte_size(&self) -> Result<u64> {
+        Ok(self
+            .underlying_reader
+            .searcher()
+            .space_usage()
+            .map(|space| space.total().get_bytes())?)
+    }
+
+    pub fn snippet_generator(&self, field_name: &str, query: &dyn Query) -> SnippetGenerator {
         let field = self
             .schema
             .get_search_field(&SearchFieldName(field_name.into()))
@@ -144,7 +183,7 @@ impl SearchState {
 
         match self.schema.schema.get_field_entry(field.into()).field_type() {
             FieldType::Str(_) => {
-                SnippetGenerator::create(&self.searcher, self.query.as_ref(), field.into())
+                SnippetGenerator::create(&self.searcher, query, field.into())
                     .unwrap_or_else(|err| panic!("failed to create snippet generator for field: {field_name}... {err}"))
             }
             _ => panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")
@@ -161,8 +200,13 @@ impl SearchState {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search(&self, executor: &'static Executor) -> SearchResults {
-        SearchResults::AllFeatures(self.search_with_top_docs(executor, true))
+    pub fn search(
+        &self,
+        executor: &'static Executor,
+        config: &SearchConfig,
+        query: &dyn Query,
+    ) -> SearchResults {
+        SearchResults::AllFeatures(self.search_with_top_docs(executor, true, config, query))
     }
 
     /// Search the Tantivy index for matching documents.
@@ -177,25 +221,33 @@ impl SearchState {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_minimal(&self, include_key: bool, executor: &'static Executor) -> SearchResults {
+    pub fn search_minimal(
+        &self,
+        include_key: bool,
+        executor: &'static Executor,
+        config: &SearchConfig,
+        query: &dyn Query,
+    ) -> SearchResults {
         match (
-            self.config.limit_rows,
-            self.config.stable_sort.unwrap_or(true),
-            self.config.order_by_field.clone(),
+            config.limit_rows,
+            config.stable_sort.unwrap_or(true),
+            config.order_by_field.clone(),
         ) {
             // no limit, no stable sorting, and no sort field
             //
             // this we can use a channel to stream the results and also elide doing key lookups.
             // this is our "fast path"
             (None, false, None) => SearchResults::FastPath(
-                self.search_via_channel(executor, include_key)
+                self.search_via_channel(executor, include_key, config, query)
                     .into_iter()
                     .flatten(),
             ),
 
             // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
             // including retrieving the key field
-            _ => SearchResults::AllFeatures(self.search_with_top_docs(executor, true)),
+            _ => {
+                SearchResults::AllFeatures(self.search_with_top_docs(executor, true, config, query))
+            }
         }
     }
 
@@ -203,39 +255,37 @@ impl SearchState {
         &self,
         executor: &'static Executor,
         include_key: bool,
-    ) -> crossbeam::channel::Receiver<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>> {
+        config: &SearchConfig,
+        query: &dyn Query,
+    ) -> crossbeam::channel::Receiver<Vec<Result<(SearchIndexScore, DocAddress), TantivyError>>>
+    {
         let (sender, receiver) = crossbeam::channel::unbounded();
-        let collector = collector::ChannelCollector::new(
-            sender.clone(),
-            self.config.key_field.clone(),
-            include_key,
-        );
+        let collector =
+            collector::ChannelCollector::new(sender, config.key_field.clone(), include_key);
         let searcher = self.searcher.clone();
-        let query = self.query.clone();
         let schema = self.schema.schema.clone();
-        let need_scores = self.config.need_scores;
+        let need_scores = config.need_scores;
 
+        let owned_query = query.box_clone();
         std::thread::spawn(move || {
-            if let Err(e) = searcher.search_with_executor(
-                query.as_ref(),
-                &collector,
-                executor,
-                if need_scores {
-                    tantivy::query::EnableScoring::Enabled {
-                        searcher: &searcher,
-                        statistics_provider: &searcher,
-                    }
-                } else {
-                    tantivy::query::EnableScoring::Disabled {
-                        schema: &schema,
-                        searcher_opt: Some(&searcher),
-                    }
-                },
-            ) {
-                // send the error.  If we can't that probably means the receiver side is closed and
-                // that's okay
-                sender.send(vec![Err(e)]).ok();
-            }
+            searcher
+                .search_with_executor(
+                    &owned_query,
+                    &collector,
+                    executor,
+                    if need_scores {
+                        tantivy::query::EnableScoring::Enabled {
+                            searcher: &searcher,
+                            statistics_provider: &searcher,
+                        }
+                    } else {
+                        tantivy::query::EnableScoring::Disabled {
+                            schema: &schema,
+                            searcher_opt: Some(&searcher),
+                        }
+                    },
+                )
+                .expect("failed to search")
         });
         receiver
     }
@@ -244,9 +294,11 @@ impl SearchState {
         &self,
         executor: &'static Executor,
         include_key: bool,
+        config: &SearchConfig,
+        query: &dyn Query,
     ) -> std::vec::IntoIter<(SearchIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
-        let limit = self.config.limit_rows.unwrap_or_else(|| {
+        let limit = config.limit_rows.unwrap_or_else(|| {
             // We use unwrap_or_else here so this block doesn't run unless
             // we actually need the default value. This is important, because there can
             // be some cost to Tantivy API calls.
@@ -258,10 +310,10 @@ impl SearchState {
             }
         });
 
-        let offset = self.config.offset_rows.unwrap_or(0);
-        let key_field_name = self.config.key_field.clone();
-        let orderby_field = self.config.order_by_field.clone();
-        let sort_asc = self.config.is_sort_ascending();
+        let offset = config.offset_rows.unwrap_or(0);
+        let key_field_name = config.key_field.clone();
+        let orderby_field = config.order_by_field.clone();
+        let sort_asc = config.is_sort_ascending();
 
         let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
             move |segment_reader: &tantivy::SegmentReader| {
@@ -288,7 +340,7 @@ impl SearchState {
 
         self.searcher
             .search_with_executor(
-                self.query.as_ref(),
+                query,
                 &collector,
                 executor,
                 tantivy::query::EnableScoring::Enabled {
@@ -300,7 +352,7 @@ impl SearchState {
             .into_iter()
     }
 
-    pub fn estimate_docs(&self) -> Option<usize> {
+    pub fn estimate_docs(&self, query: &dyn Query) -> Option<usize> {
         let readers = self.searcher.segment_readers();
         let (ordinal, largest_reader) = readers
             .iter()
@@ -309,13 +361,10 @@ impl SearchState {
 
         let collector = tantivy::collector::Count;
         let schema = self.schema.schema.clone();
-        let weight = match self
-            .query
-            .as_ref()
-            .weight(tantivy::query::EnableScoring::Disabled {
-                schema: &schema,
-                searcher_opt: Some(&self.searcher),
-            }) {
+        let weight = match query.weight(tantivy::query::EnableScoring::Disabled {
+            schema: &schema,
+            searcher_opt: Some(&self.searcher),
+        }) {
             // created the Weight, no problem
             Ok(weight) => weight,
 
@@ -326,9 +375,7 @@ impl SearchState {
             // NB:  we could just return `None` here and let the caller deal with it?
             //      a deciding factor might be if users complain that query planning
             //      is too slow when they use constructs like `MoreLikeThis`
-            Err(TantivyError::InvalidArgument(_)) => self
-                .query
-                .as_ref()
+            Err(TantivyError::InvalidArgument(_)) => query
                 .weight(tantivy::query::EnableScoring::Enabled {
                     searcher: &self.searcher,
                     statistics_provider: &self.searcher,
@@ -439,8 +486,8 @@ impl FFType {
 }
 
 mod collector {
+    use crate::index::reader::FFType;
     use crate::index::score::SearchIndexScore;
-    use crate::index::state::FFType;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 

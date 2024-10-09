@@ -51,8 +51,10 @@ pub fn search_with_search_config(
         let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-        let scan_state = search_index.search_state(&search_config).unwrap();
-        let top_docs = scan_state.search_minimal(true, SearchIndex::executor());
+        let scan_state = search_index.get_reader().unwrap();
+        let query = search_index.query(&search_config, &scan_state);
+        let top_docs =
+            scan_state.search_minimal(true, SearchIndex::executor(), &search_config, &query);
         let mut hs = FxHashSet::default();
 
         for (scored, _) in top_docs {

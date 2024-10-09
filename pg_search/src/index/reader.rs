@@ -257,7 +257,8 @@ impl SearchIndexReader {
         include_key: bool,
         config: &SearchConfig,
         query: &dyn Query,
-    ) -> crossbeam::channel::Receiver<Vec<(SearchIndexScore, DocAddress)>> {
+    ) -> crossbeam::channel::Receiver<Vec<Result<(SearchIndexScore, DocAddress), TantivyError>>>
+    {
         let (sender, receiver) = crossbeam::channel::unbounded();
         let collector =
             collector::ChannelCollector::new(sender, config.key_field.clone(), include_key);

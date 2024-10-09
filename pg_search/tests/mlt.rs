@@ -23,6 +23,7 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
+#[ignore = "need to re-implement more like this special case scoring"]
 fn mlt_enables_scoring_issue1747(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

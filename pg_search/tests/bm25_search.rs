@@ -1228,3 +1228,49 @@ fn json_range(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 }
+
+#[rstest]
+fn json_array_term(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE colors (id SERIAL PRIMARY KEY, colors_json JSON, colors_jsonb JSONB);
+    INSERT INTO colors (colors_json, colors_jsonb) VALUES 
+        ('["red", "green", "blue"]'::JSON, '["red", "green", "blue"]'::JSONB),
+        ('["red", "orange"]'::JSON, '["red", "orange"]'::JSONB);
+    CALL paradedb.create_bm25(
+        table_name => 'colors', 
+        schema_name => 'public', 
+        index_name => 'colors', 
+        key_field => 'id',
+        json_fields => paradedb.field('colors_json') || paradedb.field('colors_jsonb')
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+        SELECT id FROM colors 
+        WHERE colors.id @@@ paradedb.term('colors_json', 'red') 
+        ORDER BY id"
+        .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,)]);
+
+    let rows: Vec<(i32,)> = "
+        SELECT id FROM colors 
+        WHERE colors.id @@@ paradedb.term('colors_jsonb', 'red') 
+        ORDER BY id"
+        .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,)]);
+
+    let rows: Vec<(i32,)> = "
+        SELECT id FROM colors 
+        WHERE colors.id @@@ paradedb.term('colors_json', 'green') 
+        ORDER BY id"
+        .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    let rows: Vec<(i32,)> = "
+        SELECT id FROM colors 
+        WHERE colors.id @@@ paradedb.term('colors_jsonb', 'green') 
+        ORDER BY id"
+        .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+}

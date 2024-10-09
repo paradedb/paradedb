@@ -56,7 +56,7 @@ For more information, including enterprise features and support, please [contact
 For an interactive setup run the following in your terminal.
 
 ```bash
-curl -O https://raw.githubusercontent.com/paradedb/paradedb/dev/deploy.sh && bash deploy.sh
+sh <(curl https://www.paradedb.com)
 ```
 
 **Note**: Currently we only support stable binaries for Debian and RHEL based linux distributions. For other Linux/Unix based Operating systems you'll need to build ParadeDB from source.

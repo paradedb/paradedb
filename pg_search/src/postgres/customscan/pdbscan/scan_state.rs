@@ -9,6 +9,7 @@ use crate::schema::SearchConfig;
 use pgrx::{name_data_to_str, pg_sys};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use tantivy::query::Query;
 use tantivy::snippet::SnippetGenerator;
 
 const SORT_ASCENDING: u32 = pg_sys::BTLessStrategyNumber;
@@ -77,8 +78,11 @@ pub struct PdbScanState {
     pub index_name: String,
     pub index_uuid: String,
     pub key_field: String,
-    pub search_reader: Option<SearchIndexReader>,
+
+    pub query: Option<Box<dyn Query>>,
     pub search_config: SearchConfig,
+    pub search_reader: Option<SearchIndexReader>,
+
     pub search_results: SearchResults,
 
     pub limit: Option<usize>,
@@ -97,7 +101,9 @@ pub struct PdbScanState {
     pub snippet_funcoid: pg_sys::Oid,
     pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
 
-    pub scan_func: Option<fn(&mut CustomScanStateWrapper<PdbScan>) -> ExecState>,
+    pub scan_func:
+        Option<fn(&mut CustomScanStateWrapper<PdbScan>, *mut std::ffi::c_void) -> ExecState>,
+    pub inner_scan_state: Option<*mut std::ffi::c_void>,
 }
 
 impl CustomScanState for PdbScanState {}

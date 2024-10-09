@@ -110,7 +110,7 @@ pub unsafe fn uses_snippets(
                         max_num_chars: max_num_chars_arg as usize,
                     });
                 } else {
-                    panic!("`paradedb.snippet()`'s field and (optional) tag arguments must be text literals")
+                    panic!("`paradedb.snippet()`'s arguments must be literals")
                 }
             }
         }

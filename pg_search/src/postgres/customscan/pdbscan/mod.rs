@@ -33,14 +33,14 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::exec_methods::{
-    normal_scan_exec, top_n_scan_exec, ExecState,
+    normal_scan_exec, top_n_scan_exec, ExecState, TopNScanExecState,
 };
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     inject_scores, is_score_func, score_funcoid, uses_scores,
 };
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    inject_snippet, snippet_funcoid, uses_snippets,
+    inject_snippet, snippet_funcoid, uses_snippets, SnippetInfo,
 };
 use crate::postgres::customscan::pdbscan::projections::{
     maybe_needs_const_projections, pullout_funcexprs,
@@ -56,12 +56,13 @@ use crate::postgres::utils::{
 use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::{pg_sys, PgList, PgRelation};
+use pgrx::{pg_sys, PgList, PgMemoryContexts, PgRelation};
 use scan_state::SortDirection;
 use shared::gucs::GlobalGucSettings;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
+use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -435,7 +436,9 @@ impl CustomScan for PdbScan {
         };
         loop {
             // get the next matching document from our search results and look for it in the heap
-            match scan_func(state) {
+            match scan_func(state, unsafe {
+                state.custom_state().inner_scan_state.unwrap_unchecked()
+            }) {
                 // reached the end of the SearchResults
                 ExecState::Eof => return std::ptr::null_mut(),
 
@@ -498,43 +501,65 @@ impl CustomScan for PdbScan {
             .get_reader()
             .expect("search index reader should have been constructed correctly");
 
-        let query = search_index.query(&search_config, &search_reader);
+        state.custom_state_mut().query = Some(search_index.query(&search_config, &search_reader));
         if let (Some(limit), Some(sort_direction)) = (
             state.custom_state().limit,
             state.custom_state().sort_direction,
         ) {
             state.custom_state_mut().search_results = search_reader.search_top_n(
                 SearchIndex::executor(),
-                &query,
+                state.custom_state().query.as_ref().unwrap(),
                 sort_direction.into(),
                 limit,
             );
             state.custom_state_mut().scan_func = Some(top_n_scan_exec);
+            state.custom_state_mut().inner_scan_state = unsafe {
+                let mut topn_state = TopNScanExecState::default();
+                topn_state.limit = state.custom_state().limit.unwrap();
+                Some(
+                    PgMemoryContexts::CurrentMemoryContext
+                        .copy_ptr_into(&mut topn_state, std::mem::size_of::<TopNScanExecState>())
+                        .cast(),
+                )
+            };
         } else {
             state.custom_state_mut().search_results = search_reader.search_minimal(
                 false,
                 SearchIndex::executor(),
                 &search_config,
-                &query,
+                state.custom_state().query.as_ref().unwrap(),
             );
             state.custom_state_mut().scan_func = Some(normal_scan_exec);
+            state.custom_state_mut().inner_scan_state = Some(std::ptr::null_mut());
         }
 
         assert!(
             state.custom_state().scan_func.is_some(),
             "CustomScan scan_func should be set"
         );
+        assert!(
+            state.custom_state().inner_scan_state.is_some(),
+            "CustomScan inner_scan_state should be set"
+        );
 
         if need_snippets {
-            for (snippet_info, generator) in state.custom_state_mut().snippet_generators.iter_mut()
-            {
+            let mut snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>> = state
+                .custom_state_mut()
+                .snippet_generators
+                .drain()
+                .collect();
+            let query = &state.custom_state().query.as_ref().unwrap();
+            for (snippet_info, generator) in &mut snippet_generators {
                 let mut new_generator =
-                    search_reader.snippet_generator(snippet_info.field.as_ref(), &query);
+                    search_reader.snippet_generator(snippet_info.field.as_ref(), *query);
                 new_generator.set_max_num_chars(snippet_info.max_num_chars);
                 *generator = Some(new_generator);
             }
-            state.custom_state_mut().search_reader = Some(search_reader);
+
+            state.custom_state_mut().snippet_generators = snippet_generators;
         }
+
+        state.custom_state_mut().search_reader = Some(search_reader);
     }
 }
 

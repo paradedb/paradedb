@@ -28,7 +28,6 @@ use crate::schema::{
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashSet;
 use tantivy::query::Query;
 use tantivy::{query::QueryParser, Executor, Index};
 use thiserror::Error;
@@ -40,10 +39,6 @@ pub const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
-
-static mut PENDING_INDEX_CREATES: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
-static mut PENDING_INDEX_DROPS: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
-
 pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
     let num_threads = num_cpus::get();
     Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
@@ -69,9 +64,6 @@ impl SearchIndex {
         // to load it from disk to use it.
         let new_self_ref = Self::from_disk(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
-        // flag for later if the creating transaction is aborted
-        new_self_ref.mark_pending_create();
 
         Ok(new_self_ref)
     }
@@ -123,30 +115,6 @@ impl SearchIndex {
         new_self.directory = directory.clone();
 
         Ok(new_self)
-    }
-
-    pub fn mark_pending_create(&self) -> bool {
-        unsafe { PENDING_INDEX_CREATES.insert(self.directory.clone()) }
-    }
-
-    pub fn mark_pending_drop(&self) -> bool {
-        unsafe { PENDING_INDEX_DROPS.insert(self.directory.clone()) }
-    }
-
-    pub fn clear_pending_creates() {
-        unsafe { PENDING_INDEX_CREATES.clear() }
-    }
-
-    pub fn clear_pending_drops() {
-        unsafe { PENDING_INDEX_DROPS.clear() }
-    }
-
-    pub fn pending_creates() -> impl Iterator<Item = &'static WriterDirectory> {
-        unsafe { PENDING_INDEX_CREATES.iter() }
-    }
-
-    pub fn pending_drops() -> impl Iterator<Item = &'static WriterDirectory> {
-        unsafe { PENDING_INDEX_DROPS.iter() }
     }
 
     pub fn query_parser(&self, config: &SearchConfig) -> QueryParser {
@@ -213,7 +181,9 @@ impl SearchIndex {
         // the index is about to be queued to drop and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
-        self.mark_pending_drop();
+        // Mark in our global store that this index is pending drop so it can be physically
+        // deleted on commit, or in case it needs to be rolled back on abort.
+        SearchIndexWriter::mark_pending_drop(&self.directory);
 
         Ok(())
     }

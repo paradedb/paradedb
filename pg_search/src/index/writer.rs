@@ -23,8 +23,9 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
-use std::path::Path;
+use once_cell::sync::Lazy;
 use std::sync::Arc;
+use std::{collections::HashSet, path::Path};
 use std::{fs, io, result};
 use tantivy::directory::{
     DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback, WatchHandle,
@@ -109,6 +110,14 @@ impl Directory for BlockingDirectory {
     }
 }
 
+/// A global store of which indexes have been created during a transaction,
+/// so that they can be committed or rolled back in case of an abort.
+static mut PENDING_INDEX_CREATES: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
+
+/// A global store of which indexes have been droped during a transaction,
+/// so that they can be committed or rolled back in case of an abort.
+static mut PENDING_INDEX_DROPS: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
+
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
     pub underlying_writer: IndexWriter,
@@ -174,7 +183,36 @@ impl SearchIndexWriter {
 
         // Serialize SearchIndex to disk so it can be initialized by other connections.
         new_self.directory.save_index(&new_self)?;
+
+        // Mark in our global store that this index is pending create, in case it
+        // needs to be rolled back on abort.
+        Self::mark_pending_create(&directory);
+
         Ok(())
+    }
+
+    pub fn mark_pending_create(directory: &WriterDirectory) -> bool {
+        unsafe { PENDING_INDEX_CREATES.insert(directory.clone()) }
+    }
+
+    pub fn mark_pending_drop(directory: &WriterDirectory) -> bool {
+        unsafe { PENDING_INDEX_DROPS.insert(directory.clone()) }
+    }
+
+    pub fn clear_pending_creates() {
+        unsafe { PENDING_INDEX_CREATES.clear() }
+    }
+
+    pub fn clear_pending_drops() {
+        unsafe { PENDING_INDEX_DROPS.clear() }
+    }
+
+    pub fn pending_creates() -> impl Iterator<Item = &'static WriterDirectory> {
+        unsafe { PENDING_INDEX_CREATES.iter() }
+    }
+
+    pub fn pending_drops() -> impl Iterator<Item = &'static WriterDirectory> {
+        unsafe { PENDING_INDEX_DROPS.iter() }
     }
 }
 

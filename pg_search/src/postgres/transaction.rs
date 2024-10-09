@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::SearchFs;
-use crate::index::SearchIndex;
+use crate::index::SearchIndexWriter;
 use pgrx::{pg_guard, pg_sys};
 use tracing::warn;
 
@@ -48,7 +48,7 @@ unsafe extern "C" fn pg_search_xact_callback(
     match event {
         pg_sys::XactEvent::XACT_EVENT_PRE_COMMIT => {
             // first, indexes in our cache that are pending a DROP need to be dropped
-            for directory in SearchIndex::pending_drops() {
+            for directory in SearchIndexWriter::pending_drops() {
                 directory.remove().unwrap_or_else(|err| {
                     warn!(
                         "unexpected error removing index directory during pre-commit: {:?}; {:?}",
@@ -59,13 +59,13 @@ unsafe extern "C" fn pg_search_xact_callback(
 
             // finally, any indexes that are marked as pending create are now created because the
             // transaction is committed
-            SearchIndex::clear_pending_drops();
-            SearchIndex::clear_pending_creates();
+            SearchIndexWriter::clear_pending_drops();
+            SearchIndexWriter::clear_pending_creates();
         }
 
         pg_sys::XactEvent::XACT_EVENT_ABORT => {
             // first, indexes in our cache that are pending a CREATE need to be dropped
-            for directory in SearchIndex::pending_creates() {
+            for directory in SearchIndexWriter::pending_creates() {
                 directory.remove().unwrap_or_else(|err| {
                     warn!(
                         "unexpected error removing index directory during abort: {:?}; {:?}",
@@ -74,8 +74,8 @@ unsafe extern "C" fn pg_search_xact_callback(
                 });
             }
 
-            SearchIndex::clear_pending_drops();
-            SearchIndex::clear_pending_creates();
+            SearchIndexWriter::clear_pending_drops();
+            SearchIndexWriter::clear_pending_creates();
         }
 
         _ => {

@@ -67,7 +67,7 @@ impl InsertState {
             relfilenode.as_u32(),
         );
 
-        let index = SearchIndex::open_direct(&directory)?;
+        let index = SearchIndex::from_disk(&directory)?;
         let writer = index.get_writer()?;
         Ok(Self {
             index,

@@ -28,8 +28,7 @@ use crate::schema::{
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::HashMap;
-use std::ptr::addr_of_mut;
+use std::collections::HashSet;
 use tantivy::query::Query;
 use tantivy::{query::QueryParser, Executor, Index};
 use thiserror::Error;
@@ -39,24 +38,11 @@ use tracing::trace;
 // Must be at least 15,000,000 or Tantivy will panic.
 pub const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 
-pub type SearchIndexCacheType = Lazy<HashMap<WriterDirectory, SearchIndex>>;
-
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
-///
-/// `SEARCH_INDEX_MEMORY` is designed to act as a cache that persists for the lifetime of a
-/// single backend process. When a client connects to PostgreSQL and triggers the extension's
-/// functionality, this cache is initialized the first time it's accessed in that specific process.
-///
-/// In scenarios where connection pooling is used, such as by web servers maintaining
-/// a pool of connections to PostgreSQL, the connections (and the associated backend processes)
-/// are typically long-lived. While this cache initialization might happen once per connection,
-/// it does not happen per query, leading to performance benefits for expensive operations.
-///
-/// It's also crucial to remember that this cache is NOT shared across different backend
-/// processes. Each PostgreSQL backend process will have its own separate instance of
-/// this cache, tied to its own lifecycle.
-static mut SEARCH_INDEX_MEMORY: SearchIndexCacheType = Lazy::new(HashMap::new);
+
+static mut PENDING_INDEX_CREATES: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
+static mut PENDING_INDEX_DROPS: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
 
 pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
     let num_threads = num_cpus::get();
@@ -69,19 +55,15 @@ pub struct SearchIndex {
     pub directory: WriterDirectory,
     #[serde(skip_serializing)]
     pub underlying_index: Index,
-    pub uuid: String,
-    pub is_pending_create: bool,
-    pub is_pending_drop: bool,
 }
 
 impl SearchIndex {
     pub fn create_index(
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
-        uuid: String,
         key_field_index: usize,
-    ) -> Result<&'static mut Self, SearchIndexError> {
-        SearchIndexWriter::create_index(directory.clone(), fields, uuid, key_field_index)?;
+    ) -> Result<Self, SearchIndexError> {
+        SearchIndexWriter::create_index(directory.clone(), fields, key_field_index)?;
 
         // As the new index instance was created in a background process, we need
         // to load it from disk to use it.
@@ -89,7 +71,7 @@ impl SearchIndex {
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
         // flag for later if the creating transaction is aborted
-        new_self_ref.is_pending_create = true;
+        new_self_ref.mark_pending_create();
 
         Ok(new_self_ref)
     }
@@ -131,24 +113,8 @@ impl SearchIndex {
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 
-    unsafe fn into_cache(self) {
-        SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
-    }
-
-    /// # Safety
-    ///
-    /// This function is unsafe as it returns a mutable reference to a mutable static global.  It is your
-    /// responsibility to ensure, at the time of calling this function, there are no other outstanding
-    /// references to the returned static global.
-    pub unsafe fn get_cache() -> &'static mut SearchIndexCacheType {
-        addr_of_mut!(SEARCH_INDEX_MEMORY)
-            .as_mut()
-            .expect("global SEARCH_INDEX_MEMORY must not be null")
-    }
-
-    pub fn from_disk(directory: &WriterDirectory) -> Result<&'static mut Self, SearchIndexError> {
+    pub fn from_disk(directory: &WriterDirectory) -> Result<Self, SearchIndexError> {
         let mut new_self: Self = directory.load_index()?;
-        let uuid = new_self.uuid.clone();
 
         // In the case of a physical replication of the database, the absolute path that is stored
         // in the serialized WriterDirectory might refer to the source database's file system.
@@ -156,52 +122,31 @@ impl SearchIndex {
         // argument here.
         new_self.directory = directory.clone();
 
-        // Since we've re-fetched the index, save it to the cache.
-        unsafe {
-            new_self.into_cache();
-        }
-
-        Self::from_cache(directory, &uuid)
+        Ok(new_self)
     }
 
-    pub fn open_direct(directory: &WriterDirectory) -> Result<Self, SearchDirectoryError> {
-        directory.load_index()
+    pub fn mark_pending_create(&self) -> bool {
+        unsafe { PENDING_INDEX_CREATES.insert(self.directory.clone()) }
     }
 
-    pub fn from_cache(
-        directory: &WriterDirectory,
-        uuid: &str,
-    ) -> Result<&'static mut Self, SearchIndexError> {
-        unsafe {
-            if let Some(new_self) = SEARCH_INDEX_MEMORY.get_mut(directory) {
-                let cached_uuid = &new_self.uuid;
-                if cached_uuid == uuid {
-                    return Ok(new_self);
-                }
-            }
-        }
-
-        Self::from_disk(directory)
+    pub fn mark_pending_drop(&self) -> bool {
+        unsafe { PENDING_INDEX_DROPS.insert(self.directory.clone()) }
     }
 
-    /// Remove the specified `directory` from the internal cache
-    ///
-    /// # Safety
-    ///
-    /// It is the caller's responsibility to ensure they don't have an outstanding mutable reference
-    /// to the internal cache object
-    pub unsafe fn drop_from_cache(directory: &WriterDirectory) {
-        SEARCH_INDEX_MEMORY.remove(directory);
+    pub fn clear_pending_creates() {
+        unsafe { PENDING_INDEX_CREATES.clear() }
     }
 
-    /// If this [`SearchIndex`] is newly created, return true
-    pub fn is_pending_create(&self) -> bool {
-        self.is_pending_create
+    pub fn clear_pending_drops() {
+        unsafe { PENDING_INDEX_DROPS.clear() }
     }
 
-    /// If this [`SearchIndex`] has been dropped, return true
-    pub fn is_pending_drop(&self) -> bool {
-        self.is_pending_drop
+    pub fn pending_creates() -> impl Iterator<Item = &'static WriterDirectory> {
+        unsafe { PENDING_INDEX_CREATES.iter() }
+    }
+
+    pub fn pending_drops() -> impl Iterator<Item = &'static WriterDirectory> {
+        unsafe { PENDING_INDEX_DROPS.iter() }
     }
 
     pub fn query_parser(&self, config: &SearchConfig) -> QueryParser {
@@ -268,7 +213,7 @@ impl SearchIndex {
         // the index is about to be queued to drop and that requires our transaction callbacks be registered
         crate::postgres::transaction::register_callback();
 
-        self.is_pending_drop = true;
+        self.mark_pending_drop();
 
         Ok(())
     }
@@ -289,18 +234,10 @@ impl<'de> Deserialize<'de> for SearchIndex {
         struct SearchIndexHelper {
             schema: SearchIndexSchema,
             directory: WriterDirectory,
-            // An index created in an older version of pg_search may not have serialized a uuid
-            // to disk. Just use an empty string for backwards compatibility.
-            #[serde(default)]
-            uuid: String,
         }
 
         // Deserialize into the struct with automatic handling for most fields
-        let SearchIndexHelper {
-            schema,
-            directory,
-            uuid,
-        } = SearchIndexHelper::deserialize(deserializer)?;
+        let SearchIndexHelper { schema, directory } = SearchIndexHelper::deserialize(deserializer)?;
 
         let TantivyDirPath(tantivy_dir_path) = directory
             .tantivy_dir_path(true)
@@ -318,9 +255,6 @@ impl<'de> Deserialize<'de> for SearchIndex {
             underlying_index,
             directory,
             schema,
-            uuid,
-            is_pending_drop: false,
-            is_pending_create: false,
         })
     }
 }

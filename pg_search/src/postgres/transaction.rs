@@ -48,49 +48,34 @@ unsafe extern "C" fn pg_search_xact_callback(
     match event {
         pg_sys::XactEvent::XACT_EVENT_PRE_COMMIT => {
             // first, indexes in our cache that are pending a DROP need to be dropped
-            let pending_drops = SearchIndex::get_cache()
-                .values_mut()
-                .filter(|index| index.is_pending_drop())
-                .collect::<Vec<_>>();
-
-            for index in pending_drops {
-                index.directory.remove().unwrap_or_else(|err| {
+            for directory in SearchIndex::pending_drops() {
+                directory.remove().unwrap_or_else(|err| {
                     warn!(
                         "unexpected error removing index directory during pre-commit: {:?}; {:?}",
-                        index.directory, err
+                        directory, err
                     )
                 });
-
-                // SAFETY:  We don't have an outstanding reference to the SearchIndex cache here
-                // because we collected the pending drop directories into an owned Vec
-                SearchIndex::drop_from_cache(&index.directory)
             }
 
             // finally, any indexes that are marked as pending create are now created because the
             // transaction is committed
-            for search_index in SearchIndex::get_cache()
-                .values_mut()
-                .filter(|index| index.is_pending_create())
-            {
-                search_index.is_pending_create = false;
-            }
+            SearchIndex::clear_pending_drops();
+            SearchIndex::clear_pending_creates();
         }
 
         pg_sys::XactEvent::XACT_EVENT_ABORT => {
             // first, indexes in our cache that are pending a CREATE need to be dropped
-            let pending_creates = SearchIndex::get_cache()
-                .values_mut()
-                .filter(|index| index.is_pending_create())
-                .collect::<Vec<_>>();
-
-            for index in pending_creates {
-                index.directory.remove().unwrap_or_else(|err| {
+            for directory in SearchIndex::pending_creates() {
+                directory.remove().unwrap_or_else(|err| {
                     warn!(
                         "unexpected error removing index directory during abort: {:?}; {:?}",
-                        index.directory, err
+                        directory, err
                     )
                 });
             }
+
+            SearchIndex::clear_pending_drops();
+            SearchIndex::clear_pending_creates();
         }
 
         _ => {

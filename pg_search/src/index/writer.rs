@@ -155,7 +155,6 @@ impl SearchIndexWriter {
     pub fn create_index(
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
-        uuid: String,
         key_field_index: usize,
     ) -> Result<()> {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
@@ -171,9 +170,6 @@ impl SearchIndexWriter {
             underlying_index,
             directory: directory.clone(),
             schema,
-            uuid,
-            is_pending_drop: false,
-            is_pending_create: true,
         };
 
         // Serialize SearchIndex to disk so it can be initialized by other connections.

@@ -12,13 +12,13 @@ pub enum ExecState {
     Invisible {
         scored: SearchIndexScore,
     },
-    EOF,
+    Eof,
 }
 
 #[inline(always)]
 pub fn normal_scan_exec(state: &mut CustomScanStateWrapper<PdbScan>) -> ExecState {
     match state.custom_state_mut().search_results.next() {
-        None => ExecState::EOF,
+        None => ExecState::Eof,
         Some((scored, _)) => {
             let scanslot = state.scanslot();
             let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
@@ -34,7 +34,7 @@ pub fn normal_scan_exec(state: &mut CustomScanStateWrapper<PdbScan>) -> ExecStat
 #[inline(always)]
 pub fn top_n_scan_exec(state: &mut CustomScanStateWrapper<PdbScan>) -> ExecState {
     match state.custom_state_mut().search_results.next() {
-        None => ExecState::EOF,
+        None => ExecState::Eof,
         Some((scored, _)) => {
             let scanslot = state.scanslot();
             let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;

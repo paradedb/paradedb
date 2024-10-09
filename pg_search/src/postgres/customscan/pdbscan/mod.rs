@@ -16,10 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
+mod exec_methods;
 mod privdat;
 mod projections;
 mod qual_inspect;
-mod scan_exec;
 mod scan_state;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
@@ -32,6 +32,9 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::pdbscan::exec_methods::{
+    normal_scan_exec, top_n_scan_exec, ExecState,
+};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     inject_scores, is_score_func, score_funcoid, uses_scores,
@@ -43,9 +46,6 @@ use crate::postgres::customscan::pdbscan::projections::{
     maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
-use crate::postgres::customscan::pdbscan::scan_exec::{
-    normal_scan_exec, top_n_scan_exec, ExecState,
-};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -55,7 +55,7 @@ use crate::postgres::utils::{
 };
 use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
-use pgrx::pg_sys::{AsPgCStr, TupleTableSlot};
+use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList, PgRelation};
 use scan_state::SortDirection;
 use shared::gucs::GlobalGucSettings;
@@ -437,7 +437,7 @@ impl CustomScan for PdbScan {
             // get the next matching document from our search results and look for it in the heap
             match scan_func(state) {
                 // reached the end of the SearchResults
-                ExecState::EOF => return std::ptr::null_mut(),
+                ExecState::Eof => return std::ptr::null_mut(),
 
                 // SearchResults returned a tuple we can't see
                 ExecState::Invisible { .. } => continue,

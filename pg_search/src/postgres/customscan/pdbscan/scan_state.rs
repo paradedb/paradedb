@@ -1,7 +1,7 @@
 use crate::index::reader::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
+use crate::postgres::customscan::pdbscan::exec_methods::ExecState;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
-use crate::postgres::customscan::pdbscan::scan_exec::ExecState;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::utils::VisibilityChecker;

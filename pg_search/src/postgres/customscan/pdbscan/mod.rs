@@ -409,6 +409,11 @@ impl CustomScan for PdbScan {
             );
         }
 
+        if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
+            // don't do anything else if we're only explaining the query
+            return;
+        }
+
         PdbScan::rescan_custom_scan(state)
     }
 

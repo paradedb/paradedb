@@ -17,7 +17,7 @@
 
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum};
+use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum, PgList};
 use std::ptr::addr_of_mut;
 
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
@@ -112,4 +112,20 @@ pub unsafe fn inject_scores(
 
     let data = addr_of_mut!(context);
     walker(node, data.cast())
+}
+
+pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: i32) -> bool {
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if (*funcexpr).funcid == score_funcoid() {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            assert!(args.len() == 1, "score function must have 1 argument");
+            if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+                if (*var).varno == rti {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }

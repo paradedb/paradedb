@@ -7,6 +7,7 @@ use crate::postgres::utils::VisibilityChecker;
 use crate::schema::SearchConfig;
 use pgrx::{name_data_to_str, pg_sys};
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use tantivy::snippet::SnippetGenerator;
 
 const SORT_ASCENDING: u32 = pg_sys::BTLessStrategyNumber;
@@ -18,6 +19,21 @@ pub enum SortDirection {
     #[default]
     Asc = pg_sys::BTLessStrategyNumber,
     Desc = pg_sys::BTGreaterStrategyNumber,
+}
+
+impl AsRef<str> for SortDirection {
+    fn as_ref(&self) -> &str {
+        match self {
+            SortDirection::Asc => "asc",
+            SortDirection::Desc => "desc",
+        }
+    }
+}
+
+impl Display for SortDirection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
 }
 
 impl From<SortDirection> for crate::index::state::SortDirection {

@@ -32,13 +32,13 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
-    inject_scores, score_funcoid, uses_scores,
+    inject_scores, is_score_func, score_funcoid, uses_scores,
 };
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     inject_snippet, snippet_funcoid, uses_snippets,
 };
 use crate::postgres::customscan::pdbscan::projections::{
-    maybe_needs_const_projections, pullout_funcexprs, pullout_pathkeys,
+    maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::CustomScan;
@@ -95,8 +95,13 @@ impl CustomScan for PdbScan {
                 (table, bm25_index, rte.rtekind == pg_sys::RTEKind::RTE_JOIN)
             };
 
-            let limit = (*builder.args().root).limit_tuples;
-            let pathkey = find_orderby_pathkey(&mut builder, rti);
+            let pathkey = pullup_ordery_by_score_pathkey(&mut builder, rti);
+            let limit = if pathkey.is_some() {
+                // we can only use the limit if we have an orderby score pathkey
+                (*builder.args().root).limit_tuples
+            } else {
+                -1.0
+            };
 
             // quick look at the PathTarget list to see if we might need to do our const projections
             let path_target = builder.path_target();
@@ -349,6 +354,13 @@ impl CustomScan for PdbScan {
         explainer.add_text("Index", &state.custom_state.index_name);
         explainer.add_bool("Scores", state.custom_state.need_scores());
 
+        if let Some(sort_direction) = state.custom_state.sort_direction {
+            explainer.add_text("Score Sort Direction", sort_direction)
+        }
+        if let Some(limit) = state.custom_state.limit {
+            explainer.add_unsigned_integer("Limit", limit as u64, None);
+        }
+
         let query = &state.custom_state.search_config.query;
         let pretty_json = if explainer.is_verbose() {
             serde_json::to_string_pretty(&query)
@@ -574,7 +586,7 @@ impl CustomScan for PdbScan {
     }
 }
 
-unsafe fn find_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
+unsafe fn pullup_ordery_by_score_pathkey<P: Into<*mut pg_sys::List> + Default>(
     builder: &mut CustomPathBuilder<P>,
     rti: pg_sys::Index,
 ) -> Option<*mut pg_sys::PathKey> {
@@ -585,7 +597,7 @@ unsafe fn find_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
         for member in members.iter_ptr() {
-            if pullout_pathkeys((*member).em_expr.cast(), score_funcoid(), rti as _) {
+            if is_score_func((*member).em_expr.cast(), rti as _) {
                 pathkey = Some(first_pathkey);
                 break;
             }

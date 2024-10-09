@@ -131,6 +131,13 @@ mod serialize {
     pub unsafe fn serialize(privdat: PrivateData) -> PgList<pg_sys::Node> {
         let mut ser = PgList::new();
 
+        if privdat.sort_direction.is_none() {
+            assert!(
+                privdat.limit.is_none(),
+                "internal error:  cannot have a limit without also sorting by score"
+            );
+        }
+
         ser.push(makeInteger(privdat.heaprelid));
         ser.push(makeInteger(privdat.indexrelid));
         ser.push(makeInteger(privdat.range_table_index));

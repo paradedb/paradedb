@@ -33,9 +33,13 @@ impl Explainer {
         unsafe { (*self.state.as_ptr()).verbose }
     }
 
-    pub fn add_text(&mut self, key: &str, value: &str) {
+    pub fn add_text<S: AsRef<str>>(&mut self, key: &str, value: S) {
         unsafe {
-            pg_sys::ExplainPropertyText(key.as_pg_cstr(), value.as_pg_cstr(), self.state.as_ptr());
+            pg_sys::ExplainPropertyText(
+                key.as_pg_cstr(),
+                value.as_ref().as_pg_cstr(),
+                self.state.as_ptr(),
+            );
         }
     }
 

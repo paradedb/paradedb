@@ -75,12 +75,12 @@ unsafe fn score_bm25(
     let database_oid = crate::MyDatabaseId();
 
     let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
-    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+    let mut search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let search_reader = unsafe {
         // SAFETY:  caller has asserted that `fcinfo` is valid for this function
-        create_and_leak_reader(fcinfo, search_index)
+        create_and_leak_reader(fcinfo, &mut search_index)
     };
     let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
@@ -140,12 +140,12 @@ unsafe fn snippet(
 
     let directory = WriterDirectory::from_oids(database_oid, *index_oid, relfilenode.as_u32());
 
-    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+    let mut search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let search_reader = unsafe {
         // SAFETY:  caller has asserted that `fcinfo` is valid for this function
-        create_and_leak_reader(fcinfo, search_index)
+        create_and_leak_reader(fcinfo, &mut search_index)
     };
     let mut vischeck = VisibilityChecker::new(search_config.table_oid.into());
 
@@ -209,7 +209,7 @@ pub fn drop_bm25_internal(database_oid: u32, index_oid: u32) {
         // Drop the Tantivy data directory.
         // It's expected that this will be queued to actually perform the delete upon
         // transaction commit.
-        let search_index = SearchIndex::from_disk(&directory)
+        let mut search_index = SearchIndex::from_disk(&directory)
             .expect("index directory should be a valid SearchIndex");
 
         search_index

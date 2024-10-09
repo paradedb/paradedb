@@ -127,7 +127,7 @@ pub extern "C" fn amrescan(
     let database_oid = search_config.database_oid;
     let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
 
-    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+    let search_index = SearchIndex::from_disk(&directory)
         .expect("index should be valid for SearchIndex::from_cache");
     let state = search_index
         .get_reader()

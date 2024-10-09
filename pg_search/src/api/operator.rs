@@ -133,7 +133,7 @@ pub(crate) fn estimate_selectivity(
         search_config.index_oid,
         relfilenode.as_u32(),
     );
-    let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+    let search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
     let search_reader = search_index
         .get_reader()

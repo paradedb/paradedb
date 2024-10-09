@@ -48,7 +48,7 @@ pub extern "C" fn amvacuumcleanup(
     let database_oid = crate::MyDatabaseId();
 
     let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
-    let search_index = SearchIndex::from_disk(&directory)
+    let mut search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let mut writer = search_index

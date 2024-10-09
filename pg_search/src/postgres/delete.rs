@@ -38,7 +38,7 @@ pub extern "C" fn ambulkdelete(
     let database_oid = crate::MyDatabaseId();
 
     let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
-    let search_index = SearchIndex::from_disk(&directory)
+    let mut search_index = SearchIndex::from_disk(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     let reader = search_index

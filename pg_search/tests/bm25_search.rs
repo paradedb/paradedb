@@ -1065,3 +1065,166 @@ fn index_size(mut conn: PgConnection) {
     // Ensure the size is greater than zero, meaning the index has been created
     assert!(size > 0);
 }
+
+#[rstest]
+fn json_term(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+        SELECT id FROM paradedb.bm25_search 
+        WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.color', 'white') 
+        ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(4,), (15,), (25,)]);
+
+    r#"
+    UPDATE paradedb.bm25_search 
+    SET metadata = '{"attributes": {"score": 4, "keywords": ["electronics", "headphones"]}}'::jsonb 
+    WHERE id = 1
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.score', 4) 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.keywords', 'electronics') 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+}
+
+#[rstest]
+fn json_fuzzy_term(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+        SELECT id FROM paradedb.bm25_search 
+        WHERE paradedb.bm25_search.id @@@ paradedb.fuzzy_term('metadata.color', 'whiet') 
+        ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(4,), (15,), (25,)]);
+}
+
+#[rstest]
+fn json_phrase(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    r#"
+    UPDATE paradedb.bm25_search 
+    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb 
+    WHERE id = 1
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.phrase('metadata.attributes.review', ARRAY['good', 'quality']) 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.phrase('metadata.attributes.review', ARRAY['good', 'product'], slop => 1) 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+}
+
+#[rstest]
+fn json_phrase_prefix(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    r#"
+    UPDATE paradedb.bm25_search 
+    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb 
+    WHERE id = 1
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.phrase_prefix('metadata.attributes.review', ARRAY['really', 'go']) 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+}
+
+#[rstest]
+fn json_fuzzy_phrase(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    r#"
+    UPDATE paradedb.bm25_search 
+    SET metadata = '{"attributes": {"review": "really good quality product"}}'::jsonb 
+    WHERE id = 1
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.fuzzy_phrase('metadata.attributes.review', 'realy godo') 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+}
+
+#[rstest]
+fn json_range(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
+        .execute(&mut conn);
+    "CALL paradedb.create_bm25(
+        index_name => 'bm25_search',
+        schema_name => 'paradedb',
+        table_name => 'bm25_search',
+        key_field => 'id',
+        json_fields => paradedb.field('metadata', fast => true)
+    )"
+    .execute(&mut conn);
+
+    r#"
+    UPDATE paradedb.bm25_search
+    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb 
+    WHERE id = 1;
+
+    UPDATE paradedb.bm25_search
+    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb 
+    WHERE id = 2;
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(3, NULL, '[)')) 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,)]);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)')) 
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search
+    WHERE paradedb.bm25_search.id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+}

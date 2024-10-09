@@ -50,6 +50,7 @@ pub struct SearchIndexCreateOptions {
     numeric_fields_offset: i32,
     boolean_fields_offset: i32,
     json_fields_offset: i32,
+    range_fields_offset: i32,
     datetime_fields_offset: i32,
     key_field_offset: i32,
     uuid_offset: i32,
@@ -104,6 +105,18 @@ extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C" fn validate_range_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+    if json_str.is_empty() {
+        return;
+    }
+    SearchIndexCreateOptions::deserialize_config_fields(
+        json_str,
+        &SearchFieldConfig::range_from_json,
+    );
+}
+
+#[pg_guard]
 extern "C" fn validate_datetime_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
@@ -137,7 +150,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 7;
+const NUM_REL_OPTS: usize = 8;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -163,6 +176,11 @@ pub unsafe extern "C" fn amoptions(
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, json_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "range_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(SearchIndexCreateOptions, range_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "datetime_fields".as_pg_cstr(),
@@ -259,6 +277,14 @@ impl SearchIndexCreateOptions {
         Self::deserialize_config_fields(config, &SearchFieldConfig::json_from_json)
     }
 
+    pub fn get_range_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
+        let config = self.get_str(self.range_fields_offset, "".to_string());
+        if config.is_empty() {
+            return Vec::new();
+        }
+        Self::deserialize_config_fields(config, &SearchFieldConfig::range_from_json)
+    }
+
     pub fn get_datetime_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
         let config = self.get_str(self.datetime_fields_offset, "".to_string());
         if config.is_empty() {
@@ -335,6 +361,14 @@ pub unsafe fn init() {
         "JSON string specifying how JSON fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_json_fields),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "range_fields".as_pg_cstr(),
+        "JSON string specifying how range fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_range_fields),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

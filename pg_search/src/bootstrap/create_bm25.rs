@@ -44,6 +44,7 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     numeric_fields jsonb DEFAULT '{}',
     boolean_fields jsonb DEFAULT '{}',
     json_fields jsonb DEFAULT '{}',
+    range_fields jsonb DEFAULT '{}',
     datetime_fields jsonb DEFAULT '{}',
     predicates text DEFAULT ''
 )
@@ -61,6 +62,7 @@ fn create_bm25_jsonb(
     numeric_fields: JsonB,
     boolean_fields: JsonB,
     json_fields: JsonB,
+    range_fields: JsonB,
     datetime_fields: JsonB,
     predicates: &str,
 ) -> Result<()> {
@@ -73,6 +75,7 @@ fn create_bm25_jsonb(
         &serde_json::to_string(&numeric_fields)?,
         &serde_json::to_string(&boolean_fields)?,
         &serde_json::to_string(&json_fields)?,
+        &serde_json::to_string(&range_fields)?,
         &serde_json::to_string(&datetime_fields)?,
         predicates,
     )
@@ -89,6 +92,7 @@ fn create_bm25_impl(
     numeric_fields: &str,
     boolean_fields: &str,
     json_fields: &str,
+    range_fields: &str,
     datetime_fields: &str,
     predicates: &str,
 ) -> Result<()> {
@@ -152,10 +156,11 @@ fn create_bm25_impl(
         && numeric_fields == "{}"
         && boolean_fields == "{}"
         && json_fields == "{}"
+        && range_fields == "{}"
         && datetime_fields == "{}"
     {
         bail!(
-            "no text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields were specified for index {}",
+            "no text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields were specified for index {}",
             spi::quote_literal(index_name)
         );
     }
@@ -171,6 +176,7 @@ fn create_bm25_impl(
         numeric_fields,
         boolean_fields,
         json_fields,
+        range_fields,
         datetime_fields,
     ] {
         match json5::from_str::<Value>(fields) {
@@ -179,7 +185,7 @@ fn create_bm25_impl(
                     for key in map.keys() {
                         if key == key_field {
                             bail!(
-                                "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields",
+                                "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields",
                                 spi::quote_identifier(key.clone())
                             );
                         }
@@ -209,7 +215,7 @@ fn create_bm25_impl(
     let index_name_suffixed = format!("{}_bm25_index", index_name);
 
     Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}, uuid={}) {};",
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}, uuid={}) {};",
         spi::quote_identifier(index_name_suffixed.clone()),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
@@ -220,6 +226,7 @@ fn create_bm25_impl(
         spi::quote_literal(numeric_fields),
         spi::quote_literal(boolean_fields),
         spi::quote_literal(json_fields),
+        spi::quote_literal(range_fields),
         spi::quote_literal(datetime_fields),
         spi::quote_identifier(index_uuid.clone()),
         predicate_where))?;

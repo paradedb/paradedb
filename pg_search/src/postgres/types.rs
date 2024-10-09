@@ -16,14 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
-use crate::postgres::range::{RangeToTantivyValue, TantivyRangeBuilder};
+use crate::postgres::range::RangeToTantivyValue;
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
 use pgrx::pg_sys::Oid;
 use pgrx::IntoDatum;
 use pgrx::PostgresType;
-use pgrx::{datum::RangeBound, FromDatum, PgBuiltInOids, PgOid};
+use pgrx::{FromDatum, PgBuiltInOids, PgOid};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -219,15 +219,15 @@ impl TantivyValue {
                     pgrx::datum::Uuid::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
-                PgBuiltInOids::INT4RANGEOID => TantivyValue::try_from(
+                PgBuiltInOids::INT4RANGEOID => TantivyValue::from_range(
                     pgrx::datum::Range::<i32>::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
-                PgBuiltInOids::INT8RANGEOID => TantivyValue::try_from(
+                PgBuiltInOids::INT8RANGEOID => TantivyValue::from_range(
                     pgrx::datum::Range::<i64>::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
-                PgBuiltInOids::NUMRANGEOID => TantivyValue::try_from(
+                PgBuiltInOids::NUMRANGEOID => TantivyValue::from_range(
                     pgrx::datum::Range::<pgrx::AnyNumeric>::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
@@ -239,7 +239,7 @@ impl TantivyValue {
                     pgrx::datum::Range::<pgrx::datum::Timestamp>::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
-                PgBuiltInOids::TSTZRANGEOID => TantivyValue::try_from(
+                PgBuiltInOids::TSTZRANGEOID => TantivyValue::from_range(
                     pgrx::datum::Range::<pgrx::datum::TimestampWithTimeZone>::from_datum(
                         datum, false,
                     )

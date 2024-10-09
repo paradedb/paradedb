@@ -2,8 +2,6 @@ use crate::postgres::types::{TantivyValue, TantivyValueError};
 use pgrx::datum::{Date, DateTimeConversionError, RangeBound, Timestamp, TimestampWithTimeZone};
 use serde::{Deserialize, Serialize};
 
-const MICROSECONDS_IN_SECOND: f64 = 1000.0;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TantivyRange<T> {
     lower: Option<T>,
@@ -88,7 +86,7 @@ impl TryFrom<Date> for TimestampWithTimeZoneUtc {
     type Error = DateTimeConversionError;
 
     fn try_from(val: Date) -> Result<Self, Self::Error> {
-        let tstz = TimestampWithTimeZone::from(val.clone());
+        let tstz = TimestampWithTimeZone::from(val);
         Ok(TimestampWithTimeZoneUtc(
             TimestampWithTimeZone::with_timezone(
                 tstz.year(),
@@ -107,7 +105,7 @@ impl TryFrom<Timestamp> for TimestampWithTimeZoneUtc {
     type Error = DateTimeConversionError;
 
     fn try_from(val: Timestamp) -> Result<Self, Self::Error> {
-        let tstz = TimestampWithTimeZone::from(val.clone());
+        let tstz = TimestampWithTimeZone::from(val);
         Ok(TimestampWithTimeZoneUtc(
             TimestampWithTimeZone::with_timezone(
                 tstz.year(),
@@ -115,7 +113,7 @@ impl TryFrom<Timestamp> for TimestampWithTimeZoneUtc {
                 tstz.day(),
                 tstz.hour(),
                 tstz.minute(),
-                tstz.second() + (tstz.microseconds() as f64) / MICROSECONDS_IN_SECOND,
+                tstz.second(),
                 "UTC",
             )?,
         ))
@@ -167,50 +165,9 @@ where
     }
 }
 
-impl<T> TryFrom<pgrx::Range<T>> for TantivyValue
-where
-    T: Clone + Serialize + pgrx::datum::RangeSubType,
-{
-    type Error = TantivyValueError;
-
-    fn try_from(val: pgrx::Range<T>) -> Result<Self, Self::Error> {
-        match val.is_empty() {
-            true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                serde_json::to_value(TantivyRangeBuilder::<T>::new().build())?,
-            ))),
-            false => {
-                let lower = match val.lower() {
-                    Some(RangeBound::Inclusive(val)) => Some(val.clone()),
-                    Some(RangeBound::Exclusive(val)) => Some(val.clone()),
-                    Some(RangeBound::Infinite) | None => None,
-                };
-                let upper = match val.upper() {
-                    Some(RangeBound::Inclusive(val)) => Some(val.clone()),
-                    Some(RangeBound::Exclusive(val)) => Some(val.clone()),
-                    Some(RangeBound::Infinite) | None => None,
-                };
-
-                let lower_inclusive = matches!(val.lower(), Some(RangeBound::Inclusive(_)));
-                let upper_inclusive = matches!(val.upper(), Some(RangeBound::Inclusive(_)));
-                let lower_unbounded = matches!(val.lower(), Some(RangeBound::Infinite) | None);
-                let upper_unbounded = matches!(val.upper(), Some(RangeBound::Infinite) | None);
-
-                Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                    serde_json::to_value(
-                        TantivyRangeBuilder::new()
-                            .lower(lower)
-                            .upper(upper)
-                            .lower_inclusive(lower_inclusive)
-                            .upper_inclusive(upper_inclusive)
-                            .lower_unbounded(lower_unbounded)
-                            .upper_unbounded(upper_unbounded)
-                            .build(),
-                    )?,
-                )))
-            }
-        }
-    }
-}
-
+impl RangeToTantivyValue<i32, i32> for TantivyValue {}
+impl RangeToTantivyValue<i64, i64> for TantivyValue {}
+impl RangeToTantivyValue<pgrx::AnyNumeric, pgrx::AnyNumeric> for TantivyValue {}
 impl RangeToTantivyValue<Date, TimestampWithTimeZoneUtc> for TantivyValue {}
 impl RangeToTantivyValue<Timestamp, TimestampWithTimeZoneUtc> for TantivyValue {}
+impl RangeToTantivyValue<TimestampWithTimeZone, TimestampWithTimeZone> for TantivyValue {}

@@ -1,6 +1,7 @@
 use crate::index::reader::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
+use crate::postgres::customscan::pdbscan::scan_exec::ExecState;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::utils::VisibilityChecker;
@@ -96,7 +97,7 @@ pub struct PdbScanState {
     pub snippet_funcoid: pg_sys::Oid,
     pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
 
-    pub scan_func: Option<fn(&mut CustomScanStateWrapper<PdbScan>) -> *mut pg_sys::TupleTableSlot>,
+    pub scan_func: Option<fn(&mut CustomScanStateWrapper<PdbScan>) -> ExecState>,
 }
 
 impl CustomScanState for PdbScanState {}

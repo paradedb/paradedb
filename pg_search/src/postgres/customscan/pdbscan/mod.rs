@@ -19,6 +19,7 @@
 mod privdat;
 mod projections;
 mod qual_inspect;
+mod scan_exec;
 mod scan_state;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
@@ -42,6 +43,9 @@ use crate::postgres::customscan::pdbscan::projections::{
     maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
+use crate::postgres::customscan::pdbscan::scan_exec::{
+    normal_scan_exec, top_n_scan_exec, ExecState,
+};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -357,10 +361,10 @@ impl CustomScan for PdbScan {
         explainer.add_bool("Scores", state.custom_state().need_scores());
 
         if let Some(sort_direction) = state.custom_state().sort_direction {
-            explainer.add_text("Score Sort Direction", sort_direction)
+            explainer.add_text("   Sort Direction", sort_direction)
         }
         if let Some(limit) = state.custom_state().limit {
-            explainer.add_unsigned_integer("Limit", limit as u64, None);
+            explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
         }
 
         let query = &state.custom_state().search_config.query;
@@ -420,16 +424,25 @@ impl CustomScan for PdbScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        let scan_func = unsafe {
+            // extra help during debugging is cool
+            debug_assert!(
+                state.custom_state().scan_func.is_some(),
+                "exec_custom_scan: scan_func should be set"
+            );
+            // SAFETY:  we assign the scan_func down in rescan_custom_scan() and assert there that it's valid
+            *state.custom_state().scan_func.as_ref().unwrap_unchecked()
+        };
         loop {
             // get the next matching document from our search results and look for it in the heap
-            match normal_scan_exec(state) {
+            match scan_func(state) {
                 // reached the end of the SearchResults
                 ExecState::EOF => return std::ptr::null_mut(),
 
-                // SearchResults return a record we can't see
+                // SearchResults returned a tuple we can't see
                 ExecState::Invisible { .. } => continue,
 
-                // SearchResults found the record
+                // SearchResults found the tuple
                 ExecState::Found { scored, slot } => {
                     unsafe {
                         // project it if we need to
@@ -496,6 +509,7 @@ impl CustomScan for PdbScan {
                 sort_direction.into(),
                 limit,
             );
+            state.custom_state_mut().scan_func = Some(top_n_scan_exec);
         } else {
             state.custom_state_mut().search_results = search_reader.search_minimal(
                 false,
@@ -503,7 +517,13 @@ impl CustomScan for PdbScan {
                 &search_config,
                 &query,
             );
+            state.custom_state_mut().scan_func = Some(normal_scan_exec);
         }
+
+        assert!(
+            state.custom_state().scan_func.is_some(),
+            "CustomScan scan_func should be set"
+        );
 
         if need_snippets {
             for (snippet_info, generator) in state.custom_state_mut().snippet_generators.iter_mut()
@@ -514,33 +534,6 @@ impl CustomScan for PdbScan {
                 *generator = Some(new_generator);
             }
             state.custom_state_mut().search_reader = Some(search_reader);
-        }
-    }
-}
-
-enum ExecState {
-    Found {
-        scored: SearchIndexScore,
-        slot: *mut TupleTableSlot,
-    },
-    Invisible {
-        scored: SearchIndexScore,
-    },
-    EOF,
-}
-
-#[inline(always)]
-fn normal_scan_exec(state: &mut CustomScanStateWrapper<PdbScan>) -> ExecState {
-    match state.custom_state_mut().search_results.next() {
-        None => ExecState::EOF,
-        Some((scored, _)) => {
-            let scanslot = state.scanslot();
-            let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
-
-            match make_tuple_table_slot(state, &scored, bslot) {
-                None => ExecState::Invisible { scored },
-                Some(slot) => ExecState::Found { scored, slot },
-            }
         }
     }
 }

@@ -762,7 +762,7 @@ fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
     // Tantivy is a little stubborn about deletion. While the contents of the index
     // will indeed be cleaned up, lingering Readers cached in connections seem to re-create
     // certain files if they are found to be deleted. This makes it difficult to completely
-    // clean up the folder, so we will just test if our configuation JSON has been deleted.
+    // clean up the folder, so we will just test if our configuration JSON has been deleted.
     assert!(
         !index_dir.join("search-index.json").exists(),
         "expected index directory to have been deleted at: {:?}",

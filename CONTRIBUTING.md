@@ -32,7 +32,7 @@ The development of our Postgres extensions is done via `pgrx`. For development i
 
 The development of ParadeDB, which is the combination of our Postgres extensions and of community Postgres extensions packaged together, is done via Docker. If you are contributing to our Docker setup, we encourage you to use Docker Compose to build and test with the development file via `docker compose -f docker-compose.dev.yml up`.
 
-### Pull Request Worfklow
+### Pull Request Workflow
 
 All changes to ParadeDB happen through GitHub Pull Requests. Here is the recommended
 flow for making a change:

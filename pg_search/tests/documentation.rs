@@ -478,3 +478,35 @@ fn joined_tables(mut conn: PgConnection) {
         )]
     );
 }
+
+#[rstest]
+fn create_bm25_test_tables(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'orders',
+        table_type => 'Orders'
+    );
+
+    CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'parts',
+        table_type => 'Parts'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, i32, i32, f32, String)> = r#"
+        SELECT order_id, product_id, order_quantity, order_total::REAL, customer_name FROM orders
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 64);
+    assert_eq!(rows[0], (1, 1, 3, 99.99, "John Doe".into()));
+
+    let rows: Vec<(i32, i32, String)> = r#"
+        SELECT part_id, parent_part_id, description FROM parts
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 36);
+    assert_eq!(rows[0], (1, 0, "Chassis Assembly".into()));
+}

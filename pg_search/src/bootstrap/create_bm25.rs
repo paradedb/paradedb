@@ -22,8 +22,8 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
 
+use crate::index::{SearchFs, WriterDirectory};
 use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
-use crate::writer::{SearchFs, WriterDirectory};
 
 use super::format::format_bm25_function;
 use super::format::format_empty_function;

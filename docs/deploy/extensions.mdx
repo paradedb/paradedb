@@ -1,5 +1,5 @@
 ---
-title: Install Third Party Extensions
+title: Installing Third Party Extensions
 ---
 
 Postgres has a rich ecosystem of extensions. To keep the size of the ParadeDB Dockerfile small, only the ParadeDB extensions — `pg_search` and `pg_analytics` — and a limited set of third party extensions are included:
@@ -16,7 +16,7 @@ Postgres has a rich ecosystem of extensions. To keep the size of the ParadeDB Do
   changed.
 </Note>
 
-However, additional extensions can be installed inside ParadeDB.
+However, additional Postgres extensions can be installed inside existing ParadeDB Docker and Kubernetes deployments.
 
 ## Installing Third Party Extensions
 
@@ -58,7 +58,7 @@ apt-get install -y --no-install-recommends postgresql-16-partman
 
 ### Add to `shared_preload_libraries`
 
-<Accordion title = "Modifying shared_preload_libraries">
+<Accordion title="Modifying shared_preload_libraries">
 
 If you are installing an extension which requires this step, you can do so
 via the following command, replacing `<extension_name>` with your extension's name:

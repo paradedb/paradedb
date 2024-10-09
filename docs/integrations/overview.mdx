@@ -1,0 +1,70 @@
+---
+title: Overview
+---
+
+Today, a vast amount of data is stored in
+
+1. File formats like Parquet or CSV
+2. Data lakes like S3 or GCS
+3. Table formats like Delta Lake or Iceberg
+
+ParadeDB's integrations that make it easy to ingest this data without data processing engines or ETL tools, which can be complex and error-prone.
+
+## Basic Usage
+
+In this example, we will query and copy a Parquet file stored in S3 to Postgres. The Parquet file
+contains 3 million NYC taxi trips from January 2024, hosted in a public S3 bucket provided by ParadeDB.
+
+To begin, let's create a [Postgres foreign data wrapper](https://wiki.postgresql.org/wiki/Foreign_data_wrappers), which is how ParadeDB connects to S3.
+
+```sql
+CREATE FOREIGN DATA WRAPPER parquet_wrapper
+HANDLER parquet_fdw_handler VALIDATOR parquet_fdw_validator;
+
+CREATE SERVER parquet_server FOREIGN DATA WRAPPER parquet_wrapper;
+
+CREATE FOREIGN TABLE trips ()
+SERVER parquet_server
+OPTIONS (files 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet');
+```
+
+Next, let's query the foreign table `trips`. You'll notice that the column names and types of this table are automatically
+inferred from the Parquet file.
+
+```sql
+SELECT vendorid, passenger_count, trip_distance FROM trips LIMIT 1;
+```
+
+<Accordion title="Expected Response">
+```csv
+ vendorid | passenger_count | trip_distance
+----------+-----------------+---------------
+        2 |               1 |          1.72
+(1 row)
+```
+</Accordion>
+
+Queries over this table are powered by [DuckDB](https://duckdb.org), an in-process analytical query engine.
+This means that you can run fast analytical queries over data lakes from ParadeDB.
+
+```sql
+SELECT COUNT(*) FROM trips;
+```
+
+<Accordion title="Expected Response">
+```csv
+  count
+---------
+ 2964624
+(1 row)
+```
+</Accordion>
+
+Finally, let's copy this table into a Postgres heap table. For demonstration, we will
+copy over the first 100 rows.
+
+```sql
+CREATE TABLE trips_copy AS SELECT * FROM trips LIMIT 100;
+```
+
+That's it! Please refer to the other sections for instructions on how to ingest from other [file and table formats](/integrations/formats) and [object stores](/integrations/object_stores).

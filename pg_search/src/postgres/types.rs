@@ -31,6 +31,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::num::ParseFloatError;
 use std::str::FromStr;
+use tantivy::schema::OwnedValue;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
@@ -41,7 +42,11 @@ impl TantivyValue {
         self.0.clone()
     }
 
-    pub unsafe fn try_into_datum(self, oid: PgOid) -> Result<Datum, TantivyValueError> {
+    pub unsafe fn try_into_datum(self, oid: PgOid) -> Result<Option<Datum>, TantivyValueError> {
+        if matches!(self.0, OwnedValue::Null) {
+            return Ok(None);
+        }
+
         match &oid {
             PgOid::BuiltIn(builtin) => {
                 let datum = match builtin {
@@ -72,7 +77,7 @@ impl TantivyValue {
                     PgBuiltInOids::UUIDOID => pgrx::datum::Uuid::try_from(self)?.into_datum(),
                     _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
                 };
-                datum.ok_or_else(|| TantivyValueError::DatumConversionError)
+                Ok(datum)
             }
             _ => Err(TantivyValueError::InvalidOid),
         }
@@ -1010,7 +1015,4 @@ pub enum TantivyValueError {
 
     #[error("Cannot convert TantivyValue to type {0}")]
     UnsupportedIntoConversion(String),
-
-    #[error("Failed to convert tantivy value to datum")]
-    DatumConversionError,
 }

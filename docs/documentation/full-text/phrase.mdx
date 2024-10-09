@@ -1,0 +1,35 @@
+---
+title: Phrase Search
+---
+
+<Note>
+  To enable phrase search, a field must be indexed with
+  [record](/documentation/indexing/record) of `position`.
+</Note>
+
+## Basic Usage
+
+Searches for a specific [phrase](/documentation/concepts/phrase). Phrases must be wrapped inside
+double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
+
+```sql
+SELECT * FROM search_idx.search('description:"plastic keyboard"');
+```
+
+## Slop Operator
+
+The `~` slop operator allows for other words to come in between words in the query phrase. For instance, the following query finds documents containing
+the word `ergonomic` followed by `keyboard`, allowing for a maximum of one word in between.
+
+```sql
+SELECT * FROM search_idx.search('description:"ergonomic keyboard"~1');
+```
+
+## Phrase Prefix
+
+The `*` prefix operator allows for the last term in the phrase query to be the prefix of another word. For instance,
+`"plastic keyb"*` matches `plastic keyboard`.
+
+```sql
+SELECT * FROM search_idx.search('description:"plastic keyb"*');
+```

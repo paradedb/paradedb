@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::SearchIndex;
+use crate::index::WriterDirectory;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::relfilenode_from_index_oid;
-use crate::writer::WriterDirectory;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 

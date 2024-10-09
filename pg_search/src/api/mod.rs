@@ -20,3 +20,52 @@ pub mod index;
 pub mod operator;
 pub mod search;
 pub mod tokenize;
+
+#[macro_export]
+macro_rules! nodecast {
+    ($type_:ident, $kind:ident, $node:expr) => {{
+        let node = $node;
+        pgrx::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind)
+            .then(|| node.cast::<pgrx::pg_sys::$type_>())
+    }};
+}
+
+pub trait AsInt {
+    unsafe fn as_int(&self) -> Option<i32>;
+}
+
+pub trait AsCStr {
+    unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
+}
+
+#[cfg(any(feature = "pg13", feature = "pg14"))]
+impl AsInt for *mut pgrx::pg_sys::Node {
+    unsafe fn as_int(&self) -> Option<i32> {
+        let node = nodecast!(Value, T_Integer, *self)?;
+        Some((*node).val.ival)
+    }
+}
+
+#[cfg(not(any(feature = "pg13", feature = "pg14")))]
+impl AsInt for *mut pgrx::pg_sys::Node {
+    unsafe fn as_int(&self) -> Option<i32> {
+        let node = nodecast!(Integer, T_Integer, *self)?;
+        Some((*node).ival)
+    }
+}
+
+#[cfg(any(feature = "pg13", feature = "pg14"))]
+impl AsCStr for *mut pgrx::pg_sys::Node {
+    unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
+        let node = nodecast!(Value, T_String, *self)?;
+        Some(std::ffi::CStr::from_ptr((*node).val.str_))
+    }
+}
+
+#[cfg(not(any(feature = "pg13", feature = "pg14")))]
+impl AsCStr for *mut pgrx::pg_sys::Node {
+    unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
+        let node = nodecast!(String, T_String, *self)?;
+        Some(std::ffi::CStr::from_ptr((*node).sval))
+    }
+}

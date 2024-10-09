@@ -15,9 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
-
-use crate::schema::SearchConfig;
+use crate::schema::{IndexRecordOption, SearchConfig};
 use anyhow::Result;
 use core::panic;
 use pgrx::PostgresType;
@@ -31,7 +29,7 @@ use tantivy::{
         PhraseQuery, Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
-    schema::{Field, FieldType, IndexRecordOption, OwnedValue},
+    schema::{Field, FieldType, OwnedValue},
     Searcher, Term,
 };
 use thiserror::Error;
@@ -40,8 +38,16 @@ use thiserror::Error;
 pub enum SearchQueryInput {
     All,
     Boolean {
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         must: Vec<SearchQueryInput>,
+
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         should: Vec<SearchQueryInput>,
+
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         must_not: Vec<SearchQueryInput>,
     },
     Boost {
@@ -96,6 +102,10 @@ pub enum SearchQueryInput {
     Parse {
         query_string: String,
     },
+    ParseWithField {
+        field: String,
+        query_string: String,
+    },
     Phrase {
         field: String,
         phrases: Vec<String>,
@@ -124,6 +134,7 @@ pub enum SearchQueryInput {
     },
 }
 
+#[allow(dead_code)]
 pub trait AsFieldType<T> {
     fn fields(&self) -> Vec<(FieldType, Field)>;
 
@@ -214,6 +225,7 @@ impl SearchQueryInput {
         parser: &mut QueryParser,
         searcher: &Searcher,
         config: &SearchConfig,
+        requires_scoring: &mut bool,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::All => Ok(Box::new(AllQuery)),
@@ -226,29 +238,59 @@ impl SearchQueryInput {
                 for input in must {
                     subqueries.push((
                         Occur::Must,
-                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                        input.into_tantivy_query(
+                            field_lookup,
+                            parser,
+                            searcher,
+                            config,
+                            requires_scoring,
+                        )?,
                     ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                        input.into_tantivy_query(
+                            field_lookup,
+                            parser,
+                            searcher,
+                            config,
+                            requires_scoring,
+                        )?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                        input.into_tantivy_query(
+                            field_lookup,
+                            parser,
+                            searcher,
+                            config,
+                            requires_scoring,
+                        )?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                query.into_tantivy_query(
+                    field_lookup,
+                    parser,
+                    searcher,
+                    config,
+                    requires_scoring,
+                )?,
                 boost,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                query.into_tantivy_query(
+                    field_lookup,
+                    parser,
+                    searcher,
+                    config,
+                    requires_scoring,
+                )?,
                 score,
             ))),
             Self::DisjunctionMax {
@@ -257,7 +299,15 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher, config))
+                    .map(|query| {
+                        query.into_tantivy_query(
+                            field_lookup,
+                            parser,
+                            searcher,
+                            config,
+                            requires_scoring,
+                        )
+                    })
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -381,6 +431,7 @@ impl SearchQueryInput {
                 document_fields,
                 document_id,
             } => {
+                *requires_scoring = true;
                 let mut builder = MoreLikeThisQuery::builder();
 
                 if let Some(min_doc_frequency) = min_doc_frequency {
@@ -414,7 +465,7 @@ impl SearchQueryInput {
                         .expect("internal error, key field should be found here");
                     let term = value_to_term(field, &key_value, &field_type)?;
                     let query: Box<dyn Query> =
-                        Box::new(TermQuery::new(term, IndexRecordOption::Basic));
+                        Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
                     let addresses = searcher.search(&query, &DocSetCollector)?;
                     let disjuncts: Vec<Box<dyn Query>> = addresses
                         .into_iter()
@@ -473,6 +524,19 @@ impl SearchQueryInput {
                     )?))
                 }
             },
+            Self::ParseWithField {
+                field,
+                query_string,
+            } => {
+                let query_string = format!("{field}:({query_string})");
+                Self::Parse { query_string }.into_tantivy_query(
+                    field_lookup,
+                    parser,
+                    searcher,
+                    config,
+                    requires_scoring,
+                )
+            }
             Self::Phrase {
                 field,
                 phrases,
@@ -538,7 +602,7 @@ impl SearchQueryInput {
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
                     let term = value_to_term(field, &value, &field_type)?;
-                    Ok(Box::new(TermQuery::new(term, record_option)))
+                    Ok(Box::new(TermQuery::new(term, record_option.into())))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
@@ -616,6 +680,7 @@ fn value_to_term(
     })
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Error)]
 enum QueryError {
     #[error("wrong field type for field: {0}")]

@@ -26,6 +26,7 @@ mod scan;
 mod vacuum;
 mod validate;
 
+pub mod customscan;
 pub mod datetime;
 pub mod transaction;
 pub mod types;
@@ -84,6 +85,19 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.amgettuple = Some(scan::amgettuple);
     amroutine.amgetbitmap = Some(scan::amgetbitmap);
     amroutine.amendscan = Some(scan::amendscan);
+    amroutine.amcanreturn = Some(scan::amcanreturn);
 
     amroutine.into_pg_boxed()
+}
+
+pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)> {
+    unsafe {
+        let rel = PgRelation::with_lock(relid, pg_sys::AccessShareLock as _);
+        for index in rel.indices(pg_sys::AccessShareLock as _) {
+            if (*index.rd_indam).ambuild == Some(build::ambuild) {
+                return Some((rel, index));
+            }
+        }
+        None
+    }
 }

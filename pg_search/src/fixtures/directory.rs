@@ -15,10 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub use crate::writer::SearchFs;
-use crate::writer::{
-    SearchDirectoryError, TantivyDirPath, WriterDirectory, WriterTransferPipeFilePath,
-};
+pub use crate::index::SearchFs;
+use crate::index::{SearchDirectoryError, TantivyDirPath, WriterDirectory};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub struct MockWriterDirectory {
@@ -62,11 +60,5 @@ impl SearchFs for MockWriterDirectory {
         ensure_exists: bool,
     ) -> Result<TantivyDirPath, SearchDirectoryError> {
         self.writer_dir.tantivy_dir_path(ensure_exists)
-    }
-    fn writer_transfer_pipe_path(
-        &self,
-        ensure_exists: bool,
-    ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError> {
-        self.writer_dir.writer_transfer_pipe_path(ensure_exists)
     }
 }

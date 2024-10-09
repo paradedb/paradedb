@@ -1,0 +1,29 @@
+---
+title: 0.10.3
+---
+
+## Performance Improvements 🚀
+
+Introduced support for index-only scans for queries that project **only** over the `key_field`. In practice, this means that
+simple `COUNT` facets will be much faster.
+
+```
+SELECT COUNT(*) FROM mock_items
+WHERE id @@@ 'description:shoes';
+```
+
+## Documentation 📚
+
+We've overhauled the deployment section of the documentation with more thorough, up-to-date guides.
+
+## Housekeeping 🏡
+
+Introduced support for Postgres 17.
+
+## New Contributors 👋
+
+- [@CatMeOw](https://github.com/CatMeOw) made their first contribution in [#1712](https://github.com/paradedb/paradedb/pull/1712)
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.10.3).

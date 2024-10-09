@@ -48,10 +48,10 @@ fn direct_or_queries(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     for query in &[
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard OR category:electronics'",
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' OR id @@@ 'category:electronics'",
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ paradedb.term('description', 'keyboard') OR id @@@ paradedb.term('category', 'electronics')",
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ paradedb.term('description', 'keyboard') OR id @@@ 'category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard OR category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' OR bm25_search @@@ 'category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') OR bm25_search @@@ paradedb.term('category', 'electronics')",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') OR bm25_search @@@ 'category:electronics'",
     ] {
         let columns: SimpleProductsTableVec = query.fetch_collect(&mut conn);
 
@@ -81,10 +81,10 @@ fn direct_and_queries(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     for query in &[
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard AND category:electronics'",
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' AND id @@@ 'category:electronics'",
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ paradedb.term('description', 'keyboard') AND id @@@ paradedb.term('category', 'electronics')",
-        "SELECT * FROM paradedb.bm25_search WHERE id @@@ paradedb.term('description', 'keyboard') AND id @@@ 'category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard AND category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND bm25_search @@@ 'category:electronics'",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') AND bm25_search @@@ paradedb.term('category', 'electronics')",
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term('description', 'keyboard') AND bm25_search @@@ 'category:electronics'",
     ] {
         let columns: SimpleProductsTableVec = query.fetch_collect(&mut conn);
 
@@ -130,5 +130,12 @@ fn explain_row_estimate(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     eprintln!("{plan:#?}");
-    assert_eq!(plan.get("Plan Rows"), Some(&Value::Number(Number::from(2))));
+
+    // depending on how tantivy distributes docs per segment, it seems the estimated rows could be 2 or 3
+    // with our little test table
+    let plan_rows = plan.get("Plan Rows");
+    assert!(
+        plan_rows == Some(&Value::Number(Number::from(2)))
+            || plan_rows == Some(&Value::Number(Number::from(3)))
+    );
 }

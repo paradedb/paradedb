@@ -1,0 +1,331 @@
+---
+title: CSV
+---
+
+## Overview
+
+This code block demonstrates how to query CSV file(s).
+
+```sql
+CREATE FOREIGN DATA WRAPPER <wrapper_name>
+HANDLER csv_fdw_handler
+VALIDATOR csv_fdw_validator;
+
+CREATE SERVER <server_name>
+FOREIGN DATA WRAPPER <wrapper_name>;
+
+CREATE FOREIGN TABLE <table_name> ()
+SERVER <server_name>
+OPTIONS (files '<files>');
+```
+
+<Accordion title="Example Usage">
+```sql
+CREATE FOREIGN DATA WRAPPER csv_wrapper
+HANDLER csv_fdw_handler
+VALIDATOR csv_fdw_validator;
+
+CREATE SERVER csv_server
+FOREIGN DATA WRAPPER csv_wrapper;
+
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (files 's3://bucket/folder/file.csv');
+
+````
+</Accordion>
+
+<ParamField body="wrapper_name" required>
+  Foreign data wrapper name. Can be any string.
+</ParamField>
+<ParamField body="server_name" required>
+  Foreign server name. Can be any string.
+</ParamField>
+<ParamField body="table_name" required>
+  Foreign table name. Can be any string.
+</ParamField>
+<ParamField body="files" required>
+The path of a single CSV file or [multiple CSV files](#multiple-csv-files).
+For instance, `s3://bucket/folder/file.csv` if the file is in Amazon S3, `https://domain.tld/file.csv`
+if the file is on a HTTP server, or `/path/to/file.csv` if the file is on the local file system.
+</ParamField>
+
+## CSV Options
+
+There are a number of options that can be passed into the `CREATE FOREIGN TABLE` statement.
+These are the same [options](https://duckdb.org/docs/data/csv/overview#parameters) accepted
+by DuckDB's `read_csv` function.
+
+<ParamField body="all_varchar" default="false">
+Option to skip type detection for CSV parsing and assume all columns to be of type`VARCHAR`.
+</ParamField>
+
+<ParamField body="allow_quoted_nulls" default="true">
+Option to allow the conversion of quoted values to `NULL` values.
+</ParamField>
+
+<ParamField body="auto_detect" default="true">
+Enables auto detection of CSV parameters. See [Auto Detection](https://duckdb.org/docs/data/csv/auto_detection.html).
+</ParamField>
+
+<ParamField body="auto_type_candidates">
+This option allows you to specify the types that the sniffer will use when detecting CSV column types.
+The `VARCHAR` type is always included in the detected types (as a fallback option).
+See [Auto Type Candidates](https://duckdb.org/docs/data/csv/overview#auto_type_candidates-details).
+
+<Accordion title="Example Usage">
+```sql
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files 's3://bucket/folder/file.csv',
+    auto_type_candidates 'BIGINT, DATE'
+);
+````
+
+</Accordion>
+</ParamField>
+
+<ParamField body="columns">
+A struct that specifies the column names and column types contained within the CSV file
+(e.g., `{'col1': 'INTEGER', 'col2': 'VARCHAR'}`). Using this option implies that auto detection is
+not used.
+
+<Accordion title="Example Usage">
+```sql
+-- Dollar-quoted strings are used to contain single quotes
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files 's3://bucket/folder/file.csv',
+    columns $${'FlightDate': 'DATE', 'UniqueCarrier': 'VARCHAR'}$$
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="compression" default="auto">
+  The compression type for the file. By default this will be detected
+  automatically from the file extension (e.g., `t.csv.gz` will use `gzip`,
+  `t.csv` will use `none`). Options are `none`, `gzip`, `zstd`.
+</ParamField>
+
+<ParamField body="dateformat">
+  Specifies the date format to use when parsing dates. See [Date
+  Format](https://duckdb.org/docs/sql/functions/dateformat.html).
+</ParamField>
+
+<ParamField body="decimal_separator" default=".">
+  The decimal separator of numbers.
+</ParamField>
+
+<ParamField body="delim" default=",">
+  Specifies the delimiter character that separates columns within each row
+  (line) of the file. Alias for `sep`.
+</ParamField>
+
+<ParamField body="escape" default='"'>
+  Specifies the string that should appear before a data character sequence that
+  matches the quote value.
+</ParamField>
+
+<ParamField body="filename" default="false">
+  Whether or not an extra filename column should be included in the result.
+</ParamField>
+
+<ParamField body="force_not_null">
+Do not match the specified columns' values against the `NULL` string. In the default case where the `NULL` string is empty, this means that empty values will be read as zero-length strings rather than NULLs.
+
+<Accordion title="Example Usage">
+```sql
+-- Dollar-quoted strings are used to contain single quotes
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files 's3://bucket/folder/file.csv',
+    force_not_null 'FlightDate, UniqueCarrier'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="header" default="false">
+  Specifies that the file contains a header line with the names of each column
+  in the file.
+</ParamField>
+
+<ParamField body="hive_partitioning" default="false">
+  Whether or not to interpret the path as a Hive partitioned path.
+</ParamField>
+
+<ParamField body="hive_types">
+If `hive_partitioning` is enabled, `hive_types` can be used to specify the logical types of the hive
+partitions in a struct.
+<Accordion title="Example Usage">
+```sql
+-- Dollar-quoted strings are used to contain single quotes
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files 's3://bucket/folder/file.csv',
+    hive_partitioning 'true',
+    hive_types $${'release': DATE, 'orders': BIGINT}$$
+);
+```
+</Accordion>
+</ParamField>
+<ParamField body="hive_types_autocast">
+hive_types will be autodetected for the following types: `DATE`, `TIMESTAMP` and `BIGINT`.
+To switch off the autodetection, this option can be set to `0`.
+<Accordion title="Example Usage">
+```sql
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files 's3://bucket/folder/file.csv',
+    hive_partitioning 'true',
+    hive_types $${'release': DATE, 'orders': BIGINT}$$,
+    hive_types_autocast '0'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="ignore_errors" default="false">
+  Option to ignore any parsing errors encountered and instead ignore rows with
+  errors.
+</ParamField>
+
+<ParamField body="max_line_size" default="2097152">
+  The maximum line size in bytes.
+</ParamField>
+
+<ParamField body="names">
+The column names as a list if the file does not contain a header.
+
+<Accordion title="Example Usage">
+```sql
+-- Dollar-quoted strings are used to contain single quotes
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files 's3://bucket/folder/file.csv',
+    names 'FlightDate, UniqueCarrier'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="new_line">
+  Set the new line character(s) in the file. Options are '\r','\n', or '\r\n'.
+</ParamField>
+
+<ParamField body="normalize_names" default="false">
+  Boolean value that specifies whether or not column names should be normalized,
+  removing any non-alphanumeric characters from them.
+</ParamField>
+
+<ParamField body="null_padding" default="false">
+  If this option is enabled, when a row lacks columns, it will pad the remaining
+  columns on the right with null values.
+</ParamField>
+
+<ParamField body="nullstr">
+Specifies the string that represents a `NULL` value or a list of strings that represent a `NULL` value.
+
+<Accordion title="Example Usage">
+```sql
+-- Dollar-quoted strings are used to contain single quotes
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files 's3://bucket/folder/file.csv',
+    nullstr 'NULL, NONE'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="parallel" default="true">
+  Whether or not the parallel CSV reader is used.
+</ParamField>
+
+<ParamField body="quote" default='"'>
+  Specifies the quoting string to be used when a data value is quoted.
+</ParamField>
+
+<ParamField body="sample_size" default="20480">
+  The number of sample rows for auto detection of parameters.
+</ParamField>
+
+<ParamField body="sep" default=",">
+  Specifies the delimiter character that separates columns within each row
+  (line) of the file. Alias for `delim`.
+</ParamField>
+
+<ParamField body="skip" default="0">
+  The number of lines at the top of the file to skip.
+</ParamField>
+
+<ParamField body="timestampformat" default="(empty)">
+  Specifies the date format to use when parsing timestamps. See [Date
+  Format](https://duckdb.org/docs/sql/functions/dateformat.html).
+</ParamField>
+
+<ParamField body="types">
+The column types as a list by position.
+
+<Accordion title="Example Usage">
+```sql
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files 's3://bucket/folder/file.csv',
+    types 'BIGINT, DATE'
+);
+```
+</Accordion>
+</ParamField>
+
+<ParamField body="union_by_name" default="false">
+  Whether the columns of multiple schemas should be unified by name, rather than
+  by position.
+</ParamField>
+
+## Multiple CSV Files
+
+To treat multiple CSV files as a single table, their paths should be passed in as a comma-separated
+string.
+
+```sql
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files '/path/to/file1.csv, /path/to/file2.csv'
+);
+```
+
+To treat a directory of CSV files as a single table, the glob pattern should be used.
+
+```sql
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files '/folder/*.csv',
+);
+```
+
+The glob pattern can also be used to read all CSV files from multiple directories.
+
+```sql
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (
+    files '/folder1/*.csv, /folder2/*.csv'
+);
+```
+
+## Cloud Object Stores
+
+The [object stores](/integrations/object_stores) documentation explains how to provide secrets and other credentials for
+CSV files stored in object stores like S3.

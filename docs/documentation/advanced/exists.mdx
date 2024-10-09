@@ -1,0 +1,36 @@
+---
+title: Exists
+---
+
+## Basic Usage
+
+Matches all documents with a non-null value in the specified field. All matched documents get a BM25 score of `1.0`.
+
+<Note>
+  Will error if the field has not been indexed as a [fast
+  field](/documentation/indexing/fast_fields).
+</Note>
+
+```sql
+SELECT * FROM search_idx.search(
+	query => paradedb.exists(field => 'rating')
+);
+```
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+
+This query is useful for filtering on `NULL` values inside a boolean query. For instance, the following code block
+finds all rows with `description` matching `shoes` that have a non-null `rating`.
+
+```sql
+SELECT * FROM search_idx.search(
+  query => paradedb.boolean(
+    must => ARRAY[
+      paradedb.parse('description:shoes'),
+      paradedb.exists('rating')
+    ]
+  )
+);
+```

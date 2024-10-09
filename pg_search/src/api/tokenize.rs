@@ -20,7 +20,7 @@ use strum::VariantNames;
 use tokenizers::SearchTokenizer;
 
 /// Tokenize text with a given tokenizer setting
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 pub fn tokenize(
     tokenizer_setting: JsonB,
     input_text: &str,
@@ -46,7 +46,7 @@ pub fn tokenize(
 }
 
 /// List all available tokenizers names in ParadeDB
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 pub fn tokenizers() -> TableIterator<'static, (name!(tokenizer, String),)> {
     TableIterator::new(
         SearchTokenizer::VARIANTS

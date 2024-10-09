@@ -19,6 +19,7 @@ use crate::postgres::types::TantivyValue;
 use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
+use tantivy::DocAddress;
 
 /// A custom score struct for ordering Tantivy results.
 /// For use with the `stable` sorting feature.
@@ -27,6 +28,7 @@ pub struct SearchIndexScore {
     pub bm25: f32,
     pub key: Option<TantivyValue>,
     pub ctid: u64,
+    pub doc_address: Option<DocAddress>,
 
     /// if we have a specific order by requirement, use that first, instead of sorting by the bm25 score
     pub order_by: Option<TantivyValue>,

@@ -1,0 +1,63 @@
+---
+title: Hugging Face
+---
+
+## Overview
+
+This code block demonstrates how to query machine learning datasets from the Hugging Face Datasets library. The file path must start with `hf://`.
+
+```sql
+-- CSV format is assumed
+CREATE FOREIGN DATA WRAPPER csv_wrapper
+HANDLER csv_fdw_handler
+VALIDATOR csv_fdw_validator;
+
+CREATE SERVER csv_server
+FOREIGN DATA WRAPPER csv_wrapper;
+
+CREATE FOREIGN TABLE csv_table ()
+SERVER csv_server
+OPTIONS (files 'hf://datasets/datasets-examples/doc-formats-csv-1/data.csv');
+```
+
+## Providing Credentials
+
+`CREATE USER MAPPING` is used to provide Hugging Face credentials. These credentials are tied to a specific Postgres user, which enables
+multiple users to query the same foreign table with their own credentials.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'HUGGINGFACE',
+  token '<your_hf_token>'
+);
+```
+
+<ParamField body="current_user" required>
+  The name of the Postgres user. If set to `public`, these credentials will be
+  applied to all users. `SELECT current_user` can be used to get the name of the
+  current Postgres user.
+</ParamField>
+<ParamField body="server_name" required>
+  Foreign server name.
+</ParamField>
+
+## Credentials Options
+
+The following options can be passed into `CREATE USER MAPPING`:
+
+<ParamField body="token">Your Hugging Face token.</ParamField>
+
+## Credential Chain Provider
+
+The `CREDENTIAL_CHAIN` provider allows connecting using credentials automatically fetched from `~/.cache/huggingface/token`.
+
+```sql
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  type 'HUGGINGFACE',
+  provider 'CREDENTIAL_CHAIN',
+);
+```

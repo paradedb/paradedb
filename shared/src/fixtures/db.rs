@@ -75,12 +75,15 @@ where
     Self: AsRef<str> + Sized,
 {
     fn execute(self, connection: &mut PgConnection) {
-        block_on(async {
-            connection
-                .execute(self.as_ref())
-                .await
-                .expect("query execution should succeed");
-        })
+        block_on(async { self.execute_async(connection).await })
+    }
+
+    #[allow(async_fn_in_trait)]
+    async fn execute_async(self, connection: &mut PgConnection) {
+        connection
+            .execute(self.as_ref())
+            .await
+            .expect("query execution should succeed");
     }
 
     fn execute_result(self, connection: &mut PgConnection) -> Result<(), sqlx::Error> {

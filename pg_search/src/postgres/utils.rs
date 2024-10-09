@@ -123,7 +123,7 @@ pub unsafe fn row_to_search_document(
             }
         } else {
             pgrx::info!(
-                "inserting oid {:?} {:?}",
+                "inserting datum {:?} {:?}",
                 base_oid,
                 TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value()
             );

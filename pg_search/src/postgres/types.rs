@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
-use crate::postgres::range::TantivyRangeBuilder;
+use crate::postgres::range::{RangeToTantivyValue, TantivyRangeBuilder};
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
@@ -231,17 +231,13 @@ impl TantivyValue {
                     pgrx::datum::Range::<pgrx::AnyNumeric>::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
-                PgBuiltInOids::DATERANGEOID => TantivyValue::try_from(
-                    pgrx::datum::Range::<pgrx::datum::TimestampWithTimeZone>::from_datum(
-                        datum, false,
-                    )
-                    .ok_or(TantivyValueError::DatumDeref)?,
+                PgBuiltInOids::DATERANGEOID => TantivyValue::from_range(
+                    pgrx::datum::Range::<pgrx::datum::Date>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
                 ),
-                PgBuiltInOids::TSRANGEOID => TantivyValue::try_from(
-                    pgrx::datum::Range::<pgrx::datum::TimestampWithTimeZone>::from_datum(
-                        datum, false,
-                    )
-                    .ok_or(TantivyValueError::DatumDeref)?,
+                PgBuiltInOids::TSRANGEOID => TantivyValue::from_range(
+                    pgrx::datum::Range::<pgrx::datum::Timestamp>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
                 ),
                 PgBuiltInOids::TSTZRANGEOID => TantivyValue::try_from(
                     pgrx::datum::Range::<pgrx::datum::TimestampWithTimeZone>::from_datum(
@@ -938,51 +934,6 @@ impl TryFrom<pgrx::Inet> for TantivyValue {
         Err(TantivyValueError::UnsupportedFromConversion(
             "inet".to_string(),
         ))
-    }
-}
-
-impl<T> TryFrom<pgrx::Range<T>> for TantivyValue
-where
-    T: Clone + Serialize + pgrx::datum::RangeSubType,
-{
-    type Error = TantivyValueError;
-
-    fn try_from(val: pgrx::Range<T>) -> Result<Self, Self::Error> {
-        match val.is_empty() {
-            true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                serde_json::to_value(TantivyRangeBuilder::<T>::new().build())?,
-            ))),
-            false => {
-                let lower = match val.lower() {
-                    Some(RangeBound::Inclusive(val)) => Some(val.clone()),
-                    Some(RangeBound::Exclusive(val)) => Some(val.clone()),
-                    Some(RangeBound::Infinite) | None => None,
-                };
-                let upper = match val.upper() {
-                    Some(RangeBound::Inclusive(val)) => Some(val.clone()),
-                    Some(RangeBound::Exclusive(val)) => Some(val.clone()),
-                    Some(RangeBound::Infinite) | None => None,
-                };
-
-                let lower_inclusive = matches!(val.lower(), Some(RangeBound::Inclusive(_)));
-                let upper_inclusive = matches!(val.upper(), Some(RangeBound::Inclusive(_)));
-                let lower_unbounded = matches!(val.lower(), Some(RangeBound::Infinite) | None);
-                let upper_unbounded = matches!(val.upper(), Some(RangeBound::Infinite) | None);
-
-                Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                    serde_json::to_value(
-                        TantivyRangeBuilder::new()
-                            .lower(lower)
-                            .upper(upper)
-                            .lower_inclusive(lower_inclusive)
-                            .upper_inclusive(upper_inclusive)
-                            .lower_unbounded(lower_unbounded)
-                            .upper_unbounded(upper_unbounded)
-                            .build(),
-                    )?,
-                )))
-            }
-        }
     }
 }
 

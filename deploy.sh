@@ -258,7 +258,6 @@ echo -e "=========================================================\n"
 
 
 
-# Handle installation on windows
 if [[ "$OSTYPE" = "msys" ]] || [[ "$OSTYPE" = "cygwin" ]]; then
   echo "We do not support any prebuilt binary files for Windows."
   read -r -p "Would you like to continue with the docker setup? [y/N] " response
@@ -266,14 +265,12 @@ if [[ "$OSTYPE" = "msys" ]] || [[ "$OSTYPE" = "cygwin" ]]; then
   case "$response" in
     [yY][eE][sS]|[yY])
       # installDocker
-      echo -e "Installation Successfull ✅\n"
+      echo -e "Installation Successful ✅\n"
   esac
-  
-  # Exit silently  
+
   echo -e "$EXIT_MSG"
   exit 0
 
-# Handle MacOS installation
 elif [[ "$OSTYPE" = "darwin"* ]]; then
   echo "We do not support any prebuilt binaries for MacOS. You can either compile paradedb from source or use our docker image."
   read -r -p "Would you like to continue with the docker setup? [y/N] " response
@@ -281,10 +278,9 @@ elif [[ "$OSTYPE" = "darwin"* ]]; then
   case "$response" in
     [yY][eE][sS]|[yY])
       # installDocker
-      echo -e "Installation Successfull ✅\n"
+      echo -e "Installation Successful ✅\n"
   esac
 
-  # Exit silently  
   echo -e "$EXIT_MSG"
   exit 0
 fi
@@ -299,12 +295,12 @@ do
   case $opt in
     "🐳Latest Docker Image")
       installDocker
-      echo -e "Installation Successfull ✅\n"
+      echo -e "Installation Successful ✅\n"
       break ;;
     "⬇️ Stable Binary")
       echo "Stable"
       installBinary
-      echo -e "Installation Successfull ✅\n"
+      echo -e "Installation Successful ✅\n"
       break ;;
     *)
       echo -e "No option selected, exiting setup.\n"

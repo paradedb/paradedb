@@ -19,10 +19,10 @@
 mod privdat;
 mod projections;
 mod qual_inspect;
+mod scan_state;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
 use crate::api::{AsCStr, AsInt};
-use crate::index::state::{SearchResults, SearchState};
 use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -35,13 +35,13 @@ use crate::postgres::customscan::pdbscan::projections::score::{
     inject_scores, score_funcoid, uses_scores,
 };
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    inject_snippet, snippet_funcoid, uses_snippets, SnippetInfo,
+    inject_snippet, snippet_funcoid, uses_snippets,
 };
 use crate::postgres::customscan::pdbscan::projections::{
     maybe_needs_const_projections, pullout_funcexprs, pullout_pathkeys,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
-use crate::postgres::customscan::{CustomScan, CustomScanState};
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{
@@ -50,128 +50,15 @@ use crate::postgres::utils::{
 use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation};
+use pgrx::{pg_sys, PgList, PgRelation};
+use scan_state::{PdbScanState, SortDirection};
 use shared::gucs::GlobalGucSettings;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
-use tantivy::snippet::SnippetGenerator;
-
-const SORT_ASCENDING: u32 = pg_sys::BTLessStrategyNumber;
-const SORT_DESCENDING: u32 = pg_sys::BTGreaterStrategyNumber;
-
-#[derive(Debug, Default, Copy, Clone)]
-#[repr(u32)]
-pub enum SortDirection {
-    #[default]
-    Asc = pg_sys::BTLessStrategyNumber,
-    Desc = pg_sys::BTGreaterStrategyNumber,
-}
-
-impl From<SortDirection> for crate::index::state::SortDirection {
-    fn from(value: SortDirection) -> Self {
-        match value {
-            SortDirection::Asc => crate::index::state::SortDirection::Asc,
-            SortDirection::Desc => crate::index::state::SortDirection::Desc,
-        }
-    }
-}
-
-impl From<i32> for SortDirection {
-    fn from(value: i32) -> Self {
-        SortDirection::from(value as u32)
-    }
-}
-
-impl From<u32> for SortDirection {
-    fn from(value: u32) -> Self {
-        match value {
-            pg_sys::BTLessStrategyNumber => SortDirection::Asc,
-            pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
-            _ => panic!("unrecognized sort strategy number: {value}"),
-        }
-    }
-}
-
-impl From<SortDirection> for u32 {
-    fn from(value: SortDirection) -> Self {
-        value as _
-    }
-}
 
 #[derive(Default)]
 pub struct PdbScan;
-
-#[derive(Default)]
-pub struct PdbScanState {
-    heaprelid: pg_sys::Oid,
-    indexrelid: pg_sys::Oid,
-    rti: pg_sys::Index,
-
-    index_name: String,
-    index_uuid: String,
-    key_field: String,
-    search_state: Option<SearchState>,
-    search_config: SearchConfig,
-    search_results: SearchResults,
-
-    limit: Option<usize>,
-    sort_direction: Option<SortDirection>,
-
-    heaprel: Option<pg_sys::Relation>,
-    indexrel: Option<pg_sys::Relation>,
-    lockmode: pg_sys::LOCKMODE,
-
-    snapshot: Option<pg_sys::Snapshot>,
-    visibility_checker: Option<VisibilityChecker>,
-
-    need_scores: bool,
-    snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
-    score_funcoid: pg_sys::Oid,
-    snippet_funcoid: pg_sys::Oid,
-    var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
-
-    scan_func: Option<fn(&mut CustomScanStateWrapper<PdbScan>) -> *mut pg_sys::TupleTableSlot>,
-}
-
-impl CustomScanState for PdbScanState {}
-
-impl PdbScanState {
-    #[inline(always)]
-    pub fn need_scores(&self) -> bool {
-        self.need_scores
-    }
-
-    #[inline(always)]
-    pub fn need_snippets(&self) -> bool {
-        !self.snippet_generators.is_empty()
-    }
-
-    #[inline(always)]
-    pub fn snapshot(&self) -> pg_sys::Snapshot {
-        self.snapshot.unwrap()
-    }
-
-    #[inline(always)]
-    pub fn heaprel(&self) -> pg_sys::Relation {
-        self.heaprel.unwrap()
-    }
-
-    #[inline(always)]
-    pub fn heaprelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*(*self.heaprel()).rd_rel).relname) }
-    }
-
-    #[inline(always)]
-    pub fn heaptupdesc(&self) -> pg_sys::TupleDesc {
-        unsafe { (*self.heaprel()).rd_att }
-    }
-
-    #[inline(always)]
-    pub fn visibility_checker(&mut self) -> &mut VisibilityChecker {
-        self.visibility_checker.as_mut().unwrap()
-    }
-}
 
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
@@ -209,7 +96,7 @@ impl CustomScan for PdbScan {
             };
 
             let limit = (*builder.args().root).limit_tuples;
-            let pathkey = Self::find_orderby_pathkey(&mut builder, rti);
+            let pathkey = find_orderby_pathkey(&mut builder, rti);
 
             // quick look at the PathTarget list to see if we might need to do our const projections
             let path_target = builder.path_target();
@@ -687,26 +574,28 @@ impl CustomScan for PdbScan {
     }
 }
 
-impl PdbScan {
-    unsafe fn find_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
-        builder: &mut CustomPathBuilder<P>,
-        rti: pg_sys::Index,
-    ) -> Option<*mut pg_sys::PathKey> {
-        let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
-        let mut pathkey = None;
-        if let Some(first_pathkey) = pathkeys.get_ptr(0) {
-            let equivclass = (*first_pathkey).pk_eclass;
-            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+unsafe fn find_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
+    builder: &mut CustomPathBuilder<P>,
+    rti: pg_sys::Index,
+) -> Option<*mut pg_sys::PathKey> {
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
+    let mut pathkey = None;
+    if let Some(first_pathkey) = pathkeys.get_ptr(0) {
+        let equivclass = (*first_pathkey).pk_eclass;
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
-            for member in members.iter_ptr() {
-                if pullout_pathkeys((*member).em_expr.cast(), score_funcoid(), rti as _) {
-                    pathkey = Some(first_pathkey);
-                    break;
-                }
+        for member in members.iter_ptr() {
+            if pullout_pathkeys((*member).em_expr.cast(), score_funcoid(), rti as _) {
+                pathkey = Some(first_pathkey);
+                break;
             }
         }
-        pathkey
     }
+    pathkey
+}
+
+unsafe fn pathkey_sort_direction(pathkey: Option<*mut pg_sys::PathKey>) -> Option<SortDirection> {
+    pathkey.map(|pathkey| (*pathkey).pk_strategy.into())
 }
 
 fn tts_ops_name(slot: *mut pg_sys::TupleTableSlot) -> &'static str {
@@ -723,8 +612,4 @@ fn tts_ops_name(slot: *mut pg_sys::TupleTableSlot) -> &'static str {
             "Unknown"
         }
     }
-}
-
-unsafe fn pathkey_sort_direction(pathkey: Option<*mut pg_sys::PathKey>) -> Option<SortDirection> {
-    pathkey.map(|pathkey| (*pathkey).pk_strategy.into())
 }

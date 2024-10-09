@@ -1,6 +1,6 @@
 use crate::api::operator::anyelement_jsonb_opoid;
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
-use crate::postgres::customscan::pdbscan::SortDirection;
+use crate::postgres::customscan::pdbscan::scan_state::SortDirection;
 use pgrx::{pg_sys, PgList};
 
 #[derive(Default, Debug)]
@@ -170,18 +170,16 @@ mod deserialize {
 
     pub unsafe fn deserialize(input: *mut pg_sys::List) -> PrivateData {
         let input = PgList::<pg_sys::Node>::from_pg(input);
-        let mut privdat: PrivateData = Default::default();
-
-        privdat.heaprelid = input.get_ptr(0).and_then(|n| decodeInteger(n));
-        privdat.indexrelid = input.get_ptr(1).and_then(|n| decodeInteger(n));
-        privdat.range_table_index = input.get_ptr(2).and_then(|n| decodeInteger(n));
-        privdat.restrict_info = input.get_ptr(3).and_then(|n| nodecast!(List, T_List, n));
-        privdat.limit = input.get_ptr(4).and_then(|n| decodeString(n));
-        privdat.sort_direction = input.get_ptr(5).and_then(|n| decodeInteger(n));
-        privdat.var_attname_lookup = input
-            .get_ptr(6)
-            .and_then(|n| nodecast!(List, T_List, n, true));
-
-        privdat
+        PrivateData {
+            heaprelid: input.get_ptr(0).and_then(|n| decodeInteger(n)),
+            indexrelid: input.get_ptr(1).and_then(|n| decodeInteger(n)),
+            range_table_index: input.get_ptr(2).and_then(|n| decodeInteger(n)),
+            restrict_info: input.get_ptr(3).and_then(|n| nodecast!(List, T_List, n)),
+            limit: input.get_ptr(4).and_then(|n| decodeString(n)),
+            sort_direction: input.get_ptr(5).and_then(|n| decodeInteger(n)),
+            var_attname_lookup: input
+                .get_ptr(6)
+                .and_then(|n| nodecast!(List, T_List, n, true)),
+        }
     }
 }

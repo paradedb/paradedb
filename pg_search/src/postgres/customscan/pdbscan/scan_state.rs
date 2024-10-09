@@ -87,6 +87,8 @@ pub struct PdbScanState {
 
     pub limit: Option<usize>,
     pub sort_direction: Option<SortDirection>,
+    pub retry_count: usize,
+    pub invisible_tuple_count: usize,
 
     pub heaprel: Option<pg_sys::Relation>,
     pub indexrel: Option<pg_sys::Relation>,

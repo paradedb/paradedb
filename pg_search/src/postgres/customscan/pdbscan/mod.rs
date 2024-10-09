@@ -63,6 +63,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::DocAddress;
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -359,13 +360,27 @@ impl CustomScan for PdbScan {
     ) {
         explainer.add_text("Table", state.custom_state().heaprelname());
         explainer.add_text("Index", &state.custom_state().index_name);
-        explainer.add_bool("Scores", state.custom_state().need_scores());
+        if explainer.is_analyze() && state.custom_state().invisible_tuple_count > 0 {
+            explainer.add_unsigned_integer(
+                "Invisible Tuples",
+                state.custom_state().invisible_tuple_count as u64,
+                None,
+            );
+        }
 
+        explainer.add_bool("Scores", state.custom_state().need_scores());
         if let Some(sort_direction) = state.custom_state().sort_direction {
             explainer.add_text("   Sort Direction", sort_direction)
         }
         if let Some(limit) = state.custom_state().limit {
             explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
+        }
+        if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+            explainer.add_unsigned_integer(
+                "   Invisible Tuple Retries",
+                state.custom_state().retry_count as u64,
+                None,
+            );
         }
 
         let query = &state.custom_state().search_config.query;
@@ -443,14 +458,21 @@ impl CustomScan for PdbScan {
                 ExecState::Eof => return std::ptr::null_mut(),
 
                 // SearchResults returned a tuple we can't see
-                ExecState::Invisible { .. } => continue,
+                ExecState::Invisible { .. } => {
+                    state.custom_state_mut().invisible_tuple_count += 1;
+                    continue;
+                }
 
                 // SearchResults found the tuple
-                ExecState::Found { scored, slot } => {
+                ExecState::Found {
+                    scored,
+                    doc_address,
+                    slot,
+                } => {
                     unsafe {
                         // project it if we need to
                         let projection_info =
-                            maybe_rebuild_projinfo_for_const_projection(state, scored);
+                            maybe_rebuild_projinfo_for_const_projection(state, scored, doc_address);
 
                         // finally, do the projection
                         (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
@@ -502,11 +524,11 @@ impl CustomScan for PdbScan {
             .expect("search index reader should have been constructed correctly");
 
         state.custom_state_mut().query = Some(search_index.query(&search_config, &search_reader));
-        if let (Some(limit), Some(sort_direction)) = (
+        let search_results = if let (Some(limit), Some(sort_direction)) = (
             state.custom_state().limit,
             state.custom_state().sort_direction,
         ) {
-            state.custom_state_mut().search_results = search_reader.search_top_n(
+            let results = search_reader.search_top_n(
                 SearchIndex::executor(),
                 state.custom_state().query.as_ref().unwrap(),
                 sort_direction.into(),
@@ -515,15 +537,17 @@ impl CustomScan for PdbScan {
             state.custom_state_mut().scan_func = Some(top_n_scan_exec);
             state.custom_state_mut().inner_scan_state = unsafe {
                 let mut topn_state = TopNScanExecState::default();
-                topn_state.limit = state.custom_state().limit.unwrap();
+                topn_state.limit = results.len().unwrap();
+                topn_state.have_less = topn_state.limit < state.custom_state().limit.unwrap();
                 Some(
                     PgMemoryContexts::CurrentMemoryContext
                         .copy_ptr_into(&mut topn_state, std::mem::size_of::<TopNScanExecState>())
                         .cast(),
                 )
             };
+            results
         } else {
-            state.custom_state_mut().search_results = search_reader.search_minimal(
+            let results = search_reader.search_minimal(
                 false,
                 SearchIndex::executor(),
                 &search_config,
@@ -531,7 +555,10 @@ impl CustomScan for PdbScan {
             );
             state.custom_state_mut().scan_func = Some(normal_scan_exec);
             state.custom_state_mut().inner_scan_state = Some(std::ptr::null_mut());
-        }
+            results
+        };
+
+        state.custom_state_mut().search_results = search_results;
 
         assert!(
             state.custom_state().scan_func.is_some(),
@@ -591,6 +618,7 @@ fn make_tuple_table_slot(
 unsafe fn maybe_rebuild_projinfo_for_const_projection(
     state: &mut CustomScanStateWrapper<PdbScan>,
     scored: SearchIndexScore,
+    doc_address: DocAddress,
 ) -> *mut pg_sys::ProjectionInfo {
     if !state.custom_state().need_scores() && !state.custom_state().need_snippets() {
         // scores/snippets aren't necessary so we use whatever we originally setup as our ProjectionInfo
@@ -637,9 +665,7 @@ unsafe fn maybe_rebuild_projinfo_for_const_projection(
                 generator
                     .as_ref()
                     .expect("SnippetGenerator should have been created"),
-                scored
-                    .doc_address
-                    .expect("should have generated a DocAddress"),
+                doc_address,
             )
             .cast();
         }

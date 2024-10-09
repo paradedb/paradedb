@@ -2,12 +2,18 @@ use crate::index::score::SearchIndexScore;
 use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::pdbscan::{make_tuple_table_slot, PdbScan};
-use pgrx::pg_sys;
 use pgrx::pg_sys::TupleTableSlot;
+use pgrx::{direct_function_call, pg_sys, IntoDatum};
+use tantivy::DocAddress;
+
+// TODO:  should these be GUCs?  I think yes, probably
+const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;
+const MAX_CHUNK_SIZE: usize = 5000;
 
 pub enum ExecState {
     Found {
         scored: SearchIndexScore,
+        doc_address: DocAddress,
         slot: *mut TupleTableSlot,
     },
     Invisible {
@@ -25,13 +31,17 @@ pub fn normal_scan_exec(
 ) -> ExecState {
     match state.custom_state_mut().search_results.next() {
         None => ExecState::Eof,
-        Some((scored, _)) => {
+        Some((scored, doc_address)) => {
             let scanslot = state.scanslot();
             let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
 
             match make_tuple_table_slot(state, &scored, bslot) {
                 None => ExecState::Invisible { scored },
-                Some(slot) => ExecState::Found { scored, slot },
+                Some(slot) => ExecState::Found {
+                    scored,
+                    doc_address,
+                    slot,
+                },
             }
         }
     }
@@ -41,8 +51,9 @@ pub fn normal_scan_exec(
 pub struct TopNScanExecState {
     last_ctid: u64,
     pub limit: usize,
+    pub have_less: bool,
     found: usize,
-    chunk_size: usize,
+    pub chunk_size: usize,
 }
 
 #[inline(always)]
@@ -51,44 +62,69 @@ pub fn top_n_scan_exec(
     isc: *mut std::ffi::c_void,
 ) -> ExecState {
     unsafe {
-        let isc = isc.cast::<TopNScanExecState>().as_mut().unwrap();
+        let topn_state = isc.cast::<TopNScanExecState>().as_mut().unwrap();
 
         let mut next = state.custom_state_mut().search_results.next();
-
         loop {
             match next {
                 None => {
-                    if isc.found == isc.limit {
+                    if topn_state.found == topn_state.limit || topn_state.have_less {
                         // we found all the matching rows
-                        pgrx::warning!("done: {isc:?}");
                         return ExecState::Eof;
                     }
                 }
-                Some((scored, _)) => {
+                Some((scored, doc_address)) => {
                     let scanslot = state.scanslot();
                     let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
 
-                    isc.last_ctid = scored.ctid;
+                    topn_state.last_ctid = scored.ctid;
 
                     return match make_tuple_table_slot(state, &scored, bslot) {
-                        None => {
-                            pgrx::warning!("found invisible tuple");
-                            ExecState::Invisible { scored }
-                        }
+                        None => ExecState::Invisible { scored },
                         Some(slot) => {
-                            pgrx::warning!("found visible tuple");
-                            isc.found += 1;
-                            ExecState::Found { scored, slot }
+                            topn_state.found += 1;
+                            // pgrx::warning!("found {} visible tuples", isc.found);
+                            ExecState::Found {
+                                scored,
+                                doc_address,
+                                slot,
+                            }
                         }
                     };
                 }
             }
 
             // we underflowed our tuples, so go get some more, if there are any
+            state.custom_state_mut().retry_count += 1;
 
-            // go ask for 2x as many as we got last time
-            isc.chunk_size = (isc.chunk_size * 2).max(isc.limit * 2);
-            pgrx::warning!("going to get {} more rows", isc.chunk_size);
+            // calculate a scaling factor to use against the limit
+            let factor = if topn_state.chunk_size == 0 {
+                // if we haven't done any chunking yet, calculate the scaling factor
+                // based on the proportion of dead tuples compared to live tuples
+                let heaprelid = state.custom_state().heaprelid;
+                let n_dead = direct_function_call::<i64>(
+                    pg_sys::pg_stat_get_dead_tuples,
+                    &[heaprelid.into_datum()],
+                )
+                .unwrap();
+                let n_live = direct_function_call::<i64>(
+                    pg_sys::pg_stat_get_live_tuples,
+                    &[heaprelid.into_datum()],
+                )
+                .unwrap();
+
+                (1.0 + (n_dead as f64 / (1.0 + n_live as f64))).floor() as usize
+            } else {
+                // we've already done chunking, so just use a default scaling factor
+                // to avoid exponentially growing the chunk size
+                SUBSEQUENT_RETRY_SCALE_FACTOR
+            };
+
+            // set the chunk size to the scaling factor times the limit
+            topn_state.chunk_size = (topn_state.chunk_size * factor)
+                .max(topn_state.limit * factor)
+                .min(MAX_CHUNK_SIZE);
+
             let mut results = state
                 .custom_state()
                 .search_reader
@@ -104,12 +140,12 @@ pub fn top_n_scan_exec(
                         .cloned()
                         .unwrap()
                         .into(),
-                    isc.chunk_size,
+                    topn_state.chunk_size,
                 );
 
             // fast forward and stop on the ctid we last found
             while let Some((scored, _)) = results.next() {
-                if scored.ctid == isc.last_ctid {
+                if scored.ctid == topn_state.last_ctid {
                     // we've now advanced to the last ctid we found
                     break;
                 }

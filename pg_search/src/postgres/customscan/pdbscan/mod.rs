@@ -51,7 +51,7 @@ use crate::postgres::utils::{
 };
 use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
-use pgrx::pg_sys::{AsPgCStr, ProjectionInfo};
+use pgrx::pg_sys::{AsPgCStr, TupleTableSlot};
 use pgrx::{pg_sys, PgList, PgRelation};
 use scan_state::SortDirection;
 use shared::gucs::GlobalGucSettings;
@@ -352,18 +352,18 @@ impl CustomScan for PdbScan {
         ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
-        explainer.add_text("Table", state.custom_state.heaprelname());
-        explainer.add_text("Index", &state.custom_state.index_name);
-        explainer.add_bool("Scores", state.custom_state.need_scores());
+        explainer.add_text("Table", state.custom_state().heaprelname());
+        explainer.add_text("Index", &state.custom_state().index_name);
+        explainer.add_bool("Scores", state.custom_state().need_scores());
 
-        if let Some(sort_direction) = state.custom_state.sort_direction {
+        if let Some(sort_direction) = state.custom_state().sort_direction {
             explainer.add_text("Score Sort Direction", sort_direction)
         }
-        if let Some(limit) = state.custom_state.limit {
+        if let Some(limit) = state.custom_state().limit {
             explainer.add_unsigned_integer("Limit", limit as u64, None);
         }
 
-        let query = &state.custom_state.search_config.query;
+        let query = &state.custom_state().search_config.query;
         let pretty_json = if explainer.is_verbose() {
             serde_json::to_string_pretty(&query)
         } else {
@@ -385,24 +385,23 @@ impl CustomScan for PdbScan {
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
             let heaprel = pg_sys::relation_open(state.custom_state().heaprelid, lockmode);
             let indexrel = pg_sys::relation_open(state.custom_state().indexrelid, lockmode);
-            state.custom_state().heaprel = Some(heaprel);
-            state.custom_state().indexrel = Some(indexrel);
-            state.custom_state().lockmode = lockmode;
+            state.custom_state_mut().heaprel = Some(heaprel);
+            state.custom_state_mut().indexrel = Some(indexrel);
+            state.custom_state_mut().lockmode = lockmode;
 
             // setup the structures we need to do mvcc checking
-            state.custom_state().snapshot = Some(pg_sys::GetActiveSnapshot());
-            state.custom_state().visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
-                heaprel,
-                pg_sys::GetActiveSnapshot(),
-            ));
+            state.custom_state_mut().snapshot = Some(pg_sys::GetActiveSnapshot());
+            state.custom_state_mut().visibility_checker = Some(
+                VisibilityChecker::with_rel_and_snap(heaprel, pg_sys::GetActiveSnapshot()),
+            );
 
             // and finally, get the custom scan itself properly initialized
-            let tupdesc = state.custom_state.heaptupdesc();
+            let tupdesc = state.custom_state().heaptupdesc();
             pg_sys::ExecInitScanTupleSlot(
                 estate,
                 addr_of_mut!(state.csstate.ss),
                 tupdesc,
-                pg_sys::table_slot_callbacks(state.custom_state.heaprel()),
+                pg_sys::table_slot_callbacks(state.custom_state().heaprel()),
             );
             pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
             pg_sys::ExecAssignProjectionInfo(
@@ -423,48 +422,25 @@ impl CustomScan for PdbScan {
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         loop {
             // get the next matching document from our search results and look for it in the heap
-            let (scored, slot) = match state.custom_state().search_results.next() {
-                // we've returned all the matching results
-                None => return std::ptr::null_mut(),
+            match normal_scan_exec(state) {
+                // reached the end of the SearchResults
+                ExecState::EOF => return std::ptr::null_mut(),
 
-                // need to fetch the returned ctid from the heap and store its heap representation
-                // in a TupleTableSlow
-                Some((scored, _)) => {
-                    let scanslot = state.scanslot();
-                    let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
-                    let heaprelid = state.custom_state().heaprelid;
+                // SearchResults return a record we can't see
+                ExecState::Invisible { .. } => continue,
 
-                    // ask the visibility checker to find the document in the postgres heap
-                    match state.custom_state().visibility_checker().exec_if_visible(
-                        scored.ctid,
-                        move |htup, buffer| unsafe {
-                            (*bslot).base.base.tts_tableOid = heaprelid;
-                            (*bslot).base.tupdata = htup;
-                            (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
+                // SearchResults found the record
+                ExecState::Found { scored, slot } => {
+                    unsafe {
+                        // project it if we need to
+                        let projection_info =
+                            maybe_rebuild_projinfo_for_const_projection(state, scored);
 
-                            // materialize a heap tuple for it
-                            pg_sys::ExecStoreBufferHeapTuple(
-                                addr_of_mut!((*bslot).base.tupdata),
-                                bslot.cast(),
-                                buffer,
-                            )
-                        },
-                    ) {
-                        // ctid isn't visible, move to the next one
-                        None => continue,
-
-                        // we found the ctid in the heap
-                        Some(slot) => (scored, slot),
+                        // finally, do the projection
+                        (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
+                        return pg_sys::ExecProject(projection_info);
                     }
                 }
-            };
-
-            unsafe {
-                let projection_info = maybe_rebuild_projinfo_for_const_projection(state, scored);
-
-                // finally, do the projection
-                (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
-                return pg_sys::ExecProject(projection_info);
             }
         }
     }
@@ -473,14 +449,14 @@ impl CustomScan for PdbScan {
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // get the VisibilityChecker dropped
-        state.custom_state().visibility_checker.take();
+        state.custom_state_mut().visibility_checker.take();
 
-        if let Some(heaprel) = state.custom_state().heaprel.take() {
+        if let Some(heaprel) = state.custom_state_mut().heaprel.take() {
             unsafe {
                 pg_sys::relation_close(heaprel, state.custom_state().lockmode);
             }
         }
-        if let Some(indexrel) = state.custom_state().indexrel.take() {
+        if let Some(indexrel) = state.custom_state_mut().indexrel.take() {
             unsafe {
                 pg_sys::relation_close(indexrel, state.custom_state().lockmode);
             }
@@ -488,10 +464,10 @@ impl CustomScan for PdbScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        let indexrelid = state.custom_state.indexrelid;
-        let need_scores = state.custom_state.need_scores();
-        let need_snippets = state.custom_state.need_snippets();
-        let mut search_config = state.custom_state.search_config.clone();
+        let indexrelid = state.custom_state().indexrelid;
+        let need_scores = state.custom_state().need_scores();
+        let need_snippets = state.custom_state().need_snippets();
+        let mut search_config = state.custom_state().search_config.clone();
 
         search_config.stable_sort = Some(false);
         search_config.need_scores = need_scores;
@@ -514,14 +490,14 @@ impl CustomScan for PdbScan {
             state.custom_state().limit,
             state.custom_state().sort_direction,
         ) {
-            state.custom_state().search_results = search_reader.search_top_n(
+            state.custom_state_mut().search_results = search_reader.search_top_n(
                 SearchIndex::executor(),
                 &query,
                 sort_direction.into(),
                 limit,
             );
         } else {
-            state.custom_state().search_results = search_reader.search_minimal(
+            state.custom_state_mut().search_results = search_reader.search_minimal(
                 false,
                 SearchIndex::executor(),
                 &search_config,
@@ -530,19 +506,74 @@ impl CustomScan for PdbScan {
         }
 
         if need_snippets {
-            for (snippet_info, generator) in state.custom_state().snippet_generators.iter_mut() {
-                *generator =
-                    Some(search_reader.snippet_generator(snippet_info.field.as_ref(), &query))
+            for (snippet_info, generator) in state.custom_state_mut().snippet_generators.iter_mut()
+            {
+                let mut new_generator =
+                    search_reader.snippet_generator(snippet_info.field.as_ref(), &query);
+                new_generator.set_max_num_chars(snippet_info.max_num_chars);
+                *generator = Some(new_generator);
             }
-            state.custom_state().search_reader = Some(search_reader);
+            state.custom_state_mut().search_reader = Some(search_reader);
         }
     }
+}
+
+enum ExecState {
+    Found {
+        scored: SearchIndexScore,
+        slot: *mut TupleTableSlot,
+    },
+    Invisible {
+        scored: SearchIndexScore,
+    },
+    EOF,
+}
+
+#[inline(always)]
+fn normal_scan_exec(state: &mut CustomScanStateWrapper<PdbScan>) -> ExecState {
+    match state.custom_state_mut().search_results.next() {
+        None => ExecState::EOF,
+        Some((scored, _)) => {
+            let scanslot = state.scanslot();
+            let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
+
+            match make_tuple_table_slot(state, &scored, bslot) {
+                None => ExecState::Invisible { scored },
+                Some(slot) => ExecState::Found { scored, slot },
+            }
+        }
+    }
+}
+
+/// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
+/// and if it exists return a formed [`TupleTableSlot`].
+#[inline(always)]
+fn make_tuple_table_slot(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    scored: &SearchIndexScore,
+    bslot: *mut pg_sys::BufferHeapTupleTableSlot,
+) -> Option<*mut pg_sys::TupleTableSlot> {
+    state
+        .custom_state_mut()
+        .visibility_checker()
+        .exec_if_visible(scored.ctid, move |heaprelid, htup, buffer| unsafe {
+            (*bslot).base.base.tts_tableOid = heaprelid;
+            (*bslot).base.tupdata = htup;
+            (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
+
+            // materialize a heap tuple for it
+            pg_sys::ExecStoreBufferHeapTuple(
+                addr_of_mut!((*bslot).base.tupdata),
+                bslot.cast(),
+                buffer,
+            )
+        })
 }
 
 unsafe fn maybe_rebuild_projinfo_for_const_projection(
     state: &mut CustomScanStateWrapper<PdbScan>,
     scored: SearchIndexScore,
-) -> *mut ProjectionInfo {
+) -> *mut pg_sys::ProjectionInfo {
     if !state.custom_state().need_scores() && !state.custom_state().need_snippets() {
         // scores/snippets aren't necessary so we use whatever we originally setup as our ProjectionInfo
         return state.projection_info();
@@ -570,24 +601,23 @@ unsafe fn maybe_rebuild_projinfo_for_const_projection(
         .cast();
     }
     if state.custom_state().need_snippets() {
-        let snippet_funcoid = state.custom_state.snippet_funcoid;
+        let snippet_funcoid = state.custom_state().snippet_funcoid;
         let search_state = state
-            .custom_state
+            .custom_state()
             .search_reader
             .as_ref()
             .expect("CustomState should hae a SearchState since it requires snippets");
-        for (snippet_info, generator) in &mut state.custom_state.snippet_generators {
+        for (snippet_info, generator) in &state.custom_state().snippet_generators {
             const_projected_targetlist = inject_snippet(
-                &state.custom_state.var_attname_lookup,
+                &state.custom_state().var_attname_lookup,
                 const_projected_targetlist.cast(),
                 snippet_funcoid,
                 search_state,
                 &snippet_info.field,
                 &snippet_info.start_tag,
                 &snippet_info.end_tag,
-                snippet_info.max_num_chars,
                 generator
-                    .as_mut()
+                    .as_ref()
                     .expect("SnippetGenerator should have been created"),
                 scored
                     .doc_address

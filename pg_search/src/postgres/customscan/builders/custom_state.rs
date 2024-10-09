@@ -27,7 +27,7 @@ pub struct Args {
 #[repr(C)]
 pub struct CustomScanStateWrapper<CS: CustomScan> {
     pub csstate: pg_sys::CustomScanState,
-    pub custom_state: CS::State,
+    custom_state: CS::State,
 }
 
 impl<CS: CustomScan> Debug for CustomScanStateWrapper<CS>
@@ -53,7 +53,12 @@ impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     }
 
     #[inline(always)]
-    pub fn custom_state(&mut self) -> &mut CS::State {
+    pub fn custom_state(&self) -> &CS::State {
+        &self.custom_state
+    }
+
+    #[inline(always)]
+    pub fn custom_state_mut(&mut self) -> &mut CS::State {
         &mut self.custom_state
     }
 

@@ -23,7 +23,7 @@ mod qual_inspect;
 mod scan_state;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
-use crate::api::{AsCStr, AsInt};
+use crate::api::{AsCStr, AsInt, Cardinality};
 use crate::index::score::SearchIndexScore;
 use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -125,11 +125,7 @@ impl CustomScan for PdbScan {
             {
                 let selectivity = if limit > 0.0 {
                     // use the limit
-                    limit
-                        / table
-                            .reltuples()
-                            .map(|n| n as pg_sys::Cardinality)
-                            .unwrap_or(limit)
+                    limit / table.reltuples().map(|n| n as Cardinality).unwrap_or(limit)
                 } else if restrict_info.len() == 1 {
                     // we can use the norm_selec that already happened
                     (*restrict_info.get_ptr(0).unwrap()).norm_selec

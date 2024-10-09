@@ -1,4 +1,5 @@
 use crate::api::operator::anyelement_jsonb_opoid;
+use crate::api::Cardinality;
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::pdbscan::scan_state::SortDirection;
 use pgrx::{pg_sys, PgList};
@@ -47,7 +48,7 @@ impl PrivateData {
         self.restrict_info = Some(quals.into_pg())
     }
 
-    pub fn set_limit(&mut self, limit: pg_sys::Cardinality) {
+    pub fn set_limit(&mut self, limit: Cardinality) {
         if limit == -1.0 {
             self.limit = None;
         } else {
@@ -119,7 +120,19 @@ mod serialize {
         )
     }
     unsafe fn makeBoolean<T: Into<bool>>(input: Option<T>) -> *mut pg_sys::Node {
-        unwrapOrNull(input.map(|b| pg_sys::makeBoolean(b.into()).cast::<pg_sys::Node>()))
+        #[cfg(any(feature = "pg13", feature = "pg14"))]
+        {
+            unwrapOrNull(
+                input.map(|b| {
+                    pg_sys::makeInteger(if b.into() { 1 } else { 0 }).cast::<pg_sys::Node>()
+                }),
+            )
+        }
+
+        #[cfg(not(any(feature = "pg13", feature = "pg14")))]
+        {
+            unwrapOrNull(input.map(|b| pg_sys::makeBoolean(b.into()).cast::<pg_sys::Node>()))
+        }
     }
 
     unsafe fn unwrapOrNull(node: Option<*mut pg_sys::Node>) -> *mut pg_sys::Node {

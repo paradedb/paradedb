@@ -120,7 +120,7 @@ pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: i32) -> bool {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
             assert!(args.len() == 1, "score function must have 1 argument");
             if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                if (*var).varno == rti {
+                if (*var).varno as i32 == rti as i32 {
                     return true;
                 }
             }

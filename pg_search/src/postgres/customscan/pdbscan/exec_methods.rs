@@ -144,7 +144,7 @@ pub fn top_n_scan_exec(
                 );
 
             // fast forward and stop on the ctid we last found
-            while let Some((scored, _)) = results.next() {
+            for (scored, _) in &mut results {
                 if scored.ctid == topn_state.last_ctid {
                     // we've now advanced to the last ctid we found
                     break;

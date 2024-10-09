@@ -15,14 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::Cardinality;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList, PgMemoryContexts};
 use std::collections::HashSet;
 use std::fmt::Debug;
-
-// came to life in pg15
-type Cardinality = f64;
 
 #[derive(Debug)]
 pub struct Args {

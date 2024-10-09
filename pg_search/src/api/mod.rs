@@ -28,6 +28,12 @@ macro_rules! nodecast {
         pgrx::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind)
             .then(|| node.cast::<pgrx::pg_sys::$type_>())
     }};
+
+    ($type_:ident, $kind:ident, $node:expr, true) => {{
+        let node = $node;
+        (node.is_null() || pgrx::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind))
+            .then(|| node.cast::<pgrx::pg_sys::$type_>())
+    }};
 }
 
 pub trait AsInt {

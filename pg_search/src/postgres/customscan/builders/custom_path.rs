@@ -17,9 +17,9 @@
 
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::CustomScan;
-use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};
+use pgrx::{pg_sys, PgList, PgMemoryContexts};
 use std::collections::HashSet;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 
 // came to life in pg15
 type Cardinality = f64;
@@ -59,7 +59,7 @@ pub enum Flags {
     Projection = 0x0004,
 }
 
-pub struct CustomPathBuilder {
+pub struct CustomPathBuilder<P: Into<*mut pg_sys::List> + Default> {
     args: Args,
     flags: HashSet<Flags>,
 
@@ -70,42 +70,16 @@ pub struct CustomPathBuilder {
     /// `custom_private` can be used to store the custom path's private data. Private data should be
     /// stored in a form that can be handled by nodeToString, so that debugging routines that attempt
     /// to print the custom path will work as designed.
-    custom_private: PgList<pg_sys::Node>,
+    custom_private: P,
 }
 
-impl Debug for CustomPathBuilder {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CustomPathBuilder")
-            .field("args", &self.args)
-            .field("flags", &self.flags)
-            .field("path", &self.custom_path_node)
-            .field(
-                "custom_paths",
-                &self
-                    .custom_paths
-                    .iter_ptr()
-                    .map(|path| unsafe { node_to_string(path.cast()).unwrap_or("<NULL>") })
-                    .collect::<Vec<_>>(),
-            )
-            .field(
-                "custom_private",
-                &self
-                    .custom_private
-                    .iter_ptr()
-                    .map(|node| unsafe { node_to_string(node.cast()).unwrap_or("<NULL>") })
-                    .collect::<Vec<_>>(),
-            )
-            .finish()
-    }
-}
-
-impl CustomPathBuilder {
+impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
     pub fn new<CS: CustomScan>(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
         rti: pg_sys::Index,
         rte: *mut pg_sys::RangeTblEntry,
-    ) -> CustomPathBuilder {
+    ) -> CustomPathBuilder<P> {
         Self {
             args: Args {
                 root,
@@ -135,7 +109,7 @@ impl CustomPathBuilder {
                 ..Default::default()
             },
             custom_paths: PgList::default(),
-            custom_private: PgList::default(),
+            custom_private: P::default(),
         }
     }
 
@@ -199,9 +173,8 @@ impl CustomPathBuilder {
         self
     }
 
-    pub fn add_private_data(mut self, data: *mut pg_sys::Node) -> Self {
-        self.custom_private.push(data);
-        self
+    pub fn custom_private(&mut self) -> &mut P {
+        &mut self.custom_private
     }
 
     pub fn set_rows(mut self, rows: Cardinality) -> Self {
@@ -233,7 +206,7 @@ impl CustomPathBuilder {
 
     pub fn build(mut self) -> pg_sys::CustomPath {
         self.custom_path_node.custom_paths = self.custom_paths.into_pg();
-        self.custom_path_node.custom_private = self.custom_private.into_pg();
+        self.custom_path_node.custom_private = self.custom_private.into();
         self.custom_path_node.flags = self
             .flags
             .into_iter()

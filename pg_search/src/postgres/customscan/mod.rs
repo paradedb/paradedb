@@ -55,6 +55,7 @@ pub trait CustomScanState: Default {}
 pub trait CustomScan: Default + Sized {
     const NAME: &'static CStr;
     type State: CustomScanState;
+    type PrivateData: From<*mut pg_sys::List> + Into<*mut pg_sys::List> + Default;
 
     fn exec_methods() -> pg_sys::CustomExecMethods {
         pg_sys::CustomExecMethods {
@@ -74,12 +75,12 @@ pub trait CustomScan: Default + Sized {
         }
     }
 
-    fn callback(builder: CustomPathBuilder) -> Option<pg_sys::CustomPath>;
+    fn callback(builder: CustomPathBuilder<Self::PrivateData>) -> Option<pg_sys::CustomPath>;
 
-    fn plan_custom_path(builder: CustomScanBuilder) -> pg_sys::CustomScan;
+    fn plan_custom_path(builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan;
 
     fn create_custom_scan_state(
-        builder: CustomScanStateBuilder<Self>,
+        builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self>;
 
     fn explain_custom_scan(

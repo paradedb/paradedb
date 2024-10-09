@@ -17,6 +17,7 @@
 
 mod config;
 mod document;
+pub mod range;
 
 use anyhow::{Context, Result};
 pub use config::*;

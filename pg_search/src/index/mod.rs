@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod directory;
+pub mod reader;
 pub mod score;
 pub mod search;
-pub mod reader;
 pub mod writer;
 
 pub use directory::*;

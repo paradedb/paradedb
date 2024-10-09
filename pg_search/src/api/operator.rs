@@ -135,10 +135,11 @@ pub(crate) fn estimate_selectivity(
     );
     let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-    let state = search_index
-        .search_state(search_config)
-        .expect("SearchState creation should not fail");
-    let estimate = state.estimate_docs().unwrap_or(1) as f64;
+    let search_reader = search_index
+        .get_reader()
+        .expect("search reader creation should not fail");
+    let query = search_index.query(search_config, &search_reader);
+    let estimate = search_reader.estimate_docs(&query).unwrap_or(1) as f64;
 
     let mut selectivity = estimate / reltuples;
     if selectivity > 1.0 {

@@ -42,6 +42,7 @@ use crate::postgres::customscan::pdbscan::projections::{
     maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
+use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
@@ -52,7 +53,7 @@ use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::{AsPgCStr, ProjectionInfo};
 use pgrx::{pg_sys, PgList, PgRelation};
-use scan_state::{PdbScanState, SortDirection};
+use scan_state::SortDirection;
 use shared::gucs::GlobalGucSettings;
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -490,7 +491,7 @@ impl CustomScan for PdbScan {
         let indexrelid = state.custom_state.indexrelid;
         let need_scores = state.custom_state.need_scores();
         let need_snippets = state.custom_state.need_snippets();
-        let search_config = &mut state.custom_state.search_config;
+        let mut search_config = state.custom_state.search_config.clone();
 
         search_config.stable_sort = Some(false);
         search_config.need_scores = need_scores;
@@ -504,26 +505,36 @@ impl CustomScan for PdbScan {
         let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
-        let search_state = search_index
-            .search_state(search_config)
-            .expect("`SearchState` should have been constructed correctly");
+        let search_reader = search_index
+            .get_reader()
+            .expect("search index reader should have been constructed correctly");
 
+        let query = search_index.query(&search_config, &search_reader);
         if let (Some(limit), Some(sort_direction)) = (
             state.custom_state().limit,
             state.custom_state().sort_direction,
         ) {
-            state.custom_state().search_results =
-                search_state.search_top_n(SearchIndex::executor(), limit, sort_direction.into());
+            state.custom_state().search_results = search_reader.search_top_n(
+                SearchIndex::executor(),
+                &query,
+                sort_direction.into(),
+                limit,
+            );
         } else {
-            state.custom_state().search_results =
-                search_state.search_minimal(false, SearchIndex::executor());
+            state.custom_state().search_results = search_reader.search_minimal(
+                false,
+                SearchIndex::executor(),
+                &search_config,
+                &query,
+            );
         }
 
         if need_snippets {
-            for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {
-                *generator = Some(search_state.snippet_generator(snippet_info.field.as_ref()))
+            for (snippet_info, generator) in state.custom_state().snippet_generators.iter_mut() {
+                *generator =
+                    Some(search_reader.snippet_generator(snippet_info.field.as_ref(), &query))
             }
-            state.custom_state().search_state = Some(search_state);
+            state.custom_state().search_reader = Some(search_reader);
         }
     }
 }
@@ -562,7 +573,7 @@ unsafe fn maybe_rebuild_projinfo_for_const_projection(
         let snippet_funcoid = state.custom_state.snippet_funcoid;
         let search_state = state
             .custom_state
-            .search_state
+            .search_reader
             .as_ref()
             .expect("CustomState should hae a SearchState since it requires snippets");
         for (snippet_info, generator) in &mut state.custom_state.snippet_generators {

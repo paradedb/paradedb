@@ -1,4 +1,4 @@
-use crate::index::state::{SearchResults, SearchState};
+use crate::index::reader::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
 use crate::postgres::customscan::pdbscan::PdbScan;
@@ -36,11 +36,11 @@ impl Display for SortDirection {
     }
 }
 
-impl From<SortDirection> for crate::index::state::SortDirection {
+impl From<SortDirection> for crate::index::reader::SortDirection {
     fn from(value: SortDirection) -> Self {
         match value {
-            SortDirection::Asc => crate::index::state::SortDirection::Asc,
-            SortDirection::Desc => crate::index::state::SortDirection::Desc,
+            SortDirection::Asc => crate::index::reader::SortDirection::Asc,
+            SortDirection::Desc => crate::index::reader::SortDirection::Desc,
         }
     }
 }
@@ -76,7 +76,7 @@ pub struct PdbScanState {
     pub index_name: String,
     pub index_uuid: String,
     pub key_field: String,
-    pub search_state: Option<SearchState>,
+    pub search_reader: Option<SearchIndexReader>,
     pub search_config: SearchConfig,
     pub search_results: SearchResults,
 

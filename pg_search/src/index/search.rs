@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::state::SearchState;
+use super::reader::SearchIndexReader;
 use super::IndexError;
 use crate::index::SearchIndexWriter;
 use crate::index::{
@@ -30,16 +30,14 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::ptr::addr_of_mut;
-use tantivy::schema::Value;
-use tantivy::{query::QueryParser, Executor, Index, Searcher};
-use tantivy::{IndexReader, TantivyDocument, TantivyError};
+use tantivy::query::Query;
+use tantivy::{query::QueryParser, Executor, Index};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
-use tracing::{debug, trace};
+use tracing::trace;
 
 // Must be at least 15,000,000 or Tantivy will panic.
 pub const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
-const CACHE_NUM_BLOCKS: usize = 10;
 
 pub type SearchIndexCacheType = Lazy<HashMap<WriterDirectory, SearchIndex>>;
 
@@ -70,8 +68,6 @@ pub struct SearchIndex {
     pub schema: SearchIndexSchema,
     pub directory: WriterDirectory,
     #[serde(skip_serializing)]
-    pub reader: IndexReader,
-    #[serde(skip_serializing)]
     pub underlying_index: Index,
     pub uuid: String,
     pub is_pending_create: bool,
@@ -96,6 +92,10 @@ impl SearchIndex {
         new_self_ref.is_pending_create = true;
 
         Ok(new_self_ref)
+    }
+
+    pub fn get_reader(&self) -> Result<SearchIndexReader> {
+        SearchIndexReader::new(self)
     }
 
     /// Retrieve an owned writer for a given index. This will block until this process
@@ -131,13 +131,6 @@ impl SearchIndex {
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 
-    pub fn reader(index: &Index) -> Result<IndexReader, TantivyError> {
-        index
-            .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::Manual)
-            .try_into()
-    }
-
     unsafe fn into_cache(self) {
         SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
     }
@@ -153,7 +146,7 @@ impl SearchIndex {
             .expect("global SEARCH_INDEX_MEMORY must not be null")
     }
 
-    pub fn from_disk<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
+    pub fn from_disk(directory: &WriterDirectory) -> Result<&'static mut Self, SearchIndexError> {
         let mut new_self: Self = directory.load_index()?;
         let uuid = new_self.uuid.clone();
 
@@ -175,10 +168,10 @@ impl SearchIndex {
         directory.load_index()
     }
 
-    pub fn from_cache<'a>(
+    pub fn from_cache(
         directory: &WriterDirectory,
         uuid: &str,
-    ) -> Result<&'a mut Self, SearchIndexError> {
+    ) -> Result<&'static mut Self, SearchIndexError> {
         unsafe {
             if let Some(new_self) = SEARCH_INDEX_MEMORY.get_mut(directory) {
                 let cached_uuid = &new_self.uuid;
@@ -211,15 +204,6 @@ impl SearchIndex {
         self.is_pending_drop
     }
 
-    /// Returns the index size, in bytes, according to tantivy
-    pub fn byte_size(&self) -> Result<u64> {
-        Ok(self
-            .reader
-            .searcher()
-            .space_usage()
-            .map(|space| space.total().get_bytes())?)
-    }
-
     pub fn query_parser(&self, config: &SearchConfig) -> QueryParser {
         let mut query_parser = QueryParser::for_index(
             &self.underlying_index,
@@ -237,17 +221,14 @@ impl SearchIndex {
         query_parser
     }
 
-    pub fn search_state(&mut self, config: &SearchConfig) -> Result<SearchState, SearchIndexError> {
-        // Prepare to perform a search.
-        // In case this is happening in the same transaction as an index build or an insert,
-        // we want to commit first so that the most recent results appear.
-
-        self.reader.reload()?;
-        Ok(SearchState::new(self, config))
-    }
-
-    pub fn searcher(&self) -> Searcher {
-        self.reader.searcher()
+    pub fn query(&self, config: &SearchConfig, reader: &SearchIndexReader) -> Box<dyn Query> {
+        let mut parser = self.query_parser(config);
+        let searcher = reader.underlying_reader.searcher();
+        config
+            .query
+            .clone()
+            .into_tantivy_query(&self.schema, &mut parser, &searcher, config)
+            .expect("must be able to parse query")
     }
 
     pub fn insert(
@@ -270,47 +251,17 @@ impl SearchIndex {
     /// are committed before returning an [`Ok`] response.
     pub fn delete(
         &mut self,
+        reader: &SearchIndexReader,
         writer: &mut SearchIndexWriter,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
-        let mut deleted: u32 = 0;
-        let mut not_deleted: u32 = 0;
-        let mut ctids_to_delete: Vec<u64> = vec![];
-
         let ctid_field = self.schema.ctid_field().id.0;
-        for segment_reader in self.searcher().segment_readers() {
-            let store_reader = segment_reader
-                .get_store_reader(CACHE_NUM_BLOCKS)
-                .expect("Failed to get store reader");
-
-            for doc in store_reader.iter::<TantivyDocument>(segment_reader.alive_bitset()) {
-                // if a document failed to deserialize, that's probably a hard error indicating the
-                // index is corrupt.  So return that back to the caller immediately
-                let doc = doc?;
-
-                if let Some(ctid) = doc.get_first(ctid_field).and_then(|ctid| ctid.as_u64()) {
-                    if should_delete(ctid) {
-                        ctids_to_delete.push(ctid);
-                        deleted += 1;
-                    } else {
-                        not_deleted += 1;
-                    }
-                } else {
-                    // NB:  in a perfect world, this shouldn't happen.  But we did have a bug where
-                    // the "ctid" field was not being `STORED`, which caused this
-                    debug!(
-                        "document `{doc:?}` in segment `{}` has no ctid",
-                        segment_reader.segment_id()
-                    );
-                }
-            }
-        }
-
+        let (ctids_to_delete, not_deleted) = reader.get_ctids_to_delete(should_delete)?;
         if !ctids_to_delete.is_empty() {
             writer.delete(&ctid_field, &ctids_to_delete)?;
         }
 
-        Ok((deleted, not_deleted))
+        Ok((ctids_to_delete.len() as u32, not_deleted))
     }
 
     pub fn drop_index(&mut self) -> Result<(), SearchIndexError> {
@@ -362,13 +313,8 @@ impl<'de> Deserialize<'de> for SearchIndex {
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);
 
-        let reader = Self::reader(&underlying_index).unwrap_or_else(|err| {
-            panic!("failed to create index reader while retrieving index: {err}")
-        });
-
         // Construct the SearchIndex.
         Ok(SearchIndex {
-            reader,
             underlying_index,
             directory,
             schema,

@@ -114,7 +114,7 @@ impl Directory for BlockingDirectory {
 /// so that they can be committed or rolled back in case of an abort.
 static mut PENDING_INDEX_CREATES: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
 
-/// A global store of which indexes have been droped during a transaction,
+/// A global store of which indexes have been dropped during a transaction,
 /// so that they can be committed or rolled back in case of an abort.
 static mut PENDING_INDEX_DROPS: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
 

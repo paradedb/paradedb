@@ -77,7 +77,9 @@ impl SearchIndex {
     /// be entirely owned by the new process, with no references.
     pub fn get_writer(&self) -> Result<SearchIndexWriter> {
         let underlying_writer = self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
-        Ok(SearchIndexWriter { underlying_writer })
+        Ok(SearchIndexWriter {
+            underlying_writer: Some(underlying_writer),
+        })
     }
 
     #[allow(static_mut_refs)]

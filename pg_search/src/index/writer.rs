@@ -120,13 +120,31 @@ static mut PENDING_INDEX_DROPS: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashS
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
-    pub underlying_writer: IndexWriter,
+    pub underlying_writer: Option<IndexWriter>,
+}
+
+impl Drop for SearchIndexWriter {
+    fn drop(&mut self) {
+        if let Some(writer) = self.underlying_writer.take() {
+            // wait for all merging threads to finish.  we do this in the background
+            // because we don't want to block the connection that created this SearchIndexWriter
+            // from being able to do more work.
+            std::thread::spawn(move || {
+                if let Err(e) = writer.wait_merging_threads() {
+                    pgrx::warning!("`wait_merging_threads` failed: {e}");
+                }
+            });
+        }
+    }
 }
 
 impl SearchIndexWriter {
     pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
         // Add the Tantivy document to the index.
-        self.underlying_writer.add_document(document.into())?;
+        self.underlying_writer
+            .as_mut()
+            .unwrap()
+            .add_document(document.into())?;
 
         Ok(())
     }
@@ -134,13 +152,18 @@ impl SearchIndexWriter {
     pub fn delete(&mut self, ctid_field: &Field, ctid_values: &[u64]) -> Result<(), IndexError> {
         for ctid in ctid_values {
             let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
-            self.underlying_writer.delete_term(ctid_term);
+            self.underlying_writer
+                .as_mut()
+                .unwrap()
+                .delete_term(ctid_term);
         }
         Ok(())
     }
 
     pub fn commit(&mut self) -> Result<()> {
         self.underlying_writer
+            .as_mut()
+            .unwrap()
             .commit()
             .context("error committing to tantivy index")?;
 
@@ -148,13 +171,16 @@ impl SearchIndexWriter {
     }
 
     pub fn abort(&mut self) -> Result<(), IndexError> {
-        self.underlying_writer.rollback()?;
-
+        self.underlying_writer.as_mut().unwrap().rollback()?;
         Ok(())
     }
 
     pub fn vacuum(&mut self) -> Result<(), IndexError> {
-        self.underlying_writer.garbage_collect_files().wait()?;
+        self.underlying_writer
+            .as_mut()
+            .unwrap()
+            .garbage_collect_files()
+            .wait()?;
         Ok(())
     }
 

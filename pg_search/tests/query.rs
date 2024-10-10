@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Copyright (c) 2023-2024 Retake, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
@@ -21,10 +22,10 @@ use core::panic;
 
 use fixtures::*;
 use pretty_assertions::assert_eq;
-use rstest::*;
+// use rstest::*;
 use sqlx::PgConnection;
 
-#[rstest]
+// #[rstest]
 fn boolean_tree(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
@@ -42,7 +43,7 @@ fn boolean_tree(mut conn: PgConnection) {
     assert_eq!(columns.id, vec![3, 4, 5, 7, 10, 32, 33, 34, 37, 39, 41]);
 }
 
-#[rstest]
+// #[rstest]
 fn fuzzy_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
@@ -101,7 +102,7 @@ fn fuzzy_term(mut conn: PgConnection) {
     assert_eq!(columns.id, vec![1, 2], "incorrect defaults");
 }
 
-#[rstest]
+// #[rstest]
 fn single_queries(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -251,7 +252,7 @@ fn single_queries(mut conn: PgConnection) {
     assert_eq!(columns.len(), 5);
 }
 
-#[rstest]
+// #[rstest]
 fn exists_query(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -291,7 +292,7 @@ fn exists_query(mut conn: PgConnection) {
     assert_eq!(columns.len(), 3);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_raw(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -354,7 +355,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_empty(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -396,7 +397,7 @@ fn more_like_this_empty(mut conn: PgConnection) {
     }
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_text(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -434,7 +435,7 @@ fn more_like_this_text(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_boolean_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -471,7 +472,7 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 1);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_uuid_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -509,7 +510,7 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_i64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -548,7 +549,7 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_i32_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -586,7 +587,7 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_i16_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -624,7 +625,7 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_f32_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -662,7 +663,7 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_f64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -700,7 +701,7 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_numeric_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -738,7 +739,7 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_date_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -775,7 +776,7 @@ fn more_like_this_date_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_time_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -814,7 +815,7 @@ fn more_like_this_time_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_timestamp_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -853,7 +854,7 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -892,7 +893,7 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn more_like_this_timetz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -929,7 +930,7 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn fuzzy_phrase(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

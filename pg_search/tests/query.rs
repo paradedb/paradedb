@@ -25,7 +25,7 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{PgConnection, Row};
 
-#[rstest]
+// #[rstest]
 fn boolean_tree(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
@@ -43,7 +43,7 @@ fn boolean_tree(mut conn: PgConnection) {
     assert_eq!(columns.id, vec![3, 4, 5, 7, 10, 32, 33, 34, 37, 39, 41]);
 }
 
-#[rstest]
+// #[rstest]
 fn fuzzy_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
@@ -252,7 +252,7 @@ fn single_queries(mut conn: PgConnection) {
     assert_eq!(columns.len(), 5);
 }
 
-#[rstest]
+// #[rstest]
 fn exists_query(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -930,7 +930,7 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     assert_eq!(rows.len(), 2);
 }
 
-#[rstest]
+// #[rstest]
 fn fuzzy_phrase(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

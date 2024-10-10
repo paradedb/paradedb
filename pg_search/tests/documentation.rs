@@ -837,40 +837,59 @@ fn compound_queries(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
 
-    // let rows: Vec<(String, i32, String)> = r#"
-    // SELECT description, rating, category
-    // FROM mock_items
-    // WHERE id @@@ paradedb.parse('speaker electronics', lenient => true)"#
-    // .fetch(&mut conn);
-    // assert_eq!(rows.len(), 5);
+    // Lenient parse
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse('speaker electronics', lenient => true)"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
 
-    // let rows: Vec<(String, i32, String)> = r#"
-    // SELECT description, rating, category
-    // FROM mock_items
-    // WHERE id @@@ paradedb.parse('description:speaker category:electronics')"#
-    // .fetch(&mut conn);
-    // assert_eq!(rows.len(), 3);
+    // Conjunction mode
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse('description:speaker category:electronics')"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
 
-    // let rows: Vec<(String, i32, String)> = r#"
-    // SELECT description, rating, category
-    // FROM mock_items
-    // WHERE id @@@ paradedb.parse('description:speaker OR category:electronics')"#
-    // .fetch(&mut conn);
-    // assert_eq!(rows.len(), 3);
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse('description:speaker OR category:electronics')"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
 
-    // let rows: Vec<(String, i32, String)> = r#"
-    // SELECT description, rating, category
-    // FROM mock_items
-    // WHERE id @@@ paradedb.parse('description:speaker category:electronics')"#
-    // .fetch(&mut conn);
-    // assert_eq!(rows.len(), 3);
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse(
+    'description:speaker category:electronics',
+    conjunction_mode => true
+    )"#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
 
-    // let rows: Vec<(String, i32, String)> = r#"
-    // SELECT description, rating, category
-    // FROM mock_items
-    // WHERE id @@@ paradedb.parse('description:speaker OR category:electronics')"#
-    // .fetch(&mut conn);
-    // assert_eq!(rows.len(), 3);
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse(
+    'description:speaker AND category:electronics'
+    )"#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    // Parse with field
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse_with_field(
+    'description',
+    'speaker bluetooth',
+    conjunction_mode => true
+    )"#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
 }
 
 #[rstest]

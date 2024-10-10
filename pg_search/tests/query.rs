@@ -1049,7 +1049,7 @@ fn parse_lenient(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn parse_conjunction_mode(mut conn: PgConnection) {
+fn parse_conjunction(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let rows: Vec<(i32,)> = r#"
@@ -1070,31 +1070,6 @@ fn parse_with_field_conjunction(mut conn: PgConnection) {
     ORDER BY id;
     "#.fetch(&mut conn);
     assert_eq!(rows, vec![(3,)]);
-}
-
-#[rstest]
-fn conjunction_config_search(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    let mut columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        'description:keyboard rating:>2',
-        conjunction_mode => true,
-        stable_sort => true
-    );
-    "#
-    .fetch_collect(&mut conn);
-
-    assert_eq!(columns.len(), 2);
-
-    columns = r#"
-    SELECT * FROM bm25_search.search(
-        'description:keyboard rating:>2'
-    );
-    "#
-    .fetch_collect(&mut conn);
-
-    assert!(columns.len() > 2);
 }
 
 #[rstest]

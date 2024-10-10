@@ -512,7 +512,7 @@ impl CustomScan for PdbScan {
 
         let directory =
             WriterDirectory::from_oids(database_oid, indexrelid.as_u32(), relfilenode.as_u32());
-        let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+        let search_index = SearchIndex::from_disk(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
         let search_reader = search_index

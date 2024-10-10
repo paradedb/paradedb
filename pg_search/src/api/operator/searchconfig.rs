@@ -49,7 +49,7 @@ pub fn search_with_search_config(
         let relfilenode = relfilenode_from_index_oid(index_oid);
 
         let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
-        let search_index = SearchIndex::from_cache(&directory, &search_config.uuid)
+        let search_index = SearchIndex::from_disk(&directory)
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
         let scan_state = search_index.get_reader().unwrap();
         let query = search_index.query(&search_config, &scan_state);

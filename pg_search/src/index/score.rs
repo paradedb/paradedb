@@ -16,23 +16,39 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::types::TantivyValue;
-use std::cmp::Ordering;
-
+use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
-use tantivy::DocAddress;
+use std::cmp::Ordering;
+use std::fmt::{Debug, Formatter};
 
 /// A custom score struct for ordering Tantivy results.
 /// For use with the `stable` sorting feature.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SearchIndexScore {
     pub bm25: f32,
     pub key: Option<TantivyValue>,
     pub ctid: u64,
-    pub doc_address: Option<DocAddress>,
 
     /// if we have a specific order by requirement, use that first, instead of sorting by the bm25 score
     pub order_by: Option<TantivyValue>,
     pub sort_asc: bool,
+}
+
+impl Debug for SearchIndexScore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchIndexScore")
+            .field("bm25", &self.bm25)
+            .field("key", &self.key)
+            .field("ctid", &{
+                let mut ipd = pg_sys::ItemPointerData::default();
+                crate::postgres::utils::u64_to_item_pointer(self.ctid, &mut ipd);
+                let (blockno, offno) = pgrx::itemptr::item_pointer_get_both(ipd);
+                format!("({},{})", blockno, offno)
+            })
+            .field("order_by", &self.order_by)
+            .field("sort_asc", &self.sort_asc)
+            .finish()
+    }
 }
 
 // We do these custom trait impls, because we want these to be sortable so:

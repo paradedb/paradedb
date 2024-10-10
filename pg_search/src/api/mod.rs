@@ -28,10 +28,23 @@ macro_rules! nodecast {
         pgrx::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind)
             .then(|| node.cast::<pgrx::pg_sys::$type_>())
     }};
+
+    ($type_:ident, $kind:ident, $node:expr, true) => {{
+        let node = $node;
+        (node.is_null() || pgrx::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind))
+            .then(|| node.cast::<pgrx::pg_sys::$type_>())
+    }};
 }
+
+// came to life in pg15
+pub type Cardinality = f64;
 
 pub trait AsInt {
     unsafe fn as_int(&self) -> Option<i32>;
+}
+
+pub trait AsBool {
+    unsafe fn as_bool(&self) -> Option<bool>;
 }
 
 pub trait AsCStr {
@@ -51,6 +64,22 @@ impl AsInt for *mut pgrx::pg_sys::Node {
     unsafe fn as_int(&self) -> Option<i32> {
         let node = nodecast!(Integer, T_Integer, *self)?;
         Some((*node).ival)
+    }
+}
+
+#[cfg(any(feature = "pg13", feature = "pg14"))]
+impl AsBool for *mut pgrx::pg_sys::Node {
+    unsafe fn as_bool(&self) -> Option<bool> {
+        let node = nodecast!(Value, T_Integer, *self)?;
+        Some((*node).val.ival != 0)
+    }
+}
+
+#[cfg(not(any(feature = "pg13", feature = "pg14")))]
+impl AsBool for *mut pgrx::pg_sys::Node {
+    unsafe fn as_bool(&self) -> Option<bool> {
+        let node = nodecast!(Boolean, T_Boolean, *self)?;
+        Some((*node).boolval)
     }
 }
 

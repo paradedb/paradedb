@@ -73,6 +73,7 @@ pub extern "C" fn ambulkdelete(
         }
     }
 
+    pgrx::warning!("committing vacuum");
     writer
         .commit()
         .unwrap_or_else(|err| panic!("error committing to index in ambulkdelete: {err}"));

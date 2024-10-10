@@ -27,7 +27,7 @@ pub struct Args {
 #[repr(C)]
 pub struct CustomScanStateWrapper<CS: CustomScan> {
     pub csstate: pg_sys::CustomScanState,
-    pub custom_state: CS::State,
+    custom_state: CS::State,
 }
 
 impl<CS: CustomScan> Debug for CustomScanStateWrapper<CS>
@@ -53,7 +53,12 @@ impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     }
 
     #[inline(always)]
-    pub fn custom_state(&mut self) -> &mut CS::State {
+    pub fn custom_state(&self) -> &CS::State {
+        &self.custom_state
+    }
+
+    #[inline(always)]
+    pub fn custom_state_mut(&mut self) -> &mut CS::State {
         &mut self.custom_state
     }
 
@@ -83,18 +88,20 @@ impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     }
 }
 
-pub struct CustomScanStateBuilder<CS: CustomScan> {
+pub struct CustomScanStateBuilder<CS: CustomScan, P: From<*mut pg_sys::List>> {
     args: Args,
 
     custom_state: CS::State,
+    custom_private: P,
 }
 
-impl<CS: CustomScan> CustomScanStateBuilder<CS> {
+impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
     pub fn new(cscan: *mut pg_sys::CustomScan) -> Self {
         Self {
             args: Args { cscan },
 
             custom_state: CS::State::default(),
+            custom_private: unsafe { P::from((*cscan).custom_private) },
         }
     }
 
@@ -102,8 +109,8 @@ impl<CS: CustomScan> CustomScanStateBuilder<CS> {
         &self.args
     }
 
-    pub fn private_data(&self) -> PgList<pg_sys::Node> {
-        unsafe { PgList::from_pg((*self.args.cscan).custom_private) }
+    pub fn custom_private(&self) -> &P {
+        &self.custom_private
     }
 
     pub fn custom_state(&mut self) -> &mut CS::State {

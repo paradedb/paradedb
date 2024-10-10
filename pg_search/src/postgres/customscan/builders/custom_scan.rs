@@ -55,13 +55,14 @@ impl Args {
     }
 }
 
-pub struct CustomScanBuilder {
+pub struct CustomScanBuilder<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> {
     args: Args,
 
     custom_scan_node: pg_sys::CustomScan,
+    custom_private: P,
 }
 
-impl CustomScanBuilder {
+impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanBuilder<P> {
     pub fn new<CS: CustomScan>(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
@@ -91,6 +92,7 @@ impl CustomScanBuilder {
             ..Default::default()
         };
 
+        let custom_private = P::from(scan.custom_private);
         CustomScanBuilder {
             args: Args {
                 root,
@@ -101,6 +103,7 @@ impl CustomScanBuilder {
                 custom_plans,
             },
             custom_scan_node: scan,
+            custom_private,
         }
     }
 
@@ -108,20 +111,17 @@ impl CustomScanBuilder {
         &self.args
     }
 
-    pub fn custom_private(&self) -> *mut pg_sys::List {
-        unsafe { (*self.args.best_path).custom_private }
+    pub fn custom_private(&self) -> &P {
+        &self.custom_private
     }
 
-    /// Add another node of private data to the `custom_private: *mut List` we got from
-    /// the "best_path", which we created earlier in the API process
-    pub fn add_private_data(&mut self, node: *mut pg_sys::Node) {
-        unsafe {
-            let mut custom_private = PgList::<pg_sys::Node>::from_pg(self.custom_private());
-            custom_private.push(node)
-        }
+    pub fn custom_private_mut(&mut self) -> &mut P {
+        &mut self.custom_private
     }
 
     pub fn build(self) -> pg_sys::CustomScan {
-        self.custom_scan_node
+        let mut node = self.custom_scan_node;
+        node.custom_private = self.custom_private.into();
+        node
     }
 }

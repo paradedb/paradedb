@@ -103,10 +103,14 @@ pub enum SearchQueryInput {
     },
     Parse {
         query_string: String,
+        lenient: Option<bool>,
+        conjunction_mode: Option<bool>,
     },
     ParseWithField {
         field: String,
         query_string: String,
+        lenient: Option<bool>,
+        conjunction_mode: Option<bool>,
     },
     Phrase {
         field: String,
@@ -507,28 +511,40 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(query))
             }
-            Self::Parse { query_string } => match config.lenient_parsing {
-                Some(true) => {
-                    let (parsed_query, _) = parser.parse_query_lenient(&query_string);
-                    Ok(Box::new(parsed_query))
+            Self::Parse {
+                query_string,
+                lenient,
+                conjunction_mode,
+            } => {
+                if let Some(true) = conjunction_mode {
+                    parser.set_conjunction_by_default();
                 }
-                _ => {
-                    Ok(Box::new(parser.parse_query(&query_string).map_err(
-                        |err| QueryError::ParseError(err, query_string),
-                    )?))
+
+                match lenient {
+                    Some(true) => {
+                        let (parsed_query, _) = parser.parse_query_lenient(&query_string);
+                        Ok(Box::new(parsed_query))
+                    }
+                    _ => {
+                        Ok(Box::new(parser.parse_query(&query_string).map_err(
+                            |err| QueryError::ParseError(err, query_string),
+                        )?))
+                    }
                 }
-            },
+            }
             Self::ParseWithField {
                 field,
                 query_string,
+                lenient,
+                conjunction_mode,
             } => {
                 let query_string = format!("{field}:({query_string})");
-                Self::Parse { query_string }.into_tantivy_query(
-                    field_lookup,
-                    parser,
-                    searcher,
-                    config,
-                )
+                Self::Parse {
+                    query_string,
+                    lenient,
+                    conjunction_mode,
+                }
+                .into_tantivy_query(field_lookup, parser, searcher, config)
             }
             Self::Phrase {
                 field,

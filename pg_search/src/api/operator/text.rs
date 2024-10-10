@@ -128,11 +128,17 @@ unsafe fn make_query_from_var_and_const(
         Some(field) => SearchQueryInput::ParseWithField {
             field,
             query_string,
+            lenient: None,
+            conjunction_mode: None,
         },
 
         // the Var represents a table reference, and that means the Const value is to be used
         // as-is as a query
-        None => SearchQueryInput::Parse { query_string },
+        None => SearchQueryInput::Parse {
+            query_string,
+            lenient: None,
+            conjunction_mode: None,
+        },
     };
     (heaprelid, query)
 }

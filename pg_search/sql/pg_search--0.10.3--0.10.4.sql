@@ -171,7 +171,6 @@ CREATE  FUNCTION "index_info"(
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'index_info_wrapper';
 
-
 DROP TYPE paradedb.TestTable;
 CREATE TYPE paradedb.TestTable AS ENUM (
 	'Items',
@@ -292,3 +291,8 @@ CREATE  FUNCTION "range_term"(
 IMMUTABLE STRICT PARALLEL SAFE 
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'range_term_timestamp_with_time_zone_wrapper';
+
+DROP FUNCTION IF EXISTS parse(query_string text);
+CREATE OR REPLACE FUNCTION parse(query_string text, lenient bool DEFAULT NULL, conjunction_mode bool DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'parse_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+DROP FUNCTION IF EXISTS parse_with_field(field fieldname, query_string text);
+CREATE OR REPLACE FUNCTION parse_with_field(field fieldname, query_string text, lenient bool DEFAULT NULL, conjunction_mode bool DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'parse_with_field_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;

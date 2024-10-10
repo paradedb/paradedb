@@ -339,15 +339,30 @@ pub fn more_like_this_id(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn parse(query_string: String) -> SearchQueryInput {
-    SearchQueryInput::Parse { query_string }
+pub fn parse(
+    query_string: String,
+    lenient: default!(Option<bool>, "NULL"),
+    conjunction_mode: default!(Option<bool>, "NULL"),
+) -> SearchQueryInput {
+    SearchQueryInput::Parse {
+        query_string,
+        lenient,
+        conjunction_mode,
+    }
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn parse_with_field(field: FieldName, query_string: String) -> SearchQueryInput {
+pub fn parse_with_field(
+    field: FieldName,
+    query_string: String,
+    lenient: default!(Option<bool>, "NULL"),
+    conjunction_mode: default!(Option<bool>, "NULL"),
+) -> SearchQueryInput {
     SearchQueryInput::ParseWithField {
         field: field.into_inner(),
         query_string,
+        lenient,
+        conjunction_mode,
     }
 }
 

@@ -495,7 +495,7 @@ fn full_text_search(mut conn: PgConnection) {
 
     // Boost by field
     let rows: Vec<(i32, f64)> = r#"
-    SELECT id, paradedb.score(mock_items) * COALESCE(rating, 1) as score
+    SELECT id, paradedb.score(id) * COALESCE(rating, 1) as score
     FROM mock_items
     WHERE description @@@ 'shoes'
     ORDER BY score DESC 
@@ -836,6 +836,41 @@ fn compound_queries(mut conn: PgConnection) {
     ])"#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
+
+    // let rows: Vec<(String, i32, String)> = r#"
+    // SELECT description, rating, category
+    // FROM mock_items
+    // WHERE id @@@ paradedb.parse('speaker electronics', lenient => true)"#
+    // .fetch(&mut conn);
+    // assert_eq!(rows.len(), 5);
+
+    // let rows: Vec<(String, i32, String)> = r#"
+    // SELECT description, rating, category
+    // FROM mock_items
+    // WHERE id @@@ paradedb.parse('description:speaker category:electronics')"#
+    // .fetch(&mut conn);
+    // assert_eq!(rows.len(), 3);
+
+    // let rows: Vec<(String, i32, String)> = r#"
+    // SELECT description, rating, category
+    // FROM mock_items
+    // WHERE id @@@ paradedb.parse('description:speaker OR category:electronics')"#
+    // .fetch(&mut conn);
+    // assert_eq!(rows.len(), 3);
+
+    // let rows: Vec<(String, i32, String)> = r#"
+    // SELECT description, rating, category
+    // FROM mock_items
+    // WHERE id @@@ paradedb.parse('description:speaker category:electronics')"#
+    // .fetch(&mut conn);
+    // assert_eq!(rows.len(), 3);
+
+    // let rows: Vec<(String, i32, String)> = r#"
+    // SELECT description, rating, category
+    // FROM mock_items
+    // WHERE id @@@ paradedb.parse('description:speaker OR category:electronics')"#
+    // .fetch(&mut conn);
+    // assert_eq!(rows.len(), 3);
 }
 
 #[rstest]

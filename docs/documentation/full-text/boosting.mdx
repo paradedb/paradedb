@@ -20,7 +20,7 @@ The following query boosts the score of each row by multiplying it by the row's 
 the same score but a higher `rating` will score higher overall.
 
 ```sql
-SELECT id, paradedb.score(mock_items) * COALESCE(rating, 1) as score
+SELECT id, paradedb.score(id) * COALESCE(rating, 1) as score
 FROM mock_items
 WHERE description @@@ 'shoes'
 ORDER BY score DESC

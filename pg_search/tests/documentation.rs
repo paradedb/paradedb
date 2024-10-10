@@ -185,8 +185,7 @@ fn quickstart(mut conn: PgConnection) {
     .execute(&mut conn);
     let rows: Vec<(String, i32, String, Vector)> = r#"
     SELECT description, rating, category, embedding
-    FROM mock_items
-    LIMIT 3;
+    FROM mock_items LIMIT 3;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);

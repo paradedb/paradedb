@@ -39,17 +39,17 @@ fn test_icu_arabic_tokenizer(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let columns: IcuArabicPostsTableVec =
-        r#"SELECT * FROM idx_arabic.search('author:"محمد"', stable_sort => true)"#
+        r#"SELECT * FROM icu_arabic_posts WHERE icu_arabic_posts @@@ 'author:"محمد"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2]);
 
     let columns: IcuArabicPostsTableVec =
-        r#"SELECT * FROM idx_arabic.search('title:"السوق"', stable_sort => true)"#
+        r#"SELECT * FROM icu_arabic_posts WHERE icu_arabic_posts @@@ 'title:"السوق"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2]);
 
     let columns: IcuArabicPostsTableVec =
-        r#"SELECT * FROM idx_arabic.search('message:"في"', stable_sort => true)"#
+        r#"SELECT * FROM icu_arabic_posts WHERE icu_arabic_posts @@@ 'message:"في"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 1, 3]);
 }
@@ -69,17 +69,17 @@ fn test_icu_amharic_tokenizer(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let columns: IcuAmharicPostsTableVec =
-        r#"SELECT * FROM idx_amharic.search('author:"አለም"', stable_sort => true)"#
+        r#"SELECT * FROM icu_amharic_posts WHERE icu_amharic_posts @@@ 'author:"አለም"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3]);
 
     let columns: IcuAmharicPostsTableVec =
-        r#"SELECT * FROM idx_amharic.search('title:"ለመማር"', stable_sort => true)"#
+        r#"SELECT * FROM icu_amharic_posts WHERE icu_amharic_posts @@@ 'title:"ለመማር"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3]);
 
     let columns: IcuAmharicPostsTableVec =
-        r#"SELECT * FROM idx_amharic.search('message:"ዝናብ"', stable_sort => true)"#
+        r#"SELECT * FROM icu_amharic_posts WHERE icu_amharic_posts @@@ 'message:"ዝናብ"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 1]);
 }
@@ -99,17 +99,17 @@ fn test_icu_greek_tokenizer(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let columns: IcuGreekPostsTableVec =
-        r#"SELECT * FROM idx_greek.search('author:"Σοφία"', stable_sort => true)"#
+        r#"SELECT * FROM icu_greek_posts WHERE icu_greek_posts @@@ 'author:"Σοφία"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2]);
 
     let columns: IcuGreekPostsTableVec =
-        r#"SELECT * FROM idx_greek.search('title:"επιτυχία"', stable_sort => true)"#
+        r#"SELECT * FROM icu_greek_posts WHERE icu_greek_posts @@@ 'title:"επιτυχία"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3]);
 
     let columns: IcuGreekPostsTableVec =
-        r#"SELECT * FROM idx_greek.search('message:"συμβουλές"', stable_sort => true)"#
+        r#"SELECT * FROM icu_greek_posts WHERE icu_greek_posts @@@ 'message:"συμβουλές"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3]);
 }
@@ -129,17 +129,17 @@ fn test_icu_czech_tokenizer(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let columns: IcuCzechPostsTableVec =
-        r#"SELECT * FROM idx_czech.search('author:"Tomáš"', stable_sort => true)"#
+        r#"SELECT * FROM icu_czech_posts WHERE icu_czech_posts @@@ 'author:"Tomáš"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1]);
 
     let columns: IcuCzechPostsTableVec =
-        r#"SELECT * FROM idx_czech.search('title:"zdravý"', stable_sort => true)"#
+        r#"SELECT * FROM icu_czech_posts WHERE icu_czech_posts @@@ 'title:"zdravý"' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2]);
 
     let columns: IcuCzechPostsTableVec =
-        r#"SELECT * FROM idx_czech.search('message:"velký"~100', stable_sort => true)"#
+        r#"SELECT * FROM icu_czech_posts WHERE icu_czech_posts @@@ 'message:"velký"~100' ORDER BY id"#
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3]);
 }
@@ -156,9 +156,13 @@ fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
     )"#
     .execute(&mut conn);
 
-    let columns: IcuCzechPostsTableVec =
-        r#"SELECT * FROM idx_czech_content.search(query => paradedb.phrase(field => 'message', phrases => ARRAY['šla', 'sbírat']));"#
-            .fetch_collect(&mut conn);
+    let columns: IcuCzechPostsTableVec = r#"
+        SELECT * FROM icu_czech_posts
+        WHERE icu_czech_posts @@@ paradedb.phrase(
+            field => 'message',
+            phrases => ARRAY['šla', 'sbírat']
+        ) ORDER BY id;"#
+        .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![1]);
 }

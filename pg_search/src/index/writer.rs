@@ -121,7 +121,7 @@ static mut PENDING_INDEX_DROPS: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashS
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
     // this is an Option<> because on drop we need to take ownership of the underlying
-    // IndexWriter instance so we can, in the backgroud, wait for all merging threads to finish
+    // IndexWriter instance so we can, in the background, wait for all merging threads to finish
     pub underlying_writer: Option<IndexWriter>,
 }
 

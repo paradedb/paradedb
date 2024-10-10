@@ -100,7 +100,6 @@ pub fn top_n_scan_exec(
                         None => ExecState::Invisible { scored },
                         Some(slot) => {
                             topn_state.found += 1;
-                            // pgrx::warning!("found {} visible tuples", isc.found);
                             ExecState::Found {
                                 scored,
                                 doc_address,

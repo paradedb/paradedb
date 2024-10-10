@@ -408,6 +408,37 @@ fn full_text_search(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
 
+    r#"
+    CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'orders',
+        table_type => 'Orders'
+    );
+
+    ALTER TABLE orders
+    ADD CONSTRAINT foreign_key_product_id
+    FOREIGN KEY (product_id)
+    REFERENCES mock_items(id);
+
+    CALL paradedb.create_bm25(
+        index_name => 'orders_idx',
+        table_name => 'orders',
+        key_field => 'order_id',
+        text_fields => paradedb.field('customer_name')
+    );"#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, f32)> = r#"
+    SELECT o.order_id, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+    FROM orders o
+    JOIN mock_items m ON o.product_id = m.id
+    WHERE o.customer_name @@@ 'Johnson' AND (m.description @@@ 'shoes' OR m.description @@@ 'running')
+    ORDER BY score DESC, id
+    LIMIT 5;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(3, 8.738735), (6, 5.406531), (36, 5.406531)]);
+
     // Highlighting
     let rows: Vec<(i32, String)> = r#"
     SELECT id, paradedb.snippet(description)

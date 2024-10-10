@@ -482,8 +482,17 @@ impl CustomScan for PdbScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // get the VisibilityChecker dropped
-        state.custom_state_mut().visibility_checker.take();
+        // get some things dropped now
+        drop(state.custom_state_mut().visibility_checker.take());
+        drop(state.custom_state_mut().search_reader.take());
+        drop(std::mem::replace(
+            &mut state.custom_state_mut().snippet_generators,
+            Default::default(),
+        ));
+        drop(std::mem::replace(
+            &mut state.custom_state_mut().search_results,
+            Default::default(),
+        ));
 
         if let Some(heaprel) = state.custom_state_mut().heaprel.take() {
             unsafe {

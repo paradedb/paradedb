@@ -53,6 +53,7 @@ strum = { version = "0.26.3" }
 [dev-dependencies]
 approx = "0.5.1"
 async-std = { version = "1.13.0", features = ["attributes"] }
+bigdecimal = "0.4.5"
 cmd_lib = "1.9.4"
 dotenvy = "0.15.7"
 futures = "0.3.30"

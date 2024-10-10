@@ -2,29 +2,52 @@
 title: Filtering
 ---
 
-The ParadeQL query accepts filters, which can drastically improve query times compared to standard SQL `WHERE` clauses.
-For optimal performance and ranking, it is important to pass filters directly into the search query whenever possible.
+Filters over numeric, boolean, or datetime fields that are indexed as [fast fields](/documentation/indexing/fast_fields) can be "pushed down" into the BM25 index using the `@@@` operator. For instance, the following
+two queries produce identical results, but the second query "pushes down" the `rating > 2` filter into the BM25 index.
+
+```sql
+-- Without BM25 pushdown
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating > 2;
+
+-- With BM25 pushdown
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '>2';
+```
+
+<Note>
+  Automatically executing the first type of query as the second query is on the
+  roadmap, but not yet supported.
+</Note>
 
 ## Numeric Filter
 
-The following query returns all rows matching `description:keyboard` where `rating` equals `4`.
+The following query returns all rows matching `description:shoes` where `rating` equals `4`.
 
 ```sql
-SELECT * FROM search_idx.search('description:keyboard AND rating:4');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '4';
 ```
 
 Comparison operators `>`, `>=`, `<`, and `<=` are supported.
 
 ```sql
-SELECT * FROM search_idx.search('description:keyboard AND rating:>=4');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '>=4';
 ```
 
 ## Datetime Filter
 
-RFC3339-formatted dates can be used to filter over datetime fields.
+RFC 3339 formatted dates wrapped in double quotes can be used to filter over datetime fields.
 
 ```sql
-SELECT * FROM search_idx.search('created_at:"2023-04-15T13:27:09Z"');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND created_at @@@ '"2023-04-20T16:38:02Z"';
 ```
 
 ## Boolean Filter
@@ -32,7 +55,9 @@ SELECT * FROM search_idx.search('created_at:"2023-04-15T13:27:09Z"');
 Boolean fields can be filtered with `true` or `false`.
 
 ```sql
-SELECT * FROM search_idx.search('in_stock:true');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND in_stock @@@ 'true';
 ```
 
 ## Range Filter
@@ -41,12 +66,14 @@ The inclusive `[]` and exclusive `{}` bounds can be used for range filtering.
 
 ```sql
 -- Numeric
-SELECT * FROM search_idx.search('rating:[1 TO 4]');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '[1 TO 4]';
 
 -- Datetime
-SELECT * FROM search_idx.search(
-    'created_at:[2020-01-31T00:00:00Z TO 2024-01-31T00:00:00Z]'
-);
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND created_at @@@ '[2020-01-31T00:00:00Z TO 2024-01-31T00:00:00Z]';
 ```
 
 Range filters can also be applied over text fields. The following query finds all documents where
@@ -54,7 +81,9 @@ Range filters can also be applied over text fields. The following query finds al
 `book` and `camera` in a dictionary).
 
 ```sql
-SELECT * FROM search_idx.search('description:[book TO camera]');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '[book TO camera]';
 ```
 
 ## Set Filter
@@ -62,5 +91,7 @@ SELECT * FROM search_idx.search('description:[book TO camera]');
 The `IN` operator finds documents that match at least one element in a set.
 
 ```sql
-SELECT * FROM search_idx.search('rating:IN [2 3 4]');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ 'IN [2 3 4]';
 ```

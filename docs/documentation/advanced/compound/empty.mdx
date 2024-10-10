@@ -7,7 +7,8 @@ title: Empty
 Serves as a placeholder, matching no documents. It's useful for testing scenarios or specific edge cases.
 
 ```sql
-SELECT * FROM search_idx.search(
-	query => paradedb.empty()
-);
+-- Returns no rows
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.empty();
 ```

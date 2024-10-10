@@ -8,12 +8,9 @@ Identifies documents containing a [phrase](/documentation/concepts/phrase) follo
 [record](/documentation/indexing/record) of `position`.
 
 ```sql
-SELECT * FROM search_idx.search(
-	query => paradedb.phrase_prefix(
-		field => 'description',
-		phrases => ARRAY['har']
-	)
-);
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.phrase_prefix('description', ARRAY['running', 'sh']);
 ```
 
 <ParamField body="field" required>

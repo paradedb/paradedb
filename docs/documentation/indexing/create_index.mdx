@@ -40,19 +40,21 @@ CALL paradedb.create_bm25(
 In addition to text fields, numeric, datetime, boolean, and JSON fields can also be indexed. For optimal performance, we recommend indexing all fields
 that are relevant to your search query.
 
-In the query above, both `description` and `rating` were indexed to efficiently find rows where `description` matches a query and `rating` is above a certain number.
+For instance, by indexing both `description` and `rating`, filters over `rating` can be pushed down to the full text query for optimal query speed.
 
 ```sql
 SELECT id, description, rating
-FROM search_idx.search('description:shoes AND rating:>3');
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '>3'
+ORDER BY id;
 ```
 
 <Accordion title="Expected Response">
 ```csv
  id |     description     | rating
 ----+---------------------+--------
-  5 | Generic shoes       |      4
   3 | Sleek running shoes |      5
+  5 | Generic shoes       |      4
 (2 rows)
 ```
 </Accordion>

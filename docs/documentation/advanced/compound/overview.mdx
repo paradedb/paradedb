@@ -1,0 +1,18 @@
+---
+title: Overview
+---
+
+Compound queries combine multiple other queries. For instance, the following query looks for documents containing either the term `running` or `shoes` and boosts the relevance of documents matching `shoes`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.boost(query => paradedb.term('description', 'shoes'), boost => 2.0),
+        paradedb.term('description', 'running')
+    ]
+);
+```
+
+Compound query functions are composable, which allows for arbitrarily fine-grained queries.

@@ -29,7 +29,7 @@ Queries are automatically tokenized in the same way as the underlying field. For
 the word `keyboard` is tokenized with the default tokenizer.
 
 ```sql
-SELECT * FROM search_idx.search('description:keyboard');
+SELECT * FROM mock_items WHERE description @@@ 'keyboard';
 ```
 
 ## Available Tokenizers
@@ -189,8 +189,6 @@ CALL paradedb.create_bm25(
 );
 
 -- Example queries
-
-SELECT * FROM search_idx.search('description_ngram:cam AND description_stem:digitally');
-
-SELECT * FROM search_idx.search('description:"Soft cotton" OR description_stem:shirts');
+SELECT * FROM mock_items WHERE id @@@ paradedb.parse('description_ngram:cam AND description_stem:digitally');
+SELECT * FROM mock_items WHERE id @@@ paradedb.parse('description:"Soft cotton" OR description_stem:shirts');
 ```

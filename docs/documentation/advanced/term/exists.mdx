@@ -12,25 +12,27 @@ Matches all documents with a non-null value in the specified field. All matched 
 </Note>
 
 ```sql
-SELECT * FROM search_idx.search(
-	query => paradedb.exists(field => 'rating')
-);
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.exists('rating')
+LIMIT 5;
 ```
 
 <ParamField body="field" required>
   Specifies the field within the document to search for the term.
 </ParamField>
 
-This query is useful for filtering on `NULL` values inside a boolean query. For instance, the following code block
+This query is useful for filtering on `NULL` values inside a [boolean query](/documentation/advanced/compound/boolean). For instance, the following code block
 finds all rows with `description` matching `shoes` that have a non-null `rating`.
 
 ```sql
-SELECT * FROM search_idx.search(
-  query => paradedb.boolean(
-    must => ARRAY[
-      paradedb.parse('description:shoes'),
-      paradedb.exists('rating')
-    ]
-  )
-);
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.boolean(
+  must => ARRAY[
+    paradedb.term('description', 'shoes'),
+    paradedb.exists('rating')
+  ]
+)
+LIMIT 5;
 ```

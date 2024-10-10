@@ -4,10 +4,12 @@ title: Term Search
 
 ## Basic Usage
 
-Searches for the presence of a specific [term](/documentation/concepts/term). Terms must be prefixed by the field name.
+Searches for the presence of a specific [term](/documentation/concepts/term).
 
 ```sql
-SELECT * FROM search_idx.search('description:keyboard');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes';
 ```
 
 If the provided term can be tokenized further, the tokenization is automatically applied at search time using the same tokenizer
@@ -15,44 +17,31 @@ as the prefixed field.
 
 ## Multiple Terms
 
-Multiple terms can be wrapped inside parentheses.
+`AND` and `OR` can be used to combine and filter multiple terms.
 
 ```sql
-SELECT * FROM search_idx.search('description:(shoes keyboard)');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'keyboard' OR category @@@ 'toy';
 ```
 
-This query matches all documents that contain `shoes`, `keyboard`, or both.
-
-## Negative Term
-
-By prepending a term with `-`, a term can be excluded from the search.
+If multiple terms are passed into the same query string, they are `OR`ed together by default.
 
 ```sql
-SELECT * FROM search_idx.search('description:(shoes -running)');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'keyboard headphones';
 ```
 
-## Must Term
+## Not Term
 
-By prepending a term with `+`, a term can be made required for search.
-
-```sql
-SELECT * FROM search_idx.search('description:(shoes +running)');
-```
-
-## Boolean Operators
-
-`AND`, `OR`, and `NOT` can be used to combine and filter multiple terms.
+`-` omits results that contain a specific term. The following query finds documents that match
+`shoes` or `running` but not `white`.
 
 ```sql
-SELECT * FROM search_idx.search('description:keyboard OR category:toy');
-```
-
-Use parentheses to group terms and control the order of operations.
-
-```sql
-SELECT * FROM search_idx.search(
-  '(description:keyboard OR category:toy) AND description:metal'
-);
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '(shoes running -white)';
 ```
 
 ## Special Characters

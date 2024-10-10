@@ -141,9 +141,6 @@ impl SearchIndexWriter {
 
     pub fn commit(&mut self) -> Result<()> {
         self.underlying_writer
-            .prepare_commit()
-            .context("error preparing commit to tantivy index")?;
-        self.underlying_writer
             .commit()
             .context("error committing to tantivy index")?;
 

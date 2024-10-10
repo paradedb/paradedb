@@ -1026,28 +1026,50 @@ fn fuzzy_phrase(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn lenient_config_search(mut conn: PgConnection) {
+fn parse_lenient(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    // Test lenient configuration: lenient flag enabled, should allow for minor errors like typos
+    // Default lenient should be false
     let result = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.parse('descriptioNN:teddy'),
-    );
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.parse('shoes keyboard')
+    ORDER BY id;
     "#
     .execute_result(&mut conn);
-
     assert!(result.is_err());
 
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.parse('descriptioNN:teddy'),
-        lenient_parsing => true
-    );
+    // With lenient enabled
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.parse('shoes keyboard', lenient => true)
+    ORDER BY id;
     "#
-    .fetch_collect(&mut conn);
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,), (3,), (4,), (5,)]);
+}
 
-    assert!(columns.is_empty());
+#[rstest]
+fn parse_conjunction_mode(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.parse('description:(shoes running)', conjunction_mode => true)
+    ORDER BY id;
+    "#.fetch(&mut conn);
+    assert_eq!(rows, vec![(3,)]);
+}
+
+#[rstest]
+fn parse_with_field_conjunction(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM paradedb.bm25_search 
+    WHERE paradedb.bm25_search.id @@@ paradedb.parse_with_field('description', 'shoes running', conjunction_mode => true)
+    ORDER BY id;
+    "#.fetch(&mut conn);
+    assert_eq!(rows, vec![(3,)]);
 }
 
 #[rstest]

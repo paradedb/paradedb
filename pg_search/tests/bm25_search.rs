@@ -409,22 +409,22 @@ fn multi_tree(mut conn: PgConnection) {
 fn snippet(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let row: (i32, String, f32) = "
-        SELECT *
-        FROM bm25_search.snippet('description:shoes', highlight_field => 'description')"
+        SELECT id, paradedb.snippet(description), paradedb.score(id)
+        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY id"
         .fetch_one(&mut conn);
 
-    assert_eq!(row.0, 5);
-    assert_eq!(row.1, "Generic <b>shoes</b>");
-    assert_relative_eq!(row.2, 2.8772602, epsilon = 1e-6);
+    assert_eq!(row.0, 3);
+    assert_eq!(row.1, "Sleek running <b>shoes</b>");
+    assert_relative_eq!(row.2, 2.484906, epsilon = 1e-6);
 
     let row: (i32, String, f32) = "
-        SELECT id, paradedb.snippet(description, prefix => '<h1>', postfix => '</h1>'), paradedb.score(id)
-        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes'"
+        SELECT id, paradedb.snippet(description, '<h1>', '</h1>'), paradedb.score(id)
+        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY id"
         .fetch_one(&mut conn);
 
-    assert_eq!(row.0, 5);
-    assert_eq!(row.1, "Generic <h1>shoes</h1>");
-    assert_relative_eq!(row.2, 2.8772602, epsilon = 1e-6);
+    assert_eq!(row.0, 3);
+    assert_eq!(row.1, "Sleek running <h1>shoes</h1>");
+    assert_relative_eq!(row.2, 2.484906, epsilon = 1e-6);
 }
 
 #[rstest]
@@ -723,7 +723,7 @@ async fn json_nested_arrays(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "REMOVEME"]
+#[ignore = "@@@"]
 fn bm25_partial_index_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

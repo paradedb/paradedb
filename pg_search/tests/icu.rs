@@ -182,7 +182,7 @@ fn test_icu_snippet(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let columns: Vec<(i32, String)> =
-        r#"SELECT id, snippet FROM idx_arabic.snippet('title:"السوق"', highlight_field => 'title')"#
+        r#"SELECT id, paradedb.snippet(title) FROM icu_arabic_posts WHERE title @@@ 'السوق' "#
             .fetch(&mut conn);
     assert_eq!(
         columns,

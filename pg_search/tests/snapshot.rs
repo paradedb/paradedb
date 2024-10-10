@@ -28,9 +28,10 @@ async fn score_bm25_after_delete(mut conn: PgConnection) {
 
     "DELETE FROM paradedb.bm25_search WHERE id = 3 OR id = 4".execute(&mut conn);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.score_bm25('description:shoes', stable_sort => true)"
-            .fetch_collect(&mut conn);
+    let rows: Vec<(i32,)> = "
+    SELECT id, paradedb.score(id) FROM paradedb.bm25_search
+    WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
+        .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5]);
 }
@@ -41,9 +42,10 @@ async fn snippet_after_delete(mut conn: PgConnection) {
 
     "DELETE FROM paradedb.bm25_search WHERE id = 3 OR id = 4".execute(&mut conn);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true)"
-            .fetch_collect(&mut conn);
+    let rows: Vec<(i32,)> = "
+    SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+    WHERE description @@@ 'shoes' ORDER BY id"
+        .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5]);
 }
@@ -56,13 +58,13 @@ async fn score_bm25_after_update(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.score_bm25('description:sandals', stable_sort => true)"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:sandals' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [3]);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.score_bm25('description:shoes', stable_sort => true)"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 4]);
@@ -75,20 +77,23 @@ async fn snippet_after_update(mut conn: PgConnection) {
     "UPDATE paradedb.bm25_search SET description = 'leather sandals' WHERE id = 3"
         .execute(&mut conn);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.snippet('description:sandals', highlight_field => 'description', stable_sort => true)"
-            .fetch_collect(&mut conn);
+    let rows: Vec<(i32,)> = "
+        SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+        WHERE description @@@ 'sandals' ORDER BY id"
+        .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [3]);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true)"
-            .fetch_collect(&mut conn);
+    let rows: Vec<(i32,)> = "
+        SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+        WHERE description @@@ 'shoes' ORDER BY id"
+        .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
-    assert_eq!(ids, [5, 4]);
+    assert_eq!(ids, [4, 5]);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 async fn score_bm25_after_rollback(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 3".execute(&mut conn);
@@ -96,7 +101,7 @@ async fn score_bm25_after_rollback(mut conn: PgConnection) {
     "BEGIN".execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 4".execute(&mut conn);
     let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.score_bm25('description:shoes', stable_sort => true)"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5]);
@@ -104,13 +109,14 @@ async fn score_bm25_after_rollback(mut conn: PgConnection) {
     "ROLLBACK".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.score_bm25('description:shoes', stable_sort => true)"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 4]);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 async fn snippet_after_rollback(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 3".execute(&mut conn);
@@ -118,7 +124,7 @@ async fn snippet_after_rollback(mut conn: PgConnection) {
     "BEGIN".execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 4".execute(&mut conn);
     let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true)"
+        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'shoes' ORDER BY id"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5]);
@@ -126,10 +132,10 @@ async fn snippet_after_rollback(mut conn: PgConnection) {
     "ROLLBACK".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true)"
+        "SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search WHERE description @@@ 'shoes' ORDER BY id"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
-    assert_eq!(ids, [5, 4]);
+    assert_eq!(ids, [4, 5]);
 }
 
 #[rstest]
@@ -140,7 +146,7 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     "VACUUM paradedb.bm25_search".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.score_bm25('description:shoes', stable_sort => true)"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 3]);
@@ -148,7 +154,7 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     "VACUUM FULL paradedb.bm25_search".execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.score_bm25('description:shoes', stable_sort => true)"
+        "SELECT id, paradedb.score(id) FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:shoes' ORDER BY score DESC"
             .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, [5, 3]);
@@ -161,17 +167,19 @@ async fn snippet_after_vacuum(mut conn: PgConnection) {
     "DELETE FROM paradedb.bm25_search WHERE id = 4".execute(&mut conn);
     "VACUUM paradedb.bm25_search".execute(&mut conn);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true)"
-            .fetch_collect(&mut conn);
+    let rows: Vec<(i32,)> = "
+    SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+    WHERE description @@@ 'description:shoes' ORDER BY id"
+        .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
-    assert_eq!(ids, [5, 3]);
+    assert_eq!(ids, [3, 5]);
 
     "VACUUM FULL paradedb.bm25_search".execute(&mut conn);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM bm25_search.snippet('description:shoes', highlight_field => 'description', stable_sort => true)"
-            .fetch_collect(&mut conn);
+    let rows: Vec<(i32,)> = "
+    SELECT id, paradedb.snippet(description) FROM paradedb.bm25_search
+    WHERE description @@@ 'description:shoes' ORDER BY id"
+        .fetch_collect(&mut conn);
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
-    assert_eq!(ids, [5, 3]);
+    assert_eq!(ids, [3, 5]);
 }

@@ -263,9 +263,8 @@ fn en_stem_tokenizer_config(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "REMOVEME"]
 fn ngram_tokenizer_config(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_est_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
+    "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
     r#"CALL paradedb.create_bm25(
@@ -282,9 +281,9 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
         WHERE tokenizer_config @@@ 'description:boa' ORDER BY id"
         .fetch(&mut conn);
 
-    assert_eq!(rows[0], (2,));
-    assert_eq!(rows[1], (20,));
-    assert_eq!(rows[2], (1,));
+    assert_eq!(rows[0], (1,));
+    assert_eq!(rows[1], (2,));
+    assert_eq!(rows[2], (20,));
 }
 
 #[rstest]

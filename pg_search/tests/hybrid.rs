@@ -118,8 +118,8 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
         LIMIT 20
     ),
     bm25 AS (
-        SELECT id, RANK () OVER (ORDER BY score_bm25 DESC) as rank
-        FROM bm25_search.score_bm25('description:keyboard', limit_rows => 20)
+        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) as rank
+        FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' LIMIT 20
     )
     SELECT
         COALESCE(semantic.id, bm25.id) AS id,
@@ -156,11 +156,7 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
     );
     assert_eq!(
         columns[3],
-        (
-            39,
-            0.01639344262295081967,
-            "Handcrafted wooden frame".to_string()
-        )
+        (9, 0.01639344262295081967, "Modern wall clock".to_string())
     );
     assert_eq!(
         columns[4],

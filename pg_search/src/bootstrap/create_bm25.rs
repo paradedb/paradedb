@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::index::{SearchFs, WriterDirectory};
+use crate::index::{SearchFs, SearchIndex, WriterDirectory};
 use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 
 use super::format::format_bm25_function;
@@ -477,6 +477,63 @@ fn index_size(index_name: &str) -> Result<i64> {
     let total_size = writer_directory.total_size()?;
 
     Ok(total_size as i64)
+}
+
+#[pg_extern]
+fn index_info(
+    index: PgRelation,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(segno, String),
+            name!(byte_size, i64),
+            name!(num_docs, i64),
+            name!(num_deleted, i64),
+        ),
+    >,
+> {
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+    let index_oid = index.oid();
+    let database_oid = crate::MyDatabaseId();
+    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+
+    // Create a WriterDirectory with the obtained index_oid
+    let writer_directory =
+        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
+
+    let index = SearchIndex::from_disk(&writer_directory)?;
+    let data = index
+        .underlying_index
+        .searchable_segment_metas()?
+        .into_iter()
+        .map(|meta| {
+            let segno = meta.id().short_uuid_string();
+            let byte_size = meta
+                .list_files()
+                .into_iter()
+                .map(|file| {
+                    let mut full_path = writer_directory.tantivy_dir_path(false).unwrap().0;
+                    full_path.push(file);
+
+                    if full_path.exists() {
+                        full_path
+                            .metadata()
+                            .map(|metadata| metadata.len())
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    }
+                })
+                .sum::<u64>() as i64;
+            let num_docs = meta.num_docs() as i64;
+            let num_deleted = meta.num_deleted_docs() as i64;
+
+            (segno, byte_size, num_docs, num_deleted)
+        })
+        .collect::<Vec<_>>();
+
+    Ok(TableIterator::new(data))
 }
 
 fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {

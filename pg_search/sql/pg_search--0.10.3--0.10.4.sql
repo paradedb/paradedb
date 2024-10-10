@@ -157,3 +157,16 @@ DROP FUNCTION IF EXISTS tokenize(tokenizer_setting jsonb, input_text text);
 CREATE OR REPLACE FUNCTION tokenize(tokenizer_setting jsonb, input_text text) RETURNS TABLE(token text, "position" pg_catalog.int4) AS 'MODULE_PATHNAME', 'tokenize_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 DROP FUNCTION IF EXISTS tokenizers();
 CREATE OR REPLACE FUNCTION tokenizers() RETURNS TABLE(tokenizer text) AS 'MODULE_PATHNAME', 'tokenizers_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+-- pg_search/src/bootstrap/create_bm25.rs:482
+-- pg_search::bootstrap::create_bm25::index_info
+CREATE  FUNCTION "index_info"(
+    "index" regclass /* pgrx::rel::PgRelation */
+) RETURNS TABLE (
+                    "segno" TEXT,  /* alloc::string::String */
+                    "byte_size" bigint,  /* i64 */
+                    "num_docs" bigint,  /* i64 */
+                    "num_deleted" bigint  /* i64 */
+                )
+    STRICT
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'index_info_wrapper';

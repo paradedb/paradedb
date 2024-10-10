@@ -79,14 +79,14 @@ fn quickstart(mut conn: PgConnection) {
     SELECT description, rating, category, paradedb.score(id)
     FROM mock_items
     WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
-    ORDER BY score DESC
+    ORDER BY score DESC, description
     LIMIT 5"#
         .fetch(&mut conn);
     assert_eq!(rows[0].0, "Generic shoes".to_string());
     assert_eq!(rows[1].0, "Sleek running shoes".to_string());
     assert_eq!(rows[2].0, "White jogging shoes".to_string());
-    assert_eq!(rows[3].0, "Sturdy hiking boots".to_string());
-    assert_eq!(rows[4].0, "Comfortable slippers".to_string());
+    assert_eq!(rows[3].0, "Comfortable slippers".to_string());
+    assert_eq!(rows[4].0, "Sturdy hiking boots".to_string());
     assert_eq!(rows[0].3, 5.8135376);
     assert_eq!(rows[1].3, 5.4211845);
     assert_eq!(rows[2].3, 5.4211845);

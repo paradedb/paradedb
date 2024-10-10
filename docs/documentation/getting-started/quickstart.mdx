@@ -95,7 +95,7 @@ particular order. To sort by relevance, the `paradedb.score` function generates 
 SELECT description, rating, category, paradedb.score(id)
 FROM mock_items
 WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
-ORDER BY score DESC
+ORDER BY score DESC, description
 LIMIT 5;
 ```
 
@@ -106,8 +106,8 @@ LIMIT 5;
  Generic shoes        |      4 | Footwear | 5.8135376
  Sleek running shoes  |      5 | Footwear | 5.4211845
  White jogging shoes  |      3 | Footwear | 5.4211845
- Sturdy hiking boots  |      4 | Footwear | 2.9362776
  Comfortable slippers |      3 | Footwear | 2.9362776
+ Sturdy hiking boots  |      4 | Footwear | 2.9362776
 (5 rows)
 ```
 </Accordion>

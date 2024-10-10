@@ -51,22 +51,18 @@ fn integer_range(mut conn: PgConnection) {
 
     // INT4
     let rows: Vec<(i32, i32)> = r#"
-    SELECT id, value_int4 FROM test_index.search(
-        query => paradedb.range(field => 'value_int4', range => '[2222,4444]'::int4range),
-        stable_sort => true
-    );
-    "#
-    .fetch_collect(&mut conn);
+    SELECT id, value_int4 FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_int4', range => '[2222,4444]'::int4range)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
 
     // INT8
     let rows: Vec<(i32, i64)> = r#"
-    SELECT id, value_int8 FROM test_index.search(
-        query => paradedb.range(field => 'value_int8', range => '[0,50000000)'::int8range),
-        stable_sort => true
-    );
-    "#
-    .fetch_collect(&mut conn);
+    SELECT id, value_int8 FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_int8', range => '[0,50000000)'::int8range)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
 }
 
@@ -100,32 +96,26 @@ fn float_range(mut conn: PgConnection) {
 
     // FLOAT4
     let rows: Vec<(i32, f32)> = r#"
-    SELECT id, value_float4 FROM test_index.search(
-        query => paradedb.range(field => 'value_float4', range => '[-2,3]'::numrange),
-        stable_sort => true
-    );
-    "#
-    .fetch_collect(&mut conn);
+    SELECT id, value_float4 FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_float4', range => '[-2,3]'::numrange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 
     // FLOAT8
     let rows: Vec<(i32, f64)> = r#"
-    SELECT id, value_float8 FROM test_index.search(
-        query => paradedb.range(field => 'value_float8', range => '(2222.2222, 3333.3333]'::numrange),
-        stable_sort => true
-    );
-    "#
-    .fetch_collect(&mut conn);
+    SELECT id, value_float8 FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_float8', range => '(2222.2222, 3333.3333]'::numrange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 1);
 
     // NUMERIC - no sqlx::Type for numerics, so just select id
     let rows: Vec<(i32,)> = r#"
-    SELECT id FROM test_index.search(
-        query => paradedb.range(field => 'value_numeric', range => '[0,400)'::numrange),
-        stable_sort => true
-    );
-    "#
-    .fetch_collect(&mut conn);
+    SELECT id FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_numeric', range => '[0,400)'::numrange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
@@ -161,28 +151,25 @@ fn datetime_range(mut conn: PgConnection) {
 
     // DATE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_index.search(
-        query => paradedb.range(field => 'value_date', range => '[2020-05-20,2022-06-13]'::daterange)
-    );
-    "#
-    .fetch_collect(&mut conn);
+    SELECT * FROM test_table WHERE test_table @@@ 
+        paradedb.range(field => 'value_date', range => '[2020-05-20,2022-06-13]'::daterange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 
     // TIMESTAMP
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_index.search(
-        query => paradedb.range(field => 'value_timestamp', range => '[2019-08-02 07:52:43, 2021-06-10 10:32:41]'::tsrange)
-    );
-    "#
+    SELECT * FROM test_table WHERE test_table @@@ 
+        paradedb.range(field => 'value_timestamp', range => '[2019-08-02 07:52:43, 2021-06-10 10:32:41]'::tsrange)
+    ORDER BY id"#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 
     // TIMESTAMP WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_index.search(
-        query => paradedb.range(field => 'value_timestamptz', range => '[2020-07-09 17:52:13 EST, 2022-05-16 04:38:43 PST]'::tstzrange)
-    );
-    "#
+    SELECT * FROM test_table WHERE test_table @@@ 
+        paradedb.range(field => 'value_timestamptz', range => '[2020-07-09 17:52:13 EST, 2022-05-16 04:38:43 PST]'::tstzrange)
+    ORDER BY id"#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
 }

@@ -233,9 +233,11 @@ async fn test_ephemeral_postgres() -> Result<()> {
 
     // Verify initial state of the search results
     let source_results: Vec<(String,)> =
-        "SELECT * FROM mock_items.search('description:shoes')".fetch(&mut source_conn);
+        "SELECT * FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
+            .fetch(&mut source_conn);
     let target_results: Vec<(String,)> =
-        "SELECT * FROM mock_items.search('description:shoes')".fetch(&mut target_conn);
+        "SELECT * FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
+            .fetch(&mut target_conn);
 
     assert_eq!(source_results.len(), 0);
     assert_eq!(target_results.len(), 0);
@@ -246,16 +248,13 @@ async fn test_ephemeral_postgres() -> Result<()> {
 
     // Verify the insert is replicated to the target database
     let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items.search('description:shoes')".fetch(&mut source_conn);
+        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
+            .fetch(&mut source_conn);
 
     // Wait for the replication to complete
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items.search('description:shoes')".fetch_retry(
-            &mut target_conn,
-            5,
-            1000,
-            |result| !result.is_empty(),
-        );
+        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
+            .fetch_retry(&mut target_conn, 5, 1000, |result| !result.is_empty());
 
     assert_eq!(source_results.len(), 1);
     assert_eq!(target_results.len(), 1);
@@ -266,12 +265,12 @@ async fn test_ephemeral_postgres() -> Result<()> {
 
     // Verify the additional insert is replicated to the target database
     let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items.search('description:\"running shoes\"')"
+        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:\"running shoes\"' ORDER BY id"
             .fetch(&mut source_conn);
 
     // Wait for the replication to complete
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items.search('description:\"running shoes\"')".fetch_retry(
+        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:\"running shoes\"' ORDER BY id".fetch_retry(
             &mut target_conn,
             5,
             1000,
@@ -372,10 +371,11 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     .execute(&mut source_conn);
 
     // Verify search results before pg_basebackup
-    let source_results: Vec<(i32,)> =
-        sqlx::query_as("SELECT id FROM text_array_table.search('text_array:dog')")
-            .fetch_all(&mut source_conn)
-            .await?;
+    let source_results: Vec<(i32,)> = sqlx::query_as(
+        "SELECT id FROM text_array_table WHERE text_array_table @@@ 'text_array:dog' ORDER BY id",
+    )
+    .fetch_all(&mut source_conn)
+    .await?;
     assert_eq!(source_results.len(), 1);
 
     let target_tempdir = TempDir::new().expect("Failed to create temp dir");
@@ -399,10 +399,11 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     let mut target_conn = target_postgres.connection().await?;
 
     // Verify the content in the target database
-    let target_results: Vec<(i32,)> =
-        sqlx::query_as("SELECT id FROM text_array_table.search('text_array:dog')")
-            .fetch_all(&mut target_conn)
-            .await?;
+    let target_results: Vec<(i32,)> = sqlx::query_as(
+        "SELECT id FROM text_array_table WHERE text_array_table @@@ 'text_array:dog'",
+    )
+    .fetch_all(&mut target_conn)
+    .await?;
 
     assert_eq!(source_results.len(), target_results.len());
 
@@ -485,12 +486,8 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
 
     // Verify the insert is replicated to the target database and can be searched using pg_search
     let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items.search('description:shoes')".fetch_retry(
-            &mut target_conn,
-            5,
-            1000,
-            |result| !result.is_empty(),
-        );
+        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
+            .fetch_retry(&mut target_conn, 5, 1000, |result| !result.is_empty());
 
     assert_eq!(target_results.len(), 1);
     assert_eq!(target_results[0].0, "Green hiking shoes");
@@ -578,7 +575,7 @@ async fn test_wal_streaming_replication() -> Result<()> {
 
     thread::sleep(Duration::from_millis(1000));
 
-    match "SELECT id FROM search_idx.search('description:shoes')"
+    match "SELECT id FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
         .fetch_result::<(i32,)>(&mut target_conn)
     {
         Ok(_) => panic!("index WAL replication not yet implemented"),

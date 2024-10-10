@@ -26,7 +26,7 @@ use sqlx::PgConnection;
 #[rstest]
 fn manual_vacuum(mut conn: PgConnection) {
     fn count_func(conn: &mut PgConnection) -> i64 {
-        "select count(*)::bigint from idxsadvac.search('data:test');".fetch_one::<(i64,)>(conn).0
+        "select count(*)::bigint from sadvac WHERE sadvac @@@ 'data:test';".fetch_one::<(i64,)>(conn).0
     }
     
     // originally, this test uncovered a problem at ROW_COUNT=103, but now that the problem is

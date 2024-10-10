@@ -769,11 +769,11 @@ impl SearchQueryInput {
 fn value_to_json_term(
     field: Field,
     value: &OwnedValue,
-    path: Option<String>,
+    path: Option<&str>,
     expand_dots: bool,
     is_datetime: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {
-    let mut term = Term::from_field_json_path(field, &path.unwrap_or_default(), expand_dots);
+    let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         OwnedValue::Str(text) => {
             if is_datetime {

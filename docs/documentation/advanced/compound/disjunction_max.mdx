@@ -25,7 +25,7 @@ WHERE id @@@ paradedb.disjunction_max(ARRAY[
 
 If `tie_breaker` is provided, documents that match on more than one subquery will score higher
 than documents that match on only one subquery. For instance, if there are two subqueries and `tie_breaker` is set to
-`0.5`, the score is computed as
+`0.5`, the score is computed as:
 
 ```
 max_score + (second_highest_score × 0.5)

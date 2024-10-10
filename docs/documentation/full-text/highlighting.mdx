@@ -2,9 +2,19 @@
 title: Highlighting
 ---
 
+<Note>
+Highlighting is an expensive process and can slow down query times.
+We recommend passing a `LIMIT` to any query where `paradedb.snippet` is called to restrict the
+number of snippets that need to be generated.
+</Note>
+
+<Note>
+Highlighting is not supported for `paradedb.fuzzy_term` and `paradedb.fuzzy_phrase`.
+</Note>
+
 Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's
 search query. Highlighted snippets of text are by default wrapped in `<b></b>` tags. This can
-be modified with the `prefix` and `postfix` arguments.
+be modified with the `start_tag` and `end_tag` arguments.
 
 ## Basic Usage
 
@@ -36,9 +46,3 @@ FROM mock_items
 WHERE description @@@ 'shoes'
 LIMIT 5;
 ```
-
-<Note>
-Highlighting is an expensive process and can slow down query times.
-We recommend passing a `LIMIT` to any query where `paradedb.snippet` is called to restrict the
-number of snippets that need to be generated.
-</Note>

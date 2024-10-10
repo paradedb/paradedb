@@ -2,12 +2,6 @@
 title: BM25 Scoring
 ---
 
-<Note>
-  The `score_bm25` function has been deprecated as of 0.11.0 and has been replaced with `paradedb.score`, which
-  offers a cleaner syntax and tighter integrations with the Postgres query planner by projecting scores directly
-  onto the result table.
-</Note>
-
 ## Basic Usage
 
 BM25 scores measure how relevant a score is for a given query. Higher scores indicate higher relevance.
@@ -17,6 +11,20 @@ The `paradedb.score(<key_field>)` function can be added to any query where an `@
 SELECT id, paradedb.score(id)
 FROM mock_items
 WHERE description @@@ 'shoes'
+LIMIT 5;
+```
+
+## Joined Scores
+
+The following query demonstrates how to compute a "combined BM25 score" over a joined search. It joins `mock_items` with `orders`,
+which were both created in the [quickstart](/documentation/getting-started/quickstart).
+
+```sql
+SELECT o.order_id, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+FROM orders o
+JOIN mock_items m ON o.product_id = m.id
+WHERE o.customer_name @@@ 'Johnson' AND (m.description @@@ 'shoes' OR m.description @@@ 'running')
+ORDER BY score DESC
 LIMIT 5;
 ```
 

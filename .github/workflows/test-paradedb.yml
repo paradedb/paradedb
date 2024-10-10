@@ -89,6 +89,8 @@ jobs:
       # In this environment, PARADEDB_TELEMETRY is set to false to avoid sending misleading telemetry data to PostHog.
       - name: Build the ParadeDB Docker Image via Docker Compose (dev only)
         if: steps.env.outputs.environment == 'dev'
+        with:
+          build-args: PG_VERSION_MAJOR=${{ matrix.pg_version }}
         working-directory: docker/
         run: docker build --file Dockerfile --tag paradedb/paradedb:latest ..
 

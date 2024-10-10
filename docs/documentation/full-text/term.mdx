@@ -25,6 +25,14 @@ FROM mock_items
 WHERE description @@@ 'keyboard' OR category @@@ 'toy';
 ```
 
+If multiple terms are passed into the same query string, they are `OR`ed together by default.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'keyboard headphones';
+```
+
 ## Not Term
 
 `-` omits results that contain a specific term. The following query finds documents that match

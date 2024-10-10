@@ -77,7 +77,7 @@ fn invalid_create_bm25(mut conn: PgConnection) {
     .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with invalid field"),
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: key_field id cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, range fields, or datetime_fields")
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: key_field id cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields")
     };
 }
 

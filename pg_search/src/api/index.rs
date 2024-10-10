@@ -645,6 +645,36 @@ term_fn_unsupported!(
     "timestamp ranges with time zone"
 );
 
+macro_rules! range_term_fn {
+    ($func_name:ident, $value_type:ty, $is_datetime:expr) => {
+        #[pg_extern(name = "range_term", immutable, parallel_safe)]
+        pub fn $func_name(field: FieldName, term: $value_type) -> SearchQueryInput {
+            SearchQueryInput::RangeTerm {
+                field: field.into_inner(),
+                value: TantivyValue::try_from(term)
+                    .expect("term should be a valid TantivyValue representation")
+                    .tantivy_schema_value(),
+                is_datetime: $is_datetime,
+            }
+        }
+    };
+}
+
+range_term_fn!(range_term_i8, i8, false);
+range_term_fn!(range_term_i16, i16, false);
+range_term_fn!(range_term_i32, i32, false);
+range_term_fn!(range_term_i64, i64, false);
+range_term_fn!(range_term_f32, f32, false);
+range_term_fn!(range_term_f64, f64, false);
+range_term_fn!(range_term_numeric, pgrx::AnyNumeric, false);
+range_term_fn!(range_term_date, pgrx::datum::Date, true);
+range_term_fn!(range_term_timestamp, pgrx::datum::Timestamp, true);
+range_term_fn!(
+    range_term_timestamp_with_time_zone,
+    pgrx::datum::TimestampWithTimeZone,
+    true
+);
+
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(
     terms: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),

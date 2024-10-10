@@ -127,6 +127,11 @@ pub enum SearchQueryInput {
         path: Option<String>,
         is_datetime: bool,
     },
+    RangeTerm {
+        field: String,
+        value: tantivy::schema::OwnedValue,
+        is_datetime: bool,
+    },
     Regex {
         field: String,
         pattern: String,
@@ -327,7 +332,13 @@ impl SearchQueryInput {
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                let term = value_to_term(field, &OwnedValue::Str(value), &field_type, path, false)?;
+                let term = value_to_term(
+                    field,
+                    &OwnedValue::Str(value),
+                    &field_type,
+                    path.as_deref(),
+                    false,
+                )?;
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 if prefix.unwrap_or(false) {
@@ -372,7 +383,7 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(token),
                         &field_type,
-                        path.clone(),
+                        path.as_deref(),
                         false,
                     )?;
                     let term_query: Box<dyn Query> = if prefix {
@@ -485,7 +496,7 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(phrase),
                         &field_type,
-                        path.clone(),
+                        path.as_deref(),
                         false,
                     )
                     .unwrap()
@@ -533,7 +544,7 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(phrase),
                         &field_type,
-                        path.clone(),
+                        path.as_deref(),
                         false,
                     )
                     .unwrap()
@@ -561,14 +572,14 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
-                        path.clone(),
+                        path.as_deref(),
                         is_datetime,
                     )?),
                     Bound::Excluded(value) => Bound::Excluded(value_to_term(
                         field,
                         &value,
                         &field_type,
-                        path.clone(),
+                        path.as_deref(),
                         is_datetime,
                     )?),
                     Bound::Unbounded => Bound::Unbounded,
@@ -579,20 +590,121 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
-                        path.clone(),
+                        path.as_deref(),
                         is_datetime,
                     )?),
                     Bound::Excluded(value) => Bound::Excluded(value_to_term(
                         field,
                         &value,
                         &field_type,
-                        path.clone(),
+                        path.as_deref(),
                         is_datetime,
                     )?),
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
                 Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+            }
+            Self::RangeTerm {
+                field,
+                value,
+                is_datetime,
+            } => {
+                let record_option = IndexRecordOption::WithFreqsAndPositions;
+                let (ft, f) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
+                let lower_unbounded_key = Some("lower_unbounded");
+                let lower_inclusive_key = Some("lower_inclusive");
+                let upper_unbounded_key = Some("upper_unbounded");
+                let upper_inclusive_key = Some("upper_inclusive");
+                let lower_key = Some("lower");
+                let upper_key = Some("upper");
+
+                let term =
+                    value_to_term(f, &OwnedValue::Bool(true), &ft, lower_unbounded_key, false)?;
+                let lower_is_unbounded = TermQuery::new(term, record_option.clone().into());
+
+                let term =
+                    value_to_term(f, &OwnedValue::Bool(true), &ft, lower_inclusive_key, false)?;
+                let lower_is_inclusive = TermQuery::new(term, record_option.clone().into());
+
+                let term =
+                    value_to_term(f, &OwnedValue::Bool(false), &ft, lower_inclusive_key, false)?;
+                let lower_is_exclusive = TermQuery::new(term, record_option.clone().into());
+
+                let term =
+                    value_to_term(f, &OwnedValue::Bool(true), &ft, upper_unbounded_key, false)?;
+                let upper_is_unbounded = TermQuery::new(term, record_option.clone().into());
+
+                let term =
+                    value_to_term(f, &OwnedValue::Bool(true), &ft, upper_inclusive_key, false)?;
+                let upper_is_inclusive = TermQuery::new(term, record_option.clone().into());
+
+                let term =
+                    value_to_term(f, &OwnedValue::Bool(false), &ft, upper_inclusive_key, false)?;
+                let upper_is_exclusive = TermQuery::new(term, record_option.clone().into());
+
+                let term = value_to_term(f, &value, &ft, lower_key, is_datetime)?;
+                let term_gte_lower =
+                    RangeQuery::new(Bound::Unbounded, Bound::Included(term.clone()));
+                let term_gt_lower = RangeQuery::new(Bound::Unbounded, Bound::Excluded(term));
+
+                let term = value_to_term(f, &value, &ft, upper_key, is_datetime)?;
+                let term_lte_upper =
+                    RangeQuery::new(Bound::Included(term.clone()), Bound::Unbounded);
+                let term_lt_upper = RangeQuery::new(Bound::Excluded(term), Bound::Unbounded);
+
+                let satisfies_lower_bound = BooleanQuery::new(vec![
+                    (Occur::Should, Box::new(lower_is_unbounded)),
+                    (
+                        Occur::Should,
+                        Box::new(BooleanQuery::new(vec![
+                            (
+                                Occur::Should,
+                                Box::new(BooleanQuery::new(vec![
+                                    (Occur::Must, Box::new(lower_is_inclusive)),
+                                    (Occur::Must, Box::new(term_gte_lower)),
+                                ])),
+                            ),
+                            (
+                                Occur::Should,
+                                Box::new(BooleanQuery::new(vec![
+                                    (Occur::Must, Box::new(lower_is_exclusive)),
+                                    (Occur::Must, Box::new(term_gt_lower)),
+                                ])),
+                            ),
+                        ])),
+                    ),
+                ]);
+
+                let satisfies_upper_bound = BooleanQuery::new(vec![
+                    (Occur::Should, Box::new(upper_is_unbounded)),
+                    (
+                        Occur::Should,
+                        Box::new(BooleanQuery::new(vec![
+                            (
+                                Occur::Should,
+                                Box::new(BooleanQuery::new(vec![
+                                    (Occur::Must, Box::new(upper_is_inclusive)),
+                                    (Occur::Must, Box::new(term_lte_upper)),
+                                ])),
+                            ),
+                            (
+                                Occur::Should,
+                                Box::new(BooleanQuery::new(vec![
+                                    (Occur::Must, Box::new(upper_is_exclusive)),
+                                    (Occur::Must, Box::new(term_lt_upper)),
+                                ])),
+                            ),
+                        ])),
+                    ),
+                ]);
+
+                Ok(Box::new(BooleanQuery::new(vec![
+                    (Occur::Must, Box::new(satisfies_lower_bound)),
+                    (Occur::Must, Box::new(satisfies_upper_bound)),
+                ])))
             }
             Self::Regex { field, pattern } => Ok(Box::new(
                 RegexQuery::from_pattern(
@@ -614,7 +726,8 @@ impl SearchQueryInput {
                     let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(field, &value, &field_type, path, is_datetime)?;
+                    let term =
+                        value_to_term(field, &value, &field_type, path.as_deref(), is_datetime)?;
 
                     Ok(Box::new(TermQuery::new(term, record_option.into())))
                 } else {
@@ -642,7 +755,7 @@ impl SearchQueryInput {
                         field,
                         &field_value,
                         &field_type,
-                        path,
+                        path.as_deref(),
                         is_datetime,
                     )?);
                 }
@@ -656,11 +769,11 @@ impl SearchQueryInput {
 fn value_to_json_term(
     field: Field,
     value: &OwnedValue,
-    path: Option<String>,
+    path: Option<&str>,
     expand_dots: bool,
     is_datetime: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {
-    let mut term = Term::from_field_json_path(field, &path.unwrap_or_default(), expand_dots);
+    let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         OwnedValue::Str(text) => {
             if is_datetime {
@@ -704,7 +817,7 @@ fn value_to_term(
     field: Field,
     value: &OwnedValue,
     field_type: &FieldType,
-    path: Option<String>,
+    path: Option<&str>,
     is_datetime: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {
     let json_options = match field_type {

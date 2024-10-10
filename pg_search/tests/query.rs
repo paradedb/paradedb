@@ -1074,3 +1074,82 @@ fn conjunction_config_search(mut conn: PgConnection) {
 
     assert!(columns.len() > 2);
 }
+
+#[rstest]
+fn range_term(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'deliveries',
+        table_type => 'Deliveries'
+    );
+
+    CALL paradedb.create_bm25(
+        index_name => 'deliveries',
+        table_name => 'deliveries',
+        key_field => 'delivery_id',
+        range_fields => 
+            paradedb.field('weights') || 
+            paradedb.field('quantities') || 
+            paradedb.field('prices') || 
+            paradedb.field('ship_dates') ||
+            paradedb.field('facility_arrival_times') ||
+            paradedb.field('delivery_times')
+    );
+    "#
+    .execute(&mut conn);
+
+    // int4range
+    let expected: Vec<(i32,)> =
+        "SELECT delivery_id FROM deliveries WHERE weights @> 1 ORDER BY delivery_id"
+            .fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('weights', 1) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    let expected: Vec<(i32,)> =
+        "SELECT delivery_id FROM deliveries WHERE weights @> 13 ORDER BY delivery_id"
+            .fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('weights', 13) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    // int8range
+    let expected: Vec<(i32,)> =
+        "SELECT delivery_id FROM deliveries WHERE quantities @> 17000::int8 ORDER BY delivery_id"
+            .fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('quantities', 17000) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    // numrange
+    let expected: Vec<(i32,)> =
+        "SELECT delivery_id FROM deliveries WHERE prices @> 3.5 ORDER BY delivery_id"
+            .fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('prices', 3.5) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    // daterange
+    let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE ship_dates @> '2023-03-07'::date ORDER BY delivery_id".fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('ship_dates', '2023-03-07'::date) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE ship_dates @> '2023-03-06'::date ORDER BY delivery_id".fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('ship_dates', '2023-03-06'::date) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    // tsrange
+    let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE facility_arrival_times @> '2024-05-01 14:00:00'::timestamp ORDER BY delivery_id".fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('facility_arrival_times', '2024-05-01 14:00:00'::timestamp) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE facility_arrival_times @> '2024-05-01 15:00:00'::timestamp ORDER BY delivery_id".fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('facility_arrival_times', '2024-05-01 15:00:00'::timestamp) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    // tstzrange
+    let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_times @> '2024-05-01 06:31:00-04'::timestamptz ORDER BY delivery_id".fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('delivery_times', '2024-05-01 06:31:00-04'::timestamptz) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+
+    let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_times @> '2024-05-01T11:30:00Z'::timestamptz ORDER BY delivery_id".fetch(&mut conn);
+    let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('delivery_times', '2024-05-01T11:30:00Z'::timestamptz) ORDER BY delivery_id".fetch(&mut conn);
+    assert_eq!(result, expected);
+}

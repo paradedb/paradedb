@@ -17,6 +17,7 @@
 
 mod config;
 mod document;
+pub mod range;
 
 use anyhow::{Context, Result};
 pub use config::*;
@@ -59,6 +60,7 @@ pub enum SearchFieldType {
     Bool,
     Json,
     Date,
+    Range,
 }
 
 impl TryFrom<&PgOid> for SearchFieldType {
@@ -78,6 +80,12 @@ impl TryFrom<&PgOid> for SearchFieldType {
                 }
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => Ok(SearchFieldType::Json),
+                PgBuiltInOids::INT4RANGEOID
+                | PgBuiltInOids::INT8RANGEOID
+                | PgBuiltInOids::NUMRANGEOID
+                | PgBuiltInOids::DATERANGEOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TSTZRANGEOID => Ok(SearchFieldType::Range),
                 PgBuiltInOids::DATEOID
                 | PgBuiltInOids::TIMESTAMPOID
                 | PgBuiltInOids::TIMESTAMPTZOID
@@ -125,6 +133,10 @@ pub enum SearchFieldConfig {
         record: IndexRecordOption,
         #[serde(default)]
         normalizer: SearchNormalizer,
+    },
+    Range {
+        #[serde(default = "default_as_true")]
+        stored: bool,
     },
     Numeric {
         #[serde(default = "default_as_true")]
@@ -270,6 +282,21 @@ impl SearchFieldConfig {
             record,
             normalizer,
         })
+    }
+
+    pub fn range_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Json configuration")?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        Ok(SearchFieldConfig::Range { stored })
     }
 
     pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
@@ -494,6 +521,15 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                     json_options = json_options.set_indexing_options(text_field_indexing);
                 }
             }
+            SearchFieldConfig::Range { stored } => {
+                if stored {
+                    json_options = json_options.set_stored();
+                }
+                // Range must be indexed and fast to be searchable
+                let text_field_indexing = TextFieldIndexing::default();
+                json_options = json_options.set_indexing_options(text_field_indexing);
+                json_options = json_options.set_fast(Some("raw"));
+            }
             _ => {
                 panic!("attempted to convert non-json search field config to tantivy json config")
             }
@@ -592,6 +628,7 @@ impl SearchIndexSchema {
                     SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
                     SearchFieldType::Bool => builder.add_bool_field(name.as_ref(), config.clone()),
                     SearchFieldType::Json => builder.add_json_field(name.as_ref(), config.clone()),
+                    SearchFieldType::Range => builder.add_json_field(name.as_ref(), config.clone()),
                     SearchFieldType::Date => builder.add_date_field(name.as_ref(), config.clone()),
                 },
             }

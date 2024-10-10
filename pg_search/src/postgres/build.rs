@@ -134,6 +134,13 @@ pub extern "C" fn ambuild(
                 _ => panic!("'{name}' cannot be indexed as a JSON field"),
             });
 
+    let range_fields = rdopts.get_range_fields().into_iter().map(|(name, config)| {
+        match name_type_map.get(&name) {
+            Some(field_type @ SearchFieldType::Range) => (name, config, *field_type),
+            _ => panic!("'{name}' cannot be indexed as a range field"),
+        }
+    });
+
     let datetime_fields = rdopts
         .get_datetime_fields()
         .into_iter()
@@ -173,6 +180,7 @@ pub extern "C" fn ambuild(
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
         },
+        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
@@ -190,6 +198,7 @@ pub extern "C" fn ambuild(
         .chain(numeric_fields)
         .chain(boolean_fields)
         .chain(json_fields)
+        .chain(range_fields)
         .chain(datetime_fields)
         .chain(std::iter::once((
             key_field.clone(),

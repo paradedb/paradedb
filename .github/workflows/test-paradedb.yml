@@ -70,7 +70,6 @@ jobs:
         with:
           context: .
           build-args: |
-            PG_VERSION_MAJOR=${{ matrix.pg_version }}
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=testcommitsha

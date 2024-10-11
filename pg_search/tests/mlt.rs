@@ -23,11 +23,149 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-#[ignore = "need to re-implement more like this special case scoring"]
 fn mlt_enables_scoring_issue1747(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (id,) = "SELECT id FROM paradedb.bm25_search WHERE id @@@ paradedb.more_like_this(with_document_id => 3, with_min_term_frequency => 1) ORDER BY id LIMIT 1"
         .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 3);
+}
+
+#[rstest]
+fn mlt_scoring_nested(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Boolean must
+    let results: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search
+    WHERE id @@@ 
+    paradedb.boolean(
+        must => paradedb.more_like_this(
+            with_min_doc_frequency => 2,
+            with_min_term_frequency => 1,
+            with_document_fields => '{"description": "keyboard"}'
+        )
+    )
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(results.id, [1, 2]);
+
+    // Boolean must_not
+    let results: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search
+    WHERE id @@@ 
+    paradedb.boolean(
+        must_not => paradedb.more_like_this(
+            with_min_doc_frequency => 2,
+            with_min_term_frequency => 1,
+            with_document_fields => '{"description": "keyboard"}'
+        )
+    )
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert!(results.is_empty());
+
+    // Boolean should
+    let results: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search
+    WHERE id @@@ 
+    paradedb.boolean(
+        should => paradedb.more_like_this(
+            with_min_doc_frequency => 2,
+            with_min_term_frequency => 1,
+            with_document_fields => '{"description": "keyboard"}'
+        )
+    )
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(results.id, [1, 2]);
+
+    // Boost
+    let results: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search
+    WHERE id @@@ 
+    paradedb.boost(
+        boost => 1.5,
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 2,
+            with_min_term_frequency => 1,
+            with_document_fields => '{"description": "keyboard"}'
+        )
+    )
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(results.id, [1, 2]);
+
+    // ConstScore
+    let results: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search
+    WHERE id @@@ 
+    paradedb.const_score(
+        score => 5,
+        query => paradedb.more_like_this(
+            with_min_doc_frequency => 2,
+            with_min_term_frequency => 1,
+            with_document_fields => '{"description": "keyboard"}'
+        )
+    )
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(results.id, [1, 2]);
+
+    // DisjunctionMax
+    let results: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search
+    WHERE id @@@ 
+    paradedb.disjunction_max(
+        disjuncts => ARRAY[
+            paradedb.more_like_this(
+                with_min_doc_frequency => 2,
+                with_min_term_frequency => 1,
+                with_document_fields => '{"description": "keyboard"}'
+            ), 
+            paradedb.more_like_this(
+                with_min_doc_frequency => 2,
+                with_min_term_frequency => 1,
+                with_document_fields => '{"description": "shoes"}'
+            )            
+        ]
+    )
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(results.id, [1, 2, 3, 4, 5]);
+
+    // Multiple nested
+    let results: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search
+    WHERE id @@@ 
+    paradedb.boolean(
+        must_not => paradedb.parse('description:plastic'),
+        should => paradedb.disjunction_max(
+            disjuncts => ARRAY[
+                paradedb.boost(
+                    boost => 3,
+                    query => paradedb.more_like_this(
+                        with_min_doc_frequency => 2,
+                        with_min_term_frequency => 1,
+                        with_document_fields => '{"description": "keyboard"}'
+                    ) 
+                ),
+                paradedb.more_like_this(
+                    with_min_doc_frequency => 2,
+                    with_min_term_frequency => 1,
+                    with_document_fields => '{"description": "shoes"}'
+                )            
+            ]
+        )
+    )
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(results.id, [1, 3, 4, 5]);
 }

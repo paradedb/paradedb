@@ -50,6 +50,27 @@ fn default_as_false() -> bool {
 }
 
 impl SearchConfig {
+    pub fn contains_more_like_this(query: &SearchQueryInput) -> bool {
+        match query {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .any(Self::contains_more_like_this),
+            SearchQueryInput::Boost { query, .. } => Self::contains_more_like_this(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::contains_more_like_this(query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::contains_more_like_this)
+            }
+            SearchQueryInput::MoreLikeThis { .. } => true,
+            _ => false,
+        }
+    }
+
     pub fn from_jsonb(JsonB(config_json_value): JsonB) -> Result<Self, serde_json::Error> {
         serde_json::from_value(config_json_value)
     }

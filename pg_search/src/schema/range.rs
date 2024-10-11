@@ -10,30 +10,6 @@ pub struct TantivyRange<T> {
     upper_unbounded: bool,
 }
 
-pub fn lower_key() -> String {
-    "lower".to_string()
-}
-
-pub fn upper_key() -> String {
-    "upper".to_string()
-}
-
-pub fn lower_inclusive_key() -> String {
-    "lower_inclusive".to_string()
-}
-
-pub fn upper_inclusive_key() -> String {
-    "upper_inclusive".to_string()
-}
-
-pub fn lower_unbounded_key() -> String {
-    "lower_unbounded".to_string()
-}
-
-pub fn upper_unbounded_key() -> String {
-    "upper_unbounded".to_string()
-}
-
 pub struct TantivyRangeBuilder<T> {
     lower: Option<T>,
     upper: Option<T>,

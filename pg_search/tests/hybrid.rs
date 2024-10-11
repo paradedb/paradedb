@@ -20,77 +20,63 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::PgConnection;
+use sqlx::{types::BigDecimal, PgConnection};
 
 #[rstest]
-#[ignore = "hybrid"]
 fn hybrid_deprecated(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
     r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+
+    CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
+        boolean_fields => paradedb.field('in_stock'),
+        datetime_fields => paradedb.field('created_at'),
+        json_fields => paradedb.field('metadata')
+    );
+
     CREATE EXTENSION vector;
-    ALTER TABLE paradedb.bm25_search ADD COLUMN embedding vector(3);
+    ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
-    UPDATE paradedb.bm25_search m
+    UPDATE mock_items m
     SET embedding = ('[' ||
-    ((m.id + 1) % 10 + 1)::integer || ',' ||
-    ((m.id + 2) % 10 + 1)::integer || ',' ||
-    ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+        ((m.id + 1) % 10 + 1)::integer || ',' ||
+        ((m.id + 2) % 10 + 1)::integer || ',' ||
+        ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+    "#
+    .execute(&mut conn);
 
-    CREATE INDEX on paradedb.bm25_search
-    USING hnsw (embedding vector_l2_ops)"#
-        .execute(&mut conn);
+    let rows: Vec<(i32, BigDecimal)> = r#"
+    WITH semantic_search AS (
+        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+        FROM mock_items ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+    ),
+    bm25_search AS (
+        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) as rank
+        FROM mock_items WHERE description @@@ 'keyboard' LIMIT 20
+    )
+    SELECT
+        COALESCE(semantic_search.id, bm25_search.id) AS id,
+        (COALESCE(1.0 / (60 + semantic_search.rank), 0.0) * 0.1) +
+        (COALESCE(1.0 / (60 + bm25_search.rank), 0.0) * 0.9) AS score
+    FROM semantic_search
+    FULL OUTER JOIN bm25_search ON semantic_search.id = bm25_search.id
+    JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_search.id)
+    ORDER BY score DESC
+    LIMIT 5
+    "#
+    .fetch(&mut conn);
 
-    // Test with string query.
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.score_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.score_hybrid(
-            bm25_query => 'description:keyboard OR category:electronics',
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
-
-    // New score_hybrid function
-    // Test with query object.
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.score_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.score_hybrid(
-            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
-
-    // Test with string query.
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.score_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.score_hybrid(
-            bm25_query => 'description:keyboard OR category:electronics',
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
+    assert_eq!(
+        rows.into_iter().map(|t| t.0).collect::<Vec<_>>(),
+        vec![2, 1, 19, 9, 29]
+    );
 }
 
 #[rstest]

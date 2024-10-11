@@ -51,7 +51,7 @@ fn test_icu_arabic_tokenizer(mut conn: PgConnection) {
     let columns: IcuArabicPostsTableVec =
         r#"SELECT * FROM icu_arabic_posts WHERE icu_arabic_posts @@@ 'message:"في"' ORDER BY id"#
             .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![2, 1, 3]);
+    assert_eq!(columns.id, vec![1, 2, 3]);
 }
 
 #[rstest]
@@ -81,7 +81,7 @@ fn test_icu_amharic_tokenizer(mut conn: PgConnection) {
     let columns: IcuAmharicPostsTableVec =
         r#"SELECT * FROM icu_amharic_posts WHERE icu_amharic_posts @@@ 'message:"ዝናብ"' ORDER BY id"#
             .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![2, 1]);
+    assert_eq!(columns.id, vec![1, 2]);
 }
 
 #[rstest]

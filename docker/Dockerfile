@@ -1,3 +1,4 @@
+# This version argument will be updated in the Docker image publish workflow
 ARG PG_VERSION_MAJOR=16
 
 ###############################################

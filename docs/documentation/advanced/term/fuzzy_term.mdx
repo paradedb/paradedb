@@ -2,8 +2,6 @@
 title: Fuzzy Term
 ---
 
-<Note>Highlighting is not currently supported for `fuzzy_term`.</Note>
-
 ## Basic Usage
 
 `fuzzy_term` finds results that approximately match the query [term](/documentation/concepts/term),
@@ -15,9 +13,10 @@ allowing for minor typos in the input.
 </Note>
 
 ```sql
-SELECT * FROM search_idx.search(
-	query => paradedb.fuzzy_term(field => 'description', value => 'wolo')
-);
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.fuzzy_term('description', 'shoez')
+LIMIT 5;
 ```
 
 <ParamField body="field" required>

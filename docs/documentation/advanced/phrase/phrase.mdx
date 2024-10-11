@@ -4,16 +4,13 @@ title: Phrase
 
 ## Basic Usage
 
-Searches for documents containing a [phrase](/documentation/concepts/phrase), with `slop` allowing for some flexibility in term proximity.
+Searches for documents containing a [phrase](/documentation/concepts/phrase).
 The field must be indexed with a [record](/documentation/indexing/record) of `position`.
 
 ```sql
-SELECT * FROM search_idx.search(
-	query => paradedb.phrase(
-		field => 'description',
-		phrases => ARRAY['robot', 'building', 'kit']
-	)
-);
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.phrase('description', ARRAY['running', 'shoes']);
 ```
 
 <ParamField body="field" required>
@@ -26,7 +23,14 @@ SELECT * FROM search_idx.search(
 </ParamField>
 <ParamField body="slop" default={0}>
   A slop of `0` requires the terms to appear exactly as they are in the phrase
-  and adjacent to each other. Higher slop values allow for more distance and
-  flexibility between the terms, accommodating variations in the phrase's
-  structure within the document.
+  and adjacent to each other. Higher slop values allow for more distance between
+  the terms.
 </ParamField>
+
+Setting slop equal to `n` allows `n` terms to come in between the terms in the phrase.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.phrase('description', ARRAY['sleek', 'shoes'], slop => 1);
+```

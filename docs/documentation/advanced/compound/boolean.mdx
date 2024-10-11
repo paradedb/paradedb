@@ -13,15 +13,19 @@ Boolean queries filter documents based on the logical relationships defined by t
 Boolean queries are a powerful way to combine the results of several different queries.
 
 ```sql
-SELECT * FROM search_idx.search(
-    query => paradedb.boolean(
-	    should => ARRAY[
-		    paradedb.parse('description:shoes'),
-		    paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
-		    paradedb.term(field => 'description', value => 'speaker'),
-		    paradedb.fuzzy_term(field => 'description', value => 'wolo')
-	    ]
-    )
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[
+      paradedb.term('description', 'headphones')
+    ],
+    must => ARRAY[
+      paradedb.term('category', 'electronics'),
+      paradedb.fuzzy_term('description', 'bluetooht')
+    ],
+    must_not => ARRAY[
+      paradedb.range('rating', int4range(NULL, 2, '()'))
+    ]
 );
 ```
 
@@ -39,14 +43,4 @@ SELECT * FROM search_idx.search(
 </ParamField>
 
 In order for a boolean query to return a result, one of `must` or `should` must be provided.
-`must_not` acts as a mask and does not produce a result set. For instance, in order to find
-all rows from `mock_items` where `description` does not contain `shoes`, `paradedb.all()` should be used:
-
-```sql
-SELECT * FROM search_idx.search(
-  query => paradedb.boolean(
-    should => paradedb.all(),
-    must_not => paradedb.parse('description:shoes')
-  )
-);
-```
+`must_not` acts as a mask and does not produce a result set.

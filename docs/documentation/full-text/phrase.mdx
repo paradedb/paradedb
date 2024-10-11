@@ -13,7 +13,9 @@ Searches for a specific [phrase](/documentation/concepts/phrase). Phrases must b
 double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
 
 ```sql
-SELECT * FROM search_idx.search('description:"plastic keyboard"');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '"plastic keyboard"';
 ```
 
 ## Slop Operator
@@ -22,7 +24,9 @@ The `~` slop operator allows for other words to come in between words in the que
 the word `ergonomic` followed by `keyboard`, allowing for a maximum of one word in between.
 
 ```sql
-SELECT * FROM search_idx.search('description:"ergonomic keyboard"~1');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '"ergonomic keyboard"~1';
 ```
 
 ## Phrase Prefix
@@ -31,5 +35,7 @@ The `*` prefix operator allows for the last term in the phrase query to be the p
 `"plastic keyb"*` matches `plastic keyboard`.
 
 ```sql
-SELECT * FROM search_idx.search('description:"plastic keyb"*');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '"plastic keyb"*';
 ```

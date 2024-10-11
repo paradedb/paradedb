@@ -7,8 +7,13 @@ title: Const Score
 Applies a constant score across all documents matched by the underlying query. It can avoid unnecessary score computation on the wrapped query.
 
 ```sql
-SELECT * FROM search_idx.search(
-    query => paradedb.const_score(query => paradedb.all(), score => 3.9)
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE id @@@ paradedb.boolean(
+  should => ARRAY[
+    paradedb.const_score(1.0, paradedb.term('description', 'shoes')),
+    paradedb.term('description', 'running')
+  ]
 );
 ```
 

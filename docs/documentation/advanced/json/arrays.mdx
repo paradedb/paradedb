@@ -1,0 +1,24 @@
+---
+title: JSON Arrays
+---
+
+## Basic Usage
+
+When dealing with JSON arrays, the array elements are “flattened” so that each element can be searched individually. This means that if a JSON array is encountered, each element in the array is treated as a separate value and indexed accordingly. For example, given the following JSON structure:
+
+```json
+{
+  "metadata": {
+    "colors": ["red", "green", "blue"]
+  }
+}
+```
+
+The JSON array in the colors field is flattened to emit separate terms for each color. This allows for individual search queries like:
+
+```sql
+SELECT description, metadata
+FROM mock_items
+WHERE id @@@ paradedb.term('metadata.colors:blue')
+OR id @@@ paradedb.term('metadata.colors:red');
+```

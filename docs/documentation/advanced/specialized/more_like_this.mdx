@@ -8,31 +8,32 @@ Finds documents similar to a given document or set of field values. This is usef
 
 You must pass either:
 
-- `with_document_id`, which takes a "key field" value to match against the corresponding document.
+- `with_document_id`, which takes a [`key_field`](/documentation/indexing/create_index#choosing-a-key-field) value to match against the corresponding document.
 - `with_document_fields`, which takes a JSON object string to match against.
 
 All other parameters are compatible with both `with_document_id` and `with_document_fields`.
 
 ```sql
 -- with_document_id
-SELECT * FROM search_idx.search(
-    query => paradedb.more_like_this(
-        with_document_id => 2,
-        with_min_word_length => 2,
-        with_max_word_length => 5,
-        with_boost_factor => 1.0,
-        with_stop_words => ARRAY['and', 'the', 'for']
-    )
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@  paradedb.more_like_this(
+  with_document_id => 2,
+  with_min_term_frequency => 1,
+  with_min_word_length => 2,
+  with_max_word_length => 5,
+  with_boost_factor => 1.0,
+  with_stop_words => ARRAY['and', 'the', 'for']
 );
 
 -- with_document_fields
-SELECT * FROM search_idx.search(
-    query => paradedb.more_like_this(
-        with_document_fields => '{"flavour": "banana"}',
-        with_min_doc_frequency => 0,
-        with_max_doc_frequency => 100,
-        with_min_term_frequency => 1,
-    )
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@  paradedb.more_like_this(
+  with_document_fields => '{"description": "shoes"}',
+  with_min_doc_frequency => 0,
+  with_max_doc_frequency => 100,
+  with_min_term_frequency => 1
 );
 ```
 

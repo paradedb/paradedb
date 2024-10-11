@@ -1,0 +1,82 @@
+---
+title: Tantivy Query String
+---
+
+## Basic Usage
+
+[Tantivy](/documentation/concepts/tantivy) comes with its own [string-based query language](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html).
+
+`paradedb.parse` accepts Tantivy query strings, which is useful for concisely expressing complex queries or directly executing queries provided
+by the end user. For instance, the following two queries are equivalent:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear');
+
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.boolean(should => ARRAY[
+    paradedb.phrase('description', ARRAY['running', 'shoes']),
+    paradedb.term('category', 'footwear')
+]);
+```
+
+## Lenient Query Parsing
+
+By default, `paradedb.parse` uses strict syntax parsing. This means that if any part of the query does not conform to Tantivy's query string syntax, the query fails.
+For instance, a valid field name must be provided before every query (i.e. `category:footwear`).
+
+By setting `lenient` to `true`, the query is executed on a best-effort basis. For example, if no field names are provided, the query is executed over all fields in the index:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse('speaker electronics', lenient => true);
+```
+
+## Conjunction Mode
+
+By default, queries in the query string are `OR`ed together. For instance, the following two queries are equivalent:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse('description:speaker category:electronics');
+
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse('description:speaker OR category:electronics');
+```
+
+With `conjunction_mode` set to `true`, queries are `AND`ed together. This means that the following two queries are equivalent:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse(
+  'description:speaker category:electronics',
+  conjunction_mode => true
+);
+
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse(
+  'description:speaker AND category:electronics'
+);
+```
+
+## Parse with Field
+
+`paradedb.parse_with_field` takes a field name and a query string without field names. It's useful for executing user-provided query
+strings over specific fields. Like `paradedb.parse`, `lenient` and `conjunction_mode` can be passed to this function.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse_with_field(
+  'description',
+  'speaker bluetooth',
+  conjunction_mode => true
+);
+```

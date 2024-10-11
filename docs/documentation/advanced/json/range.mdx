@@ -1,0 +1,48 @@
+---
+title: Range
+---
+
+## Basic Usage
+
+<Note>
+  Range queries are supported over JSON fields indexed as
+  [fast](/documentation/indexing/fast_fields).
+</Note>
+
+The following code block executes a range query over a JSON field:
+
+```sql
+SELECT description, metadata
+FROM mock_items
+WHERE mock_items @@@ paradedb.range(
+    'metadata.attributes.quantity',
+    int4range(2, 5, '()')
+);
+```
+
+The [range query](/documentation/advanced/term/range) documentation provides details on the range function.
+
+## Datetime Values
+
+Datetime values stored inside JSON must be RFC 3339 formatted in order to work with range queries. The following values
+are RFC 3339 compliant:
+
+```sql
+-- UTC
+2024-10-06T14:30:00Z
+-- Timezone offset
+2024-10-06T14:30:00+02:00
+-- Fractional seconds
+2024-10-06T14:30:00.456Z
+```
+
+The following values are not RFC 3339 compliant:
+
+```sql
+-- No timezone
+2024-10-06T14:30:00
+-- Date only
+2024-10-06
+-- Time only
+14:30:00
+```

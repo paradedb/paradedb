@@ -23,6 +23,7 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
+#[ignore = "hybrid"]
 fn hybrid_deprecated(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     r#"

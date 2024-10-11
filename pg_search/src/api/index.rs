@@ -34,7 +34,7 @@ use tantivy::schema::{FieldType, OwnedValue, Value};
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]
-pub fn schema_bm25(
+pub fn schema(
     index_name: &str,
 ) -> TableIterator<(
     name!(name, String),
@@ -48,10 +48,8 @@ pub fn schema_bm25(
     name!(record, Option<String>),
     name!(normalizer, Option<String>),
 )> {
-    let bm25_index_name = format!("{}_bm25_index", index_name);
-
     let database_oid = crate::MyDatabaseId();
-    let index_oid = index_oid_from_index_name(&bm25_index_name);
+    let index_oid = index_oid_from_index_name(&index_name);
     let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
     let directory =

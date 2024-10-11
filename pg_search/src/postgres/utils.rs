@@ -18,6 +18,7 @@
 use crate::index::IndexError;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchDocument, SearchFieldName, SearchIndexSchema};
+use ffi::CString;
 use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
 use pgrx::pg_sys::Buffer;
 use pgrx::*;
@@ -299,27 +300,14 @@ pub fn relfilenode_from_pg_relation(index_relation: &PgRelation) -> pg_sys::Oid 
 
 /// Retrieves the OID for an index from Postgres.
 pub fn index_oid_from_index_name(index_name: &str) -> pg_sys::Oid {
-    // TODO: Switch to the implementation below when we eventually drop the generated index schemas.
-    // This implementation will require the schema name to fully qualify the index name.
-    // unsafe {
-    //     // SAFETY:: Safe as long as the underlying function in `direct_function_call` is safe.
-    //     let cstr_name = CString::new(index_name).expect("relation name is a valid CString");
-    //     let indexrelid =
-    //         direct_function_call::<pg_sys::Oid>(pg_sys::regclassin, &[cstr_name.into_datum()])
-    //             .expect("index name should be a valid relation");
-    //     let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-    //     assert!(indexrel.is_index());
-    //     indexrel.oid()
-    // }
-
-    let oid_query = format!(
-        "SELECT oid FROM pg_class WHERE relname = '{}' AND relkind = 'i'",
-        index_name
-    );
-
-    match Spi::get_one::<pg_sys::Oid>(&oid_query) {
-        Ok(Some(index_oid)) => index_oid,
-        Ok(None) => panic!("no oid for index '{index_name}' in schema_bm25"),
-        Err(err) => panic!("error looking up index '{index_name}': {err}"),
+    unsafe {
+        // SAFETY:: Safe as long as the underlying function in `direct_function_call` is safe.
+        let cstr_name = CString::new(index_name).expect("relation name is a valid CString");
+        let indexrelid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regclassin, &[cstr_name.into_datum()])
+                .expect("index name should be a valid relation");
+        let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+        assert!(indexrel.is_index());
+        indexrel.oid()
     }
 }

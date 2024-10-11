@@ -21,10 +21,12 @@ use anyhow::Result;
 use approx::assert_relative_eq;
 use core::panic;
 use fixtures::*;
+use pgvector::Vector;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use shared::fixtures::utils::pg_search_index_directory_path;
-use sqlx::PgConnection;
+use sqlx::{types::BigDecimal, PgConnection};
+use std::str::FromStr;
 use tantivy::Index;
 
 #[rstest]
@@ -428,6 +430,7 @@ fn snippet(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "hybrid"]
 fn hybrid_with_complex_key_field_name(mut conn: PgConnection) {
     // Create a test table.
     "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
@@ -472,71 +475,71 @@ fn hybrid_with_complex_key_field_name(mut conn: PgConnection) {
 
 #[rstest]
 fn hybrid_with_single_result(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+
+    CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
+        boolean_fields => paradedb.field('in_stock'),
+        datetime_fields => paradedb.field('created_at'),
+        json_fields => paradedb.field('metadata')
+    );
+
+    CREATE EXTENSION vector;
+    ALTER TABLE mock_items ADD COLUMN embedding vector(3);
+
+    UPDATE mock_items m
+    SET embedding = ('[' ||
+        ((m.id + 1) % 10 + 1)::integer || ',' ||
+        ((m.id + 2) % 10 + 1)::integer || ',' ||
+        ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+    "#
+    .execute(&mut conn);
 
     // Here, we'll delete all rows in the table but the first.
     // This previously triggered a "division by zero" error when there was
     // only one result in the similarity query. This test ensures that we
     // check for that condition.
-    "DELETE FROM paradedb.bm25_search WHERE id != 1".execute(&mut conn);
+    "DELETE FROM mock_items WHERE id != 1".execute(&mut conn);
 
-    r#"
-    CREATE EXTENSION vector;
-    ALTER TABLE paradedb.bm25_search ADD COLUMN embedding vector(3);
-
-    UPDATE paradedb.bm25_search m
-    SET embedding = ('[' ||
-    ((m.id + 1) % 10 + 1)::integer || ',' ||
-    ((m.id + 2) % 10 + 1)::integer || ',' ||
-    ((m.id + 3) % 10 + 1)::integer || ']')::vector;
-
-    CREATE INDEX on paradedb.bm25_search
-    USING hnsw (embedding vector_l2_ops)"#
-        .execute(&mut conn);
-
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.score_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.score_hybrid(
-            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.id = s.id
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![1]);
-}
-
-#[rstest]
-fn explain(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    let plan: Vec<(String,)> =
-        "SELECT * FROM bm25_search.explain('description:keyboard OR category:electronics')"
-            .fetch(&mut conn);
-
-    assert!(plan[0].0.contains("Index Scan"));
-
-    "CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');"
-        .execute(&mut conn);
-    "CALL paradedb.create_bm25(
-            index_name => 'search_idx',
-            schema_name => 'public',
-            table_name => 'mock_items',
-            key_field => 'id',
-            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category')
-    )"
-    .execute(&mut conn);
-
-    let plan: Vec<(String,)> =
-        "SELECT * FROM search_idx.explain('description:keyboard OR category:electronics')"
-            .fetch(&mut conn);
-
-    assert!(plan[0].0.contains("Index Scan"));
+    let rows: Vec<(i32, BigDecimal, String, Vector)> = r#"
+    WITH semantic_search AS (
+        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+        FROM mock_items ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+    ),
+    bm25_search AS (
+        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) as rank
+        FROM mock_items WHERE description @@@ 'keyboard' LIMIT 20
+    )
+    SELECT
+        COALESCE(semantic_search.id, bm25_search.id) AS id,
+        COALESCE(1.0 / (60 + semantic_search.rank), 0.0) +
+        COALESCE(1.0 / (60 + bm25_search.rank), 0.0) AS score,
+        mock_items.description,
+        mock_items.embedding
+    FROM semantic_search
+    FULL OUTER JOIN bm25_search ON semantic_search.id = bm25_search.id
+    JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_search.id)
+    ORDER BY score DESC, description
+    LIMIT 5
+    "#
+    .fetch(&mut conn);
+    assert_eq!(
+        rows,
+        vec![(
+            1,
+            BigDecimal::from_str("0.03278688524590163934").unwrap(),
+            String::from("Ergonomic metal keyboard"),
+            Vector::from(vec![3.0, 4.0, 5.0])
+        ),]
+    );
 }
 
 #[rstest]
@@ -820,38 +823,15 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn bm25_partial_index_explain(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_explain', schema_name => 'paradedb');".execute(&mut conn);
-
-    let ret = "CALL paradedb.create_bm25(
-        index_name => 'partial_explain',
-        schema_name => 'paradedb',
-        table_name => 'test_partial_explain',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        predicates => 'category = ''Electronics'''
-    );"
-    .execute_result(&mut conn);
-    assert!(ret.is_ok());
-
-    let plan: Vec<(String,)> =
-        "SELECT * FROM partial_explain.explain('rating:>3')".fetch(&mut conn);
-    assert!(plan[0].0.contains("Index Scan"));
-
-    // Ensure the query plan still includes an Index Scan when the query contains the column referenced by the predicates.
-    let plan: Vec<(String,)> =
-        "SELECT * FROM partial_explain.explain('rating:>3 AND category:Footwear')".fetch(&mut conn);
-    assert!(plan[0].0.contains("Index Scan"));
-}
-
-#[rstest]
+#[ignore = "hybrid"]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_hybrid', schema_name => 'paradedb');".execute(&mut conn);
+    "CALL paradedb.create_bm25_test_table(
+        table_name => 'test_partial_hybrid',
+        schema_name => 'paradedb'
+    );"
+    .execute(&mut conn);
 
     let ret = "CALL paradedb.create_bm25(
         index_name => 'partial_idx',
@@ -1013,17 +993,11 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     let rows: Vec<(String,)> =
         "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
-    let rows: Vec<(String,)> =
-        "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
 
     // Drop a column that is not referenced in the partial index.
     "ALTER TABLE paradedb.test_partial_index DROP COLUMN metadata;".execute(&mut conn);
     let rows: Vec<(String,)> =
         "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
-    let rows: Vec<(String,)> =
-        "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
     // When the predicate column is dropped with CASCADE, the index and the corresponding
@@ -1083,7 +1057,7 @@ fn index_size(mut conn: PgConnection) {
     );
 
     // Calculate the index size using the new method
-    let size: i64 = "SELECT bm25_search.index_size()"
+    let size: i64 = "SELECT paradedb.index_size('paradedb.bm25_search_bm25_index')"
         .fetch_one::<(i64,)>(&mut conn)
         .0;
 

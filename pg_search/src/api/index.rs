@@ -725,13 +725,13 @@ macro_rules! range_term_range_fn {
             range: $value_type,
             relation: RangeRelation,
         ) -> SearchQueryInput {
-            let (lower, upper) = range
-                .into_inner()
-                .expect("range should have lower and upper bounds");
-            match relation {
-                RangeRelation::Contains => SearchQueryInput::RangeContains {
-                    field: field.into_inner(),
-                    lower_bound: match lower {
+            match (range.into_inner(), relation) {
+                (None, RangeRelation::Contains) | (None, RangeRelation::Intersects) => {
+                    SearchQueryInput::Empty
+                }
+                (None, RangeRelation::Within) => SearchQueryInput::All,
+                (Some((lower, upper)), relation) => {
+                    let lower_bound = match lower {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
                             TantivyValue::try_from(n)
@@ -743,8 +743,9 @@ macro_rules! range_term_range_fn {
                                 .expect("value should be a valid TantivyValue representation")
                                 .tantivy_schema_value(),
                         ),
-                    },
-                    upper_bound: match upper {
+                    };
+
+                    let upper_bound = match upper {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
                             TantivyValue::try_from(n)
@@ -756,11 +757,29 @@ macro_rules! range_term_range_fn {
                                 .expect("value should be a valid TantivyValue representation")
                                 .tantivy_schema_value(),
                         ),
-                    },
-                    is_datetime: $is_datetime,
-                },
-                RangeRelation::Intersects => todo!("intersects"),
-                RangeRelation::Within => todo!("within"),
+                    };
+
+                    match relation {
+                        RangeRelation::Intersects => SearchQueryInput::RangeIntersects {
+                            field: field.into_inner(),
+                            lower_bound,
+                            upper_bound,
+                            is_datetime: $is_datetime,
+                        },
+                        RangeRelation::Contains => SearchQueryInput::RangeContains {
+                            field: field.into_inner(),
+                            lower_bound,
+                            upper_bound,
+                            is_datetime: $is_datetime,
+                        },
+                        RangeRelation::Within => SearchQueryInput::RangeWithin {
+                            field: field.into_inner(),
+                            lower_bound,
+                            upper_bound,
+                            is_datetime: $is_datetime,
+                        },
+                    }
+                }
             }
         }
     };
@@ -768,26 +787,26 @@ macro_rules! range_term_range_fn {
 
 range_term_range_fn!(range_term_range_int4range, pgrx::Range<i32>, false);
 range_term_range_fn!(range_term_range_int8range, pgrx::Range<i64>, false);
-// range_term_range_fn!(
-//     range_term_range_numrange,
-//     pgrx::Range<pgrx::AnyNumeric>,
-//     false
-// );
-// range_term_range_fn!(
-//     range_term_range_daterange,
-//     pgrx::Range<pgrx::datum::Date>,
-//     true
-// );
-// range_term_range_fn!(
-//     range_term_range_tsrange,
-//     pgrx::Range<pgrx::datum::Timestamp>,
-//     true
-// );
-// range_term_range_fn!(
-//     range_term_range_tstzrange,
-//     pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
-//     true
-// );
+range_term_range_fn!(
+    range_term_range_numrange,
+    pgrx::Range<pgrx::AnyNumeric>,
+    false
+);
+range_term_range_fn!(
+    range_term_range_daterange,
+    pgrx::Range<pgrx::datum::Date>,
+    true
+);
+range_term_range_fn!(
+    range_term_range_tsrange,
+    pgrx::Range<pgrx::datum::Timestamp>,
+    true
+);
+range_term_range_fn!(
+    range_term_range_tstzrange,
+    pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
+    true
+);
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(

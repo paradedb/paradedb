@@ -24,7 +24,7 @@ SELECT o.order_id, paradedb.score(o.order_id) + paradedb.score(m.id) as score
 FROM orders o
 JOIN mock_items m ON o.product_id = m.id
 WHERE o.customer_name @@@ 'Johnson' AND (m.description @@@ 'shoes' OR m.description @@@ 'running')
-ORDER BY score DESC
+ORDER BY score DESC, o.order_id
 LIMIT 5;
 ```
 

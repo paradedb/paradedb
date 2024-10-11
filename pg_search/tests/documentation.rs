@@ -433,8 +433,8 @@ fn full_text_search(mut conn: PgConnection) {
     FROM orders o
     JOIN mock_items m ON o.product_id = m.id
     WHERE o.customer_name @@@ 'Johnson' AND (m.description @@@ 'shoes' OR m.description @@@ 'running')
-    ORDER BY score DESC, id
-    LIMIT 5;
+    ORDER BY score DESC, o.order_id
+    LIMIT 5
     "#
     .fetch(&mut conn);
     assert_eq!(rows, vec![(3, 8.738735), (6, 5.406531), (36, 5.406531)]);

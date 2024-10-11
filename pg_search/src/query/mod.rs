@@ -15,7 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::schema::{IndexRecordOption, SearchConfig};
+use crate::schema::{
+    range::{
+        lower_inclusive_key, lower_key, lower_unbounded_key, upper_inclusive_key, upper_key,
+        upper_unbounded_key,
+    },
+    IndexRecordOption, SearchConfig,
+};
 use anyhow::Result;
 use core::panic;
 use pgrx::PostgresType;
@@ -249,6 +255,15 @@ impl SearchQueryInput {
         searcher: &Searcher,
         config: &SearchConfig,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
+        let lower_unbounded_key = Some(lower_unbounded_key());
+        let lower_inclusive_key = Some(lower_inclusive_key());
+        let upper_unbounded_key = Some(upper_unbounded_key());
+        let upper_inclusive_key = Some(upper_inclusive_key());
+        let lower_key = Some(lower_key());
+        let upper_key = Some(upper_key());
+        let owned_true = OwnedValue::Bool(true);
+        let owned_false = OwnedValue::Bool(false);
+
         match self {
             Self::All => Ok(Box::new(AllQuery)),
             Self::Boolean {
@@ -627,6 +642,148 @@ impl SearchQueryInput {
 
                 Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
             }
+            Self::RangeContains {
+                field,
+                lower_bound,
+                upper_bound,
+                is_datetime,
+            } => {
+                let record_option = IndexRecordOption::WithFreqsAndPositions;
+                let field_name = field;
+                let (ft, f) = field_lookup
+                    .as_field_type(&field_name)
+                    .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+
+                let term =
+                    value_to_term(f, &owned_true, &ft, upper_inclusive_key.as_deref(), false)?;
+                let upper_is_inclusive = TermQuery::new(term, record_option.clone().into());
+                let term =
+                    value_to_term(f, &owned_false, &ft, upper_inclusive_key.as_deref(), false)?;
+                let upper_is_exclusive = TermQuery::new(term, record_option.clone().into());
+                let term =
+                    value_to_term(f, &owned_true, &ft, lower_inclusive_key.as_deref(), false)?;
+                let lower_is_inclusive = TermQuery::new(term, record_option.clone().into());
+                let term =
+                    value_to_term(f, &owned_false, &ft, lower_inclusive_key.as_deref(), false)?;
+                let lower_is_exclusive = TermQuery::new(term, record_option.clone().into());
+
+                let mut lower_bound_conditions = vec![];
+                let mut upper_bound_conditions = vec![];
+
+                match lower_bound {
+                    Bound::Included(lower) => {
+                        let term =
+                            value_to_term(f, &lower, &ft, lower_key.as_deref(), is_datetime)?;
+                        lower_bound_conditions.push((
+                            Occur::Must,
+                            Box::new(BooleanQuery::new(vec![(
+                                Occur::Must,
+                                Box::new(RangeQuery::new(Bound::Included(term), Bound::Unbounded)),
+                            )])),
+                        ));
+                    }
+                    Bound::Excluded(lower) => {
+                        let term =
+                            value_to_term(f, &lower, &ft, lower_key.as_deref(), is_datetime)?;
+                        lower_bound_conditions.push((
+                            Occur::Must,
+                            (Box::new(BooleanQuery::new(vec![
+                                (
+                                    Occur::Should,
+                                    Box::new(BooleanQuery::new(vec![
+                                        (
+                                            Occur::Must,
+                                            Box::new(RangeQuery::new(
+                                                Bound::Excluded(term.clone()),
+                                                Bound::Unbounded,
+                                            )),
+                                        ),
+                                        (Occur::Must, Box::new(lower_is_inclusive)),
+                                    ])),
+                                ),
+                                (
+                                    Occur::Should,
+                                    Box::new(BooleanQuery::new(vec![
+                                        (
+                                            Occur::Must,
+                                            Box::new(RangeQuery::new(
+                                                Bound::Included(term),
+                                                Bound::Unbounded,
+                                            )),
+                                        ),
+                                        (Occur::Must, Box::new(lower_is_exclusive)),
+                                    ])),
+                                ),
+                            ]))),
+                        ))
+                    }
+                    _ => {}
+                }
+
+                match upper_bound {
+                    Bound::Included(upper) => {
+                        let term =
+                            value_to_term(f, &upper, &ft, upper_key.as_deref(), is_datetime)?;
+                        upper_bound_conditions.push((
+                            Occur::Must,
+                            Box::new(BooleanQuery::new(vec![(
+                                Occur::Must,
+                                Box::new(RangeQuery::new(Bound::Unbounded, Bound::Included(term))),
+                            )])),
+                        ));
+                    }
+                    Bound::Excluded(upper) => {
+                        let term =
+                            value_to_term(f, &upper, &ft, upper_key.as_deref(), is_datetime)?;
+                        upper_bound_conditions.push((
+                            Occur::Must,
+                            (Box::new(BooleanQuery::new(vec![
+                                (
+                                    Occur::Should,
+                                    Box::new(BooleanQuery::new(vec![
+                                        (
+                                            Occur::Must,
+                                            Box::new(RangeQuery::new(
+                                                Bound::Unbounded,
+                                                Bound::Excluded(term.clone()),
+                                            )),
+                                        ),
+                                        (Occur::Must, Box::new(upper_is_inclusive)),
+                                    ])),
+                                ),
+                                (
+                                    Occur::Should,
+                                    Box::new(BooleanQuery::new(vec![
+                                        (
+                                            Occur::Must,
+                                            Box::new(RangeQuery::new(
+                                                Bound::Unbounded,
+                                                Bound::Included(term),
+                                            )),
+                                        ),
+                                        (Occur::Must, Box::new(upper_is_exclusive)),
+                                    ])),
+                                ),
+                            ]))),
+                        ))
+                    }
+                    _ => {}
+                }
+
+                if lower_bound_conditions.is_empty() && upper_bound_conditions.is_empty() {
+                    Ok(Box::new(AllQuery))
+                } else {
+                    Ok(Box::new(BooleanQuery::new(
+                        lower_bound_conditions
+                            .into_iter()
+                            .chain(upper_bound_conditions)
+                            .map(|(occur, query)| {
+                                (occur, Box::new(*query) as Box<dyn tantivy::query::Query>)
+                            })
+                            .collect(),
+                    )))
+                }
+            }
             Self::RangeTerm {
                 field,
                 value,
@@ -636,43 +793,37 @@ impl SearchQueryInput {
                 let (ft, f) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
-                let lower_unbounded_key = Some("lower_unbounded");
-                let lower_inclusive_key = Some("lower_inclusive");
-                let upper_unbounded_key = Some("upper_unbounded");
-                let upper_inclusive_key = Some("upper_inclusive");
-                let lower_key = Some("lower");
-                let upper_key = Some("upper");
 
                 let term =
-                    value_to_term(f, &OwnedValue::Bool(true), &ft, lower_unbounded_key, false)?;
+                    value_to_term(f, &owned_true, &ft, lower_unbounded_key.as_deref(), false)?;
                 let lower_is_unbounded = TermQuery::new(term, record_option.clone().into());
 
                 let term =
-                    value_to_term(f, &OwnedValue::Bool(true), &ft, lower_inclusive_key, false)?;
+                    value_to_term(f, &owned_true, &ft, lower_inclusive_key.as_deref(), false)?;
                 let lower_is_inclusive = TermQuery::new(term, record_option.clone().into());
 
                 let term =
-                    value_to_term(f, &OwnedValue::Bool(false), &ft, lower_inclusive_key, false)?;
+                    value_to_term(f, &owned_false, &ft, lower_inclusive_key.as_deref(), false)?;
                 let lower_is_exclusive = TermQuery::new(term, record_option.clone().into());
 
                 let term =
-                    value_to_term(f, &OwnedValue::Bool(true), &ft, upper_unbounded_key, false)?;
+                    value_to_term(f, &owned_true, &ft, upper_unbounded_key.as_deref(), false)?;
                 let upper_is_unbounded = TermQuery::new(term, record_option.clone().into());
 
                 let term =
-                    value_to_term(f, &OwnedValue::Bool(true), &ft, upper_inclusive_key, false)?;
+                    value_to_term(f, &owned_true, &ft, upper_inclusive_key.as_deref(), false)?;
                 let upper_is_inclusive = TermQuery::new(term, record_option.clone().into());
 
                 let term =
-                    value_to_term(f, &OwnedValue::Bool(false), &ft, upper_inclusive_key, false)?;
+                    value_to_term(f, &owned_false, &ft, upper_inclusive_key.as_deref(), false)?;
                 let upper_is_exclusive = TermQuery::new(term, record_option.clone().into());
 
-                let term = value_to_term(f, &value, &ft, lower_key, is_datetime)?;
+                let term = value_to_term(f, &value, &ft, lower_key.as_deref(), is_datetime)?;
                 let term_gte_lower =
                     RangeQuery::new(Bound::Unbounded, Bound::Included(term.clone()));
                 let term_gt_lower = RangeQuery::new(Bound::Unbounded, Bound::Excluded(term));
 
-                let term = value_to_term(f, &value, &ft, upper_key, is_datetime)?;
+                let term = value_to_term(f, &value, &ft, upper_key.as_deref(), is_datetime)?;
                 let term_lte_upper =
                     RangeQuery::new(Bound::Included(term.clone()), Bound::Unbounded);
                 let term_lt_upper = RangeQuery::new(Bound::Excluded(term), Bound::Unbounded);

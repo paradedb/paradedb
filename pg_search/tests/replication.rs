@@ -167,8 +167,7 @@ impl EphemeralPostgres {
 }
 
 // Test function to test the ephemeral PostgreSQL setup
-#[rstest]
-#[ignore = "@@@"] // Segfaults on PG13.
+#[rstest] // Segfaults on PG13.
 async fn test_ephemeral_postgres() -> Result<()> {
     let config = "
         wal_level = logical
@@ -421,8 +420,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     Ok(())
 }
 
-#[rstest]
-#[ignore = "@@@"] // Segfaults on PG13.
+#[rstest] // Segfaults on PG13.
 async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
     let config = "
         wal_level = logical

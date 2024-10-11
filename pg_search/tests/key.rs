@@ -68,7 +68,6 @@ fn boolean_key(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "@@@"]
 fn uuid_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
@@ -102,7 +101,7 @@ fn uuid_key(mut conn: PgConnection) {
     // stable_sort
     let rows: Vec<(String, f32)> = r#"
     SELECT CAST(id AS TEXT), paradedb.score(id) FROM test_table WHERE test_table @@@ 
-        paradedb.term(field => 'value', value => 'blue')
+        paradedb.term(field => 'value', value => 'blue') ORDER BY score desc
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -154,7 +153,6 @@ fn uuid_key(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "@@@"]
 fn i64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
@@ -762,7 +760,6 @@ fn timestamp_key(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "@@@"]
 fn timestamptz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (

@@ -15,9 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::CustomScan;
-use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};
+use pgrx::{node_to_string, pg_sys, PgList};
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 
@@ -123,15 +122,7 @@ impl CustomPathBuilder {
                     pathtarget: unsafe { *rel }.reltarget,
                     ..Default::default()
                 },
-                methods: PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomPathMethods {
-                        CustomName: CS::NAME.as_ptr(),
-                        PlanCustomPath: Some(plan_custom_path::<CS>),
-                        ReparameterizeCustomPathByChild: Some(
-                            reparameterize_custom_path_by_child::<CS>,
-                        ),
-                    },
-                ),
+                methods: CS::custom_path_methods(),
                 ..Default::default()
             },
             custom_paths: PgList::default(),

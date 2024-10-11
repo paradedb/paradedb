@@ -827,10 +827,10 @@ impl SearchQueryInput {
                         let term =
                             value_to_term(f, &lower, &ft, upper_key.as_deref(), is_datetime)?;
                         lower_bound_conditions.push((
-                            Occur::Should,
+                            Occur::Must,
                             Box::new(BooleanQuery::new(vec![(
                                 Occur::Must,
-                                Box::new(RangeQuery::new(Bound::Unbounded, Bound::Included(term))),
+                                Box::new(RangeQuery::new(Bound::Included(term), Bound::Unbounded)),
                             )])),
                         ));
                     }
@@ -838,7 +838,7 @@ impl SearchQueryInput {
                         let term =
                             value_to_term(f, &lower, &ft, upper_key.as_deref(), is_datetime)?;
                         lower_bound_conditions.push((
-                            Occur::Should,
+                            Occur::Must,
                             (Box::new(BooleanQuery::new(vec![
                                 (
                                     Occur::Should,
@@ -846,8 +846,8 @@ impl SearchQueryInput {
                                         (
                                             Occur::Must,
                                             Box::new(RangeQuery::new(
-                                                Bound::Unbounded,
                                                 Bound::Excluded(term.clone()),
+                                                Bound::Unbounded,
                                             )),
                                         ),
                                         (Occur::Must, Box::new(upper_is_inclusive)),
@@ -859,8 +859,8 @@ impl SearchQueryInput {
                                         (
                                             Occur::Must,
                                             Box::new(RangeQuery::new(
-                                                Bound::Unbounded,
                                                 Bound::Included(term),
+                                                Bound::Unbounded,
                                             )),
                                         ),
                                         (Occur::Must, Box::new(upper_is_exclusive)),
@@ -877,10 +877,10 @@ impl SearchQueryInput {
                         let term =
                             value_to_term(f, &upper, &ft, lower_key.as_deref(), is_datetime)?;
                         upper_bound_conditions.push((
-                            Occur::Should,
+                            Occur::Must,
                             Box::new(BooleanQuery::new(vec![(
                                 Occur::Must,
-                                Box::new(RangeQuery::new(Bound::Included(term), Bound::Unbounded)),
+                                Box::new(RangeQuery::new(Bound::Unbounded, Bound::Included(term))),
                             )])),
                         ));
                     }
@@ -888,7 +888,7 @@ impl SearchQueryInput {
                         let term =
                             value_to_term(f, &upper, &ft, lower_key.as_deref(), is_datetime)?;
                         upper_bound_conditions.push((
-                            Occur::Should,
+                            Occur::Must,
                             (Box::new(BooleanQuery::new(vec![
                                 (
                                     Occur::Should,
@@ -896,8 +896,8 @@ impl SearchQueryInput {
                                         (
                                             Occur::Must,
                                             Box::new(RangeQuery::new(
-                                                Bound::Excluded(term.clone()),
                                                 Bound::Unbounded,
+                                                Bound::Excluded(term.clone()),
                                             )),
                                         ),
                                         (Occur::Must, Box::new(lower_is_inclusive)),
@@ -909,8 +909,8 @@ impl SearchQueryInput {
                                         (
                                             Occur::Must,
                                             Box::new(RangeQuery::new(
-                                                Bound::Included(term),
                                                 Bound::Unbounded,
+                                                Bound::Included(term),
                                             )),
                                         ),
                                         (Occur::Must, Box::new(lower_is_exclusive)),
@@ -925,21 +925,13 @@ impl SearchQueryInput {
                 if lower_bound_conditions.is_empty() && upper_bound_conditions.is_empty() {
                     Ok(Box::new(AllQuery))
                 } else {
-                    Ok(Box::new(BooleanQuery::new(vec![
-                        (Occur::Should, Box::new(AllQuery)),
-                        (
-                            Occur::MustNot,
-                            Box::new(BooleanQuery::new(
-                                lower_bound_conditions
-                                    .into_iter()
-                                    .chain(upper_bound_conditions)
-                                    .map(|(occur, query)| {
-                                        (occur, Box::new(*query) as Box<dyn Query>)
-                                    })
-                                    .collect(),
-                            )),
-                        ),
-                    ])))
+                    Ok(Box::new(BooleanQuery::new(
+                        lower_bound_conditions
+                            .into_iter()
+                            .chain(upper_bound_conditions)
+                            .map(|(occur, query)| (occur, Box::new(*query) as Box<dyn Query>))
+                            .collect(),
+                    )))
                 }
             }
             Self::RangeTerm {

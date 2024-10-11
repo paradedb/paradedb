@@ -131,6 +131,12 @@ pub enum SearchQueryInput {
         path: Option<String>,
         is_datetime: bool,
     },
+    RangeContains {
+        field: String,
+        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        is_datetime: bool,
+    },
     RangeTerm {
         field: String,
         value: tantivy::schema::OwnedValue,

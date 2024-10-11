@@ -700,6 +700,51 @@ range_term_fn!(
     true
 );
 
+#[derive(PostgresEnum, Serialize)]
+pub enum RangeRelation {
+    Intersects,
+    Contains,
+    Within,
+}
+
+impl Display for RangeRelation {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            RangeRelation::Intersects => write!(f, "Intersects"),
+            RangeRelation::Contains => write!(f, "Contains"),
+            RangeRelation::Within => write!(f, "Within"),
+        }
+    }
+}
+
+macro_rules! range_term_range_fn {
+    ($func_name:ident, $value_type:ty, $is_datetime:expr) => {
+        #[pg_extern(name = "range_term", immutable, parallel_safe)]
+        pub fn $func_name(
+            field: FieldName,
+            term: $value_type,
+            relation: RangeRelation,
+        ) -> SearchQueryInput {
+            match relation {
+                RangeRelation::Intersects => todo!("intersects"),
+                RangeRelation::Contains => todo!("contains"),
+                RangeRelation::Within => todo!("within"),
+            }
+        }
+    };
+}
+
+range_term_range_fn!(range_term_range_int4range, pgrx::Range<i32>, false);
+range_term_range_fn!(range_term_range_int8range, pgrx::Range<i64>, false);
+range_term_range_fn!(range_term_range_numrange, pgrx::Range<pgrx::AnyNumeric>, false);
+range_term_range_fn!(range_term_range_daterange, pgrx::Range<pgrx::datum::Date>, true);
+range_term_range_fn!(range_term_range_tsrange, pgrx::Range<pgrx::datum::Timestamp>, true);
+range_term_range_fn!(
+    range_term_range_tstzrange,
+    pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
+    true
+);
+
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(
     terms: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),

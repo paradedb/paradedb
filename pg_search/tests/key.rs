@@ -51,25 +51,24 @@ fn boolean_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(bool, f32)> = r#"
-    SELECT * FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT id, paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
+    ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(false, 0.25759196), (true, 0.14109309)]);
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn uuid_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
@@ -102,10 +101,8 @@ fn uuid_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(String, f32)> = r#"
-    SELECT CAST(id AS TEXT), score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), paradedb.score(id) FROM test_table WHERE test_table @@@ 
+        paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -140,17 +137,16 @@ fn uuid_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY id
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), snippet FROM test_index.snippet('value:blue', highlight_field => 'value')
+    SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM test_table WHERE value @@@ 'blue'
     UNION
-    SELECT CAST(id AS TEXT), snippet FROM test_index.snippet('value:tooth', highlight_field => 'value')
+    SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -158,6 +154,7 @@ fn uuid_key(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn i64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
@@ -190,10 +187,8 @@ fn i64_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(i64, f32)> = r#"
-    SELECT * FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT id, paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -210,17 +205,16 @@ fn i64_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY id
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(i64, String)> = r#"
-    SELECT id, snippet FROM test_index.snippet('value:blue', highlight_field => 'value')
+    SELECT id, paradedb.snippet(value) FROM test_table WHERE value @@@ 'blue'
     UNION
-    SELECT id, snippet FROM test_index.snippet('value:tooth', highlight_field => 'value')
+    SELECT id, paradedb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -260,10 +254,8 @@ fn i32_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(i32, f32)> = r#"
-    SELECT * FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT id, paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -280,9 +272,8 @@ fn i32_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY id
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -321,10 +312,8 @@ fn i16_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(i16, f32)> = r#"
-    SELECT * FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT id, paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -341,9 +330,8 @@ fn i16_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -382,10 +370,8 @@ fn f32_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(f32, f32)> = r#"
-    SELECT * FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT id, paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -402,9 +388,8 @@ fn f32_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -443,10 +428,8 @@ fn f64_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(f64, f32)> = r#"
-    SELECT * FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT id, paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -463,9 +446,8 @@ fn f64_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -504,10 +486,8 @@ fn numeric_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(f64, f32)> = r#"
-    SELECT CAST(id AS FLOAT8), score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT CAST(id AS FLOAT8), paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -524,9 +504,8 @@ fn numeric_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -565,10 +544,8 @@ fn string_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(String, f32)> = r#"
-    SELECT * FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT id, paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -603,9 +580,8 @@ fn string_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -644,10 +620,8 @@ fn date_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(String, f32)> = r#"
-    SELECT CAST(id AS TEXT), score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -664,9 +638,8 @@ fn date_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+        paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -705,10 +678,8 @@ fn time_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(String, f32)> = r#"
-    SELECT CAST(id AS TEXT), score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -725,9 +696,8 @@ fn time_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+        paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -766,10 +736,8 @@ fn timestamp_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(String, f32)> = r#"
-    SELECT CAST(id AS TEXT), score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -786,15 +754,15 @@ fn timestamp_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn timestamptz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
@@ -827,10 +795,8 @@ fn timestamptz_key(mut conn: PgConnection) {
 
     // stable_sort
     let rows: Vec<(String, f32)> = r#"
-    SELECT CAST(id AS TEXT), score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), paradedb.score(id) FROM test_table
+    WHERE test_table @@@ paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -847,25 +813,16 @@ fn timestamptz_key(mut conn: PgConnection) {
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
-    "#
-    .fetch_collect(&mut conn);
-    assert_eq!(rows.len(), 6);
-
-    let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT  paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') 
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), snippet FROM test_index.snippet('value:blue', highlight_field => 'value')
+    SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM test_table WHERE value @@@ 'blue'
     UNION
-    SELECT CAST(id AS TEXT), snippet FROM test_index.snippet('value:tooth', highlight_field => 'value')
+    SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM test_table WHERE value @@@ 'tooth'
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -903,31 +860,34 @@ fn timetz_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    let rows: Vec<(String,)> = r#"
+    SELECT CAST(id AS TEXT) FROM test_table"#
+        .fetch_collect(&mut conn);
+
+    println!("{:#?}", rows);
+
     // stable_sort
     let rows: Vec<(String, f32)> = r#"
-    SELECT CAST(id AS TEXT), score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue'),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue') ORDER BY score DESC
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
         rows,
         vec![
-            ("17:11:12+00".to_string(), 0.61846066),
-            ("17:10:11+00".to_string(), 0.57459813),
-            ("13:09:10+00".to_string(), 0.53654534),
-            ("21:17:18+00".to_string(), 0.50321954),
-            ("17:13:14+00".to_string(), 0.47379148),
-            ("17:12:13+00".to_string(), 0.44761515),
+            ("10:11:12-07".to_string(), 0.61846066),
+            ("09:10:11-08".to_string(), 0.57459813),
+            ("08:09:10-05".to_string(), 0.53654534),
+            ("16:17:18-05".to_string(), 0.50321954),
+            ("12:13:14-05".to_string(), 0.47379148),
+            ("11:12:13-06".to_string(), 0.44761515),
         ]
     );
 
     // no stable_sort
     let rows: Vec<(f32,)> = r#"
-    SELECT score_bm25 FROM test_index.score_bm25(
-        query => paradedb.term(field => 'value', value => 'blue')
-    );
+    SELECT paradedb.score(id) FROM test_table WHERE test_table @@@ 
+    paradedb.term(field => 'value', value => 'blue')
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 6);

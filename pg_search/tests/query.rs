@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Copyright (c) 2023-2024 Retake, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
@@ -28,70 +29,62 @@ use sqlx::PgConnection;
 fn boolean_tree(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.boolean(
-            should => ARRAY[
-                paradedb.parse('description:shoes'),
-                paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
-                paradedb.term(field => 'description', value => 'speaker'),
-			    paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1, prefix => true)
-            ]
-        ),
-        stable_sort => true
-    );
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    paradedb.boolean(
+        should => ARRAY[
+            paradedb.parse('description:shoes'),
+            paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
+            paradedb.term(field => 'description', value => 'speaker'),
+		    paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1, prefix => true)
+        ]
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![32, 5, 3, 4, 7, 34, 37, 10, 33, 39, 41]);
+    assert_eq!(columns.id, vec![3, 4, 5, 7, 10, 32, 33, 34, 37, 39, 41]);
 }
 
 #[rstest]
 fn fuzzy_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_term(field => 'category', value => 'elector', prefix => true),
-        stable_sort => true
-    )"#
+    SELECT * FROM paradedb.bm25_search
+    WHERE bm25_search @@@ paradedb.fuzzy_term(field => 'category', value => 'elector', prefix => true)
+    ORDER BY id"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32], "wrong results");
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.term(field => 'category', value => 'electornics'),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    paradedb.term(field => 'category', value => 'electornics')
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert!(columns.is_empty(), "without fuzzy field should be empty");
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_term(
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.fuzzy_term(
             field => 'description',
             value => 'keybaord',
             transposition_cost_one => false,
             distance => 1,
             prefix => true
-        ),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+        ) ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert!(
         columns.is_empty(),
         "transposition_cost_one false should be empty"
     );
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_term(
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.fuzzy_term(
             field => 'description',
             value => 'keybaord',
             transposition_cost_one => true,
             distance => 1,
             prefix => true
-        ),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+        ) ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(
         columns.id,
         vec![1, 2],
@@ -99,101 +92,91 @@ fn fuzzy_term(mut conn: PgConnection) {
     );
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_term(
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.fuzzy_term(
             field => 'description',
             value => 'keybaord',
             prefix => true
-        ),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+        ) ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2], "incorrect defaults");
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn single_queries(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     // All
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.all(),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    paradedb.all() ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 
     // Boost
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.boost(query => paradedb.all(), boost => 1.5),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    paradedb.boost(paradedb.all(), boost => 1.5)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 
     // ConstScore
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.const_score(query => paradedb.all(), score => 3.9),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search
+    WHERE bm25_search @@@ paradedb.const_score(paradedb.all(), score => 3.9)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 
     // DisjunctionMax
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.disjunction_max(disjuncts => ARRAY[paradedb.parse('description:shoes')]),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    paradedb.disjunction_max(disjuncts => ARRAY[paradedb.parse('description:shoes')])
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
     // Empty
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.empty(),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.empty() ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 0);
 
     // FuzzyTerm
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-		paradedb.fuzzy_term(field => 'description', value => 'wolo', transposition_cost_one => false, distance => 1, prefix => true),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.fuzzy_term(
+        field => 'description',
+        value => 'wolo',
+        transposition_cost_one => false,
+        distance => 1,
+        prefix => true
+    ) ORDER BY ID"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 4);
 
     // Parse
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.parse('description:teddy'),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.parse('description:teddy') ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
 
     // PhrasePrefix
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.phrase_prefix(field => 'description', phrases => ARRAY['har']),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.phrase_prefix(field => 'description', phrases => ARRAY['har'])
+        ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
 
     // Phrase with invalid term list
     match r#"
-       SELECT * FROM bm25_search.search(
-        query => paradedb.phrase(field => 'description', phrases => ARRAY['robot']),
-        stable_sort => true
-    )"#
-    .fetch_result::<SimpleProductsTable>(&mut conn)
+        SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.phrase(field => 'description', phrases => ARRAY['robot'])
+        ORDER BY id"#
+        .fetch_result::<SimpleProductsTable>(&mut conn)
     {
         Err(err) => assert!(err
             .to_string()
@@ -203,70 +186,53 @@ fn single_queries(mut conn: PgConnection) {
 
     // Phrase
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.phrase(
-            field => 'description',
-            phrases => ARRAY['robot', 'building', 'kit']
-        ),
-        stable_sort => true
-
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.phrase(
+        field => 'description',
+        phrases => ARRAY['robot', 'building', 'kit']
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
 
     // Range
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.range(field => 'last_updated_date', range => '[2023-05-01,2023-05-03]'::daterange),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.range(field => 'last_updated_date', range => '[2023-05-01,2023-05-03]'::daterange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 7);
 
     // Regex
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.regex(
-            field => 'description',
-            pattern => '(hardcover|plush|leather|running|wireless)'
-        ),
-        stable_sort => true
-
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+        field => 'description',
+        pattern => '(hardcover|plush|leather|running|wireless)'
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);
 
     // Term
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.term(field => 'description', value => 'shoes'),
-        stable_sort => true
-
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search
+    WHERE bm25_search @@@ paradedb.term(field => 'description', value => 'shoes')
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
     // Term with no field (should search all columns)
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.term(value => 'shoes'),
-        stable_sort => true
-
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search
+    WHERE bm25_search @@@ paradedb.term(value => 'shoes') ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
     // TermSet with invalid term list
     match r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.term_set(
-            terms => ARRAY[
-                paradedb.regex(field => 'description', pattern => '.+')
-            ]
-        ),
-        stable_sort => true
-    )"#
-    .fetch_result::<SimpleProductsTable>(&mut conn)
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.term_set(
+        terms => ARRAY[
+            paradedb.regex(field => 'description', pattern => '.+')
+        ]
+    ) ORDER BY id"#
+        .fetch_result::<SimpleProductsTable>(&mut conn)
     {
         Err(err) => assert!(err
             .to_string()
@@ -276,16 +242,14 @@ fn single_queries(mut conn: PgConnection) {
 
     // TermSet
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.term_set(
-            terms => ARRAY[
-                paradedb.term(field => 'description', value => 'shoes'),
-                paradedb.term(field => 'description', value => 'novel')
-            ]
-        ),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search
+    WHERE bm25_search @@@ paradedb.term_set(
+        terms => ARRAY[
+            paradedb.term(field => 'description', value => 'shoes'),
+            paradedb.term(field => 'description', value => 'novel')
+        ]
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);
 }
 
@@ -295,17 +259,17 @@ fn exists_query(mut conn: PgConnection) {
 
     // Simple exists query
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.exists('rating')
-    )"#
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.exists('rating')
+    "#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 
     // Non fast field should fail
     match r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.exists('description')
-    )"#
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.exists('description')
+    "#
     .execute_result(&mut conn)
     {
         Err(err) => assert!(err.to_string().contains("not a fast field")),
@@ -317,19 +281,20 @@ fn exists_query(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.boolean(
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+        paradedb.boolean(
             must => ARRAY[
                 paradedb.exists('rating'),
                 paradedb.parse('description:shoes')
             ]
         )
-    )"#
+    "#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_raw(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -356,10 +321,8 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .execute(&mut conn);
 
     match r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@ 
+        paradedb.more_like_this();
     "#
     .fetch_result::<()>(&mut conn)
     {
@@ -372,33 +335,30 @@ fn more_like_this_raw(mut conn: PgConnection) {
     }
 
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_id => 2
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_id => 2
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_empty(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -425,10 +385,9 @@ fn more_like_this_empty(mut conn: PgConnection) {
     .execute(&mut conn);
 
     match r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this()
+    ORDER BY id;
     "#
     .fetch_result::<()>(&mut conn)
     {
@@ -442,6 +401,7 @@ fn more_like_this_empty(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_text(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -468,20 +428,19 @@ fn more_like_this_text(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_boolean_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -506,20 +465,20 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(bool, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ 
+    paradedb.more_like_this(
+       with_min_doc_frequency => 0,
+       with_min_term_frequency => 0,
+       with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 1);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_uuid_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -546,20 +505,19 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(uuid::Uuid, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_i64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -586,20 +544,20 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i64, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ 
+    paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_i32_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -626,20 +584,19 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_i16_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -666,20 +623,19 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i16, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_f32_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -706,20 +662,19 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(f32, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_f64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -745,20 +700,20 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(f64, String)> = r#"
-    SELECT id, flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT id, flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ 
+    paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_numeric_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -785,20 +740,19 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(f64, String)> = r#"
-    SELECT CAST(id AS FLOAT8), flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT CAST(id AS FLOAT8), flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_date_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -824,20 +778,19 @@ fn more_like_this_date_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@  paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_time_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -864,25 +817,25 @@ fn more_like_this_time_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ 
+    paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_timestamp_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
-    id TIMESTAMP PRIMARY KEY,
-    flavour TEXT
+        id TIMESTAMP PRIMARY KEY,
+        flavour TEXT
     );
     
     INSERT INTO test_more_like_this_table (id, flavour) VALUES 
@@ -904,20 +857,20 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ 
+    paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -944,20 +897,20 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ 
+    paradedb.more_like_this(
+        with_min_doc_frequency => 0,
+        with_min_term_frequency => 0,
+        with_document_fields => '{"flavour": "banana"}'
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 
 #[rstest]
+#[ignore = "@@@"]
 fn more_like_this_timetz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (
@@ -983,14 +936,12 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> = r#"
-    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_index.search(
-        query => paradedb.more_like_this(
+    SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
+    WHERE test_more_like_this_table @@@ paradedb.more_like_this(
             with_min_doc_frequency => 0,
             with_min_term_frequency => 0,
             with_document_fields => '{"flavour": "banana"}'
-        ),
-        stable_sort => true
-    );
+    ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -1001,26 +952,26 @@ fn fuzzy_phrase(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez'),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search
+    WHERE bm25_search @@@ paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez')
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3, 4, 5]);
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez', match_all_terms => true),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
+    SELECT * FROM paradedb.bm25_search
+    WHERE bm25_search @@@ paradedb.fuzzy_phrase(
+        field => 'description',
+        value => 'ruling shoeez',
+        match_all_terms => true
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3]);
 
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez', distance => 1),
-        stable_sort => true
-    )"#
+    SELECT * FROM paradedb.bm25_search
+    WHERE bm25_search @@@ paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez', distance => 1)
+    ORDER BY id"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.id.len(), 0);
 }

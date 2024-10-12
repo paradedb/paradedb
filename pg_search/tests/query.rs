@@ -116,7 +116,7 @@ fn single_queries(mut conn: PgConnection) {
     // Boost
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    paradedb.boost(paradedb.all(), boost => 1.5)
+    paradedb.boost(query => paradedb.all(), boost => 1.5)
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
@@ -124,7 +124,7 @@ fn single_queries(mut conn: PgConnection) {
     // ConstScore
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.const_score(paradedb.all(), score => 3.9)
+    WHERE bm25_search @@@ paradedb.const_score(query => paradedb.all(), score => 3.9)
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);

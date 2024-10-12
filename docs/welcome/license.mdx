@@ -11,7 +11,7 @@ title: Licensing
 ParadeDB is dual-licensed under the GNU Affero General Public License 3.0 and as commercial software. By using the
 open source version of ParadeDB, you certify that you comply with the requirements of the AGPLv3.
 
-The ParadeDB Enterprise license waives the copyleft requirements of the AGPL-3.0 and includes the closed source features listed
+The ParadeDB Enterprise license waives the copyleft requirements of the AGPLv3 and includes the closed source features listed
 below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:sales@paradedb.com).
 
 ## ParadeDB License Comparison
@@ -65,7 +65,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Most Postgres types support
+      Support for most Postgres types
     </td>
     <td
       align="center"
@@ -172,6 +172,28 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
       ✅
     </td>
   </tr>
+  <tr style={{ display: "flex" }}>
+    <td
+      align="center"
+      style={{
+        width: "64%",
+        textAlign: "left",
+      }}
+    >
+      Multiple tokenizers over the same field
+    </td>
+    <td style={{ width: "36%" }}></td>
+    <td
+      align="center"
+      style={{
+        width: "36%",
+        textAlign: "center",
+        paddingLeft: 32,
+      }}
+    >
+      ✅
+    </td>
+  </tr>
   <tr style={{ display: "flex", borderBottom: "solid 1px #ddd" }}>
     <td
       align="center"
@@ -194,7 +216,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Basic search API
+      Full text search API
     </td>
     <td
       align="center"
@@ -225,7 +247,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Advanced search API
+      Query builder API
     </td>
     <td
       align="center"
@@ -256,38 +278,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Joined search
-    </td>
-    <td
-      align="center"
-      style={{
-        width: "36%",
-        textAlign: "center",
-        paddingLeft: 32,
-      }}
-    >
-      ✅
-    </td>
-    <td
-      align="center"
-      style={{
-        width: "36%",
-        textAlign: "center",
-        paddingLeft: 32,
-      }}
-    >
-      ✅
-    </td>
-  </tr>
-  <tr style={{ display: "flex" }}>
-    <td
-      align="center"
-      style={{
-        width: "64%",
-        textAlign: "left",
-      }}
-    >
-      Hybrid search
+      Lenient query parsing
     </td>
     <td
       align="center"
@@ -380,7 +371,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Bucket aggregations
+      Nested document search
     </td>
     <td style={{ width: "36%" }}></td>
     <td
@@ -402,7 +393,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Metric aggregations
+      Accelerated SQL bucket aggregations
     </td>
     <td style={{ width: "36%" }}></td>
     <td
@@ -424,7 +415,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Result counts
+      Accelerated SQL metric aggregations
     </td>
     <td style={{ width: "36%" }}></td>
     <td
@@ -446,7 +437,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Lenient query parsing
+      Distributed search (on roadmap)
     </td>
     <td style={{ width: "36%" }}></td>
     <td
@@ -575,7 +566,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Logical replication support
+      Logical replication
     </td>
     <td
       align="center"
@@ -606,7 +597,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      Concurrent index writes
+      Concurrent writes to the same index
     </td>
     <td style={{ width: "36%" }}></td>
     <td
@@ -695,7 +686,7 @@ below. To purchase a ParadeDB Enterprise License, please [contact sales](mailto:
         textAlign: "left",
       }}
     >
-      High Availability
+      High Availability (Streaming replication)
     </td>
     <td
       align="center"

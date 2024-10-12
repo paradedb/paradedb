@@ -779,20 +779,27 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "hybrid"]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
 
-    "CALL paradedb.create_bm25_test_table(
-        table_name => 'test_partial_hybrid',
-        schema_name => 'paradedb'
-    );"
+    CREATE EXTENSION vector;
+    ALTER TABLE mock_items ADD COLUMN embedding vector(3);
+
+    UPDATE mock_items m
+    SET embedding = ('[' ||
+        ((m.id + 1) % 10 + 1)::integer || ',' ||
+        ((m.id + 2) % 10 + 1)::integer || ',' ||
+        ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+    "#
     .execute(&mut conn);
 
     let ret = "CALL paradedb.create_bm25(
-        index_name => 'partial_idx',
-        schema_name => 'paradedb',
-        table_name => 'test_partial_hybrid',
+        index_name => 'search_idx',
+        table_name => 'mock_items',
         key_field => 'id',
         text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
         numeric_fields => paradedb.field('rating'),
@@ -801,74 +808,86 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     .execute_result(&mut conn);
     assert!(ret.is_ok());
 
-    r#"
-    CREATE EXTENSION vector;
-    ALTER TABLE paradedb.test_partial_hybrid ADD COLUMN embedding vector(3);
+    let rows: Vec<(i32, BigDecimal, String, String, Vector)> = r#"WITH semantic_search AS (
+    SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+        FROM mock_items
+        ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+    ),
+    bm25_search AS (
+        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) AS rank
+        FROM mock_items
+        WHERE mock_items @@@ 'rating:>1'
+        AND category = 'Electronics'
+        LIMIT 20
+    )
+    SELECT
+        COALESCE(semantic_search.id, bm25_search.id) AS id,
+        COALESCE(1.0 / (60 + semantic_search.rank), 0.0) +
+        COALESCE(1.0 / (60 + bm25_search.rank), 0.0) AS score,
+        mock_items.description,
+        mock_items.category,
+        mock_items.embedding
+    FROM semantic_search
+    JOIN bm25_search ON semantic_search.id = bm25_search.id
+    JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_search.id)
+    ORDER BY score DESC, description
+    "#
+    .fetch(&mut conn);
 
-    UPDATE paradedb.test_partial_hybrid m
-    SET embedding = ('[' ||
-    ((m.id + 1) % 10 + 1)::integer || ',' ||
-    ((m.id + 2) % 10 + 1)::integer || ',' ||
-    ((m.id + 3) % 10 + 1)::integer || ']')::vector;
-
-    CREATE INDEX on paradedb.test_partial_hybrid
-    USING hnsw (embedding vector_l2_ops)"#
-        .execute(&mut conn);
-
-    // Ensure all of them match the predicate
-    let columns: SimpleProductsTableVec = r#"
-    SELECT t.*, s.score_hybrid
-    FROM paradedb.test_partial_hybrid t
-    RIGHT JOIN (
-        SELECT * FROM partial_idx.score_hybrid(
-            bm25_query => paradedb.parse('rating:>1'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON t.id = s.id"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.category.len(), 5);
+    assert_eq!(rows.len(), 5);
     assert_eq!(
-        columns.category,
+        rows.iter().map(|r| r.3.clone()).collect::<Vec<_>>(),
         "Electronics,Electronics,Electronics,Electronics,Electronics"
             .split(',')
             .collect::<Vec<_>>()
     );
 
-    "INSERT INTO paradedb.test_partial_hybrid (description, category, rating, in_stock) VALUES
+    "INSERT INTO mock_items (description, category, rating, in_stock) VALUES
     ('Product 1', 'Electronics', 2, true),
     ('Product 2', 'Electronics', 1, false),
     ('Product 3', 'Footwear', 2, true);
 
-    UPDATE paradedb.test_partial_hybrid m
+    UPDATE mock_items m
     SET embedding = ('[' ||
     ((m.id + 1) % 10 + 1)::integer || ',' ||
     ((m.id + 2) % 10 + 1)::integer || ',' ||
     ((m.id + 3) % 10 + 1)::integer || ']')::vector;"
         .execute(&mut conn);
 
-    let rows: Vec<(String,)> = r#"
-    SELECT t.category
-    FROM paradedb.test_partial_hybrid t
-    RIGHT JOIN (
-        SELECT * FROM partial_idx.score_hybrid(
-            bm25_query => paradedb.parse('rating:>1'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON t.id = s.id"#
-        .fetch(&mut conn);
+    let rows: Vec<(i32, BigDecimal, String, String, Vector)> = r#"
+    WITH semantic_search AS (
+    SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+        FROM mock_items
+        ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+    ),
+    bm25_search AS (
+        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) AS rank
+        FROM mock_items
+        WHERE mock_items @@@ 'rating:>1'
+        AND category = 'Electronics'
+        LIMIT 20
+    )
+    SELECT
+        COALESCE(semantic_search.id, bm25_search.id) AS id,
+        COALESCE(1.0 / (60 + semantic_search.rank), 0.0) +
+        COALESCE(1.0 / (60 + bm25_search.rank), 0.0) AS score,
+        mock_items.description,
+        mock_items.category,
+        mock_items.embedding
+    FROM semantic_search
+    JOIN bm25_search ON semantic_search.id = bm25_search.id
+    JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_search.id)
+    ORDER BY score DESC, description
+    "#
+    .fetch(&mut conn);
 
-    assert_eq!(rows.len(), 7);
+    assert_eq!(rows.len(), 6);
     assert_eq!(
-        rows.into_iter().map(|(s,)| s).collect::<Vec<_>>(),
-        "Electronics,Electronics,Electronics,Electronics,Electronics,Electronics,Electronics"
+        rows.iter().map(|r| r.3.clone()).collect::<Vec<_>>(),
+        "Electronics,Electronics,Electronics,Electronics,Electronics,Electronics"
             .split(',')
             .collect::<Vec<_>>()
-    );
+    )
 }
 
 #[rstest]

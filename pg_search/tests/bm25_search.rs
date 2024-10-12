@@ -430,50 +430,6 @@ fn snippet(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "hybrid"]
-fn hybrid_with_complex_key_field_name(mut conn: PgConnection) {
-    // Create a test table.
-    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
-        .execute(&mut conn);
-
-    // Add the custom key field column.
-    "ALTER TABLE paradedb.bm25_search ADD COLUMN custom_key_field SERIAL".execute(&mut conn);
-
-    // The test table will normally be created here, but it'll be skipped because we did it above.
-    SimpleProductsTable::setup_with_key_field("custom_key_field").execute(&mut conn);
-
-    r#"
-    CREATE EXTENSION vector;
-    ALTER TABLE paradedb.bm25_search ADD COLUMN embedding vector(3);
-
-    UPDATE paradedb.bm25_search m
-    SET embedding = ('[' ||
-    ((m.id + 1) % 10 + 1)::integer || ',' ||
-    ((m.id + 2) % 10 + 1)::integer || ',' ||
-    ((m.id + 3) % 10 + 1)::integer || ']')::vector;
-
-    CREATE INDEX on paradedb.bm25_search
-    USING hnsw (embedding vector_l2_ops)"#
-        .execute(&mut conn);
-
-    let columns: SimpleProductsTableVec = r#"
-    SELECT m.*, s.score_hybrid
-    FROM paradedb.bm25_search m
-    LEFT JOIN (
-        SELECT * FROM bm25_search.score_hybrid(
-            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
-            similarity_query => '''[1,2,3]'' <-> embedding',
-            bm25_weight => 0.9,
-            similarity_weight => 0.1
-        )
-    ) s ON m.custom_key_field = s.custom_key_field
-    LIMIT 5"#
-        .fetch_collect(&mut conn);
-
-    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
-}
-
-#[rstest]
 fn hybrid_with_single_result(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(

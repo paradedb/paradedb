@@ -1,4 +1,4 @@
-# This version argument will be updated in the Docker image publish workflow
+# The default Postgres major version ParadeDB ships with. In CI, this gets updated to ship builds for all official PGDG versions.
 ARG PG_VERSION_MAJOR=16
 
 ###############################################

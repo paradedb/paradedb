@@ -303,3 +303,36 @@ DROP FUNCTION IF EXISTS search_with_search_config(element anyelement, config_jso
 CREATE OR REPLACE FUNCTION search_with_search_config(element anyelement, config_json jsonb) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_search_config_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 DROP FUNCTION IF EXISTS search_with_text(_element anyelement, query text);
 CREATE OR REPLACE FUNCTION search_with_text(_element anyelement, query text) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_text_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+DROP FUNCTION IF EXISTS paradedb.index_size_impl(index_name text);
+DROP FUNCTION IF EXISTS schema_bm25(index_name text);
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/bootstrap/create_bm25.rs:278
+-- pg_search::bootstrap::create_bm25::index_size
+CREATE  FUNCTION "index_size"(
+	"index_name" TEXT /* &str */
+) RETURNS bigint /* core::result::Result<i64, anyhow::Error> */
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'index_size_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:36
+-- pg_search::api::index::schema
+CREATE  FUNCTION "schema"(
+	"index_name" TEXT /* &str */
+) RETURNS TABLE (
+	"name" TEXT,  /* alloc::string::String */
+	"field_type" TEXT,  /* alloc::string::String */
+	"stored" bool,  /* bool */
+	"indexed" bool,  /* bool */
+	"fast" bool,  /* bool */
+	"fieldnorms" bool,  /* bool */
+	"expand_dots" bool,  /* core::option::Option<bool> */
+	"tokenizer" TEXT,  /* core::option::Option<alloc::string::String> */
+	"record" TEXT,  /* core::option::Option<alloc::string::String> */
+	"normalizer" TEXT  /* core::option::Option<alloc::string::String> */
+)
+STRICT
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'schema_wrapper';

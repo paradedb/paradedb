@@ -49,7 +49,7 @@ pub fn schema(
     name!(normalizer, Option<String>),
 )> {
     let database_oid = crate::MyDatabaseId();
-    let index_oid = index_oid_from_index_name(&index_name);
+    let index_oid = index_oid_from_index_name(index_name);
     let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
     let directory =

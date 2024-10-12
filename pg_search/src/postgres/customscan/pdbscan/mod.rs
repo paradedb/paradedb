@@ -398,11 +398,15 @@ impl CustomScan for PdbScan {
             let node = builder.target_list().as_ptr().cast();
             let snippet_funcoid = builder.custom_state().snippet_funcoid;
             let attname_lookup = &builder.custom_state().var_attname_lookup;
-            builder.custom_state().snippet_generators =
-                uses_snippets(private_data.range_table_index().unwrap(), attname_lookup, node, snippet_funcoid)
-                    .into_iter()
-                    .map(|field| (field, None))
-                    .collect();
+            builder.custom_state().snippet_generators = uses_snippets(
+                private_data.range_table_index().unwrap(),
+                attname_lookup,
+                node,
+                snippet_funcoid,
+            )
+            .into_iter()
+            .map(|field| (field, None))
+            .collect();
 
             builder.build()
         }

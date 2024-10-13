@@ -93,7 +93,6 @@ async fn snippet_after_update(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "@@@"]
 async fn score_bm25_after_rollback(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 3".execute(&mut conn);
@@ -116,7 +115,6 @@ async fn score_bm25_after_rollback(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "@@@"]
 async fn snippet_after_rollback(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 3".execute(&mut conn);

@@ -723,7 +723,7 @@ async fn json_nested_arrays(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "@@@"]
+// // #[ignore = "@@@"]
 fn bm25_partial_index_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

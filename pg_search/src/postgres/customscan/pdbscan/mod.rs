@@ -398,11 +398,15 @@ impl CustomScan for PdbScan {
             let node = builder.target_list().as_ptr().cast();
             let snippet_funcoid = builder.custom_state().snippet_funcoid;
             let attname_lookup = &builder.custom_state().var_attname_lookup;
-            builder.custom_state().snippet_generators =
-                uses_snippets(attname_lookup, node, snippet_funcoid)
-                    .into_iter()
-                    .map(|field| (field, None))
-                    .collect();
+            builder.custom_state().snippet_generators = uses_snippets(
+                private_data.range_table_index().unwrap(),
+                attname_lookup,
+                node,
+                snippet_funcoid,
+            )
+            .into_iter()
+            .map(|field| (field, None))
+            .collect();
 
             builder.build()
         }
@@ -510,6 +514,7 @@ impl CustomScan for PdbScan {
 
             unsafe {
                 let mut projection_info = state.projection_info();
+                let rti = state.custom_state().rti;
 
                 projection_info = if state.custom_state().need_scores()
                     || state.custom_state.need_snippets()
@@ -543,6 +548,7 @@ impl CustomScan for PdbScan {
                         for (snippet_info, generator) in &mut state.custom_state.snippet_generators
                         {
                             const_projected_targetlist = inject_snippet(
+                                rti,
                                 &state.custom_state.var_attname_lookup,
                                 const_projected_targetlist.cast(),
                                 snippet_funcoid,

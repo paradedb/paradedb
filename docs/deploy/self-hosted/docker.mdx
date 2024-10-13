@@ -2,7 +2,15 @@
 title: Docker
 ---
 
-To deploy ParadeDB via Docker, simply pull and run the `paradedb/paradedb` image locally. This is the recommend deployment method for testing and development.
+To deploy ParadeDB via Docker, pull and run the `paradedb/paradedb` image locally. This is the recommended deployment method for testing and development.
+
+**Note**: ParadeDB supports Postgres 13 to 17, and the `latest` tag ships with Postgres 16. To specify a different Postgres version, please refer to the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb). 
+
+ParadeDB provides Docker images for Postgres 13 to 17
+
+ParadeDB supports Postgres 13 to 17. The list of tags can be found [here.
+
+The `latest` tag defaults to Postgres 16,
 
 ```bash
 docker run \
@@ -26,5 +34,3 @@ docker exec -it paradedb psql -U myuser -d mydatabase -W
 ```
 
 That's it! To get started, we suggest you follow the [quickstart guide](/documentation/getting-started/quickstart).
-
-**Note**: The default `latest` tag is now Postgres 16. ParadeDB supports Postgres 13 to 17 and for a full list of available tags, please refer to the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb).

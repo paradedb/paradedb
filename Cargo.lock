@@ -4005,6 +4005,7 @@ dependencies = [
  "shared",
  "sqlx",
  "strum",
+ "strum_macros",
  "tantivy",
  "tantivy-common",
  "tempfile",

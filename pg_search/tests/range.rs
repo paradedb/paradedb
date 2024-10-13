@@ -22,8 +22,31 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::postgres::types::PgRange;
 use sqlx::PgConnection;
-use sqlx::Row;
 use std::ops::Bound;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
+
+const TARGET_INT4_LOWER_BOUNDS: [i32; 2] = [2, 10];
+const TARGET_INT4_UPPER_BOUNDS: [i32; 1] = [10];
+const QUERY_INT4_LOWER_BOUNDS: [i32; 3] = [1, 2, 3];
+const QUERY_INT4_UPPER_BOUNDS: [i32; 3] = [9, 10, 11];
+
+#[derive(Clone, Debug, EnumIter, PartialEq)]
+enum BoundType {
+    Included,
+    Excluded,
+    Unbounded,
+}
+
+impl BoundType {
+    fn to_bound<T>(self, val: T) -> Bound<T> {
+        match self {
+            BoundType::Included => Bound::Included(val),
+            BoundType::Excluded => Bound::Excluded(val),
+            BoundType::Unbounded => Bound::Unbounded,
+        }
+    }
+}
 
 #[rstest]
 fn integer_range(mut conn: PgConnection) {
@@ -177,23 +200,6 @@ fn datetime_range(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum BoundType {
-    Included,
-    Excluded,
-    Unbounded,
-}
-
-impl BoundType {
-    fn to_bound<T>(self, val: T) -> Bound<T> {
-        match self {
-            BoundType::Included => Bound::Included(val),
-            BoundType::Excluded => Bound::Excluded(val),
-            BoundType::Unbounded => Bound::Unbounded,
-        }
-    }
-}
-
 #[rstest]
 async fn range_term_contains_int4range(mut conn: PgConnection) {
     r#"
@@ -218,59 +224,46 @@ async fn range_term_contains_int4range(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let bound_types = vec![
-        BoundType::Included,
-        BoundType::Excluded,
-        BoundType::Unbounded,
-    ];
-
-    let lower_bounds = vec![2, 10];
-    let upper_bound = 10;
-
-    for lower_bound_type in &bound_types {
-        for upper_bound_type in &bound_types {
-            for lower_bound in &lower_bounds {
-                let range = PgRange {
-                    start: lower_bound_type.clone().to_bound(*lower_bound),
-                    end: upper_bound_type.clone().to_bound(upper_bound),
-                };
-
-                sqlx::query("INSERT INTO deliveries (weights) VALUES ($1)")
-                    .bind(range)
-                    .execute(&mut conn)
-                    .await
-                    .unwrap();
+    for lower_bound_type in BoundType::iter() {
+        for upper_bound_type in BoundType::iter() {
+            for lower_bound in &TARGET_INT4_LOWER_BOUNDS {
+                for upper_bound in &TARGET_INT4_UPPER_BOUNDS {
+                    let range = PgRange {
+                        start: lower_bound_type.clone().to_bound(*lower_bound),
+                        end: upper_bound_type.clone().to_bound(*upper_bound),
+                    };
+                    format!(
+                        "INSERT INTO deliveries (weights) VALUES ('{}'::int4range)",
+                        range
+                    )
+                    .execute(&mut conn);
+                }
             }
         }
     }
 
-    let lower_bounds = vec![1, 2, 3];
-    let upper_bounds = vec![9, 10, 11];
-
-    for lower_bound_type in &bound_types {
-        for upper_bound_type in &bound_types {
-            for lower_bound in &lower_bounds {
-                for upper_bound in &upper_bounds {
+    for lower_bound_type in BoundType::iter() {
+        for upper_bound_type in BoundType::iter() {
+            for lower_bound in &QUERY_INT4_LOWER_BOUNDS {
+                for upper_bound in &QUERY_INT4_UPPER_BOUNDS {
                     let range = PgRange {
                         start: lower_bound_type.clone().to_bound(*lower_bound),
                         end: upper_bound_type.clone().to_bound(*upper_bound),
                     };
 
-                    let expected: Vec<i32> = sqlx::query(&format!("SELECT delivery_id FROM deliveries WHERE '{}'::int4range @> weights ORDER BY delivery_id", range))
-                        .fetch_all(&mut conn)
-                        .await
-                        .unwrap()
-                        .into_iter()
-                        .map(|row| row.get::<i32, _>("delivery_id"))
-                        .collect();
-
-                    let result: Vec<i32> = sqlx::query(&format!("SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('weights', '{}'::int4range, 'Contains') ORDER BY delivery_id", range))
-                        .fetch_all(&mut conn)
-                        .await
-                        .unwrap()
-                        .into_iter()
-                        .map(|row| row.get::<i32, _>("delivery_id"))
-                        .collect();
+                    let expected: Vec<(i32,)> = format!(
+                        "
+                        SELECT delivery_id FROM deliveries 
+                        WHERE '{}'::int4range @> weights 
+                        ORDER BY delivery_id",
+                        range
+                    )
+                    .fetch(&mut conn);
+                    let result: Vec<(i32,)> = format!("
+                        SELECT delivery_id FROM deliveries 
+                        WHERE delivery_id @@@ paradedb.range_term('weights', '{}'::int4range, 'Contains') 
+                        ORDER BY delivery_id", range
+                    ).fetch(&mut conn);
 
                     assert_eq!(expected, result, "query failed for range: {:?}", range);
                 }

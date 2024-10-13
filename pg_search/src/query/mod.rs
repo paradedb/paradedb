@@ -710,7 +710,7 @@ impl SearchQueryInput {
                             ]))),
                         ))
                     }
-                    _ => {}
+                    _ => satisfies_lower_bound.push((Occur::Should, Box::new(AllQuery))),
                 }
 
                 match upper_bound {
@@ -765,33 +765,29 @@ impl SearchQueryInput {
                             ),
                         ]))),
                     )),
-                    _ => {}
+                    _ => satisfies_upper_bound.push((Occur::Should, Box::new(AllQuery))),
                 }
 
-                if satisfies_lower_bound.is_empty() && satisfies_upper_bound.is_empty() {
-                    Ok(Box::new(AllQuery))
-                } else {
-                    let satisfies_lower_bound = BooleanQuery::new(vec![
-                        (Occur::Should, Box::new(range_field.empty(true)?)),
-                        (
-                            Occur::Should,
-                            Box::new(BooleanQuery::new(satisfies_lower_bound)),
-                        ),
-                    ]);
+                let satisfies_lower_bound = BooleanQuery::new(vec![
+                    (Occur::Should, Box::new(range_field.empty(true)?)),
+                    (
+                        Occur::Should,
+                        Box::new(BooleanQuery::new(satisfies_lower_bound)),
+                    ),
+                ]);
 
-                    let satisfies_upper_bound = BooleanQuery::new(vec![
-                        (Occur::Should, Box::new(range_field.empty(true)?)),
-                        (
-                            Occur::Should,
-                            Box::new(BooleanQuery::new(satisfies_upper_bound)),
-                        ),
-                    ]);
+                let satisfies_upper_bound = BooleanQuery::new(vec![
+                    (Occur::Should, Box::new(range_field.empty(true)?)),
+                    (
+                        Occur::Should,
+                        Box::new(BooleanQuery::new(satisfies_upper_bound)),
+                    ),
+                ]);
 
-                    Ok(Box::new(BooleanQuery::new(vec![
-                        (Occur::Must, Box::new(satisfies_lower_bound)),
-                        (Occur::Must, Box::new(satisfies_upper_bound)),
-                    ])))
-                }
+                Ok(Box::new(BooleanQuery::new(vec![
+                    (Occur::Must, Box::new(satisfies_lower_bound)),
+                    (Occur::Must, Box::new(satisfies_upper_bound)),
+                ])))
             }
             Self::RangeIntersects {
                 field,

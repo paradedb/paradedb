@@ -256,8 +256,7 @@ async fn range_term_contains_int4range(mut conn: PgConnection) {
                         end: upper_bound_type.clone().to_bound(*upper_bound),
                     };
 
-                    let expected: Vec<i32> = sqlx::query("SELECT delivery_id FROM deliveries WHERE $1 @> weights ORDER BY delivery_id")
-                        .bind(range.clone())
+                    let expected: Vec<i32> = sqlx::query(&format!("SELECT delivery_id FROM deliveries WHERE '{}'::int4range @> weights ORDER BY delivery_id", range))
                         .fetch_all(&mut conn)
                         .await
                         .unwrap()
@@ -265,8 +264,7 @@ async fn range_term_contains_int4range(mut conn: PgConnection) {
                         .map(|row| row.get::<i32, _>("delivery_id"))
                         .collect();
 
-                    let result: Vec<i32> = sqlx::query("SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('weights', $1, 'Contains') ORDER BY delivery_id")
-                        .bind(range.clone())
+                    let result: Vec<i32> = sqlx::query(&format!("SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('weights', '{}'::int4range, 'Contains') ORDER BY delivery_id", range))
                         .fetch_all(&mut conn)
                         .await
                         .unwrap()

@@ -20,7 +20,10 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use sqlx::postgres::types::PgRange;
 use sqlx::PgConnection;
+use sqlx::Row;
+use std::ops::Bound;
 
 #[rstest]
 fn integer_range(mut conn: PgConnection) {
@@ -172,4 +175,108 @@ fn datetime_range(mut conn: PgConnection) {
     ORDER BY id"#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum BoundType {
+    Included,
+    Excluded,
+    Unbounded,
+}
+
+impl BoundType {
+    fn to_bound<T>(self, val: T) -> Bound<T> {
+        match self {
+            BoundType::Included => Bound::Included(val),
+            BoundType::Excluded => Bound::Excluded(val),
+            BoundType::Unbounded => Bound::Unbounded,
+        }
+    }
+}
+
+#[rstest]
+async fn range_term_contains_int4range(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'deliveries',
+        table_type => 'Deliveries'
+    );
+
+    CALL paradedb.create_bm25(
+        index_name => 'deliveries',
+        table_name => 'deliveries',
+        key_field => 'delivery_id',
+        range_fields => 
+            paradedb.field('weights') || 
+            paradedb.field('quantities') || 
+            paradedb.field('prices') || 
+            paradedb.field('ship_dates') ||
+            paradedb.field('facility_arrival_times') ||
+            paradedb.field('delivery_times')
+    );
+    "#
+    .execute(&mut conn);
+
+    let bound_types = vec![
+        BoundType::Included,
+        BoundType::Excluded,
+        BoundType::Unbounded,
+    ];
+
+    let lower_bounds = vec![2, 10];
+    let upper_bound = 10;
+
+    for lower_bound_type in &bound_types {
+        for upper_bound_type in &bound_types {
+            for lower_bound in &lower_bounds {
+                let range = PgRange {
+                    start: lower_bound_type.clone().to_bound(*lower_bound),
+                    end: upper_bound_type.clone().to_bound(upper_bound),
+                };
+
+                sqlx::query("INSERT INTO deliveries (weights) VALUES ($1)")
+                    .bind(range)
+                    .execute(&mut conn)
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    let lower_bounds = vec![1, 2, 3];
+    let upper_bounds = vec![9, 10, 11];
+
+    for lower_bound_type in &bound_types {
+        for upper_bound_type in &bound_types {
+            for lower_bound in &lower_bounds {
+                for upper_bound in &upper_bounds {
+                    let range = PgRange {
+                        start: lower_bound_type.clone().to_bound(*lower_bound),
+                        end: upper_bound_type.clone().to_bound(*upper_bound),
+                    };
+
+                    let expected: Vec<i32> = sqlx::query("SELECT delivery_id FROM deliveries WHERE $1 @> weights ORDER BY delivery_id")
+                        .bind(range.clone())
+                        .fetch_all(&mut conn)
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .map(|row| row.get::<i32, _>("delivery_id"))
+                        .collect();
+
+                    let result: Vec<i32> = sqlx::query("SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('weights', $1, 'Contains') ORDER BY delivery_id")
+                        .bind(range.clone())
+                        .fetch_all(&mut conn)
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .map(|row| row.get::<i32, _>("delivery_id"))
+                        .collect();
+
+                    assert_eq!(expected, result, "query failed for range: {:?}", range);
+                }
+            }
+        }
+    }
 }

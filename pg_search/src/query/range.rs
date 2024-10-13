@@ -8,6 +8,7 @@ use tantivy::{
     Term,
 };
 
+const EMPTY_KEY: &str = "empty";
 const LOWER_KEY: &str = "lower";
 const UPPER_KEY: &str = "upper";
 const LOWER_INCLUSIVE_KEY: &str = "lower_inclusive";
@@ -34,6 +35,13 @@ pub enum Comparison {
 impl RangeField {
     pub fn new(field: Field, is_datetime: bool) -> Self {
         Self { field, is_datetime }
+    }
+
+    pub fn empty(&self, val: bool) -> Result<TermQuery, Box<dyn std::error::Error>> {
+        Ok(TermQuery::new(
+            Self::as_range_term(self, &OwnedValue::Bool(val), Some(EMPTY_KEY))?,
+            IndexRecordOption::WithFreqsAndPositions.into(),
+        ))
     }
 
     pub fn upper_bound_inclusive(

@@ -24,6 +24,22 @@ helm upgrade --install cnpg \
 cnpg/cloudnative-pg
 ```
 
+### Installing the Prometheus CRDs
+
+The ParadeDB Helm chart supports monitoring via Prometheus and Grafana. This is enabled by default, and therefore the Prometheus CRDs are required for
+the chart to launch. If you do not yet have the Prometheus CRDs installed on your Kubernetes cluster, you can install them via:
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm upgrade --install prometheus-community \
+--namespace prometheus-community \
+--create-namespace \
+--values https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml \
+prometheus-community/kube-prometheus-stack
+```
+
+If you do not wish to monitor your ParadeDB Kubernetes cluster, you can set `enabled: false` under `monitoring:` in the [values.yaml](https://github.com/paradedb/charts/charts/paradedb/values.yaml) file and skip this step.
+
 ### Set Up a ParadeDB CloudNativePG Cluster
 
 Create a `values.yaml` and configure it to your requirements. Here is a basic example:
@@ -36,6 +52,10 @@ cluster:
   instances: 2
   storage:
     size: 256Mi
+  monitoring:
+    enabled: true
+    podMonitor:
+      enabled: true
 ```
 
 Then, launch the ParadeDB cluster.
@@ -43,12 +63,37 @@ Then, launch the ParadeDB cluster.
 ```bash
 helm repo add paradedb https://paradedb.github.io/charts
 helm upgrade --install paradedb \
---namespace paradedb-database \
+--namespace paradedb \
 --create-namespace \
 --values values.yaml \
 paradedb/paradedb
 ```
 
-If `--values values.yaml` is omitted, the default values will be used. For additional configuration options, please refer to the [ParadeDB Helm Chart documentation](https://paradedb.github.io/charts/).
+If `--values values.yaml` is omitted, the default values will be used. For advanced cluster configuration options, including configuring backups and PgBouncer, please
+refer to the [ParadeDB Helm Chart documentation](https://artifacthub.io/packages/helm/paradedb/paradedb#values).
+
+### Connecting to a ParadeDB CNPG Cluster
+
+The command to connect to the primary instance of the cluster will be printed in your terminal. If you do not modify any settings, it will be:
+
+```bash
+kubectl --namespace paradedb exec --stdin --tty services/paradedb-rw -- bash
+```
+
+This will launch a shell inside the instance. You can connect via `psql` with:
+
+```bash
+psql -d paradedb
+```
+
+### Connecting to the Prometheus Console
+
+To connect to the Prometheus console for your cluster, we suggest port forwarding the Kubernetes service running Prometheus to localhost:
+
+```bash
+kubectl --namespace prometheus-community port-forward svc/prometheus-community-kube-prometheus 9090
+```
+
+You can then access the Prometheus console at [http://localhost:9090/](http://localhost:9090/). A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/documentation/current/monitoring/).
 
 That's it! To get started, we suggest you follow the [quickstart guide](/documentation/getting-started/quickstart).

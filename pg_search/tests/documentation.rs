@@ -1114,7 +1114,7 @@ fn hybrid_search(mut conn: PgConnection) {
     SELECT
         COALESCE(semantic_search.id, bm25_search.id) AS id,
         COALESCE(1.0 / (60 + semantic_search.rank), 0.0) +
-        COALESCE(1.0 / (60 + bm25_search.rank), 0.0)::NUMERIC AS score,
+        COALESCE(1.0 / (60 + bm25_search.rank), 0.0) AS score,
         mock_items.description,
         mock_items.embedding
     FROM semantic_search
@@ -1129,13 +1129,13 @@ fn hybrid_search(mut conn: PgConnection) {
         vec![
             (
                 1,
-                BigDecimal::from_str("0.03088619624613922547").unwrap(),
+                BigDecimal::from_str("0.03062178588125292193").unwrap(),
                 String::from("Ergonomic metal keyboard"),
                 Vector::from(vec![3.0, 4.0, 5.0])
             ),
             (
                 2,
-                BigDecimal::from_str("0.02964254577157802964").unwrap(),
+                BigDecimal::from_str("0.02990695613646433318").unwrap(),
                 String::from("Plastic Keyboard"),
                 Vector::from(vec![4.0, 5.0, 6.0])
             ),

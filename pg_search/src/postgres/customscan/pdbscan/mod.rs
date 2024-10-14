@@ -104,11 +104,11 @@ impl CustomScan for PdbScan {
             };
 
             let pathkey = pullup_ordery_by_score_pathkey(&mut builder, rti);
-            let limit = if pathkey.is_some() {
+            let limit = if pathkey.is_some() && (*builder.args().root).limit_tuples > -1.0 {
                 // we can only use the limit if we have an orderby score pathkey
-                (*builder.args().root).limit_tuples
+                Some((*builder.args().root).limit_tuples)
             } else {
-                -1.0
+                None
             };
 
             // quick look at the PathTarget list to see if we might need to do our const projections
@@ -123,7 +123,7 @@ impl CustomScan for PdbScan {
             if let Some(quals) =
                 extract_quals(restrict_info.as_ptr().cast(), anyelement_jsonb_opoid())
             {
-                let selectivity = if limit > 0.0 {
+                let selectivity = if let Some(limit) = limit {
                     // use the limit
                     limit / table.reltuples().map(|n| n as Cardinality).unwrap_or(limit)
                 } else if restrict_info.len() == 1 {
@@ -144,10 +144,15 @@ impl CustomScan for PdbScan {
                 builder.custom_private().set_indexrelid(bm25_index.oid());
                 builder.custom_private().set_range_table_index(rti);
                 builder.custom_private().set_quals(restrict_info);
-                builder.custom_private().set_limit(limit);
-                builder
-                    .custom_private()
-                    .set_sort_direction(pathkey_sort_direction(pathkey));
+
+                if limit.is_some() && pathkey.is_some() {
+                    // we can only set our limit/pathkey values if we have both
+                    builder = builder.add_path_key(pathkey);
+                    builder.custom_private().set_limit(limit);
+                    builder
+                        .custom_private()
+                        .set_sort_direction(pathkey_sort_direction(pathkey));
+                }
 
                 let reltuples = table.reltuples().unwrap_or(1.0) as f64;
                 let rows = (reltuples * selectivity).max(1.0);
@@ -178,7 +183,6 @@ impl CustomScan for PdbScan {
                 builder = builder.set_rows(rows);
                 builder = builder.set_startup_cost(startup_cost);
                 builder = builder.set_total_cost(total_cost + cpu_run_cost);
-                builder = builder.add_path_key(pathkey);
                 builder = builder.set_flag(Flags::Projection);
 
                 return Some(builder.build());

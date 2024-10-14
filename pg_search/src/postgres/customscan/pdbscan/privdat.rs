@@ -65,12 +65,8 @@ impl PrivateData {
         self.restrict_info = Some(quals.into_pg())
     }
 
-    pub fn set_limit(&mut self, limit: Cardinality) {
-        if limit == -1.0 {
-            self.limit = None;
-        } else {
-            self.limit = Some(limit.round() as usize);
-        }
+    pub fn set_limit(&mut self, limit: Option<Cardinality>) {
+        self.limit = limit.map(|l| l.round() as usize);
     }
 
     pub fn set_sort_direction(&mut self, direction: Option<SortDirection>) {

@@ -20,9 +20,7 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::types::BigDecimal;
 use sqlx::PgConnection;
-use std::str::FromStr;
 
 #[rstest]
 fn hybrid_deprecated(mut conn: PgConnection) {
@@ -112,7 +110,7 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
     USING hnsw (embedding vector_l2_ops)"#
         .execute(&mut conn);
 
-    let columns: Vec<(i32, BigDecimal, String)> = r#"
+    let columns: Vec<(i32, f32, String)> = r#"
     WITH semantic AS (
         SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
         FROM paradedb.bm25_search
@@ -126,7 +124,7 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
     SELECT
         COALESCE(semantic.id, bm25.id) AS id,
         (COALESCE(1.0 / (60 + semantic.rank), 0.0) +
-        COALESCE(1.0 / (60 + bm25.rank), 0.0))::NUMERIC AS score,
+        COALESCE(1.0 / (60 + bm25.rank), 0.0))::REAL AS score,
         paradedb.bm25_search.description
     FROM semantic
     FULL OUTER JOIN bm25 ON semantic.id = bm25.id
@@ -140,39 +138,31 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
         columns[0],
         (
             1,
-            BigDecimal::from_str("0.03088619624613922547").unwrap(),
+            0.03062178588125292193,
             "Ergonomic metal keyboard".to_string()
         )
     );
     assert_eq!(
         columns[1],
-        (
-            2,
-            BigDecimal::from_str("0.02964254577157802964").unwrap(),
-            "Plastic Keyboard".to_string()
-        )
+        (2, 0.02990695613646433318, "Plastic Keyboard".to_string())
     );
     assert_eq!(
         columns[2],
         (
             19,
-            BigDecimal::from_str("0.01639344262295081967").unwrap(),
+            0.01639344262295081967,
             "Artistic ceramic vase".to_string()
         )
     );
     assert_eq!(
         columns[3],
-        (
-            9,
-            BigDecimal::from_str("0.01639344262295081967").unwrap(),
-            "Modern wall clock".to_string()
-        )
+        (9, 0.01639344262295081967, "Modern wall clock".to_string())
     );
     assert_eq!(
         columns[4],
         (
             29,
-            BigDecimal::from_str("0.01639344262295081967").unwrap(),
+            0.01639344262295081967,
             "Designer wall paintings".to_string()
         )
     );

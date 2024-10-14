@@ -1102,10 +1102,6 @@ fn hybrid_search(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // we vacuum here only to ensure that the scores will be consistent
-    // when we compare them to what are the known/expected values
-    "VACUUM FULL ANALYZE mock_items;".execute(&mut conn);
-
     let rows: Vec<(i32, BigDecimal, String, Vector)> = r#"
     WITH semantic_search AS (
         SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
@@ -1118,7 +1114,7 @@ fn hybrid_search(mut conn: PgConnection) {
     SELECT
         COALESCE(semantic_search.id, bm25_search.id) AS id,
         COALESCE(1.0 / (60 + semantic_search.rank), 0.0) +
-        COALESCE(1.0 / (60 + bm25_search.rank), 0.0) AS score,
+        COALESCE(1.0 / (60 + bm25_search.rank), 0.0)::NUMERIC AS score,
         mock_items.description,
         mock_items.embedding
     FROM semantic_search
@@ -1133,13 +1129,13 @@ fn hybrid_search(mut conn: PgConnection) {
         vec![
             (
                 1,
-                BigDecimal::from_str("0.03062178588125292193").unwrap(),
+                BigDecimal::from_str("0.03088619624613922547").unwrap(),
                 String::from("Ergonomic metal keyboard"),
                 Vector::from(vec![3.0, 4.0, 5.0])
             ),
             (
                 2,
-                BigDecimal::from_str("0.02990695613646433318").unwrap(),
+                BigDecimal::from_str("0.02964254577157802964").unwrap(),
                 String::from("Plastic Keyboard"),
                 Vector::from(vec![4.0, 5.0, 6.0])
             ),

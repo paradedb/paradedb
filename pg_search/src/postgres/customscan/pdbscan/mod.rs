@@ -366,18 +366,19 @@ impl CustomScan for PdbScan {
         }
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        if let Some(sort_direction) = state.custom_state().sort_direction {
-            explainer.add_text("   Sort Direction", sort_direction)
-        }
-        if let Some(limit) = state.custom_state().limit {
+        if let (Some(sort_direction), Some(limit)) = (
+            state.custom_state().sort_direction,
+            state.custom_state().limit,
+        ) {
+            explainer.add_text("   Sort Direction", sort_direction);
             explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
-        }
-        if explainer.is_analyze() && state.custom_state().retry_count > 0 {
-            explainer.add_unsigned_integer(
-                "   Invisible Tuple Retries",
-                state.custom_state().retry_count as u64,
-                None,
-            );
+            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+                explainer.add_unsigned_integer(
+                    "   Invisible Tuple Retries",
+                    state.custom_state().retry_count as u64,
+                    None,
+                );
+            }
         }
 
         let query = &state.custom_state().search_config.query;

@@ -1086,9 +1086,10 @@ fn range_term(mut conn: PgConnection) {
 }
 
 #[rstest]
-async fn prepared_statements(mut conn: PgConnection) {
+async fn prepared_statement_replanning(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
+    // ensure our plan doesn't change into a sequential scan after the 5th execution
     for _ in 0..10 {
         let _: Vec<i32> = sqlx::query("SELECT id FROM paradedb.bm25_search WHERE id @@@ paradedb.term('rating', $1) ORDER BY id")
             .bind(2)

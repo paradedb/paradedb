@@ -33,7 +33,7 @@ use rustc_hash::FxHashSet;
 use shared::gucs::GlobalGucSettings;
 use std::ptr::NonNull;
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_search_config(
     element: AnyElement,
     config_json: JsonB,

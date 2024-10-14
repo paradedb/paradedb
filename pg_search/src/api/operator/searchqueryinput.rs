@@ -23,14 +23,14 @@ use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
-use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
+use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
 /// This is the function behind the `@@@(anyelement, paradedb.searchqueryinput)` operator. Since we
 /// transform those to use `@@@(anyelement, jsonb`), this function won't be called in normal
 /// circumstances, but it could be called if the rhs of the @@@ is some kind of volatile value.
 ///
 /// And in that case we just have to give up.
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
     _element: AnyElement,
     query: SearchQueryInput,
@@ -68,19 +68,26 @@ fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePoi
         // }
 
         let rhs = input_args.get_ptr(1)?;
+        pgrx::warning!("rhs={:?}", pgrx::node_to_string(rhs).unwrap_or(""));
 
-        let query = nodecast!(Const, T_Const, rhs)
-            .map(|const_| SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull))
-            .flatten();
+        if is_a(rhs, pg_sys::NodeTag::T_Const) {
+            let query = nodecast!(Const, T_Const, rhs)
+                .map(|const_| {
+                    SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)
+                })
+                .flatten();
 
-        Some(make_search_config_opexpr_node(
-            srs,
-            &mut input_args,
-            var,
-            query,
-            anyelement_query_input_opoid(),
-            anyelement_query_input_procoid(),
-        ))
+            Some(make_search_config_opexpr_node(
+                srs,
+                &mut input_args,
+                var,
+                query,
+                anyelement_query_input_opoid(),
+                anyelement_query_input_procoid(),
+            ))
+        } else {
+            None
+        }
     }
 }
 
@@ -110,7 +117,9 @@ pub fn query_input_restrict(
             let query = SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
             let search_config = SearchConfig::from((query, indexrel));
 
-            estimate_selectivity(heaprelid, relfilenode, &search_config)
+            let sel = estimate_selectivity(heaprelid, relfilenode, &search_config);
+            pgrx::warning!("sel={sel:?}");
+            sel
         }
     }
 

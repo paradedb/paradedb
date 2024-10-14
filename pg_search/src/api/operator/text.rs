@@ -30,7 +30,7 @@ use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 /// could be called if the rhs of the @@@ is some kind of volatile value.
 ///
 /// And in that case we just have to give up.
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_text(
     _element: AnyElement,
     query: &str,

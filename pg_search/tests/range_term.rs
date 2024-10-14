@@ -115,7 +115,7 @@ const QUERY_TIMESTAMPTZ_UPPER_BOUNDS: [OffsetDateTime; 8] = [
     datetime!(2021-01-11 00:00:00 +02:00),
 ];
 
-#[derive(Clone, Debug, EnumIter, PartialEq)]
+#[derive(Clone, Copy, Debug, EnumIter, PartialEq)]
 enum BoundType {
     Included,
     Excluded,
@@ -409,6 +409,7 @@ async fn range_term_intersects_tstzrange(mut conn: PgConnection) {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_range_test<T>(
     conn: &mut PgConnection,
     relation: RangeRelation,
@@ -430,8 +431,8 @@ fn execute_range_test<T>(
             for lower_bound in target_lower_bounds {
                 for upper_bound in target_upper_bounds {
                     let range = PgRange {
-                        start: lower_bound_type.clone().to_bound(lower_bound.clone()),
-                        end: upper_bound_type.clone().to_bound(upper_bound.clone()),
+                        start: lower_bound_type.to_bound(lower_bound.clone()),
+                        end: upper_bound_type.to_bound(upper_bound.clone()),
                     };
                     format!(
                         "INSERT INTO {} ({}) VALUES ('{}'::{})",
@@ -452,8 +453,8 @@ fn execute_range_test<T>(
             for lower_bound in query_lower_bounds {
                 for upper_bound in query_upper_bounds {
                     let range = PgRange {
-                        start: lower_bound_type.clone().to_bound(lower_bound.clone()),
-                        end: upper_bound_type.clone().to_bound(upper_bound.clone()),
+                        start: lower_bound_type.to_bound(lower_bound.clone()),
+                        end: upper_bound_type.to_bound(upper_bound.clone()),
                     };
 
                     if lower_bound >= upper_bound {

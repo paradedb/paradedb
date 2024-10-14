@@ -1050,7 +1050,7 @@ impl SearchQueryInput {
                 let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
 
                 match lower_bound {
-                    Bound::Excluded(lower) => {
+                    Bound::Excluded(ref lower) => {
                         satisfies_lower_bound.push((
                             Occur::Must,
                             Box::new(BooleanQuery::new(vec![(
@@ -1064,7 +1064,7 @@ impl SearchQueryInput {
                             )])),
                         ));
                     }
-                    Bound::Included(lower) => satisfies_lower_bound.push((
+                    Bound::Included(ref lower) => satisfies_lower_bound.push((
                         Occur::Must,
                         (Box::new(BooleanQuery::new(vec![
                             (
@@ -1105,7 +1105,7 @@ impl SearchQueryInput {
                 }
 
                 match upper_bound {
-                    Bound::Excluded(upper) => {
+                    Bound::Excluded(ref upper) => {
                         satisfies_upper_bound.push((
                             Occur::Must,
                             Box::new(BooleanQuery::new(vec![(
@@ -1117,7 +1117,7 @@ impl SearchQueryInput {
                             )])),
                         ));
                     }
-                    Bound::Included(upper) => {
+                    Bound::Included(ref upper) => {
                         satisfies_upper_bound.push((
                             Occur::Must,
                             (Box::new(BooleanQuery::new(vec![
@@ -1181,20 +1181,30 @@ impl SearchQueryInput {
                     ),
                 ]);
 
-                Ok(Box::new(BooleanQuery::new(vec![
-                    (Occur::Must, Box::new(satisfies_lower_bound)),
-                    (Occur::Must, Box::new(satisfies_upper_bound)),
-                ])))
+                let is_empty = match (lower_bound, upper_bound) {
+                    (Bound::Included(lower), Bound::Excluded(upper)) => lower == upper,
+                    _ => false,
+                };
+
+                if is_empty {
+                    Ok(Box::new(ExistsQuery::new_exists_query(field)))
+                } else {
+                    Ok(Box::new(BooleanQuery::new(vec![
+                        (Occur::Must, Box::new(satisfies_lower_bound)),
+                        (Occur::Must, Box::new(satisfies_upper_bound)),
+                    ])))
+                }
             }
-            Self::Regex { field, pattern } => Ok(Box::new(
-                RegexQuery::from_pattern(
-                    &pattern,
-                    field_lookup
-                        .as_str(&field)
-                        .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
-                )
-                .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
-            )),
+            Self::Regex { field, pattern } => {
+                let (field_type, field) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+
+                Ok(Box::new(
+                    RegexQuery::from_pattern(&pattern, field)
+                        .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
+                ))
+            }
             Self::Term {
                 field,
                 value,

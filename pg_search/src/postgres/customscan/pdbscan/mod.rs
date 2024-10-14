@@ -338,16 +338,13 @@ impl CustomScan for PdbScan {
             );
             let node = builder.target_list().as_ptr().cast();
             let snippet_funcoid = builder.custom_state().snippet_funcoid;
+            let rti = builder.custom_state().rti;
             let attname_lookup = &builder.custom_state().var_attname_lookup;
-            builder.custom_state().snippet_generators = uses_snippets(
-                builder.custom_state().rti,
-                attname_lookup,
-                node,
-                snippet_funcoid,
-            )
-            .into_iter()
-            .map(|field| (field, None))
-            .collect();
+            builder.custom_state().snippet_generators =
+                uses_snippets(rti, attname_lookup, node, snippet_funcoid)
+                    .into_iter()
+                    .map(|field| (field, None))
+                    .collect();
 
             builder.build()
         }
@@ -489,14 +486,10 @@ impl CustomScan for PdbScan {
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().search_reader.take());
-        drop(std::mem::replace(
+        drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
-            Default::default(),
         ));
-        drop(std::mem::replace(
-            &mut state.custom_state_mut().search_results,
-            Default::default(),
-        ));
+        drop(std::mem::take(&mut state.custom_state_mut().search_results));
 
         if let Some(heaprel) = state.custom_state_mut().heaprel.take() {
             unsafe {

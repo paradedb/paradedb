@@ -16,9 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::Cardinality;
-use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::CustomScan;
-use pgrx::{pg_sys, PgList, PgMemoryContexts};
+use pgrx::{pg_sys, PgList};
 use std::collections::HashSet;
 use std::fmt::Debug;
 

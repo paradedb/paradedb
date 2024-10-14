@@ -16,7 +16,3 @@ inherits = "release"
 debug = true
 lto = "thin"
 codegen-units = 32
-
-[patch.crates-io]
-pgrx = { path = "../pgrx/pgrx" }
-pgrx-tests = { path = "../pgrx/pgrx-tests" }

@@ -57,7 +57,7 @@ bigdecimal = "0.4.5"
 cmd_lib = "1.9.4"
 dotenvy = "0.15.7"
 futures = "0.3.30"
-pgrx-tests = { path = "../../pgrx/pgrx-tests" }
+pgrx-tests = "0.12.6"
 pgvector = { version = "0.3.4", features = ["sqlx"] }
 portpicker = "0.1.1"
 pretty_assertions = "1.4.0"

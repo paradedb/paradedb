@@ -16,12 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
+mod exec_methods;
+mod privdat;
 mod projections;
 mod qual_inspect;
+mod scan_state;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
-use crate::api::{AsCStr, AsInt};
-use crate::index::reader::{SearchIndexReader, SearchResults};
+use crate::api::{AsCStr, AsInt, Cardinality};
+use crate::index::score::SearchIndexScore;
 use crate::index::{SearchIndex, WriterDirectory};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -29,8 +32,12 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::pdbscan::exec_methods::{
+    normal_scan_exec, top_n_scan_exec, ExecState, TopNScanExecState,
+};
+use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
-    inject_scores, score_funcoid, uses_scores,
+    inject_scores, is_score_func, score_funcoid, uses_scores,
 };
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     inject_snippet, snippet_funcoid, uses_snippets, SnippetInfo,
@@ -38,8 +45,9 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
 use crate::postgres::customscan::pdbscan::projections::{
     maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
-use crate::postgres::customscan::{CustomScan, CustomScanState};
+use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
+use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{
@@ -48,122 +56,24 @@ use crate::postgres::utils::{
 use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::{name_data_to_str, pg_sys, PgList, PgRelation};
+use pgrx::{pg_sys, PgList, PgMemoryContexts, PgRelation};
+use scan_state::SortDirection;
 use shared::gucs::GlobalGucSettings;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::DocAddress;
 
 #[derive(Default)]
 pub struct PdbScan;
 
-#[derive(Default)]
-pub struct PdbScanState {
-    heaprelid: pg_sys::Oid,
-    indexrelid: pg_sys::Oid,
-    rti: pg_sys::Index,
-
-    index_name: String,
-    index_uuid: String,
-    key_field: String,
-    search_reader: Option<SearchIndexReader>,
-    search_config: SearchConfig,
-    search_results: SearchResults,
-
-    heaprel: Option<pg_sys::Relation>,
-    indexrel: Option<pg_sys::Relation>,
-    lockmode: pg_sys::LOCKMODE,
-
-    snapshot: Option<pg_sys::Snapshot>,
-    visibility_checker: Option<VisibilityChecker>,
-
-    need_scores: bool,
-    snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
-    score_funcoid: pg_sys::Oid,
-    snippet_funcoid: pg_sys::Oid,
-    var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
-}
-
-impl CustomScanState for PdbScanState {}
-
-impl PdbScanState {
-    #[inline(always)]
-    pub fn need_scores(&self) -> bool {
-        self.need_scores
-    }
-
-    #[inline(always)]
-    pub fn need_snippets(&self) -> bool {
-        !self.snippet_generators.is_empty()
-    }
-
-    #[inline(always)]
-    pub fn snapshot(&self) -> pg_sys::Snapshot {
-        self.snapshot.unwrap()
-    }
-
-    #[inline(always)]
-    pub fn heaprel(&self) -> pg_sys::Relation {
-        self.heaprel.unwrap()
-    }
-
-    #[inline(always)]
-    pub fn heaprelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*(*self.heaprel()).rd_rel).relname) }
-    }
-
-    #[inline(always)]
-    pub fn heaptupdesc(&self) -> pg_sys::TupleDesc {
-        unsafe { (*self.heaprel()).rd_att }
-    }
-
-    #[inline(always)]
-    pub fn visibility_checker(&mut self) -> &mut VisibilityChecker {
-        self.visibility_checker.as_mut().unwrap()
-    }
-}
-
-struct PrivateData(PgList<pg_sys::Node>);
-
-impl PrivateData {
-    unsafe fn heaprelid(&self) -> Option<pg_sys::Oid> {
-        self.0
-            .get_ptr(0)
-            .and_then(|node| node.as_int().map(|i| pg_sys::Oid::from(i as u32)))
-    }
-
-    unsafe fn indexrelid(&self) -> Option<pg_sys::Oid> {
-        self.0
-            .get_ptr(1)
-            .and_then(|node| node.as_int().map(|i| pg_sys::Oid::from(i as u32)))
-    }
-
-    unsafe fn range_table_index(&self) -> Option<pg_sys::Index> {
-        self.0
-            .get_ptr(2)
-            .and_then(|node| node.as_int().map(|i| i as pg_sys::Index))
-    }
-
-    fn quals(&self) -> Option<Qual> {
-        let base_restrict_info = self.0.get_ptr(3)?;
-        unsafe { extract_quals(base_restrict_info, anyelement_jsonb_opoid()) }
-    }
-
-    fn var_attname_lookup(&self) -> Option<PgList<pg_sys::Node>> {
-        unsafe {
-            self.0
-                .get_ptr(4)
-                .map(|ptr| PgList::<pg_sys::Node>::from_pg(ptr.cast()))
-        }
-    }
-}
-
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
     type State = PdbScanState;
+    type PrivateData = PrivateData;
 
-    fn callback(mut builder: CustomPathBuilder) -> Option<pg_sys::CustomPath> {
+    fn callback(mut builder: CustomPathBuilder<Self::PrivateData>) -> Option<pg_sys::CustomPath> {
         if !GUCS.enable_custom_scan() {
             return None;
         }
@@ -172,44 +82,51 @@ impl CustomScan for PdbScan {
             if builder.restrict_info().is_empty() {
                 return None;
             }
-            let rte = builder.args().rte();
+            let rti = builder.args().rti;
+            let (table, bm25_index, is_join) = {
+                let rte = builder.args().rte();
 
-            // first, we only work on plain relations
-            if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
-                && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
-            {
-                return None;
-            }
-            let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
-            if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
-                return None;
-            }
+                // first, we only work on plain relations
+                if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
+                    && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
+                {
+                    return None;
+                }
+                let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
+                if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
+                    return None;
+                }
 
-            // and that relation must have a `USING bm25` index
-            let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
+                // and that relation must have a `USING bm25` index
+                let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
+
+                (table, bm25_index, rte.rtekind == pg_sys::RTEKind::RTE_JOIN)
+            };
+
+            let pathkey = pullup_ordery_by_score_pathkey(&mut builder, rti);
+            let limit = if pathkey.is_some() && (*builder.args().root).limit_tuples > -1.0 {
+                // we can only use the limit if we have an orderby score pathkey
+                Some((*builder.args().root).limit_tuples)
+            } else {
+                None
+            };
 
             // quick look at the PathTarget list to see if we might need to do our const projections
             let path_target = builder.path_target();
             let maybe_needs_const_projections =
                 maybe_needs_const_projections((*(*builder.args().root).parse).targetList.cast());
-            let is_join = rte.rtekind == pg_sys::RTEKind::RTE_JOIN;
 
             //
             // look for quals we can support
             //
-            if let Some(quals) = extract_quals(
-                builder.restrict_info().as_ptr().cast(),
-                anyelement_jsonb_opoid(),
-            ) {
-                let rti = builder.args().rti;
-                builder = builder
-                    .add_private_data(pg_sys::makeInteger(table.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeInteger(bm25_index.oid().as_u32() as _).cast())
-                    .add_private_data(pg_sys::makeInteger(rti as _).cast());
-
-                let restrict_info = builder.restrict_info();
-
-                let selectivity = if restrict_info.len() == 1 {
+            let restrict_info = builder.restrict_info();
+            if let Some(quals) =
+                extract_quals(restrict_info.as_ptr().cast(), anyelement_jsonb_opoid())
+            {
+                let selectivity = if let Some(limit) = limit {
+                    // use the limit
+                    limit / table.reltuples().map(|n| n as Cardinality).unwrap_or(limit)
+                } else if restrict_info.len() == 1 {
                     // we can use the norm_selec that already happened
                     (*restrict_info.get_ptr(0).unwrap()).norm_selec
                 } else {
@@ -222,6 +139,20 @@ impl CustomScan for PdbScan {
                     )
                     .unwrap_or(UNKNOWN_SELECTIVITY)
                 };
+
+                builder.custom_private().set_heaprelid(table.oid());
+                builder.custom_private().set_indexrelid(bm25_index.oid());
+                builder.custom_private().set_range_table_index(rti);
+                builder.custom_private().set_quals(restrict_info);
+
+                if limit.is_some() && pathkey.is_some() {
+                    // we can only set our limit/pathkey values if we have both
+                    builder = builder.add_path_key(pathkey);
+                    builder.custom_private().set_limit(limit);
+                    builder
+                        .custom_private()
+                        .set_sort_direction(pathkey_sort_direction(pathkey));
+                }
 
                 let reltuples = table.reltuples().unwrap_or(1.0) as f64;
                 let rows = (reltuples * selectivity).max(1.0);
@@ -249,12 +180,9 @@ impl CustomScan for PdbScan {
                         (startup_cost, total_cost, cpu_run_cost)
                     };
 
-                let root = builder.args().root;
                 builder = builder.set_rows(rows);
                 builder = builder.set_startup_cost(startup_cost);
                 builder = builder.set_total_cost(total_cost + cpu_run_cost);
-                builder = builder.add_private_data(restrict_info.into_pg().cast());
-
                 builder = builder.set_flag(Flags::Projection);
 
                 return Some(builder.build());
@@ -264,10 +192,10 @@ impl CustomScan for PdbScan {
         None
     }
 
-    fn plan_custom_path(mut builder: CustomScanBuilder) -> pg_sys::CustomScan {
+    fn plan_custom_path(mut builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {
         unsafe {
-            let private_data =
-                PrivateData(PgList::<pg_sys::Node>::from_pg(builder.custom_private()));
+            let private_data = builder.custom_private();
+
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
 
             let rti: i32 = private_data
@@ -309,29 +237,31 @@ impl CustomScan for PdbScan {
                 }
             }
 
-            builder.add_private_data(attname_lookup.into_pg().cast());
-
+            builder
+                .custom_private_mut()
+                .set_var_attname_lookup(attname_lookup.into_pg());
             builder.build()
         }
     }
 
     fn create_custom_scan_state(
-        mut builder: CustomScanStateBuilder<Self>,
+        mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
         unsafe {
-            let private_data = PrivateData(builder.private_data());
-            let heaprelid = private_data
+            builder.custom_state().heaprelid = builder
+                .custom_private()
                 .heaprelid()
                 .expect("heaprelid should have a value");
-            let indexrelid = private_data
+            builder.custom_state().indexrelid = builder
+                .custom_private()
                 .indexrelid()
                 .expect("indexrelid should have a value");
 
-            builder.custom_state().heaprelid = heaprelid;
-            builder.custom_state().indexrelid = indexrelid;
-
             {
-                let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+                let indexrel = PgRelation::with_lock(
+                    builder.custom_state().indexrelid,
+                    pg_sys::AccessShareLock as _,
+                );
                 let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
                 let uuid = (*ops)
                     .get_uuid()
@@ -344,14 +274,24 @@ impl CustomScan for PdbScan {
                 builder.custom_state().index_name = indexrel.name().to_string();
                 builder.custom_state().index_uuid = uuid;
                 builder.custom_state().key_field = key_field;
-                builder.custom_state().rti = private_data
+                builder.custom_state().rti = builder
+                    .custom_private()
                     .range_table_index()
                     .expect("range table index should have been set");
             }
 
-            let quals = private_data.quals().expect("should have a Qual structure");
+            // information about if we're sorted by score and our limit
+            builder.custom_state().limit = builder.custom_private().limit();
+            builder.custom_state().sort_direction = builder.custom_private().sort_direction();
+
+            // store our query quals into our custom state too
+            let quals = builder
+                .custom_private()
+                .quals()
+                .expect("should have a Qual structure");
             builder.custom_state().search_config = SearchConfig::from(quals);
 
+            // now build up the var attribute name lookup map
             unsafe fn populate_var_attname_lookup(
                 lookup: &mut HashMap<(i32, pg_sys::AttrNumber), String>,
                 iter: impl Iterator<Item = *mut pg_sys::Node>,
@@ -375,10 +315,15 @@ impl CustomScan for PdbScan {
                 Some(())
             }
 
-            let var_attname_lookup = private_data
+            let var_attname_lookup = builder
+                .custom_private()
                 .var_attname_lookup()
                 .expect("should have an attribute name lookup");
-            assert_eq!(var_attname_lookup.len() % 3, 0);
+            assert_eq!(
+                var_attname_lookup.len() % 3,
+                0,
+                "correct number of var_attname_lookup entries"
+            );
 
             if populate_var_attname_lookup(
                 &mut builder.custom_state().var_attname_lookup,
@@ -397,16 +342,13 @@ impl CustomScan for PdbScan {
             );
             let node = builder.target_list().as_ptr().cast();
             let snippet_funcoid = builder.custom_state().snippet_funcoid;
+            let rti = builder.custom_state().rti;
             let attname_lookup = &builder.custom_state().var_attname_lookup;
-            builder.custom_state().snippet_generators = uses_snippets(
-                private_data.range_table_index().unwrap(),
-                attname_lookup,
-                node,
-                snippet_funcoid,
-            )
-            .into_iter()
-            .map(|field| (field, None))
-            .collect();
+            builder.custom_state().snippet_generators =
+                uses_snippets(rti, attname_lookup, node, snippet_funcoid)
+                    .into_iter()
+                    .map(|field| (field, None))
+                    .collect();
 
             builder.build()
         }
@@ -417,11 +359,33 @@ impl CustomScan for PdbScan {
         ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
-        explainer.add_text("Table", state.custom_state.heaprelname());
-        explainer.add_text("Index", &state.custom_state.index_name);
-        explainer.add_bool("Scores", state.custom_state.need_scores());
+        explainer.add_text("Table", state.custom_state().heaprelname());
+        explainer.add_text("Index", &state.custom_state().index_name);
+        if explainer.is_analyze() && state.custom_state().invisible_tuple_count > 0 {
+            explainer.add_unsigned_integer(
+                "Invisible Tuples",
+                state.custom_state().invisible_tuple_count as u64,
+                None,
+            );
+        }
 
-        let query = &state.custom_state.search_config.query;
+        explainer.add_bool("Scores", state.custom_state().need_scores());
+        if let (Some(sort_direction), Some(limit)) = (
+            state.custom_state().sort_direction,
+            state.custom_state().limit,
+        ) {
+            explainer.add_text("   Sort Direction", sort_direction);
+            explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
+            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+                explainer.add_unsigned_integer(
+                    "   Invisible Tuple Retries",
+                    state.custom_state().retry_count as u64,
+                    None,
+                );
+            }
+        }
+
+        let query = &state.custom_state().search_config.query;
         let pretty_json = if explainer.is_verbose() {
             serde_json::to_string_pretty(&query)
         } else {
@@ -443,24 +407,23 @@ impl CustomScan for PdbScan {
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
             let heaprel = pg_sys::relation_open(state.custom_state().heaprelid, lockmode);
             let indexrel = pg_sys::relation_open(state.custom_state().indexrelid, lockmode);
-            state.custom_state().heaprel = Some(heaprel);
-            state.custom_state().indexrel = Some(indexrel);
-            state.custom_state().lockmode = lockmode;
+            state.custom_state_mut().heaprel = Some(heaprel);
+            state.custom_state_mut().indexrel = Some(indexrel);
+            state.custom_state_mut().lockmode = lockmode;
 
             // setup the structures we need to do mvcc checking
-            state.custom_state().snapshot = Some(pg_sys::GetActiveSnapshot());
-            state.custom_state().visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
-                heaprel,
-                pg_sys::GetActiveSnapshot(),
-            ));
+            state.custom_state_mut().snapshot = Some(pg_sys::GetActiveSnapshot());
+            state.custom_state_mut().visibility_checker = Some(
+                VisibilityChecker::with_rel_and_snap(heaprel, pg_sys::GetActiveSnapshot()),
+            );
 
             // and finally, get the custom scan itself properly initialized
-            let tupdesc = state.custom_state.heaptupdesc();
+            let tupdesc = state.custom_state().heaptupdesc();
             pg_sys::ExecInitScanTupleSlot(
                 estate,
                 addr_of_mut!(state.csstate.ss),
                 tupdesc,
-                pg_sys::table_slot_callbacks(state.custom_state.heaprel()),
+                pg_sys::table_slot_callbacks(state.custom_state().heaprel()),
             );
             pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
             pg_sys::ExecAssignProjectionInfo(
@@ -469,121 +432,55 @@ impl CustomScan for PdbScan {
             );
         }
 
+        if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
+            // don't do anything else if we're only explaining the query
+            return;
+        }
+
         PdbScan::rescan_custom_scan(state)
     }
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        let scan_func = unsafe {
+            // extra help during debugging is cool
+            debug_assert!(
+                state.custom_state().scan_func.is_some(),
+                "exec_custom_scan: scan_func should be set"
+            );
+            // SAFETY:  we assign the scan_func down in rescan_custom_scan() and assert there that it's valid
+            *state.custom_state().scan_func.as_ref().unwrap_unchecked()
+        };
         loop {
             // get the next matching document from our search results and look for it in the heap
-            let (scored, slot) = match state.custom_state().search_results.next() {
-                // we've returned all the matching results
-                None => return std::ptr::null_mut(),
+            match scan_func(state, unsafe {
+                state.custom_state().inner_scan_state.unwrap_unchecked()
+            }) {
+                // reached the end of the SearchResults
+                ExecState::Eof => return std::ptr::null_mut(),
 
-                // need to fetch the returned ctid from the heap and store its heap representation
-                // in a TupleTableSlow
-                Some((scored, _)) => {
-                    let scanslot = state.scanslot();
-                    let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
-                    let heaprelid = state.custom_state().heaprelid;
+                // SearchResults returned a tuple we can't see
+                ExecState::Invisible { .. } => {
+                    state.custom_state_mut().invisible_tuple_count += 1;
+                    continue;
+                }
 
-                    // ask the visibility checker to find the document in the postgres heap
-                    match state.custom_state().visibility_checker().exec_if_visible(
-                        scored.ctid,
-                        move |htup, buffer| unsafe {
-                            (*bslot).base.base.tts_tableOid = heaprelid;
-                            (*bslot).base.tupdata = htup;
-                            (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
+                // SearchResults found the tuple
+                ExecState::Found {
+                    scored,
+                    doc_address,
+                    slot,
+                } => {
+                    unsafe {
+                        // project it if we need to
+                        let projection_info =
+                            maybe_rebuild_projinfo_for_const_projection(state, scored, doc_address);
 
-                            // materialize a heap tuple for it
-                            pg_sys::ExecStoreBufferHeapTuple(
-                                addr_of_mut!((*bslot).base.tupdata),
-                                bslot.cast(),
-                                buffer,
-                            )
-                        },
-                    ) {
-                        // ctid isn't visible, move to the next one
-                        None => continue,
-
-                        // we found the ctid in the heap
-                        Some(slot) => (scored, slot),
+                        // finally, do the projection
+                        (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
+                        return pg_sys::ExecProject(projection_info);
                     }
                 }
-            };
-
-            unsafe {
-                let mut projection_info = state.projection_info();
-                let rti = state.custom_state().rti;
-
-                projection_info = if state.custom_state().need_scores()
-                    || state.custom_state.need_snippets()
-                {
-                    // the query requires scores.  since we have it in `scored.bm25`, we inject
-                    // that constant value into every position in the Plan's TargetList that uses
-                    // our `paradedb.score(record)` function.  This is what `inject_scores()` does
-                    // and it returns a whole new TargetList.
-                    //
-                    // It's from that TargetList we build a new ProjectionInfo with the FuncExprs
-                    // replaced with the actual score f32 Const nodes.  Essentially we're manually
-                    // projecting the scores where they need to go
-                    let planstate = state.planstate();
-                    let projection_targetlist = (*(*planstate).plan).targetlist;
-
-                    let mut const_projected_targetlist = projection_targetlist;
-
-                    if state.custom_state().need_scores() {
-                        const_projected_targetlist = inject_scores(
-                            const_projected_targetlist.cast(),
-                            state.custom_state().score_funcoid,
-                            scored.bm25,
-                        )
-                        .cast();
-                    }
-                    if state.custom_state().need_snippets() {
-                        let snippet_funcoid = state.custom_state.snippet_funcoid;
-                        let search_reader = state.custom_state.search_reader.as_ref().expect(
-                            "CustomState should have a SearchIndexReader since it requires snippets",
-                        );
-                        for (snippet_info, generator) in &mut state.custom_state.snippet_generators
-                        {
-                            const_projected_targetlist = inject_snippet(
-                                rti,
-                                &state.custom_state.var_attname_lookup,
-                                const_projected_targetlist.cast(),
-                                snippet_funcoid,
-                                search_reader,
-                                &snippet_info.field,
-                                &snippet_info.start_tag,
-                                &snippet_info.end_tag,
-                                snippet_info.max_num_chars,
-                                generator
-                                    .as_mut()
-                                    .expect("SnippetGenerator should have been created"),
-                                scored
-                                    .doc_address
-                                    .expect("should have generated a DocAddress"),
-                            )
-                            .cast();
-                        }
-                    }
-
-                    // build the new ProjectionInfo based on our modified TargetList
-                    pg_sys::ExecBuildProjectionInfo(
-                        const_projected_targetlist.cast(),
-                        (*planstate).ps_ExprContext,
-                        (*planstate).ps_ResultTupleSlot,
-                        planstate,
-                        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
-                    )
-                } else {
-                    // scores aren't necessary so we use whatever we originally setup as our ProjectionInfo
-                    projection_info
-                };
-
-                // finally, do the projection
-                (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
-                return pg_sys::ExecProject(projection_info);
             }
         }
     }
@@ -591,15 +488,20 @@ impl CustomScan for PdbScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // get the VisibilityChecker dropped
-        state.custom_state().visibility_checker.take();
+        // get some things dropped now
+        drop(state.custom_state_mut().visibility_checker.take());
+        drop(state.custom_state_mut().search_reader.take());
+        drop(std::mem::take(
+            &mut state.custom_state_mut().snippet_generators,
+        ));
+        drop(std::mem::take(&mut state.custom_state_mut().search_results));
 
-        if let Some(heaprel) = state.custom_state().heaprel.take() {
+        if let Some(heaprel) = state.custom_state_mut().heaprel.take() {
             unsafe {
                 pg_sys::relation_close(heaprel, state.custom_state().lockmode);
             }
         }
-        if let Some(indexrel) = state.custom_state().indexrel.take() {
+        if let Some(indexrel) = state.custom_state_mut().indexrel.take() {
             unsafe {
                 pg_sys::relation_close(indexrel, state.custom_state().lockmode);
             }
@@ -607,10 +509,10 @@ impl CustomScan for PdbScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        let indexrelid = state.custom_state.indexrelid;
-        let need_scores = state.custom_state.need_scores();
-        let need_snippets = state.custom_state.need_snippets();
-        let search_config = &mut state.custom_state.search_config;
+        let indexrelid = state.custom_state().indexrelid;
+        let need_scores = state.custom_state().need_scores();
+        let need_snippets = state.custom_state().need_snippets();
+        let mut search_config = state.custom_state().search_config.clone();
 
         search_config.stable_sort = Some(false);
         search_config.need_scores = need_scores;
@@ -628,18 +530,187 @@ impl CustomScan for PdbScan {
             .get_reader()
             .expect("search index reader should have been constructed correctly");
 
-        let query = search_index.query(search_config, &search_reader);
-        state.custom_state.search_results =
-            search_reader.search_minimal(false, SearchIndex::executor(), search_config, &query);
+        state.custom_state_mut().query = Some(search_index.query(&search_config, &search_reader));
+        let search_results = if let (Some(limit), Some(sort_direction)) = (
+            state.custom_state().limit,
+            state.custom_state().sort_direction,
+        ) {
+            let results = search_reader.search_top_n(
+                SearchIndex::executor(),
+                state.custom_state().query.as_ref().unwrap(),
+                sort_direction.into(),
+                limit,
+            );
+            state.custom_state_mut().scan_func = Some(top_n_scan_exec);
+            state.custom_state_mut().inner_scan_state = unsafe {
+                let mut topn_state = TopNScanExecState::default();
+                topn_state.limit = results.len().unwrap();
+                topn_state.have_less = topn_state.limit < state.custom_state().limit.unwrap();
+                Some(
+                    PgMemoryContexts::CurrentMemoryContext
+                        .copy_ptr_into(&mut topn_state, std::mem::size_of::<TopNScanExecState>())
+                        .cast(),
+                )
+            };
+            results
+        } else {
+            let results = search_reader.search_minimal(
+                false,
+                SearchIndex::executor(),
+                &search_config,
+                state.custom_state().query.as_ref().unwrap(),
+            );
+            state.custom_state_mut().scan_func = Some(normal_scan_exec);
+            state.custom_state_mut().inner_scan_state = Some(std::ptr::null_mut());
+            results
+        };
+
+        state.custom_state_mut().search_results = search_results;
+
+        assert!(
+            state.custom_state().scan_func.is_some(),
+            "CustomScan scan_func should be set"
+        );
+        assert!(
+            state.custom_state().inner_scan_state.is_some(),
+            "CustomScan inner_scan_state should be set"
+        );
 
         if need_snippets {
-            for (snippet_info, generator) in state.custom_state.snippet_generators.iter_mut() {
-                *generator =
-                    Some(search_reader.snippet_generator(snippet_info.field.as_ref(), &query))
+            let mut snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>> = state
+                .custom_state_mut()
+                .snippet_generators
+                .drain()
+                .collect();
+            let query = &state.custom_state().query.as_ref().unwrap();
+            for (snippet_info, generator) in &mut snippet_generators {
+                let mut new_generator =
+                    search_reader.snippet_generator(snippet_info.field.as_ref(), *query);
+                new_generator.set_max_num_chars(snippet_info.max_num_chars);
+                *generator = Some(new_generator);
             }
-            state.custom_state.search_reader = Some(search_reader);
+
+            state.custom_state_mut().snippet_generators = snippet_generators;
+        }
+
+        state.custom_state_mut().search_reader = Some(search_reader);
+    }
+}
+
+/// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
+/// and if it exists return a formed [`TupleTableSlot`].
+#[inline(always)]
+fn make_tuple_table_slot(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    scored: &SearchIndexScore,
+    bslot: *mut pg_sys::BufferHeapTupleTableSlot,
+) -> Option<*mut pg_sys::TupleTableSlot> {
+    state
+        .custom_state_mut()
+        .visibility_checker()
+        .exec_if_visible(scored.ctid, move |heaprelid, htup, buffer| unsafe {
+            (*bslot).base.base.tts_tableOid = heaprelid;
+            (*bslot).base.tupdata = htup;
+            (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
+
+            // materialize a heap tuple for it
+            pg_sys::ExecStoreBufferHeapTuple(
+                addr_of_mut!((*bslot).base.tupdata),
+                bslot.cast(),
+                buffer,
+            )
+        })
+}
+
+unsafe fn maybe_rebuild_projinfo_for_const_projection(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    scored: SearchIndexScore,
+    doc_address: DocAddress,
+) -> *mut pg_sys::ProjectionInfo {
+    if !state.custom_state().need_scores() && !state.custom_state().need_snippets() {
+        // scores/snippets aren't necessary so we use whatever we originally setup as our ProjectionInfo
+        return state.projection_info();
+    }
+
+    // the query requires scores.  since we have it in `scored.bm25`, we inject
+    // that constant value into every position in the Plan's TargetList that uses
+    // our `paradedb.score(record)` function.  This is what `inject_scores()` does
+    // and it returns a whole new TargetList.
+    //
+    // It's from that TargetList we build a new ProjectionInfo with the FuncExprs
+    // replaced with the actual score f32 Const nodes.  Essentially we're manually
+    // projecting the scores where they need to go
+    let planstate = state.planstate();
+    let projection_targetlist = (*(*planstate).plan).targetlist;
+
+    let mut const_projected_targetlist = projection_targetlist;
+
+    if state.custom_state().need_scores() {
+        const_projected_targetlist = inject_scores(
+            const_projected_targetlist.cast(),
+            state.custom_state().score_funcoid,
+            scored.bm25,
+        )
+        .cast();
+    }
+    if state.custom_state().need_snippets() {
+        let snippet_funcoid = state.custom_state().snippet_funcoid;
+        let search_state = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .expect("CustomState should hae a SearchState since it requires snippets");
+        for (snippet_info, generator) in &state.custom_state().snippet_generators {
+            const_projected_targetlist = inject_snippet(
+                state.custom_state().rti,
+                &state.custom_state().var_attname_lookup,
+                const_projected_targetlist.cast(),
+                snippet_funcoid,
+                search_state,
+                &snippet_info.field,
+                &snippet_info.start_tag,
+                &snippet_info.end_tag,
+                generator
+                    .as_ref()
+                    .expect("SnippetGenerator should have been created"),
+                doc_address,
+            )
+            .cast();
         }
     }
+
+    // build the new ProjectionInfo based on our modified TargetList
+    pg_sys::ExecBuildProjectionInfo(
+        const_projected_targetlist.cast(),
+        (*planstate).ps_ExprContext,
+        (*planstate).ps_ResultTupleSlot,
+        planstate,
+        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+    )
+}
+
+unsafe fn pullup_ordery_by_score_pathkey<P: Into<*mut pg_sys::List> + Default>(
+    builder: &mut CustomPathBuilder<P>,
+    rti: pg_sys::Index,
+) -> Option<*mut pg_sys::PathKey> {
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
+    let mut pathkey = None;
+    if let Some(first_pathkey) = pathkeys.get_ptr(0) {
+        let equivclass = (*first_pathkey).pk_eclass;
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+        for member in members.iter_ptr() {
+            if is_score_func((*member).em_expr.cast(), rti as _) {
+                pathkey = Some(first_pathkey);
+                break;
+            }
+        }
+    }
+    pathkey
+}
+
+unsafe fn pathkey_sort_direction(pathkey: Option<*mut pg_sys::PathKey>) -> Option<SortDirection> {
+    pathkey.map(|pathkey| (*pathkey).pk_strategy.into())
 }
 
 fn tts_ops_name(slot: *mut pg_sys::TupleTableSlot) -> &'static str {

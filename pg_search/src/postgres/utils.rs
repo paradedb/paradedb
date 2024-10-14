@@ -220,10 +220,10 @@ impl VisibilityChecker {
     /// Returns true if the specified 64bit ctid is visible by the backing snapshot in the backing
     /// relation
     pub fn ctid_satisfies_snapshot(&mut self, ctid: u64) -> bool {
-        self.exec_if_visible(ctid, |_, _| ()).is_some()
+        self.exec_if_visible(ctid, |_, _, _| ()).is_some()
     }
 
-    pub fn exec_if_visible<T, F: FnMut(pg_sys::HeapTupleData, pg_sys::Buffer) -> T>(
+    pub fn exec_if_visible<T, F: FnMut(pg_sys::Oid, pg_sys::HeapTupleData, pg_sys::Buffer) -> T>(
         &mut self,
         ctid: u64,
         mut func: F,
@@ -246,7 +246,7 @@ impl VisibilityChecker {
 
                 LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_SHARE as _);
                 let (found, htup) = self.check_page_vis(self.last_buffer);
-                let result = found.then(|| func(htup, self.last_buffer));
+                let result = found.then(|| func((*self.relation).rd_id, htup, self.last_buffer));
                 LockBuffer(self.last_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
                 result
             })

@@ -20,6 +20,7 @@ use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
+use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
@@ -34,12 +35,20 @@ use tracing::debug;
 
 const CACHE_NUM_BLOCKS: usize = 10;
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
 /// An iterator of the different styles of search results we can return
 #[derive(Default)]
 pub enum SearchResults {
     #[default]
     None,
-    AllFeatures(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+    AllFeatures(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+
+    TopN(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
 
     #[allow(clippy::type_complexity)]
     FastPath(
@@ -53,8 +62,15 @@ impl Debug for SearchResults {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SearchResults::None => write!(f, "SearchResults::None"),
-            SearchResults::AllFeatures(iter) => {
-                write!(f, "SearchResults::AllFeatures({:?})", iter.size_hint())
+            SearchResults::AllFeatures(count, iter) => {
+                write!(
+                    f,
+                    "SearchResults::AllFeatures({count}, {:?})",
+                    iter.size_hint()
+                )
+            }
+            SearchResults::TopN(count, iter) => {
+                write!(f, "SearchResults::TopN({count}, {:?})", iter.size_hint())
             }
             SearchResults::FastPath(iter) => {
                 write!(f, "SearchResults::FastPath({:?})", iter.size_hint())
@@ -70,7 +86,8 @@ impl Iterator for SearchResults {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             SearchResults::None => None,
-            SearchResults::AllFeatures(iter) => iter.next(),
+            SearchResults::AllFeatures(_, iter) => iter.next(),
+            SearchResults::TopN(_, iter) => iter.next(),
             SearchResults::FastPath(iter) => iter
                 .next()
                 .map(|result| result.unwrap_or_else(|e| panic!("{e}"))),
@@ -81,7 +98,8 @@ impl Iterator for SearchResults {
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
             SearchResults::None => (0, Some(0)),
-            SearchResults::AllFeatures(iter) => iter.size_hint(),
+            SearchResults::AllFeatures(_, iter) => iter.size_hint(),
+            SearchResults::TopN(_, iter) => iter.size_hint(),
             SearchResults::FastPath(iter) => iter.size_hint(),
         }
     }
@@ -93,8 +111,20 @@ impl Iterator for SearchResults {
     {
         match self {
             SearchResults::None => 0,
-            SearchResults::AllFeatures(iter) => iter.count(),
+            SearchResults::AllFeatures(count, _) => count,
+            SearchResults::TopN(count, _) => count,
             SearchResults::FastPath(iter) => iter.count(),
+        }
+    }
+}
+
+impl SearchResults {
+    pub fn len(&self) -> Option<usize> {
+        match self {
+            SearchResults::None => Some(0),
+            SearchResults::AllFeatures(count, _) => Some(*count),
+            SearchResults::TopN(count, _) => Some(*count),
+            SearchResults::FastPath(_) => None,
         }
     }
 }
@@ -206,7 +236,8 @@ impl SearchIndexReader {
         config: &SearchConfig,
         query: &dyn Query,
     ) -> SearchResults {
-        SearchResults::AllFeatures(self.search_with_top_docs(executor, true, config, query))
+        let results = self.search_with_top_docs(executor, true, config, query);
+        SearchResults::AllFeatures(results.len(), results.into_iter())
     }
 
     /// Search the Tantivy index for matching documents.
@@ -246,9 +277,78 @@ impl SearchIndexReader {
             // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
             // including retrieving the key field
             _ => {
-                SearchResults::AllFeatures(self.search_with_top_docs(executor, true, config, query))
+                let results = self.search_with_top_docs(executor, true, config, query);
+                SearchResults::AllFeatures(results.len(), results.into_iter())
             }
         }
+    }
+
+    pub fn search_top_n(
+        &self,
+        executor: &'static Executor,
+        query: &dyn Query,
+        sortdir: SortDirection,
+        n: usize,
+    ) -> SearchResults {
+        #[derive(PartialEq, Clone)]
+        struct OrderedScore {
+            dir: SortDirection,
+            score: Score,
+        }
+
+        impl PartialOrd for OrderedScore {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                let cmp = self.score.partial_cmp(&other.score);
+                match self.dir {
+                    SortDirection::Desc => cmp,
+                    SortDirection::Asc => cmp.map(|o| o.reverse()),
+                }
+            }
+        }
+
+        let collector = TopDocs::with_limit(n).tweak_score(move |_: &tantivy::SegmentReader| {
+            move |_: DocId, original_score: Score| OrderedScore {
+                dir: sortdir,
+                score: original_score,
+            }
+        });
+
+        let results = self
+            .searcher
+            .search_with_executor(
+                query,
+                &collector,
+                executor,
+                tantivy::query::EnableScoring::Enabled {
+                    searcher: &self.searcher,
+                    statistics_provider: &self.searcher,
+                },
+            )
+            .expect("failed to search")
+            .into_iter();
+
+        let mut top_docs = Vec::with_capacity(results.len());
+        for (OrderedScore { score, .. }, doc_address) in results {
+            let segment_reader = self.searcher.segment_reader(doc_address.segment_ord);
+            let fast_fields = segment_reader.fast_fields();
+            let ctid_ff = FFType::new(fast_fields, "ctid");
+
+            let ctid = ctid_ff
+                .as_u64(doc_address.doc_id)
+                .expect("DocId should have a ctid");
+
+            let scored = SearchIndexScore {
+                bm25: score,
+                key: None,
+                ctid,
+                order_by: None,
+                sort_asc: false,
+            };
+
+            top_docs.push((scored, doc_address));
+        }
+
+        SearchResults::TopN(top_docs.len(), top_docs.into_iter())
     }
 
     fn search_via_channel(
@@ -297,7 +397,7 @@ impl SearchIndexReader {
         include_key: bool,
         config: &SearchConfig,
         query: &dyn Query,
-    ) -> std::vec::IntoIter<(SearchIndexScore, DocAddress)> {
+    ) -> Vec<(SearchIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = config.limit_rows.unwrap_or_else(|| {
             // We use unwrap_or_else here so this block doesn't run unless
@@ -331,7 +431,6 @@ impl SearchIndexReader {
                     ctid: ctid_ff
                         .as_u64(doc)
                         .expect("expected the `ctid` field to be a u64"),
-                    doc_address: None,
 
                     order_by: orderby_ff.as_ref().map(|fftype| fftype.value(doc)),
                     sort_asc,
@@ -350,7 +449,6 @@ impl SearchIndexReader {
                 },
             )
             .expect("failed to search")
-            .into_iter()
     }
 
     pub fn estimate_docs(&self, query: &dyn Query) -> Option<usize> {
@@ -568,8 +666,6 @@ mod collector {
                     bm25: score,
                     key,
                     ctid,
-                    doc_address: Some(doc_address),
-
                     order_by: None,
                     sort_asc: false,
                 };

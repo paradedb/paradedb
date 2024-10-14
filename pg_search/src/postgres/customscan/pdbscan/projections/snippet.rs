@@ -112,7 +112,7 @@ pub unsafe fn uses_snippets(
                         max_num_chars: max_num_chars_arg as usize,
                     });
                 } else {
-                    panic!("`paradedb.snippet()`'s field and (optional) tag arguments must be text literals")
+                    panic!("`paradedb.snippet()`'s arguments must be literals")
                 }
             }
         }
@@ -141,8 +141,7 @@ pub unsafe fn inject_snippet(
     field: &str,
     start: &str,
     end: &str,
-    max_num_chars: usize,
-    snippet_generator: &mut SnippetGenerator,
+    snippet_generator: &SnippetGenerator,
     doc_address: DocAddress,
 ) -> *mut pg_sys::Node {
     struct Context<'a> {
@@ -153,8 +152,7 @@ pub unsafe fn inject_snippet(
         field: &'a str,
         start: &'a str,
         end: &'a str,
-        max_num_chars: usize,
-        snippet_generator: &'a mut SnippetGenerator,
+        snippet_generator: &'a SnippetGenerator,
         doc_address: DocAddress,
     }
 
@@ -186,10 +184,6 @@ pub unsafe fn inject_snippet(
                             .search_reader
                             .get_doc((*context).doc_address)
                             .expect("should be able to retrieve doc for snippet generation");
-
-                        (*context)
-                            .snippet_generator
-                            .set_max_num_chars((*context).max_num_chars);
 
                         let mut snippet = (*context).snippet_generator.snippet_from_doc(&doc);
                         snippet.set_snippet_prefix_postfix((*context).start, (*context).end);
@@ -230,7 +224,6 @@ pub unsafe fn inject_snippet(
         field,
         start,
         end,
-        max_num_chars,
         snippet_generator,
         doc_address,
     };

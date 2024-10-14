@@ -42,6 +42,37 @@ const TARGET_NUMERIC_UPPER_BOUNDS: [&str; 1] = ["10.5"];
 const QUERY_NUMERIC_LOWER_BOUNDS: [&str; 3] = ["1.5", "2.5", "3.5"];
 const QUERY_NUMERIC_UPPER_BOUNDS: [&str; 3] = ["9.5", "10.5", "11.5"];
 
+const TARGET_DATE_LOWER_BOUNDS: [&str; 2] = ["2021-01-01", "2021-01-10"];
+const TARGET_DATE_UPPER_BOUNDS: [&str; 1] = ["2021-01-10"];
+const QUERY_DATE_LOWER_BOUNDS: [&str; 3] = ["2020-12-31", "2021-01-01", "2021-01-02"];
+const QUERY_DATE_UPPER_BOUNDS: [&str; 3] = ["2021-01-09", "2021-01-10", "2021-01-11"];
+
+const TARGET_TIMESTAMP_LOWER_BOUNDS: [&str; 2] = ["2021-01-01T00:00:00Z", "2021-01-10T00:00:00Z"];
+const TARGET_TIMESTAMP_UPPER_BOUNDS: [&str; 1] = ["2021-01-10T00:00:00Z"];
+const QUERY_TIMESTAMP_LOWER_BOUNDS: [&str; 3] = [
+    "2020-12-31T23:59:59Z",
+    "2021-01-01T00:00:00Z",
+    "2021-01-01T00:00:01Z",
+];
+const QUERY_TIMESTAMP_UPPER_BOUNDS: [&str; 3] = [
+    "2021-01-09T23:59:59Z",
+    "2021-01-10T00:00:00Z",
+    "2021-01-10T00:00:01Z",
+];
+
+const TARGET_TIMESTAMPTZ_LOWER_BOUNDS: [&str; 2] = ["2021-01-01T00:00:00+02:00", "2021-01-10T00:00:00+02:00"];
+const TARGET_TIMESTAMPTZ_UPPER_BOUNDS: [&str; 1] = ["2021-01-10T00:00:00+02:00"];
+const QUERY_TIMESTAMPTZ_LOWER_BOUNDS: [&str; 3] = [
+    "2021-01-01T00:00:00+02:00",
+    "2021-01-01T00:00:00Z",
+    "2021-01-01T00:00:00-02:00",
+];
+const QUERY_TIMESTAMPTZ_UPPER_BOUNDS: [&str; 3] = [
+    "2021-01-10T00:00:00+02:00",
+    "2021-01-10T00:00:00Z",
+    "2021-01-10T00:00:00-02:00",
+];
+
 #[derive(Clone, Debug, EnumIter, PartialEq)]
 enum BoundType {
     Included,
@@ -250,6 +281,48 @@ async fn range_term_contains_numrange(mut conn: PgConnection) {
         &TARGET_NUMERIC_UPPER_BOUNDS,
         &QUERY_NUMERIC_LOWER_BOUNDS,
         &QUERY_NUMERIC_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_contains_daterange(mut conn: PgConnection) {
+    test_range_contains(
+        &mut conn,
+        "deliveries",
+        "ship_dates",
+        "daterange",
+        &TARGET_DATE_LOWER_BOUNDS,
+        &TARGET_DATE_UPPER_BOUNDS,
+        &QUERY_DATE_LOWER_BOUNDS,
+        &QUERY_DATE_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_contains_tsrange(mut conn: PgConnection) {
+    test_range_contains(
+        &mut conn,
+        "deliveries",
+        "facility_arrival_times",
+        "tsrange",
+        &TARGET_TIMESTAMP_LOWER_BOUNDS,
+        &TARGET_TIMESTAMP_UPPER_BOUNDS,
+        &QUERY_TIMESTAMP_LOWER_BOUNDS,
+        &QUERY_TIMESTAMP_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_contains_tstzrange(mut conn: PgConnection) {
+    test_range_contains(
+        &mut conn,
+        "deliveries",
+        "delivery_times",
+        "tstzrange",
+        &TARGET_TIMESTAMPTZ_LOWER_BOUNDS,
+        &TARGET_TIMESTAMPTZ_UPPER_BOUNDS,
+        &QUERY_TIMESTAMPTZ_LOWER_BOUNDS,
+        &QUERY_TIMESTAMPTZ_UPPER_BOUNDS,
     );
 }
 

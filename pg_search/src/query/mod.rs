@@ -710,7 +710,9 @@ impl SearchQueryInput {
                             ]))),
                         ))
                     }
-                    _ => satisfies_lower_bound.push((Occur::Should, Box::new(range_field.exists()?))),
+                    _ => {
+                        satisfies_lower_bound.push((Occur::Should, Box::new(range_field.exists()?)))
+                    }
                 }
 
                 match upper_bound {
@@ -765,7 +767,9 @@ impl SearchQueryInput {
                             ),
                         ]))),
                     )),
-                    _ => satisfies_upper_bound.push((Occur::Should, Box::new(range_field.exists()?))),
+                    _ => {
+                        satisfies_upper_bound.push((Occur::Should, Box::new(range_field.exists()?)))
+                    }
                 }
 
                 let satisfies_lower_bound = BooleanQuery::new(vec![

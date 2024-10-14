@@ -21,11 +21,13 @@ use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::postgres::types::PgRange;
+use sqlx::types::time::{Date, OffsetDateTime, PrimitiveDateTime};
 use sqlx::PgConnection;
 use std::fmt::{Debug, Display};
 use std::ops::Bound;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+use time::macros::{date, datetime};
 
 const TARGET_INT4_LOWER_BOUNDS: [i32; 2] = [2, 10];
 const TARGET_INT4_UPPER_BOUNDS: [i32; 1] = [10];
@@ -42,36 +44,75 @@ const TARGET_NUMERIC_UPPER_BOUNDS: [f64; 1] = [10.5];
 const QUERY_NUMERIC_LOWER_BOUNDS: [f64; 7] = [-10.5, 1.5, 2.5, 3.5, 9.5, 10.5, 11.5];
 const QUERY_NUMERIC_UPPER_BOUNDS: [f64; 8] = [-10.5, 1.5, 2.5, 3.5, 9.5, 10.5, 11.5, 12.5];
 
-const TARGET_DATE_LOWER_BOUNDS: [&str; 2] = ["2021-01-01", "2021-01-10"];
-const TARGET_DATE_UPPER_BOUNDS: [&str; 1] = ["2021-01-10"];
-const QUERY_DATE_LOWER_BOUNDS: [&str; 3] = ["2020-12-31", "2021-01-01", "2021-01-02"];
-const QUERY_DATE_UPPER_BOUNDS: [&str; 3] = ["2021-01-09", "2021-01-10", "2021-01-11"];
+const TARGET_DATE_LOWER_BOUNDS: [Date; 2] = [date!(2021 - 01 - 01), date!(2021 - 01 - 10)];
+const TARGET_DATE_UPPER_BOUNDS: [Date; 1] = [date!(2021 - 01 - 10)];
+const QUERY_DATE_LOWER_BOUNDS: [Date; 7] = [
+    date!(2020 - 12 - 01),
+    date!(2020 - 12 - 31),
+    date!(2021 - 01 - 01),
+    date!(2021 - 01 - 02),
+    date!(2021 - 01 - 09),
+    date!(2021 - 01 - 10),
+    date!(2021 - 01 - 11),
+];
+const QUERY_DATE_UPPER_BOUNDS: [Date; 8] = [
+    date!(2020 - 12 - 01),
+    date!(2020 - 12 - 31),
+    date!(2021 - 01 - 01),
+    date!(2021 - 01 - 02),
+    date!(2021 - 01 - 09),
+    date!(2021 - 01 - 10),
+    date!(2021 - 01 - 11),
+    date!(2021 - 01 - 12),
+];
 
-const TARGET_TIMESTAMP_LOWER_BOUNDS: [&str; 2] = ["2021-01-01T00:00:00Z", "2021-01-10T00:00:00Z"];
-const TARGET_TIMESTAMP_UPPER_BOUNDS: [&str; 1] = ["2021-01-10T00:00:00Z"];
-const QUERY_TIMESTAMP_LOWER_BOUNDS: [&str; 3] = [
-    "2020-12-31T23:59:59Z",
-    "2021-01-01T00:00:00Z",
-    "2021-01-01T00:00:01Z",
+const TARGET_TIMESTAMP_LOWER_BOUNDS: [PrimitiveDateTime; 2] =
+    [datetime!(2019-01-01 0:00), datetime!(2019-01-10 0:00)];
+const TARGET_TIMESTAMP_UPPER_BOUNDS: [PrimitiveDateTime; 1] = [datetime!(2019-01-10 0:00)];
+const QUERY_TIMESTAMP_LOWER_BOUNDS: [PrimitiveDateTime; 7] = [
+    datetime!(2018-12-31 23:59:59),
+    datetime!(2018-12-31 23:59:59),
+    datetime!(2019-01-01 0:00:00),
+    datetime!(2019-01-01 0:00:01),
+    datetime!(2019-01-09 23:59:59),
+    datetime!(2019-01-10 0:00:00),
+    datetime!(2019-01-10 0:00:01),
 ];
-const QUERY_TIMESTAMP_UPPER_BOUNDS: [&str; 3] = [
-    "2021-01-09T23:59:59Z",
-    "2021-01-10T00:00:00Z",
-    "2021-01-10T00:00:01Z",
+const QUERY_TIMESTAMP_UPPER_BOUNDS: [PrimitiveDateTime; 8] = [
+    datetime!(2018-12-31 23:59:59),
+    datetime!(2018-12-31 23:59:59),
+    datetime!(2019-01-01 0:00:00),
+    datetime!(2019-01-01 0:00:01),
+    datetime!(2019-01-09 23:59:59),
+    datetime!(2019-01-10 0:00:00),
+    datetime!(2019-01-10 0:00:01),
+    datetime!(2019-01-11 0:00:00),
 ];
 
-const TARGET_TIMESTAMPTZ_LOWER_BOUNDS: [&str; 2] =
-    ["2021-01-01T00:00:00+02:00", "2021-01-10T00:00:00+02:00"];
-const TARGET_TIMESTAMPTZ_UPPER_BOUNDS: [&str; 1] = ["2021-01-10T00:00:00+02:00"];
-const QUERY_TIMESTAMPTZ_LOWER_BOUNDS: [&str; 3] = [
-    "2021-01-01T00:00:00+02:00",
-    "2021-01-01T00:00:00Z",
-    "2021-01-01T00:00:00-02:00",
+const TARGET_TIMESTAMPTZ_LOWER_BOUNDS: [OffsetDateTime; 2] = [
+    datetime!(2021-01-01 00:00:00 +02:00),
+    datetime!(2021-01-10 00:00:00 +02:00),
 ];
-const QUERY_TIMESTAMPTZ_UPPER_BOUNDS: [&str; 3] = [
-    "2021-01-10T00:00:00+02:00",
-    "2021-01-10T00:00:00Z",
-    "2021-01-10T00:00:00-02:00",
+const TARGET_TIMESTAMPTZ_UPPER_BOUNDS: [OffsetDateTime; 1] =
+    [datetime!(2021-01-10 00:00:00 +02:00)];
+const QUERY_TIMESTAMPTZ_LOWER_BOUNDS: [OffsetDateTime; 7] = [
+    datetime!(2020-12-30 23:59:59 UTC),
+    datetime!(2021-01-01 00:00:00 +02:00),
+    datetime!(2021-01-01 00:00:00 UTC),
+    datetime!(2021-01-01 00:00:00 -02:00),
+    datetime!(2021-01-10 00:00:00 +02:00),
+    datetime!(2021-01-10 00:00:00 UTC),
+    datetime!(2021-01-10 00:00:00 -02:00),
+];
+const QUERY_TIMESTAMPTZ_UPPER_BOUNDS: [OffsetDateTime; 8] = [
+    datetime!(2020-12-30 23:59:59 UTC),
+    datetime!(2021-01-01 00:00:00 +02:00),
+    datetime!(2021-01-01 00:00:00 UTC),
+    datetime!(2021-01-01 00:00:00 -02:00),
+    datetime!(2021-01-10 00:00:00 +02:00),
+    datetime!(2021-01-10 00:00:00 UTC),
+    datetime!(2021-01-10 00:00:00 -02:00),
+    datetime!(2021-01-11 00:00:00 +02:00),
 ];
 
 #[derive(Clone, Debug, EnumIter, PartialEq)]

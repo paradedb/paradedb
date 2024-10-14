@@ -56,6 +56,7 @@ where
     <S as TryFrom<T>>::Error: std::fmt::Debug,
 {
     fn from_range(val: pgrx::Range<T>) -> Result<TantivyValue, TantivyValueError> {
+        pgrx::info!("Converting range to Tantivy value");
         match val.is_empty() {
             true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
                 serde_json::to_value(TantivyRangeBuilder::<T>::new().empty(true).build())?,

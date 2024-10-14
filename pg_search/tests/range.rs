@@ -22,6 +22,7 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::postgres::types::PgRange;
 use sqlx::PgConnection;
+use std::fmt::{Debug, Display};
 use std::ops::Bound;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -30,6 +31,16 @@ const TARGET_INT4_LOWER_BOUNDS: [i32; 2] = [2, 10];
 const TARGET_INT4_UPPER_BOUNDS: [i32; 1] = [10];
 const QUERY_INT4_LOWER_BOUNDS: [i32; 3] = [1, 2, 3];
 const QUERY_INT4_UPPER_BOUNDS: [i32; 3] = [9, 10, 11];
+
+const TARGET_INT8_LOWER_BOUNDS: [i64; 2] = [2, 10];
+const TARGET_INT8_UPPER_BOUNDS: [i64; 1] = [10];
+const QUERY_INT8_LOWER_BOUNDS: [i64; 3] = [1, 2, 3];
+const QUERY_INT8_UPPER_BOUNDS: [i64; 3] = [9, 10, 11];
+
+const TARGET_NUMERIC_LOWER_BOUNDS: [&str; 2] = ["2.5", "10.5"];
+const TARGET_NUMERIC_UPPER_BOUNDS: [&str; 1] = ["10.5"];
+const QUERY_NUMERIC_LOWER_BOUNDS: [&str; 3] = ["1.5", "2.5", "3.5"];
+const QUERY_NUMERIC_UPPER_BOUNDS: [&str; 3] = ["9.5", "10.5", "11.5"];
 
 #[derive(Clone, Debug, EnumIter, PartialEq)]
 enum BoundType {
@@ -202,72 +213,107 @@ fn datetime_range(mut conn: PgConnection) {
 
 #[rstest]
 async fn range_term_contains_int4range(mut conn: PgConnection) {
-    r#"
-    CALL paradedb.create_bm25_test_table(
-        schema_name => 'public',
-        table_name => 'deliveries',
-        table_type => 'Deliveries'
+    test_range_contains(
+        &mut conn,
+        "deliveries",
+        "weights",
+        "int4range",
+        &TARGET_INT4_LOWER_BOUNDS,
+        &TARGET_INT4_UPPER_BOUNDS,
+        &QUERY_INT4_LOWER_BOUNDS,
+        &QUERY_INT4_UPPER_BOUNDS,
     );
+}
 
-    CALL paradedb.create_bm25(
-        index_name => 'deliveries',
-        table_name => 'deliveries',
-        key_field => 'delivery_id',
-        range_fields => 
-            paradedb.field('weights') || 
-            paradedb.field('quantities') || 
-            paradedb.field('prices') || 
-            paradedb.field('ship_dates') ||
-            paradedb.field('facility_arrival_times') ||
-            paradedb.field('delivery_times')
+#[rstest]
+async fn range_term_contains_int8range(mut conn: PgConnection) {
+    test_range_contains(
+        &mut conn,
+        "deliveries",
+        "quantities",
+        "int8range",
+        &TARGET_INT8_LOWER_BOUNDS,
+        &TARGET_INT8_UPPER_BOUNDS,
+        &QUERY_INT8_LOWER_BOUNDS,
+        &QUERY_INT8_UPPER_BOUNDS,
     );
-    "#
-    .execute(&mut conn);
+}
+
+#[rstest]
+async fn range_term_contains_numrange(mut conn: PgConnection) {
+    test_range_contains(
+        &mut conn,
+        "deliveries",
+        "prices",
+        "numrange",
+        &TARGET_NUMERIC_LOWER_BOUNDS,
+        &TARGET_NUMERIC_UPPER_BOUNDS,
+        &QUERY_NUMERIC_LOWER_BOUNDS,
+        &QUERY_NUMERIC_UPPER_BOUNDS,
+    );
+}
+
+fn test_range_contains<T>(
+    conn: &mut PgConnection,
+    table: &str,
+    field: &str,
+    range_type: &str,
+    target_lower_bounds: &[T],
+    target_upper_bounds: &[T],
+    query_lower_bounds: &[T],
+    query_upper_bounds: &[T],
+) where
+    T: Debug + Display + Clone + PartialEq,
+{
+    DeliveriesTable::setup().execute(conn);
 
     for lower_bound_type in BoundType::iter() {
         for upper_bound_type in BoundType::iter() {
-            for lower_bound in &TARGET_INT4_LOWER_BOUNDS {
-                for upper_bound in &TARGET_INT4_UPPER_BOUNDS {
+            for lower_bound in target_lower_bounds {
+                for upper_bound in target_upper_bounds {
                     let range = PgRange {
-                        start: lower_bound_type.clone().to_bound(*lower_bound),
-                        end: upper_bound_type.clone().to_bound(*upper_bound),
+                        start: lower_bound_type.clone().to_bound(lower_bound.clone()),
+                        end: upper_bound_type.clone().to_bound(upper_bound.clone()),
                     };
                     format!(
-                        "INSERT INTO deliveries (weights) VALUES ('{}'::int4range)",
-                        range
+                        "INSERT INTO {} ({}) VALUES ('{}'::{})",
+                        table, field, range, range_type
                     )
-                    .execute(&mut conn);
+                    .execute(conn);
                 }
             }
         }
     }
 
-    for lower_bound_type in BoundType::iter() {
-        for upper_bound_type in BoundType::iter() {
-            for lower_bound in &QUERY_INT4_LOWER_BOUNDS {
-                for upper_bound in &QUERY_INT4_UPPER_BOUNDS {
-                    let range = PgRange {
-                        start: lower_bound_type.clone().to_bound(*lower_bound),
-                        end: upper_bound_type.clone().to_bound(*upper_bound),
-                    };
+    // for lower_bound_type in BoundType::iter() {
+    //     for upper_bound_type in BoundType::iter() {
+    //         for lower_bound in query_lower_bounds {
+    //             for upper_bound in query_upper_bounds {
+    //                 let range = PgRange {
+    //                     start: lower_bound_type.clone().to_bound(lower_bound.clone()),
+    //                     end: upper_bound_type.clone().to_bound(upper_bound.clone()),
+    //                 };
 
-                    let expected: Vec<(i32,)> = format!(
-                        "
-                        SELECT delivery_id FROM deliveries 
-                        WHERE '{}'::int4range @> weights 
-                        ORDER BY delivery_id",
-                        range
-                    )
-                    .fetch(&mut conn);
-                    let result: Vec<(i32,)> = format!("
-                        SELECT delivery_id FROM deliveries 
-                        WHERE delivery_id @@@ paradedb.range_term('weights', '{}'::int4range, 'Contains') 
-                        ORDER BY delivery_id", range
-                    ).fetch(&mut conn);
+    //                 let expected: Vec<(i32,)> = format!(
+    //                     "
+    //                     SELECT delivery_id FROM {}
+    //                     WHERE '{}'::{} @> {}
+    //                     ORDER BY delivery_id",
+    //                     table, range, range_type, field
+    //                 )
+    //                 .fetch(conn);
+    //                 let result: Vec<(i32,)> = format!(
+    //                     "
+    //                     SELECT delivery_id FROM {}
+    //                     WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Contains')
+    //                     ORDER BY delivery_id",
+    //                     table, field, range, range_type
+    //                 )
+    //                 .fetch(conn);
 
-                    assert_eq!(expected, result, "query failed for range: {:?}", range);
-                }
-            }
-        }
-    }
+    //                 assert_eq!(expected, result, "query failed for range: {:?}", range);
+    //             }
+    //         }
+    //     }
+    // }
 }

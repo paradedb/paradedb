@@ -73,6 +73,7 @@ pub unsafe fn row_to_search_document(
     isnull: *mut bool,
     schema: &SearchIndexSchema,
 ) -> Result<SearchDocument, IndexError> {
+    info!("Converting row to search document");
     let mut document = schema.new_document();
 
     // Create a vector of index entries from the postgres row.
@@ -113,6 +114,7 @@ pub unsafe fn row_to_search_document(
             continue;
         }
 
+        info!("Adding field to document: {}", attname);
         if is_array {
             for value in TantivyValue::try_from_datum_array(datum, base_oid)? {
                 document.insert(search_field.id, value.tantivy_schema_value());
@@ -122,6 +124,7 @@ pub unsafe fn row_to_search_document(
                 document.insert(search_field.id, value.tantivy_schema_value());
             }
         } else {
+            info!("inserting");
             document.insert(
                 search_field.id,
                 TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),

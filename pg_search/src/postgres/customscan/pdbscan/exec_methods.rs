@@ -87,6 +87,7 @@ pub fn top_n_scan_exec(
                 None => {
                     if topn_state.found == topn_state.limit || topn_state.have_less {
                         // we found all the matching rows
+                        pgrx::warning!("EOF");
                         return ExecState::Eof;
                     }
                 }
@@ -129,7 +130,7 @@ pub fn top_n_scan_exec(
                 )
                 .unwrap();
 
-                (1.0 + (n_dead as f64 / (1.0 + n_live as f64))).floor() as usize
+                (1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))).ceil() as usize
             } else {
                 // we've already done chunking, so just use a default scaling factor
                 // to avoid exponentially growing the chunk size
@@ -140,6 +141,8 @@ pub fn top_n_scan_exec(
             topn_state.chunk_size = (topn_state.chunk_size * factor)
                 .max(topn_state.limit * factor)
                 .min(MAX_CHUNK_SIZE);
+
+            pgrx::warning!("chunk_size={}", topn_state.chunk_size);
 
             let mut results = state
                 .custom_state()
@@ -173,7 +176,10 @@ pub fn top_n_scan_exec(
                 Some(next) => Some(next),
 
                 // there wasn't one, so we've now read all possible matches
-                None => return ExecState::Eof,
+                None => {
+                    pgrx::warning!("EOF 2");
+                    return ExecState::Eof;
+                }
             };
 
             // we now have a new iterator of results to use going forward

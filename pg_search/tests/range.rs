@@ -173,3 +173,21 @@ fn datetime_range(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
 }
+
+#[rstest]
+fn empty_numrange(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE t (
+        id SERIAL PRIMARY KEY,
+        value numrange
+    );
+    INSERT INTO t (value) VALUES ('[10.5, 10.5)'::numrange);
+    CALL paradedb.create_bm25(
+        table_name => 't',
+        index_name => 't',
+        key_field => 'id',
+        range_fields => paradedb.field('value')
+    );
+    "#
+    .execute(&mut conn);
+}

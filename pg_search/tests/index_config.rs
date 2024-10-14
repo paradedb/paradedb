@@ -77,7 +77,7 @@ fn invalid_create_bm25(mut conn: PgConnection) {
     .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with invalid field"),
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: key_field id cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields")
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: key_field id cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields")
     };
 }
 
@@ -458,9 +458,11 @@ fn null_values(mut conn: PgConnection) {
     )"
     .execute(&mut conn);
 
-    let rows: Vec<(String, Option<String>, Option<i32>)> =
-        "SELECT description, category, rating FROM index_config.search('description:\"Null Item\"', stable_sort => true)"
-            .fetch(&mut conn);
+    let rows: Vec<(String, Option<String>, Option<i32>)> = "
+        SELECT description, category, rating
+        FROM paradedb.index_config WHERE index_config @@@ 'description:\"Null Item\"'
+        ORDER BY id"
+        .fetch(&mut conn);
 
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0], ("Null Item 1".into(), None, None));
@@ -469,7 +471,8 @@ fn null_values(mut conn: PgConnection) {
     // If incorrectly handled, false booleans can be mistaken as NULL values and ignored during indexing
     // This tests that false booleans are correctly indexed as such
     let rows: Vec<(bool,)> =
-        "SELECT in_stock FROM index_config.search('in_stock:false')".fetch(&mut conn);
+        "SELECT in_stock FROM paradedb.index_config WHERE index_config @@@ 'in_stock:false'"
+            .fetch(&mut conn);
 
     assert_eq!(rows.len(), 13);
 }
@@ -538,7 +541,8 @@ fn column_name_camelcase(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM index_config.search('ColumnName:keyboard')".fetch(&mut conn);
+        "SELECT * FROM paradedb.index_config WHERE index_config @@@ 'ColumnName:keyboard'"
+            .fetch(&mut conn);
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0], (1, "Plastic Keyboard".into()));
@@ -570,11 +574,13 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
     "COMMIT".execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM index_config1.search('description:item')".fetch(&mut conn);
+        "SELECT * FROM paradedb.index_config1 WHERE index_config1 @@@ 'description:item'"
+            .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 
     let rows: Vec<(i32, String)> =
-        "SELECT * FROM index_config2.search('description:item')".fetch(&mut conn);
+        "SELECT * FROM paradedb.index_config2 WHERE index_config2 @@@ 'description:item'"
+            .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 }
 

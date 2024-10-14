@@ -50,6 +50,27 @@ fn default_as_false() -> bool {
 }
 
 impl SearchConfig {
+    pub fn contains_more_like_this(query: &SearchQueryInput) -> bool {
+        match query {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .any(Self::contains_more_like_this),
+            SearchQueryInput::Boost { query, .. } => Self::contains_more_like_this(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::contains_more_like_this(query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::contains_more_like_this)
+            }
+            SearchQueryInput::MoreLikeThis { .. } => true,
+            _ => false,
+        }
+    }
+
     pub fn from_jsonb(JsonB(config_json_value): JsonB) -> Result<Self, serde_json::Error> {
         serde_json::from_value(config_json_value)
     }
@@ -144,7 +165,14 @@ pub type IndexRelation = PgRelation;
 impl From<(String, IndexRelation)> for SearchConfig {
     fn from(value: (String, IndexRelation)) -> Self {
         let (query_string, indexrel) = value;
-        SearchConfig::from((SearchQueryInput::Parse { query_string }, indexrel))
+        SearchConfig::from((
+            SearchQueryInput::Parse {
+                query_string,
+                lenient: None,
+                conjunction_mode: None,
+            },
+            indexrel,
+        ))
     }
 }
 

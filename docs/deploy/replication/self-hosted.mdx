@@ -152,7 +152,7 @@ sudo systemctl start postgresql
 Now you can verify the replication. The data inserted on the primary server should appear on the standby servers, confirming that streaming replication with ParadeDB is working correctly.
 
 ```sql
-SELECT * FROM mock_items.search('description:shoes')
+SELECT * FROM mock_items WHERE description @@@ 'shoes';
 ```
 
 ## Logical Replication Setup
@@ -185,7 +185,7 @@ VALUES ('Blue running shoes', 'Footwear', true, '14:00:00', '2024-07-10', '{}', 
 Verify the replication on the Subscriber server:
 
 ```sql
-SELECT description FROM mock_items.search('description:"running shoes"');
+SELECT * FROM mock_items WHERE description @@@ '"running shoes"';
 ```
 
 The data inserted on the Publisher server should appear on the Subscriber server.

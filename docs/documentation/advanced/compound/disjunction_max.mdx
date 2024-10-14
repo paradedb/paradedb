@@ -1,0 +1,32 @@
+---
+title: Disjunction Max
+---
+
+## Basic Usage
+
+Returns documents that match one or more of the specified subqueries. If a document matches multiple criteria, it receives the highest score from those matches.
+
+```sql
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE id @@@ paradedb.disjunction_max(ARRAY[
+  paradedb.term('description', 'shoes'),
+  paradedb.term('description', 'running')
+]);
+```
+
+<ParamField body="disjuncts" required>
+  Query objects to match against.
+</ParamField>
+<ParamField body="tie_breaker" default={0}>
+  A tie breaking increment for matching subqueries. Should be a float between
+  `0` and `1`.
+</ParamField>
+
+If `tie_breaker` is provided, documents that match on more than one subquery will score higher
+than documents that match on only one subquery. For instance, if there are two subqueries and `tie_breaker` is set to
+`0.5`, the score is computed as:
+
+```
+max_score + (second_highest_score × 0.5)
+```

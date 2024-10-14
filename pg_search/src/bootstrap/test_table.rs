@@ -30,6 +30,7 @@ pub enum TestTable {
     Items,
     Orders,
     Parts,
+    Deliveries,
 }
 
 impl Display for TestTable {
@@ -38,9 +39,20 @@ impl Display for TestTable {
             TestTable::Items => write!(f, "Items"),
             TestTable::Orders => write!(f, "Orders"),
             TestTable::Parts => write!(f, "Parts"),
+            TestTable::Deliveries => write!(f, "Deliveries"),
         }
     }
 }
+
+type MockDeliveryRow = (
+    i32,
+    Range<i32>,
+    Range<i64>,
+    Range<AnyNumeric>,
+    Range<Date>,
+    Range<Timestamp>,
+    Range<TimestampWithTimeZone>,
+);
 
 #[pg_extern(sql = "
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25_test_table(table_name VARCHAR DEFAULT 'bm25_test_table', schema_name VARCHAR DEFAULT 'paradedb', table_type paradedb.TestTable DEFAULT 'Items')
@@ -175,6 +187,61 @@ fn create_bm25_test_table(
                                 (PgOid::BuiltIn(BuiltinOid::INT4OID), record.0.into_datum()),
                                 (PgOid::BuiltIn(BuiltinOid::INT4OID), record.1.into_datum()),
                                 (PgOid::BuiltIn(BuiltinOid::VARCHAROID), record.2.into_datum()),
+                            ]),
+                        )?;
+                    }
+                }
+                TestTable::Deliveries => {
+                    client.update(
+                        &format!(
+                            "CREATE TABLE {} (
+                                delivery_id SERIAL PRIMARY KEY,
+                                weights INT4RANGE NOT NULL,
+                                quantities INT8RANGE NOT NULL,
+                                prices NUMRANGE NOT NULL,
+                                ship_dates DATERANGE NOT NULL,
+                                facility_arrival_times TSRANGE NOT NULL,
+                                delivery_times TSTZRANGE NOT NULL
+                            )",
+                            full_table_name
+                        ),
+                        None,
+                        None,
+                    )?;
+
+                    for record in mock_deliveries_data() {
+                        client.update(
+                            &format!(
+                                "INSERT INTO {} VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                                full_table_name
+                            ),
+                            Some(1),
+                            Some(vec![
+                                (PgOid::BuiltIn(BuiltinOid::INT4OID), record.0.into_datum()),
+                                (
+                                    PgOid::BuiltIn(BuiltinOid::INT4RANGEOID),
+                                    record.1.into_datum(),
+                                ),
+                                (
+                                    PgOid::BuiltIn(BuiltinOid::INT8RANGEOID),
+                                    record.2.into_datum(),
+                                ),
+                                (
+                                    PgOid::BuiltIn(BuiltinOid::NUMRANGEOID),
+                                    record.3.into_datum(),
+                                ),
+                                (
+                                    PgOid::BuiltIn(BuiltinOid::DATERANGEOID),
+                                    record.4.into_datum(),
+                                ),
+                                (
+                                    PgOid::BuiltIn(BuiltinOid::TSRANGEOID),
+                                    record.5.into_datum(),
+                                ),
+                                (
+                                    PgOid::BuiltIn(BuiltinOid::TSTZRANGEOID),
+                                    record.6.into_datum(),
+                                ),
                             ]),
                         )?;
                     }
@@ -732,5 +799,120 @@ fn mock_parts_data() -> Vec<(i32, i32, &'static str)> {
         (34, 26, "Shift Fork"),
         (35, 27, "Release Bearing"),
         (36, 28, "Wear Plate"),
+    ]
+}
+
+#[inline]
+fn mock_deliveries_data() -> Vec<MockDeliveryRow> {
+    vec![
+        (
+            1,
+            Range::new(Some(1), Some(10)),
+            Range::new(None, Some(200000)),
+            Range::new(
+                AnyNumeric::try_from(1.5).unwrap(),
+                RangeBound::Exclusive(AnyNumeric::try_from(10.5).unwrap()),
+            ),
+            Range::new(
+                Some(Date::from_str("2024-01-01").unwrap()),
+                Some(Date::from_str("2024-01-10").unwrap()),
+            ),
+            Range::new(
+                Some(Timestamp::from_str("2024-01-01T12:00:00Z").unwrap()),
+                Some(Timestamp::from_str("2024-01-01T18:00:00Z").unwrap()),
+            ),
+            Range::new(
+                Some(TimestampWithTimeZone::from_str("2024-01-01T10:00:00+00:00").unwrap()),
+                Some(TimestampWithTimeZone::from_str("2024-01-01T17:00:00+00:00").unwrap()),
+            ),
+        ),
+        (
+            2,
+            Range::new(None, Some(13)),
+            Range::new(Some(150000), Some(250000)),
+            Range::new(
+                Some(AnyNumeric::try_from(2.5).unwrap()),
+                Some(AnyNumeric::try_from(12.5).unwrap()),
+            ),
+            Range::new(
+                Some(Date::from_str("2024-02-01").unwrap()),
+                RangeBound::Exclusive(Date::from_str("2024-02-05").unwrap()),
+            ),
+            Range::new(
+                Some(Timestamp::from_str("2024-02-01T08:00:00Z").unwrap()),
+                Some(Timestamp::from_str("2024-02-01T14:00:00Z").unwrap()),
+            ),
+            Range::new(
+                Some(TimestampWithTimeZone::from_str("2024-02-01T06:00:00+00:00").unwrap()),
+                RangeBound::Exclusive(
+                    TimestampWithTimeZone::from_str("2024-02-01T13:00:00+00:00").unwrap(),
+                ),
+            ),
+        ),
+        (
+            3,
+            Range::new(Some(8), RangeBound::Exclusive(18)),
+            Range::new(Some(120000), Some(220000)),
+            Range::new(
+                RangeBound::Exclusive(AnyNumeric::try_from(4.0).unwrap()),
+                Some(AnyNumeric::try_from(9.2).unwrap()),
+            ),
+            Range::new(
+                Some(Date::from_str("2024-03-01").unwrap()),
+                Some(Date::from_str("2024-03-06").unwrap()),
+            ),
+            Range::new(
+                Some(Timestamp::from_str("2024-03-01T09:30:00Z").unwrap()),
+                Some(Timestamp::from_str("2024-03-01T15:00:00Z").unwrap()),
+            ),
+            Range::new(
+                Some(TimestampWithTimeZone::from_str("2024-03-01T07:00:00+00:00").unwrap()),
+                Some(TimestampWithTimeZone::from_str("2024-03-01T13:00:00+00:00").unwrap()),
+            ),
+        ),
+        (
+            4,
+            Range::new(None, RangeBound::Exclusive(20)),
+            Range::new(Some(180000), Some(280000)),
+            Range::new(
+                Some(AnyNumeric::try_from(3.0).unwrap()),
+                RangeBound::Exclusive(AnyNumeric::try_from(4.1).unwrap()),
+            ),
+            Range::new(
+                Some(Date::from_str("2024-04-01").unwrap()),
+                RangeBound::Exclusive(Date::from_str("2024-04-10").unwrap()),
+            ),
+            Range::new(
+                Some(Timestamp::from_str("2024-04-01T11:45:00Z").unwrap()),
+                Some(Timestamp::from_str("2024-04-01T16:30:00Z").unwrap()),
+            ),
+            Range::new(
+                None,
+                Some(TimestampWithTimeZone::from_str("2024-04-01T12:00:00+00:00").unwrap()),
+            ),
+        ),
+        (
+            5,
+            Range::new(Some(2), Some(12)),
+            Range::new(RangeBound::Exclusive(170000), RangeBound::Exclusive(270000)),
+            Range::new(
+                RangeBound::Exclusive(AnyNumeric::try_from(3.5).unwrap()),
+                Some(AnyNumeric::try_from(11.2).unwrap()),
+            ),
+            Range::new(
+                Some(Date::from_str("2024-05-01").unwrap()),
+                Some(Date::from_str("2024-05-07").unwrap()),
+            ),
+            Range::new(
+                RangeBound::Exclusive(Timestamp::from_str("2024-05-01T14:00:00Z").unwrap()),
+                Some(Timestamp::from_str("2024-05-01T19:00:00Z").unwrap()),
+            ),
+            Range::new(
+                RangeBound::Exclusive(
+                    TimestampWithTimeZone::from_str("2024-05-01T10:30:00+00:00").unwrap(),
+                ),
+                Some(TimestampWithTimeZone::from_str("2024-05-01T16:00:00+00:00").unwrap()),
+            ),
+        ),
     ]
 }

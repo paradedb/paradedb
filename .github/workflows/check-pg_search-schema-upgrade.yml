@@ -146,9 +146,28 @@ jobs:
         if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
         with:
           script: |
-            github.rest.issues.createComment({
+            const comments = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: process.env.DIFF
-            })
+              repo: context.repo.repo
+            });
+
+            const botComment = comments.data.find(comment => comment.user.type === 'Bot' && comment.body.includes('A schema difference was detected.'));
+
+            if (botComment) {
+              // Update the existing comment
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: process.env.DIFF
+              });
+            } else {
+              // Create a new comment if none exists
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: process.env.DIFF
+              });
+            }

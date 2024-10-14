@@ -77,7 +77,9 @@ impl SearchIndex {
     /// be entirely owned by the new process, with no references.
     pub fn get_writer(&self) -> Result<SearchIndexWriter> {
         let underlying_writer = self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
-        Ok(SearchIndexWriter { underlying_writer })
+        Ok(SearchIndexWriter {
+            underlying_writer: Some(underlying_writer),
+        })
     }
 
     #[allow(static_mut_refs)]
@@ -117,25 +119,19 @@ impl SearchIndex {
         Ok(new_self)
     }
 
-    pub fn query_parser(&self, config: &SearchConfig) -> QueryParser {
-        let mut query_parser = QueryParser::for_index(
+    pub fn query_parser(&self) -> QueryParser {
+        QueryParser::for_index(
             &self.underlying_index,
             self.schema
                 .fields
                 .iter()
                 .map(|search_field| search_field.id.0)
                 .collect::<Vec<_>>(),
-        );
-
-        if let Some(true) = config.conjunction_mode {
-            query_parser.set_conjunction_by_default();
-        }
-
-        query_parser
+        )
     }
 
     pub fn query(&self, config: &SearchConfig, reader: &SearchIndexReader) -> Box<dyn Query> {
-        let mut parser = self.query_parser(config);
+        let mut parser = self.query_parser();
         let searcher = reader.underlying_reader.searcher();
         config
             .query

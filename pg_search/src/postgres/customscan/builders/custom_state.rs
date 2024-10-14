@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::CustomScan;
-use pgrx::{pg_sys, PgList, PgMemoryContexts};
+use pgrx::{pg_sys, PgList};
 use std::fmt::{Debug, Formatter};
 use std::ptr::addr_of_mut;
 
@@ -138,8 +138,7 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
                 flags: (*self.args.cscan).flags,
                 custom_ps: std::ptr::null_mut(),
                 pscan_len: 0,
-                methods: PgMemoryContexts::CurrentMemoryContext
-                    .leak_and_drop_on_delete(CS::exec_methods()),
+                methods: CS::exec_methods(),
                 #[cfg(any(feature = "pg16", feature = "pg17"))]
                 slotOps: std::ptr::null_mut(),
             };

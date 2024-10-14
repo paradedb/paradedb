@@ -364,7 +364,8 @@ impl SearchIndexReader {
             collector::ChannelCollector::new(sender, config.key_field.clone(), include_key);
         let searcher = self.searcher.clone();
         let schema = self.schema.schema.clone();
-        let need_scores = config.need_scores;
+        let need_scores =
+            config.need_scores || SearchConfig::contains_more_like_this(&config.query);
 
         let owned_query = query.box_clone();
         std::thread::spawn(move || {

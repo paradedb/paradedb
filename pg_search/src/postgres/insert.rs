@@ -96,9 +96,11 @@ pub unsafe fn init_insert_state(
         //
         // When that memory context is freed by Postgres is when we'll do our tantivy commit/abort
         // of the changes made during `aminsert`
-        (*index_info).ii_AmCache = PgMemoryContexts::For((*index_info).ii_Context)
-            .leak_and_drop_on_delete(state)
-            .cast();
+        //
+        // SAFETY: `leak_and_drop_on_delete` palloc's memory in CurrentMemoryContext, but in this
+        // case we want the thing it allocates to be palloc'd in the `ii_Context`
+        PgMemoryContexts::For((*index_info).ii_Context)
+            .switch_to(|mcxt| (*index_info).ii_AmCache = mcxt.leak_and_drop_on_delete(state).cast())
     };
 
     (*index_info).ii_AmCache.cast()

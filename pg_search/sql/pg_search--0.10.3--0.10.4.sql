@@ -170,3 +170,129 @@ CREATE  FUNCTION "index_info"(
     STRICT
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'index_info_wrapper';
+
+DROP TYPE paradedb.TestTable;
+CREATE TYPE paradedb.TestTable AS ENUM (
+	'Items',
+	'Orders',
+	'Parts',
+	'Deliveries'
+);
+
+DROP FUNCTION IF EXISTS paradedb.create_bm25(index_name text, table_name text, key_field text, schema_name text, text_fields jsonb, numeric_fields jsonb, boolean_fields jsonb, json_fields jsonb, datetime_fields jsonb, predicates text);
+CREATE OR REPLACE PROCEDURE paradedb.create_bm25(index_name text DEFAULT '', table_name text DEFAULT '', key_field text DEFAULT '', schema_name text DEFAULT 'current_schema', text_fields jsonb DEFAULT '{}', numeric_fields jsonb DEFAULT '{}', boolean_fields jsonb DEFAULT '{}', json_fields jsonb DEFAULT '{}', range_fields jsonb DEFAULT '{}', datetime_fields jsonb DEFAULT '{}', predicates text DEFAULT '') AS 'MODULE_PATHNAME', 'create_bm25_jsonb_wrapper' LANGUAGE c;
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:670
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" date /* pgrx::datum::date::Date */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_date_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:667
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" real /* f32 */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_f32_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:668
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" double precision /* f64 */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_f64_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:664
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" smallint /* i16 */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_i16_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:665
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" INT /* i32 */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_i32_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:666
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" bigint /* i64 */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_i64_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:663
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" "char" /* i8 */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_i8_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:669
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" NUMERIC /* pgrx::datum::numeric::AnyNumeric */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_numeric_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:671
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" timestamp /* pgrx::datum::time_stamp::Timestamp */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_timestamp_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:672
+-- pg_search::api::index::range_term
+CREATE  FUNCTION "range_term"(
+	"field" FieldName, /* pg_search::api::index::FieldName */
+	"term" timestamp with time zone /* pgrx::datum::time_stamp_with_timezone::TimestampWithTimeZone */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+IMMUTABLE STRICT PARALLEL SAFE 
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'range_term_timestamp_with_time_zone_wrapper';
+
+DROP FUNCTION IF EXISTS parse(query_string text);
+CREATE OR REPLACE FUNCTION parse(query_string text, lenient bool DEFAULT NULL, conjunction_mode bool DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'parse_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
+DROP FUNCTION IF EXISTS parse_with_field(field fieldname, query_string text);
+CREATE OR REPLACE FUNCTION parse_with_field(field fieldname, query_string text, lenient bool DEFAULT NULL, conjunction_mode bool DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'parse_with_field_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;

@@ -15,9 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::scan::create_custom_scan_state;
 use crate::postgres::customscan::CustomScan;
-use pgrx::{node_to_string, pg_sys, PgList, PgMemoryContexts};
+use pgrx::{node_to_string, pg_sys, PgList};
 use std::fmt::{Debug, Formatter};
 
 pub struct Args {
@@ -75,12 +74,7 @@ impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanB
             flags: unsafe { (*best_path).flags },
             custom_private: unsafe { *best_path }.custom_private,
             custom_plans,
-            methods: PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(
-                pg_sys::CustomScanMethods {
-                    CustomName: CS::NAME.as_ptr(),
-                    CreateCustomScanState: Some(create_custom_scan_state::<CS>),
-                },
-            ),
+            methods: CS::custom_scan_methods(),
             scan: pg_sys::Scan {
                 plan: pg_sys::Plan {
                     type_: pg_sys::NodeTag::T_CustomScan,

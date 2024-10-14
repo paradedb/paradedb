@@ -95,15 +95,7 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
                     pathtarget: unsafe { *rel }.reltarget,
                     ..Default::default()
                 },
-                methods: PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomPathMethods {
-                        CustomName: CS::NAME.as_ptr(),
-                        PlanCustomPath: Some(plan_custom_path::<CS>),
-                        ReparameterizeCustomPathByChild: Some(
-                            reparameterize_custom_path_by_child::<CS>,
-                        ),
-                    },
-                ),
+                methods: CS::custom_path_methods(),
                 ..Default::default()
             },
             custom_paths: PgList::default(),

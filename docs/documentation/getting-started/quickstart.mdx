@@ -4,10 +4,11 @@ title: Quickstart
 
 This guide will walk you through the following steps to get started with ParadeDB:
 
-1. Full text search
-2. Similarity (i.e. vector) search
+1. Full text search over a single table
+2. Full text search over a JOIN
+3. Similarity (i.e. vector) search
 
-## Full Text Search
+## Single Table Search
 
 ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
 you get started. Once connected with `psql`, run the following commands to create and inspect
@@ -63,102 +64,140 @@ CALL paradedb.create_bm25(
   explanation of what each of these options means.
 </Note>
 
-We're now ready to execute a full-text search. We'll look for rows with a `rating` greater than `2` where `description` matches `keyboard`
-or `category` matches `electronics`.
+We're now ready to execute a full-text search. We'll look for the first five rows with a `rating` greater than `2` where `description` matches `shoes`
+or `category` matches `footwear`.
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search(
-  '(description:keyboard OR category:electronics) AND rating:>2',
-  limit_rows => 5
-);
+FROM mock_items
+WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
+ORDER BY description
+LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
 ``` csv
-         description         | rating |  category
------------------------------+--------+-------------
- Plastic Keyboard            |      4 | Electronics
- Ergonomic metal keyboard    |      4 | Electronics
- Innovative wireless earbuds |      5 | Electronics
- Fast charging power bank    |      4 | Electronics
- Bluetooth-enabled speaker   |      3 | Electronics
+     description      | rating | category
+----------------------+--------+----------
+ Comfortable slippers |      3 | Footwear
+ Generic shoes        |      4 | Footwear
+ Sleek running shoes  |      5 | Footwear
+ Sturdy hiking boots  |      4 | Footwear
+ White jogging shoes  |      3 | Footwear
 (5 rows)
 ```
 </Accordion>
 
-<Note>
-Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal performance, we recommend always using
-`limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
+The ParadeDB-specific `@@@` operator instructs ParadeDB to execute a full-text search using the BM25 index. Its job is to return matching rows as quickly as possible in no
+particular order. To sort by relevance, the `paradedb.score` function generates BM25 scores for each row.
 
-Similarly, the `rating` column was indexed and the `rating:>2` filter was used instead of the SQL `WHERE` clause
-for [efficient filtering](/documentation/full-text/filtering).
-</Note>
+```sql
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
+ORDER BY score DESC, description
+LIMIT 5;
+```
 
-Next, let's see how ParadeDB handles a phrase query like `bluetooth speaker`. Let's also surface results even
-if there is a word between `bluetooth` and `speaker`.
+<Accordion title="Expected Response">
+``` csv
+     description      | rating | category |   score
+----------------------+--------+----------+-----------
+ Generic shoes        |      4 | Footwear | 5.8135376
+ Sleek running shoes  |      5 | Footwear | 5.4211845
+ White jogging shoes  |      3 | Footwear | 5.4211845
+ Comfortable slippers |      3 | Footwear | 2.9362776
+ Sturdy hiking boots  |      4 | Footwear | 2.9362776
+(5 rows)
+```
+</Accordion>
+
+The result table shows that rows matching on both `description` and `category` scored more highly than rows matching only one of the fields.
+
+Finally, let's see how ParadeDB handles a phrase query like `white shoes`. Let's also surface results even
+if there is a word between `white` and `shoes` using the `~` slop operator.
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search('description:"bluetooth speaker"~1');
+FROM mock_items
+WHERE description @@@ '"white shoes"~1'
+LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
 ``` csv
-        description        | rating |  category
----------------------------+--------+-------------
- Bluetooth-enabled speaker |      3 | Electronics
+     description     | rating | category
+---------------------+--------+----------
+ White jogging shoes |      3 | Footwear
 (1 row)
 ```
 </Accordion>
 
-Note that phrases must be wrapped in double quotes. Also note our use of the `~1` slop operator,
-which tells ParadeDB to return matches even if they are separated by one word.
+In addition to simple string queries, ParadeDB supports advanced [query builder functions](/documentation/advanced) similar to the Elastic DSL.
 
-Finally, let's use the `snippet` function to examine the BM25 scores and generate
-highlighted snippets for our results.
+## Joined Search
+
+ParadeDB supports full text search over JOINs, which is crucial for database schemas that store data in a normalized fashion. To demonstrate, let's create a table
+called `orders` that references `mock_items`.
 
 ```sql
-SELECT * FROM search_idx.snippet(
-  'description:bluetooth',
-  highlight_field => 'description'
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'orders',
+  table_type => 'Orders'
+);
+
+ALTER TABLE orders
+ADD CONSTRAINT foreign_key_product_id
+FOREIGN KEY (product_id)
+REFERENCES mock_items(id);
+
+SELECT * FROM orders LIMIT 3;
+```
+
+<Accordion title="Expected Response">
+```csv
+ order_id | product_id | order_quantity | order_total | customer_name
+----------+------------+----------------+-------------+---------------
+        1 |          1 |              3 |       99.99 | John Doe
+        2 |          2 |              1 |       49.99 | Jane Smith
+        3 |          3 |              5 |      249.95 | Alice Johnson
+(3 rows)
+```
+</Accordion>
+
+Next, let's create a BM25 index over the `orders` table.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'orders_idx',
+  table_name => 'orders',
+  key_field => 'order_id',
+  text_fields => paradedb.field('customer_name')
 );
 ```
 
-<Accordion title="Expected Response">
-``` csv
- id |             snippet              | score_bm25
-----+----------------------------------+------------
- 32 | <b>Bluetooth</b>-enabled speaker |  3.3322046
-(1 row)
-```
-</Accordion>
-
-Let's join this result with our `mock_items` table to see the BM25 scores and highlighted snippets
-next to the original data:
+The following query searches for rows where `customer_name` matches `Johnson` and `description` matches `shoes`.
 
 ```sql
-WITH snippet AS (
-    SELECT * FROM search_idx.snippet(
-      'description:bluetooth',
-      highlight_field => 'description'
-    )
-)
-SELECT description, snippet, score_bm25
-FROM snippet
-LEFT JOIN mock_items ON snippet.id = mock_items.id;
+SELECT o.order_id, o.customer_name, m.description
+FROM orders o
+JOIN mock_items m ON o.product_id = m.id
+WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes'
+ORDER BY order_id
+LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-        description        |             snippet              | score_bm25
----------------------------+----------------------------------+------------
- Bluetooth-enabled speaker | <b>Bluetooth</b>-enabled speaker |  3.3322046
-(1 row)
+```csv
+ order_id | customer_name |     description
+----------+---------------+---------------------
+        3 | Alice Johnson | Sleek running shoes
+        6 | Alice Johnson | White jogging shoes
+       36 | Alice Johnson | White jogging shoes
+(3 rows)
 ```
 </Accordion>
-
-For more on full text search, refer to the [full text search API](/documentation/full-text/overview) section.
 
 ## Similarity Search
 
@@ -195,25 +234,25 @@ While not required, an HNSW index can drastically improve query performance over
 
 ```sql
 CREATE INDEX on mock_items
-USING hnsw (embedding vector_l2_ops);
+USING hnsw (embedding vector_cosine_ops);
 ```
 
-Next, let's query our table with a vector and order the results by L2 distance:
+Next, let's query our table with a vector and order the results by cosine distance:
 
 ```sql
 SELECT description, category, rating, embedding
 FROM mock_items
-ORDER BY embedding <-> '[1,2,3]'
+ORDER BY embedding <=> '[1,2,3]', description
 LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-       description       |  category  | rating | embedding
--------------------------+------------+--------+-----------
- Artistic ceramic vase   | Home Decor |      4 | [1,2,3]
- Modern wall clock       | Home Decor |      4 | [1,2,3]
- Designer wall paintings | Home Decor |      5 | [1,2,3]
+```csv
+       description        |  category  | rating | embedding
+--------------------------+------------+--------+-----------
+ Artistic ceramic vase    | Home Decor |      4 | [1,2,3]
+ Designer wall paintings  | Home Decor |      5 | [1,2,3]
+ Handcrafted wooden frame | Home Decor |      5 | [1,2,3]
 (3 rows)
 ```
 </Accordion>

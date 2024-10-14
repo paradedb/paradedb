@@ -23,7 +23,7 @@ use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
-use pgrx::{is_a, pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
+use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
 /// This is the function behind the `@@@(anyelement, paradedb.searchqueryinput)` operator. Since we
 /// transform those to use `@@@(anyelement, jsonb`), this function won't be called in normal

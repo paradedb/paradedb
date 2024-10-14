@@ -17,6 +17,7 @@ const LOWER_UNBOUNDED_KEY: &str = "lower_unbounded";
 const UPPER_UNBOUNDED_KEY: &str = "upper_unbounded";
 // Always false for range fields
 const EXPAND_DOTS: bool = false;
+const RECORD: IndexRecordOption = IndexRecordOption::WithFreqsAndPositions;
 
 #[derive(Clone, Debug)]
 pub struct RangeField {
@@ -37,55 +38,45 @@ impl RangeField {
         Self { field, is_datetime }
     }
 
-    pub fn empty(&self, val: bool) -> Result<TermQuery, Box<dyn std::error::Error>> {
-        Ok(TermQuery::new(
-            Self::as_range_term(self, &OwnedValue::Bool(val), Some(EMPTY_KEY))?,
-            IndexRecordOption::WithFreqsAndPositions.into(),
-        ))
-    }
-
     pub fn exists(&self) -> Result<RegexQuery, Box<dyn std::error::Error>> {
         Ok(RegexQuery::from_pattern(".*", self.field)?)
+    }
+
+    pub fn empty(&self, val: bool) -> Result<TermQuery, Box<dyn std::error::Error>> {
+        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(EMPTY_KEY))?;
+        Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn upper_bound_inclusive(
         &self,
         val: bool,
     ) -> Result<TermQuery, Box<dyn std::error::Error>> {
-        Ok(TermQuery::new(
-            Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_INCLUSIVE_KEY))?,
-            IndexRecordOption::WithFreqsAndPositions.into(),
-        ))
+        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_INCLUSIVE_KEY))?;
+        Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn lower_bound_inclusive(
         &self,
         val: bool,
     ) -> Result<TermQuery, Box<dyn std::error::Error>> {
-        Ok(TermQuery::new(
-            Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_INCLUSIVE_KEY))?,
-            IndexRecordOption::WithFreqsAndPositions.into(),
-        ))
+        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_INCLUSIVE_KEY))?;
+        Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn upper_bound_unbounded(
         &self,
         val: bool,
     ) -> Result<TermQuery, Box<dyn std::error::Error>> {
-        Ok(TermQuery::new(
-            Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_UNBOUNDED_KEY))?,
-            IndexRecordOption::WithFreqsAndPositions.into(),
-        ))
+        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_UNBOUNDED_KEY))?;
+        Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn lower_bound_unbounded(
         &self,
         val: bool,
     ) -> Result<TermQuery, Box<dyn std::error::Error>> {
-        Ok(TermQuery::new(
-            Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_UNBOUNDED_KEY))?,
-            IndexRecordOption::WithFreqsAndPositions.into(),
-        ))
+        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_UNBOUNDED_KEY))?;
+        Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn compare_lower_bound(

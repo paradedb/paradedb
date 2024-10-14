@@ -1102,6 +1102,10 @@ fn hybrid_search(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // we vacuum here only to ensure that the scores will be consistent
+    // when we compare them to what are the known/expected values
+    "VACUUM FULL ANALYZE mock_items;".execute(&mut conn);
+
     let rows: Vec<(i32, BigDecimal, String, Vector)> = r#"
     WITH semantic_search AS (
         SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank

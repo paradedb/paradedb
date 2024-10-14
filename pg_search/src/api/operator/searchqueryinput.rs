@@ -68,26 +68,18 @@ fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePoi
         // }
 
         let rhs = input_args.get_ptr(1)?;
-        pgrx::warning!("rhs={:?}", pgrx::node_to_string(rhs).unwrap_or(""));
+        let query = nodecast!(Const, T_Const, rhs)
+            .map(|const_| SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull))
+            .flatten();
 
-        if is_a(rhs, pg_sys::NodeTag::T_Const) {
-            let query = nodecast!(Const, T_Const, rhs)
-                .map(|const_| {
-                    SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)
-                })
-                .flatten();
-
-            Some(make_search_config_opexpr_node(
-                srs,
-                &mut input_args,
-                var,
-                query,
-                anyelement_query_input_opoid(),
-                anyelement_query_input_procoid(),
-            ))
-        } else {
-            None
-        }
+        Some(make_search_config_opexpr_node(
+            srs,
+            &mut input_args,
+            var,
+            query,
+            anyelement_query_input_opoid(),
+            anyelement_query_input_procoid(),
+        ))
     }
 }
 

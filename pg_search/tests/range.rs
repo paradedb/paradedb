@@ -60,7 +60,8 @@ const QUERY_TIMESTAMP_UPPER_BOUNDS: [&str; 3] = [
     "2021-01-10T00:00:01Z",
 ];
 
-const TARGET_TIMESTAMPTZ_LOWER_BOUNDS: [&str; 2] = ["2021-01-01T00:00:00+02:00", "2021-01-10T00:00:00+02:00"];
+const TARGET_TIMESTAMPTZ_LOWER_BOUNDS: [&str; 2] =
+    ["2021-01-01T00:00:00+02:00", "2021-01-10T00:00:00+02:00"];
 const TARGET_TIMESTAMPTZ_UPPER_BOUNDS: [&str; 1] = ["2021-01-10T00:00:00+02:00"];
 const QUERY_TIMESTAMPTZ_LOWER_BOUNDS: [&str; 3] = [
     "2021-01-01T00:00:00+02:00",
@@ -88,6 +89,13 @@ impl BoundType {
             BoundType::Unbounded => Bound::Unbounded,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum RangeRelation {
+    Intersects,
+    Contains,
+    Within,
 }
 
 #[rstest]
@@ -244,8 +252,9 @@ fn datetime_range(mut conn: PgConnection) {
 
 #[rstest]
 async fn range_term_contains_int4range(mut conn: PgConnection) {
-    test_range_contains(
+    execute_range_test(
         &mut conn,
+        RangeRelation::Contains,
         "deliveries",
         "weights",
         "int4range",
@@ -258,8 +267,9 @@ async fn range_term_contains_int4range(mut conn: PgConnection) {
 
 #[rstest]
 async fn range_term_contains_int8range(mut conn: PgConnection) {
-    test_range_contains(
+    execute_range_test(
         &mut conn,
+        RangeRelation::Contains,
         "deliveries",
         "quantities",
         "int8range",
@@ -272,8 +282,9 @@ async fn range_term_contains_int8range(mut conn: PgConnection) {
 
 #[rstest]
 async fn range_term_contains_numrange(mut conn: PgConnection) {
-    test_range_contains(
+    execute_range_test(
         &mut conn,
+        RangeRelation::Contains,
         "deliveries",
         "prices",
         "numrange",
@@ -286,8 +297,9 @@ async fn range_term_contains_numrange(mut conn: PgConnection) {
 
 #[rstest]
 async fn range_term_contains_daterange(mut conn: PgConnection) {
-    test_range_contains(
+    execute_range_test(
         &mut conn,
+        RangeRelation::Contains,
         "deliveries",
         "ship_dates",
         "daterange",
@@ -300,8 +312,9 @@ async fn range_term_contains_daterange(mut conn: PgConnection) {
 
 #[rstest]
 async fn range_term_contains_tsrange(mut conn: PgConnection) {
-    test_range_contains(
+    execute_range_test(
         &mut conn,
+        RangeRelation::Contains,
         "deliveries",
         "facility_arrival_times",
         "tsrange",
@@ -314,8 +327,9 @@ async fn range_term_contains_tsrange(mut conn: PgConnection) {
 
 #[rstest]
 async fn range_term_contains_tstzrange(mut conn: PgConnection) {
-    test_range_contains(
+    execute_range_test(
         &mut conn,
+        RangeRelation::Contains,
         "deliveries",
         "delivery_times",
         "tstzrange",
@@ -326,8 +340,24 @@ async fn range_term_contains_tstzrange(mut conn: PgConnection) {
     );
 }
 
-fn test_range_contains<T>(
+#[rstest]
+async fn range_term_within_int4range(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Within,
+        "deliveries",
+        "weights",
+        "int4range",
+        &TARGET_INT4_LOWER_BOUNDS,
+        &TARGET_INT4_UPPER_BOUNDS,
+        &QUERY_INT4_LOWER_BOUNDS,
+        &QUERY_INT4_UPPER_BOUNDS,
+    );
+}
+
+fn execute_range_test<T>(
     conn: &mut PgConnection,
+    relation: RangeRelation,
     table: &str,
     field: &str,
     range_type: &str,
@@ -367,26 +397,101 @@ fn test_range_contains<T>(
                         end: upper_bound_type.clone().to_bound(upper_bound.clone()),
                     };
 
-                    let expected: Vec<(i32,)> = format!(
-                        "
-                        SELECT delivery_id FROM {}
-                        WHERE '{}'::{} @> {}
-                        ORDER BY delivery_id",
-                        table, range, range_type, field
-                    )
-                    .fetch(conn);
-                    let result: Vec<(i32,)> = format!(
-                        "
-                        SELECT delivery_id FROM {}
-                        WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Contains')
-                        ORDER BY delivery_id",
-                        table, field, range, range_type
-                    )
-                    .fetch(conn);
+                    let expected: Vec<(i32,)> = match relation {
+                        RangeRelation::Contains => {
+                            postgres_contains_query(&range, table, field, range_type).fetch(conn)
+                        }
+                        RangeRelation::Within => {
+                            postgres_within_query(&range, table, field, range_type).fetch(conn)
+                        }
+                        _ => todo!(),
+                    };
+
+                    let result: Vec<(i32,)> = match relation {
+                        RangeRelation::Contains => {
+                            pg_search_contains_query(&range, table, field, range_type).fetch(conn)
+                        }
+                        RangeRelation::Within => {
+                            pg_search_within_query(&range, table, field, range_type).fetch(conn)
+                        }
+                        _ => todo!(),
+                    };
 
                     assert_eq!(expected, result, "query failed for range: {:?}", range);
                 }
             }
         }
     }
+}
+
+fn postgres_contains_query<T>(
+    range: &PgRange<T>,
+    table: &str,
+    field: &str,
+    range_type: &str,
+) -> String
+where
+    T: Debug + Display + Clone + PartialEq,
+{
+    format!(
+        "
+        SELECT delivery_id FROM {}
+        WHERE '{}'::{} @> {}
+        ORDER BY delivery_id",
+        table, range, range_type, field
+    )
+}
+
+fn postgres_within_query<T>(
+    range: &PgRange<T>,
+    table: &str,
+    field: &str,
+    range_type: &str,
+) -> String
+where
+    T: Debug + Display + Clone + PartialEq,
+{
+    format!(
+        "
+        SELECT delivery_id FROM {}
+        WHERE {} @> '{}'::{}
+        ORDER BY delivery_id",
+        table, field, range, range_type
+    )
+}
+
+fn pg_search_contains_query<T>(
+    range: &PgRange<T>,
+    table: &str,
+    field: &str,
+    range_type: &str,
+) -> String
+where
+    T: Debug + Display + Clone + PartialEq,
+{
+    format!(
+        "
+        SELECT delivery_id FROM {}
+        WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Contains')
+        ORDER BY delivery_id",
+        table, field, range, range_type
+    )
+}
+
+fn pg_search_within_query<T>(
+    range: &PgRange<T>,
+    table: &str,
+    field: &str,
+    range_type: &str,
+) -> String
+where
+    T: Debug + Display + Clone + PartialEq,
+{
+    format!(
+        "
+        SELECT delivery_id FROM {}
+        WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Within')
+        ORDER BY delivery_id",
+        table, field, range, range_type
+    )
 }

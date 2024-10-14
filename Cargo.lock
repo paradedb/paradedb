@@ -4020,9 +4020,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29fd8bef6f9f963a224b6d92033aa75581ecf01c8a815eb6dea0ad7260ac4541"
+version = "0.12.5"
 dependencies = [
  "atomic-traits",
  "bitflags 2.6.0",
@@ -4044,9 +4042,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-bindgen"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb9cd617058bad2d78e31c55b58d2b003dcf039cba125b8e018c0f72562fb951"
+version = "0.12.5"
 dependencies = [
  "bindgen 0.70.1",
  "cc",
@@ -4062,9 +4058,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbf074a98b59d1811b29c97e58d7ec5cab00445c7a5d7ed4153d746eb8572d55"
+version = "0.12.5"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -4074,9 +4068,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a82140784390a8f7f8a4f36acc6c04d177f59666012fa419eb03ab90201945ef"
+version = "0.12.5"
 dependencies = [
  "cargo_toml",
  "eyre",
@@ -4092,9 +4084,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a0b49de7e28fdf7eb9ace7b736c2527330441efd35e55768fa26c637366d1c3"
+version = "0.12.5"
 dependencies = [
  "cee-scape",
  "libc",
@@ -4107,9 +4097,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbf0cb2b4c8204678cf3dfc71bd0febe11dd4a6636b1971c3ee595d58d2db5f6"
+version = "0.12.5"
 dependencies = [
  "convert_case 0.6.0",
  "eyre",
@@ -4123,9 +4111,7 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "207fa953e4634371ff00e20584e80b1faf0c381fb7bec14648ce9076494582de"
+version = "0.12.5"
 dependencies = [
  "clap-cargo",
  "eyre",

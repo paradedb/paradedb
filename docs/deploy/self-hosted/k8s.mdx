@@ -38,8 +38,6 @@ helm upgrade --install prometheus-community \
 prometheus-community/kube-prometheus-stack
 ```
 
-If you do not wish to monitor your ParadeDB Kubernetes cluster, you can set `enabled: false` under `monitoring:` in the [values.yaml](https://github.com/paradedb/charts/charts/paradedb/values.yaml) file and skip this step.
-
 ### Set Up a ParadeDB CloudNativePG Cluster
 
 Create a `values.yaml` and configure it to your requirements. Here is a basic example:

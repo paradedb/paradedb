@@ -23,7 +23,7 @@ use core::panic;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Row};
 
 #[rstest]
 fn boolean_tree(mut conn: PgConnection) {
@@ -1083,4 +1083,21 @@ fn range_term(mut conn: PgConnection) {
     let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_times @> '2024-05-01T11:30:00Z'::timestamptz ORDER BY delivery_id".fetch(&mut conn);
     let result: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.range_term('delivery_times', '2024-05-01T11:30:00Z'::timestamptz) ORDER BY delivery_id".fetch(&mut conn);
     assert_eq!(result, expected);
+}
+
+#[rstest]
+async fn prepared_statement_replanning(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // ensure our plan doesn't change into a sequential scan after the 5th execution
+    for _ in 0..10 {
+        let _: Vec<i32> = sqlx::query("SELECT id FROM paradedb.bm25_search WHERE id @@@ paradedb.term('rating', $1) ORDER BY id")
+            .bind(2)
+            .fetch_all(&mut conn)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get::<i32, _>("id"))
+            .collect();
+    }
 }

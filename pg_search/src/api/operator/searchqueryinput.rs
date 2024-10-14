@@ -30,7 +30,7 @@ use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 /// circumstances, but it could be called if the rhs of the @@@ is some kind of volatile value.
 ///
 /// And in that case we just have to give up.
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
     _element: AnyElement,
     query: SearchQueryInput,
@@ -68,7 +68,6 @@ fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePoi
         // }
 
         let rhs = input_args.get_ptr(1)?;
-
         let query = nodecast!(Const, T_Const, rhs)
             .map(|const_| SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull))
             .flatten();

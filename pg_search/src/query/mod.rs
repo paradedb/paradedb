@@ -710,7 +710,7 @@ impl SearchQueryInput {
                             ]))),
                         ))
                     }
-                    _ => satisfies_lower_bound.push((Occur::Should, Box::new(AllQuery))),
+                    _ => satisfies_lower_bound.push((Occur::Should, Box::new(range_field.exists()?))),
                 }
 
                 match upper_bound {
@@ -765,7 +765,7 @@ impl SearchQueryInput {
                             ),
                         ]))),
                     )),
-                    _ => satisfies_upper_bound.push((Occur::Should, Box::new(AllQuery))),
+                    _ => satisfies_upper_bound.push((Occur::Should, Box::new(range_field.exists()?))),
                 }
 
                 let satisfies_lower_bound = BooleanQuery::new(vec![
@@ -1187,7 +1187,7 @@ impl SearchQueryInput {
                 };
 
                 if is_empty {
-                    Ok(Box::new(ExistsQuery::new_exists_query(field)))
+                    Ok(Box::new(range_field.exists()?))
                 } else {
                     Ok(Box::new(BooleanQuery::new(vec![
                         (Occur::Must, Box::new(satisfies_lower_bound)),
@@ -1195,16 +1195,15 @@ impl SearchQueryInput {
                     ])))
                 }
             }
-            Self::Regex { field, pattern } => {
-                let (field_type, field) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
-
-                Ok(Box::new(
-                    RegexQuery::from_pattern(&pattern, field)
-                        .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
-                ))
-            }
+            Self::Regex { field, pattern } => Ok(Box::new(
+                RegexQuery::from_pattern(
+                    &pattern,
+                    field_lookup
+                        .as_str(&field)
+                        .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
+                )
+                .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
+            )),
             Self::Term {
                 field,
                 value,

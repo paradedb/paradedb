@@ -311,6 +311,8 @@ fn execute_range_test<T>(
         }
     }
 
+    format!("INSERT INTO {} ({}) VALUES (NULL)", table, field).execute(conn);
+
     for lower_bound_type in BoundType::iter() {
         for upper_bound_type in BoundType::iter() {
             for lower_bound in query_lower_bounds {

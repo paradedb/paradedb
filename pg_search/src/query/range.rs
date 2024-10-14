@@ -3,7 +3,7 @@ use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use std::ops::Bound;
 use tantivy::{
-    query::{RangeQuery, TermQuery},
+    query::{RangeQuery, RegexQuery, TermQuery},
     schema::{Field, OwnedValue},
     Term,
 };
@@ -42,6 +42,10 @@ impl RangeField {
             Self::as_range_term(self, &OwnedValue::Bool(val), Some(EMPTY_KEY))?,
             IndexRecordOption::WithFreqsAndPositions.into(),
         ))
+    }
+
+    pub fn exists(&self) -> Result<RegexQuery, Box<dyn std::error::Error>> {
+        Ok(RegexQuery::from_pattern(".*", self.field)?)
     }
 
     pub fn upper_bound_inclusive(

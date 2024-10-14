@@ -87,7 +87,6 @@ pub fn top_n_scan_exec(
                 None => {
                     if topn_state.found == topn_state.limit || topn_state.have_less {
                         // we found all the matching rows
-                        pgrx::warning!("EOF");
                         return ExecState::Eof;
                     }
                 }
@@ -142,8 +141,6 @@ pub fn top_n_scan_exec(
                 .max(topn_state.limit * factor)
                 .min(MAX_CHUNK_SIZE);
 
-            pgrx::warning!("chunk_size={}", topn_state.chunk_size);
-
             let mut results = state
                 .custom_state()
                 .search_reader
@@ -177,7 +174,6 @@ pub fn top_n_scan_exec(
 
                 // there wasn't one, so we've now read all possible matches
                 None => {
-                    pgrx::warning!("EOF 2");
                     return ExecState::Eof;
                 }
             };

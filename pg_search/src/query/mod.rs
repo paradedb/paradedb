@@ -716,21 +716,19 @@ impl SearchQueryInput {
                 }
 
                 match upper_bound {
-                    Bound::Included(upper) => {
+                    Bound::Excluded(upper) => {
                         satisfies_upper_bound.push((
                             Occur::Must,
                             Box::new(BooleanQuery::new(vec![(
                                 Occur::Must,
                                 Box::new(
-                                    range_field.compare_upper_bound(
-                                        &upper,
-                                        Comparison::GreaterThanOrEqual,
-                                    )?,
+                                    range_field
+                                        .compare_upper_bound(&upper, Comparison::GreaterThan)?,
                                 ),
                             )])),
                         ));
                     }
-                    Bound::Excluded(upper) => satisfies_upper_bound.push((
+                    Bound::Included(upper) => satisfies_upper_bound.push((
                         Occur::Must,
                         (Box::new(BooleanQuery::new(vec![
                             (
@@ -740,7 +738,7 @@ impl SearchQueryInput {
                                         Occur::Must,
                                         Box::new(range_field.compare_upper_bound(
                                             &upper,
-                                            Comparison::GreaterThan,
+                                            Comparison::GreaterThanOrEqual,
                                         )?),
                                     ),
                                     (
@@ -756,7 +754,7 @@ impl SearchQueryInput {
                                         Occur::Must,
                                         Box::new(range_field.compare_upper_bound(
                                             &upper,
-                                            Comparison::GreaterThanOrEqual,
+                                            Comparison::GreaterThan,
                                         )?),
                                     ),
                                     (
@@ -806,23 +804,23 @@ impl SearchQueryInput {
                     is_datetime,
                 );
 
-                let mut satisfies_lower_bound = vec![];
-                let mut satisfies_upper_bound = vec![];
+                let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
+                let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
 
                 match lower_bound {
-                    Bound::Included(lower) => {
+                    Bound::Excluded(ref lower) => {
                         satisfies_lower_bound.push((
                             Occur::Must,
                             Box::new(BooleanQuery::new(vec![(
                                 Occur::Must,
                                 Box::new(
                                     range_field
-                                        .compare_upper_bound(&lower, Comparison::LessThanOrEqual)?,
+                                        .compare_upper_bound(&lower, Comparison::LessThan)?,
                                 ),
                             )])),
                         ));
                     }
-                    Bound::Excluded(lower) => {
+                    Bound::Included(ref lower) => {
                         satisfies_lower_bound.push((
                             Occur::Must,
                             (Box::new(BooleanQuery::new(vec![
@@ -833,7 +831,7 @@ impl SearchQueryInput {
                                             Occur::Must,
                                             Box::new(range_field.compare_upper_bound(
                                                 &lower,
-                                                Comparison::LessThan,
+                                                Comparison::LessThanOrEqual,
                                             )?),
                                         ),
                                         (
@@ -849,7 +847,7 @@ impl SearchQueryInput {
                                             Occur::Must,
                                             Box::new(range_field.compare_upper_bound(
                                                 &lower,
-                                                Comparison::LessThanOrEqual,
+                                                Comparison::LessThan,
                                             )?),
                                         ),
                                         (
@@ -861,11 +859,13 @@ impl SearchQueryInput {
                             ]))),
                         ))
                     }
-                    Bound::Unbounded => {}
+                    Bound::Unbounded => {
+                        satisfies_lower_bound.push((Occur::Should, Box::new(range_field.exists()?)))
+                    }
                 }
 
                 match upper_bound {
-                    Bound::Included(upper) => {
+                    Bound::Included(ref upper) => {
                         satisfies_upper_bound.push((
                             Occur::Must,
                             Box::new(BooleanQuery::new(vec![(
@@ -879,7 +879,7 @@ impl SearchQueryInput {
                             )])),
                         ));
                     }
-                    Bound::Excluded(upper) => satisfies_upper_bound.push((
+                    Bound::Excluded(ref upper) => satisfies_upper_bound.push((
                         Occur::Must,
                         (Box::new(BooleanQuery::new(vec![
                             (
@@ -916,19 +916,46 @@ impl SearchQueryInput {
                             ),
                         ]))),
                     )),
-                    Bound::Unbounded => {}
+                    Bound::Unbounded => {
+                        satisfies_upper_bound.push((Occur::Should, Box::new(range_field.exists()?)))
+                    }
                 }
 
-                if satisfies_lower_bound.is_empty() && satisfies_upper_bound.is_empty() {
-                    Ok(Box::new(AllQuery))
+                let satisfies_lower_bound = BooleanQuery::new(vec![
+                    (
+                        Occur::Should,
+                        Box::new(range_field.upper_bound_unbounded(true)?),
+                    ),
+                    (
+                        Occur::Should,
+                        Box::new(BooleanQuery::new(satisfies_lower_bound)),
+                    ),
+                ]);
+
+                let satisfies_upper_bound = BooleanQuery::new(vec![
+                    (
+                        Occur::Should,
+                        Box::new(range_field.lower_bound_unbounded(true)?),
+                    ),
+                    (
+                        Occur::Should,
+                        Box::new(BooleanQuery::new(satisfies_upper_bound)),
+                    ),
+                ]);
+
+                let is_empty = match (lower_bound, upper_bound) {
+                    (Bound::Included(lower), Bound::Excluded(upper)) => lower == upper,
+                    _ => false,
+                };
+
+                if is_empty {
+                    Ok(Box::new(EmptyQuery))
                 } else {
-                    Ok(Box::new(BooleanQuery::new(
-                        satisfies_lower_bound
-                            .into_iter()
-                            .chain(satisfies_upper_bound)
-                            .map(|(occur, query)| (occur, Box::new(*query) as Box<dyn Query>))
-                            .collect(),
-                    )))
+                    Ok(Box::new(BooleanQuery::new(vec![
+                        (Occur::Must, Box::new(satisfies_lower_bound)),
+                        (Occur::Must, Box::new(satisfies_upper_bound)),
+                        (Occur::Must, Box::new(range_field.empty(false)?)),
+                    ])))
                 }
             }
             Self::RangeTerm {

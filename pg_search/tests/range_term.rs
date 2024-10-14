@@ -319,6 +319,96 @@ async fn range_term_within_tstzrange(mut conn: PgConnection) {
     );
 }
 
+#[rstest]
+async fn range_term_intersects_int4range(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Intersects,
+        "deliveries",
+        "weights",
+        "int4range",
+        &TARGET_INT4_LOWER_BOUNDS,
+        &TARGET_INT4_UPPER_BOUNDS,
+        &QUERY_INT4_LOWER_BOUNDS,
+        &QUERY_INT4_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_intersects_int8range(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Intersects,
+        "deliveries",
+        "quantities",
+        "int8range",
+        &TARGET_INT8_LOWER_BOUNDS,
+        &TARGET_INT8_UPPER_BOUNDS,
+        &QUERY_INT8_LOWER_BOUNDS,
+        &QUERY_INT8_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_intersects_numrange(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Intersects,
+        "deliveries",
+        "prices",
+        "numrange",
+        &TARGET_NUMERIC_LOWER_BOUNDS,
+        &TARGET_NUMERIC_UPPER_BOUNDS,
+        &QUERY_NUMERIC_LOWER_BOUNDS,
+        &QUERY_NUMERIC_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_intersects_daterange(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Intersects,
+        "deliveries",
+        "ship_dates",
+        "daterange",
+        &TARGET_DATE_LOWER_BOUNDS,
+        &TARGET_DATE_UPPER_BOUNDS,
+        &QUERY_DATE_LOWER_BOUNDS,
+        &QUERY_DATE_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_intersects_tsrange(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Intersects,
+        "deliveries",
+        "facility_arrival_times",
+        "tsrange",
+        &TARGET_TIMESTAMP_LOWER_BOUNDS,
+        &TARGET_TIMESTAMP_UPPER_BOUNDS,
+        &QUERY_TIMESTAMP_LOWER_BOUNDS,
+        &QUERY_TIMESTAMP_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_intersects_tstzrange(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Intersects,
+        "deliveries",
+        "delivery_times",
+        "tstzrange",
+        &TARGET_TIMESTAMPTZ_LOWER_BOUNDS,
+        &TARGET_TIMESTAMPTZ_UPPER_BOUNDS,
+        &QUERY_TIMESTAMPTZ_LOWER_BOUNDS,
+        &QUERY_TIMESTAMPTZ_UPPER_BOUNDS,
+    );
+}
+
 fn execute_range_test<T>(
     conn: &mut PgConnection,
     relation: RangeRelation,
@@ -334,6 +424,7 @@ fn execute_range_test<T>(
 {
     DeliveriesTable::setup().execute(conn);
 
+    // Insert all combinations of ranges
     for lower_bound_type in BoundType::iter() {
         for upper_bound_type in BoundType::iter() {
             for lower_bound in target_lower_bounds {
@@ -352,8 +443,10 @@ fn execute_range_test<T>(
         }
     }
 
+    // Insert null range value
     format!("INSERT INTO {} ({}) VALUES (NULL)", table, field).execute(conn);
 
+    // Run all combinations of range queries
     for lower_bound_type in BoundType::iter() {
         for upper_bound_type in BoundType::iter() {
             for lower_bound in query_lower_bounds {
@@ -374,7 +467,9 @@ fn execute_range_test<T>(
                         RangeRelation::Within => {
                             postgres_within_query(&range, table, field, range_type).fetch(conn)
                         }
-                        _ => todo!(),
+                        RangeRelation::Intersects => {
+                            postgres_intersects_query(&range, table, field, range_type).fetch(conn)
+                        }
                     };
 
                     let result: Vec<(i32,)> = match relation {
@@ -384,7 +479,9 @@ fn execute_range_test<T>(
                         RangeRelation::Within => {
                             pg_search_within_query(&range, table, field, range_type).fetch(conn)
                         }
-                        _ => todo!(),
+                        RangeRelation::Intersects => {
+                            pg_search_intersects_query(&range, table, field, range_type).fetch(conn)
+                        }
                     };
 
                     assert_eq!(expected, result, "query failed for range: {:?}", range);

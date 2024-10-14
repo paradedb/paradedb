@@ -23,7 +23,7 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::index::{SearchFs, SearchIndex, WriterDirectory};
-use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
+use crate::postgres::utils::relfilenode_from_index_oid;
 
 // The maximum length of an index name in Postgres is 63 characters,
 // but we need to account for the trailing _bm25_index suffix
@@ -276,8 +276,18 @@ unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
 }
 
 #[pg_extern]
-fn index_size(index_name: &str) -> Result<i64> {
-    let index_oid = index_oid_from_index_name(index_name);
+fn index_size(index: PgRelation) -> Result<i64> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+    let index_oid = index.oid();
+
     let database_oid = crate::MyDatabaseId();
     let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 
@@ -305,8 +315,17 @@ fn index_info(
         ),
     >,
 > {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
     let index_oid = index.oid();
+
     let database_oid = crate::MyDatabaseId();
     let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
 

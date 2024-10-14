@@ -18,7 +18,6 @@
 use crate::index::IndexError;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchDocument, SearchFieldName, SearchIndexSchema};
-use ffi::CString;
 use pgrx::itemptr::{item_pointer_get_block_number, item_pointer_get_both, item_pointer_set_all};
 use pgrx::pg_sys::Buffer;
 use pgrx::*;
@@ -295,19 +294,5 @@ pub fn relfilenode_from_pg_relation(index_relation: &PgRelation) -> pg_sys::Oid 
     #[cfg(any(feature = "pg16", feature = "pg17"))]
     {
         index_relation.rd_locator.relNumber
-    }
-}
-
-/// Retrieves the OID for an index from Postgres.
-pub fn index_oid_from_index_name(index_name: &str) -> pg_sys::Oid {
-    unsafe {
-        // SAFETY:: Safe as long as the underlying function in `direct_function_call` is safe.
-        let cstr_name = CString::new(index_name).expect("relation name is a valid CString");
-        let indexrelid =
-            direct_function_call::<pg_sys::Oid>(pg_sys::regclassin, &[cstr_name.into_datum()])
-                .expect("index name should be a valid relation");
-        let indexrel = PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-        assert!(indexrel.is_index());
-        indexrel.oid()
     }
 }

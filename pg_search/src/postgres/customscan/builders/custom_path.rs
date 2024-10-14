@@ -119,18 +119,8 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
                 PgList::new()
             } else if baseri.is_empty() {
                 joinri
-            } else if joinri.is_empty() {
-                baseri
             } else {
-                // combine them all into one large list of RestrictInfos
-                let mut combinedri = PgList::new();
-                for ri in baseri.iter_ptr() {
-                    combinedri.push(ri);
-                }
-                for ri in joinri.iter_ptr() {
-                    combinedri.push(ri);
-                }
-                combinedri
+                baseri
             }
         }
     }

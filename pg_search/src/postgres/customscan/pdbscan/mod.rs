@@ -121,7 +121,7 @@ impl CustomScan for PdbScan {
             //
             let restrict_info = builder.restrict_info();
             if let Some(quals) =
-                extract_quals(restrict_info.as_ptr().cast(), anyelement_jsonb_opoid())
+                extract_quals(rti, restrict_info.as_ptr().cast(), anyelement_jsonb_opoid())
             {
                 let selectivity = if let Some(limit) = limit {
                     // use the limit

@@ -197,7 +197,6 @@ where a.description @@@ 'bear' AND b.description @@@ 'teddy bear';"#
 fn simple_join_with_scores_or_both_sides(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    // this one doesn't plan a custom scan at all, so scores come back as NaN
     let result = r#"
 select a.id, 
     a.score, 
@@ -207,7 +206,7 @@ from (select paradedb.score(id), * from paradedb.bm25_search) a
 inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
-    assert_eq!(result, (40, 9.9966135, 40, 9.9966135));
+    assert_eq!(result, (40, 4.332205, 40, 7.664409));
 }
 
 #[rstest]
@@ -254,4 +253,57 @@ ORDER BY order_id
 LIMIT 1;"#
         .fetch_one::<(i32, String, f32)>(&mut conn);
     assert_eq!(result, (3, "Sleek running shoes".into(), 5.406531));
+}
+
+#[rustfmt::skip]
+#[rstest]
+fn join_issue_1776(mut conn: PgConnection) {
+    r#"CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name => 'mock_items'
+        );
+        
+        CALL paradedb.create_bm25(
+          index_name => 'search_idx',
+          table_name => 'mock_items',
+          key_field => 'id',
+          text_fields => paradedb.field('description') || paradedb.field('category'),
+          numeric_fields => paradedb.field('rating'),
+          boolean_fields => paradedb.field('in_stock'),
+          datetime_fields => paradedb.field('created_at'),
+          json_fields => paradedb.field('metadata')
+        );
+        
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name => 'orders',
+          table_type => 'Orders'
+        );
+        
+        ALTER TABLE orders
+        ADD CONSTRAINT foreign_key_product_id
+        FOREIGN KEY (product_id)
+        REFERENCES mock_items(id);
+        
+        CALL paradedb.create_bm25(
+          index_name => 'orders_idx',
+          table_name => 'orders',
+          key_field => 'order_id',
+          text_fields => paradedb.field('customer_name')
+        );
+    "#
+    .execute(&mut conn);
+
+    let results = r#"
+        SELECT o.order_id, m.description, o.customer_name, paradedb.score(o.order_id) as orders_score, paradedb.score(m.id) as items_score
+        FROM orders o
+        JOIN mock_items m ON o.product_id = m.id
+        WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes' OR m.description @@@ 'Smith'
+        ORDER BY order_id
+        LIMIT 5;
+    "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
+
+    assert_eq!(results[0], (3, "Sleek running shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
+    assert_eq!(results[1], (6, "White jogging shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
+    assert_eq!(results[2], (36,"White jogging shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
 }

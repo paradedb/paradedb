@@ -97,8 +97,14 @@ impl PrivateData {
 
     pub fn quals(&self) -> Option<Qual> {
         unsafe {
-            self.restrict_info
-                .and_then(|ri| extract_quals(ri.cast(), anyelement_jsonb_opoid()))
+            self.restrict_info.and_then(|ri| {
+                extract_quals(
+                    self.range_table_index()
+                        .expect("rti should be set to get a Qual"),
+                    ri.cast(),
+                    anyelement_jsonb_opoid(),
+                )
+            })
         }
     }
 

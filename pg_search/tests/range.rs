@@ -355,6 +355,81 @@ async fn range_term_within_int4range(mut conn: PgConnection) {
     );
 }
 
+#[rstest]
+async fn range_term_within_int8range(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Within,
+        "deliveries",
+        "quantities",
+        "int8range",
+        &TARGET_INT8_LOWER_BOUNDS,
+        &TARGET_INT8_UPPER_BOUNDS,
+        &QUERY_INT8_LOWER_BOUNDS,
+        &QUERY_INT8_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_within_numrange(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Within,
+        "deliveries",
+        "prices",
+        "numrange",
+        &TARGET_NUMERIC_LOWER_BOUNDS,
+        &TARGET_NUMERIC_UPPER_BOUNDS,
+        &QUERY_NUMERIC_LOWER_BOUNDS,
+        &QUERY_NUMERIC_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_within_daterange(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Within,
+        "deliveries",
+        "ship_dates",
+        "daterange",
+        &TARGET_DATE_LOWER_BOUNDS,
+        &TARGET_DATE_UPPER_BOUNDS,
+        &QUERY_DATE_LOWER_BOUNDS,
+        &QUERY_DATE_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_within_tsrange(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Within,
+        "deliveries",
+        "facility_arrival_times",
+        "tsrange",
+        &TARGET_TIMESTAMP_LOWER_BOUNDS,
+        &TARGET_TIMESTAMP_UPPER_BOUNDS,
+        &QUERY_TIMESTAMP_LOWER_BOUNDS,
+        &QUERY_TIMESTAMP_UPPER_BOUNDS,
+    );
+}
+
+#[rstest]
+async fn range_term_within_tstzrange(mut conn: PgConnection) {
+    execute_range_test(
+        &mut conn,
+        RangeRelation::Within,
+        "deliveries",
+        "delivery_times",
+        "tstzrange",
+        &TARGET_TIMESTAMPTZ_LOWER_BOUNDS,
+        &TARGET_TIMESTAMPTZ_UPPER_BOUNDS,
+        &QUERY_TIMESTAMPTZ_LOWER_BOUNDS,
+        &QUERY_TIMESTAMPTZ_UPPER_BOUNDS,
+    );
+}
+
 fn execute_range_test<T>(
     conn: &mut PgConnection,
     relation: RangeRelation,

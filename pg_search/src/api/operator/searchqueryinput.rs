@@ -109,9 +109,7 @@ pub fn query_input_restrict(
             let query = SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
             let search_config = SearchConfig::from((query, indexrel));
 
-            let sel = estimate_selectivity(heaprelid, relfilenode, &search_config);
-            pgrx::warning!("sel={sel:?}");
-            sel
+            estimate_selectivity(heaprelid, relfilenode, &search_config)
         }
     }
 

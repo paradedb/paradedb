@@ -18,9 +18,9 @@
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
 use soa_derive::StructOfArray;
-use std::ops::Range;
-use sqlx::FromRow;
 use sqlx::postgres::types::PgRange;
+use sqlx::FromRow;
+use std::ops::Range;
 
 #[derive(Debug, PartialEq, FromRow, StructOfArray)]
 pub struct DeliveriesTable {

@@ -165,8 +165,6 @@ impl TantivyValue {
     }
 
     pub unsafe fn try_from_datum(datum: Datum, oid: PgOid) -> Result<Self, TantivyValueError> {
-        pgrx::info!("oid = {:?}", oid);
-        pgrx::info!("datum = {:?}", datum);
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::BOOLOID => TantivyValue::try_from(

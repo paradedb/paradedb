@@ -285,35 +285,35 @@ fn test_range_contains<T>(
         }
     }
 
-    // for lower_bound_type in BoundType::iter() {
-    //     for upper_bound_type in BoundType::iter() {
-    //         for lower_bound in query_lower_bounds {
-    //             for upper_bound in query_upper_bounds {
-    //                 let range = PgRange {
-    //                     start: lower_bound_type.clone().to_bound(lower_bound.clone()),
-    //                     end: upper_bound_type.clone().to_bound(upper_bound.clone()),
-    //                 };
+    for lower_bound_type in BoundType::iter() {
+        for upper_bound_type in BoundType::iter() {
+            for lower_bound in query_lower_bounds {
+                for upper_bound in query_upper_bounds {
+                    let range = PgRange {
+                        start: lower_bound_type.clone().to_bound(lower_bound.clone()),
+                        end: upper_bound_type.clone().to_bound(upper_bound.clone()),
+                    };
 
-    //                 let expected: Vec<(i32,)> = format!(
-    //                     "
-    //                     SELECT delivery_id FROM {}
-    //                     WHERE '{}'::{} @> {}
-    //                     ORDER BY delivery_id",
-    //                     table, range, range_type, field
-    //                 )
-    //                 .fetch(conn);
-    //                 let result: Vec<(i32,)> = format!(
-    //                     "
-    //                     SELECT delivery_id FROM {}
-    //                     WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Contains')
-    //                     ORDER BY delivery_id",
-    //                     table, field, range, range_type
-    //                 )
-    //                 .fetch(conn);
+                    let expected: Vec<(i32,)> = format!(
+                        "
+                        SELECT delivery_id FROM {}
+                        WHERE '{}'::{} @> {}
+                        ORDER BY delivery_id",
+                        table, range, range_type, field
+                    )
+                    .fetch(conn);
+                    let result: Vec<(i32,)> = format!(
+                        "
+                        SELECT delivery_id FROM {}
+                        WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Contains')
+                        ORDER BY delivery_id",
+                        table, field, range, range_type
+                    )
+                    .fetch(conn);
 
-    //                 assert_eq!(expected, result, "query failed for range: {:?}", range);
-    //             }
-    //         }
-    //     }
-    // }
+                    assert_eq!(expected, result, "query failed for range: {:?}", range);
+                }
+            }
+        }
+    }
 }

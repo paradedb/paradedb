@@ -1234,3 +1234,69 @@ fn create_bm25_test_tables(mut conn: PgConnection) {
     assert_eq!(rows.len(), 36);
     assert_eq!(rows[0], (1, 0, "Chassis Assembly".into()));
 }
+
+#[rstest]
+fn schema(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+
+    CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
+        boolean_fields => paradedb.field('in_stock'),
+        datetime_fields => paradedb.field('created_at'),
+        json_fields => paradedb.field('metadata')
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> =
+        "SELECT name, field_type FROM paradedb.schema('search_idx_bm25_index')".fetch(&mut conn);
+
+    let expected = vec![
+        ("category".to_string(), "Str".to_string()),
+        ("created_at".to_string(), "Date".to_string()),
+        ("ctid".to_string(), "U64".to_string()),
+        ("description".to_string(), "Str".to_string()),
+        ("id".to_string(), "I64".to_string()),
+        ("in_stock".to_string(), "Bool".to_string()),
+        ("metadata".to_string(), "JsonObject".to_string()),
+        ("rating".to_string(), "I64".to_string()),
+    ];
+
+    assert_eq!(rows, expected);
+}
+
+#[rstest]
+fn index_size(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+
+    CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating'),
+        boolean_fields => paradedb.field('in_stock'),
+        datetime_fields => paradedb.field('created_at'),
+        json_fields => paradedb.field('metadata')
+    );
+    "#
+    .execute(&mut conn);
+
+    let size: i64 = "SELECT paradedb.index_size('search_idx_bm25_index')"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0;
+
+    assert!(size > 0);
+}

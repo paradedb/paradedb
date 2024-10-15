@@ -334,12 +334,6 @@ CREATE  FUNCTION "schema"(
 STRICT
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'schema_wrapper';
-DROP FUNCTION IF EXISTS search_with_query_input(_element anyelement, query searchqueryinput);
-CREATE OR REPLACE FUNCTION search_with_query_input(_element anyelement, query searchqueryinput) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_query_input_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
-DROP FUNCTION IF EXISTS search_with_search_config(element anyelement, config_json jsonb);
-CREATE OR REPLACE FUNCTION search_with_search_config(element anyelement, config_json jsonb) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_search_config_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
-DROP FUNCTION IF EXISTS search_with_text(_element anyelement, query text);
-CREATE OR REPLACE FUNCTION search_with_text(_element anyelement, query text) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_text_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 
 /* <begin connected objects> */
 /*

@@ -141,21 +141,21 @@ impl Drop for SearchIndexWriter {
 }
 
 impl SearchIndexWriter {
-    pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
+    pub fn insert(&self, document: SearchDocument) -> Result<(), IndexError> {
         // Add the Tantivy document to the index.
         self.underlying_writer
-            .as_mut()
+            .as_ref()
             .unwrap()
             .add_document(document.into())?;
 
         Ok(())
     }
 
-    pub fn delete(&mut self, ctid_field: &Field, ctid_values: &[u64]) -> Result<(), IndexError> {
+    pub fn delete(&self, ctid_field: &Field, ctid_values: &[u64]) -> Result<(), IndexError> {
         for ctid in ctid_values {
             let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
             self.underlying_writer
-                .as_mut()
+                .as_ref()
                 .unwrap()
                 .delete_term(ctid_term);
         }
@@ -177,9 +177,9 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    pub fn vacuum(&mut self) -> Result<(), IndexError> {
+    pub fn vacuum(&self) -> Result<(), IndexError> {
         self.underlying_writer
-            .as_mut()
+            .as_ref()
             .unwrap()
             .garbage_collect_files()
             .wait()?;

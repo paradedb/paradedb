@@ -141,8 +141,8 @@ impl SearchIndex {
     }
 
     pub fn insert(
-        &mut self,
-        writer: &mut SearchIndexWriter,
+        &self,
+        writer: &SearchIndexWriter,
         document: SearchDocument,
     ) -> Result<(), SearchIndexError> {
         // the index is about to change, and that requires our transaction callbacks be registered
@@ -159,9 +159,9 @@ impl SearchIndex {
     /// This function is atomic in that it ensures the underlying changes to the tantivy index
     /// are committed before returning an [`Ok`] response.
     pub fn delete(
-        &mut self,
+        &self,
         reader: &SearchIndexReader,
-        writer: &mut SearchIndexWriter,
+        writer: &SearchIndexWriter,
         should_delete: impl Fn(u64) -> bool,
     ) -> Result<(u32, u32), SearchIndexError> {
         let ctid_field = self.schema.ctid_field().id.0;
@@ -184,7 +184,7 @@ impl SearchIndex {
         Ok(())
     }
 
-    pub fn vacuum(&mut self, writer: &mut SearchIndexWriter) -> Result<(), SearchIndexError> {
+    pub fn vacuum(&self, writer: &SearchIndexWriter) -> Result<(), SearchIndexError> {
         writer.vacuum()?;
         Ok(())
     }

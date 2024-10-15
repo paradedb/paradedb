@@ -58,7 +58,7 @@ where
     fn from_range(val: pgrx::Range<T>) -> Result<TantivyValue, TantivyValueError> {
         match val.is_empty() {
             true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                serde_json::to_value(TantivyRangeBuilder::<T>::new().build())?,
+                serde_json::to_value(TantivyRangeBuilder::<T>::new().empty(true).build())?,
             ))),
             false => {
                 let lower = match val.lower() {

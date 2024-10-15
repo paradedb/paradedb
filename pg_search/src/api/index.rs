@@ -700,6 +700,127 @@ range_term_fn!(
     true
 );
 
+#[derive(PostgresEnum, Serialize)]
+pub enum RangeRelation {
+    Intersects,
+    Contains,
+    Within,
+}
+
+impl Display for RangeRelation {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            RangeRelation::Intersects => write!(f, "Intersects"),
+            RangeRelation::Contains => write!(f, "Contains"),
+            RangeRelation::Within => write!(f, "Within"),
+        }
+    }
+}
+
+macro_rules! range_term_range_fn {
+    ($func_name:ident, $value_type:ty, $is_datetime:expr, $default:expr) => {
+        #[pg_extern(name = "range_term", immutable, parallel_safe)]
+        pub fn $func_name(
+            field: FieldName,
+            range: $value_type,
+            relation: RangeRelation,
+        ) -> SearchQueryInput {
+            let (lower_bound, upper_bound) = match range.into_inner() {
+                None => (Bound::Included($default), Bound::Excluded($default)),
+                Some((lower, upper)) => {
+                    let lower_bound = match lower {
+                        RangeBound::Infinite => Bound::Unbounded,
+                        RangeBound::Inclusive(n) => Bound::Included(
+                            TantivyValue::try_from(n)
+                                .expect("value should be a valid TantivyValue representation")
+                                .tantivy_schema_value(),
+                        ),
+                        RangeBound::Exclusive(n) => Bound::Excluded(
+                            TantivyValue::try_from(n)
+                                .expect("value should be a valid TantivyValue representation")
+                                .tantivy_schema_value(),
+                        ),
+                    };
+
+                    let upper_bound = match upper {
+                        RangeBound::Infinite => Bound::Unbounded,
+                        RangeBound::Inclusive(n) => Bound::Included(
+                            TantivyValue::try_from(n)
+                                .expect("value should be a valid TantivyValue representation")
+                                .tantivy_schema_value(),
+                        ),
+                        RangeBound::Exclusive(n) => Bound::Excluded(
+                            TantivyValue::try_from(n)
+                                .expect("value should be a valid TantivyValue representation")
+                                .tantivy_schema_value(),
+                        ),
+                    };
+
+                    (lower_bound, upper_bound)
+                }
+            };
+
+            match relation {
+                RangeRelation::Intersects => SearchQueryInput::RangeIntersects {
+                    field: field.into_inner(),
+                    lower_bound,
+                    upper_bound,
+                    is_datetime: $is_datetime,
+                },
+                RangeRelation::Contains => SearchQueryInput::RangeContains {
+                    field: field.into_inner(),
+                    lower_bound,
+                    upper_bound,
+                    is_datetime: $is_datetime,
+                },
+                RangeRelation::Within => SearchQueryInput::RangeWithin {
+                    field: field.into_inner(),
+                    lower_bound,
+                    upper_bound,
+                    is_datetime: $is_datetime,
+                },
+            }
+        }
+    };
+}
+
+range_term_range_fn!(
+    range_term_range_int4range,
+    pgrx::Range<i32>,
+    false,
+    OwnedValue::I64(0)
+);
+range_term_range_fn!(
+    range_term_range_int8range,
+    pgrx::Range<i64>,
+    false,
+    OwnedValue::I64(0)
+);
+range_term_range_fn!(
+    range_term_range_numrange,
+    pgrx::Range<pgrx::AnyNumeric>,
+    false,
+    OwnedValue::F64(0.0)
+);
+range_term_range_fn!(
+    range_term_range_daterange,
+    pgrx::Range<pgrx::datum::Date>,
+    true,
+    OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+);
+range_term_range_fn!(
+    range_term_range_tsrange,
+    pgrx::Range<pgrx::datum::Timestamp>,
+    true,
+    OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+);
+range_term_range_fn!(
+    range_term_range_tstzrange,
+    pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
+    true,
+    OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+);
+
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(
     terms: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),

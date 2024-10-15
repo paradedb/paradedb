@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct TantivyRange<T> {
     lower: Option<T>,
     upper: Option<T>,
+    empty: bool,
     lower_inclusive: bool,
     upper_inclusive: bool,
     lower_unbounded: bool,
@@ -13,6 +14,7 @@ pub struct TantivyRange<T> {
 pub struct TantivyRangeBuilder<T> {
     lower: Option<T>,
     upper: Option<T>,
+    empty: Option<bool>,
     lower_inclusive: Option<bool>,
     upper_inclusive: Option<bool>,
     lower_unbounded: Option<bool>,
@@ -27,11 +29,17 @@ where
         Self {
             lower: None,
             upper: None,
+            empty: None,
             lower_inclusive: None,
             upper_inclusive: None,
             lower_unbounded: None,
             upper_unbounded: None,
         }
+    }
+
+    pub fn empty(mut self, empty: bool) -> Self {
+        self.empty = Some(empty);
+        self
     }
 
     pub fn lower(mut self, lower: Option<T>) -> Self {
@@ -68,6 +76,7 @@ where
         TantivyRange {
             lower: self.lower,
             upper: self.upper,
+            empty: self.empty.unwrap_or(false),
             lower_inclusive: self.lower_inclusive.unwrap_or(true),
             upper_inclusive: self.upper_inclusive.unwrap_or(false),
             lower_unbounded: self.lower_unbounded.unwrap_or(false),

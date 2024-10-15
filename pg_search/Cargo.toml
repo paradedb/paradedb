@@ -57,7 +57,7 @@ bigdecimal = "0.4.5"
 cmd_lib = "1.9.4"
 dotenvy = "0.15.7"
 futures = "0.3.30"
-pgrx-tests = "0.12.4"
+pgrx-tests = "0.12.6"
 pgvector = { version = "0.3.4", features = ["sqlx"] }
 portpicker = "0.1.1"
 pretty_assertions = "1.4.0"
@@ -71,7 +71,9 @@ sqlx = { version = "0.7.4", features = [
   "bigdecimal",
   "uuid",
 ] }
+strum_macros = "0.26.4"
 tempfile = "3.12.0"
+time = "0.3.36"
 tokio = "1.40.0"
 
 [package.metadata.cargo-machete]

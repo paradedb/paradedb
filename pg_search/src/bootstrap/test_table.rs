@@ -196,12 +196,12 @@ fn create_bm25_test_table(
                         &format!(
                             "CREATE TABLE {} (
                                 delivery_id SERIAL PRIMARY KEY,
-                                weights INT4RANGE NOT NULL,
-                                quantities INT8RANGE NOT NULL,
-                                prices NUMRANGE NOT NULL,
-                                ship_dates DATERANGE NOT NULL,
-                                facility_arrival_times TSRANGE NOT NULL,
-                                delivery_times TSTZRANGE NOT NULL
+                                weights INT4RANGE,
+                                quantities INT8RANGE,
+                                prices NUMRANGE,
+                                ship_dates DATERANGE,
+                                facility_arrival_times TSRANGE,
+                                delivery_times TSTZRANGE
                             )",
                             full_table_name
                         ),
@@ -212,12 +212,12 @@ fn create_bm25_test_table(
                     for record in mock_deliveries_data() {
                         client.update(
                             &format!(
-                                "INSERT INTO {} VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                                "INSERT INTO {} (weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times) 
+                                VALUES ($1, $2, $3, $4, $5, $6)",
                                 full_table_name
                             ),
                             Some(1),
                             Some(vec![
-                                (PgOid::BuiltIn(BuiltinOid::INT4OID), record.0.into_datum()),
                                 (
                                     PgOid::BuiltIn(BuiltinOid::INT4RANGEOID),
                                     record.1.into_datum(),

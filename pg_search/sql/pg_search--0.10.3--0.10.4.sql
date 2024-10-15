@@ -310,7 +310,7 @@ DROP FUNCTION IF EXISTS schema_bm25(index_name text);
 -- pg_search/src/bootstrap/create_bm25.rs:278
 -- pg_search::bootstrap::create_bm25::index_size
 CREATE  FUNCTION "index_size"(
-	"index_name" TEXT /* &str */
+	"index" regclass /* pgrx::rel::PgRelation */
 ) RETURNS bigint /* core::result::Result<i64, anyhow::Error> */
 STRICT
 LANGUAGE c /* Rust */
@@ -320,7 +320,7 @@ AS 'MODULE_PATHNAME', 'index_size_wrapper';
 -- pg_search/src/api/index.rs:36
 -- pg_search::api::index::schema
 CREATE  FUNCTION "schema"(
-	"index_name" TEXT /* &str */
+	"index" regclass /* pgrx::rel::PgRelation */
 ) RETURNS TABLE (
 	"name" TEXT,  /* alloc::string::String */
 	"field_type" TEXT,  /* alloc::string::String */

@@ -28,7 +28,7 @@ The following code block returns the size of an index called `search_idx`. The a
 Note that Postgres index instance includes a `_bm25_index` suffix on the `index_name` passed to `paradedb.create_bm25()`.
 
 ```sql
-SELECT size FROM paradedb.index_size('search_idx_bm25_index');
+SELECT index_size FROM paradedb.index_size('search_idx_bm25_index');
 ```
 
 <ParamField body="index" required>

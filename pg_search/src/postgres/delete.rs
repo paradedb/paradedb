@@ -29,7 +29,7 @@ pub extern "C" fn ambulkdelete(
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
 
-    let mut search_index =
+    let search_index =
         open_search_index(&index_relation).expect("should be able to open search index");
     let reader = search_index
         .get_reader()
@@ -52,7 +52,7 @@ pub extern "C" fn ambulkdelete(
             crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
             actual_callback(&mut ctid, callback_state)
         };
-        match search_index.delete(&reader, &mut writer, should_delete) {
+        match search_index.delete(&reader, &writer, should_delete) {
             Ok((deleted, not_deleted)) => {
                 stats.pages_deleted += deleted;
                 stats.num_pages += not_deleted;

@@ -679,11 +679,11 @@ impl SearchIndexSchema {
             .clone()
     }
 
+    #[inline(always)]
     pub fn new_document(&self) -> SearchDocument {
-        let doc = tantivy::TantivyDocument::new();
-        let key = self.key_field().id;
-        let ctid = self.ctid_field().id;
-        SearchDocument { doc, key, ctid }
+        SearchDocument {
+            doc: tantivy::TantivyDocument::new(),
+        }
     }
 
     pub fn get_search_field(&self, name: &SearchFieldName) -> Option<&SearchField> {

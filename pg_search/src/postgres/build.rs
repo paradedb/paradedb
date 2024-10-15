@@ -17,13 +17,14 @@
 
 use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
-use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
+use crate::postgres::index::relfilenode_from_pg_relation;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
 use std::collections::HashMap;
+use std::ffi::CStr;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
@@ -32,14 +33,16 @@ struct BuildState {
     count: usize,
     memctx: PgMemoryContexts,
     index_info: *mut pg_sys::IndexInfo,
+    tupdesc: PgTupleDesc<'static>,
 }
 
 impl BuildState {
-    fn new(index_info: *mut pg_sys::IndexInfo) -> Self {
+    fn new(indexrel: &PgRelation, index_info: *mut pg_sys::IndexInfo) -> Self {
         BuildState {
             count: 0,
             memctx: PgMemoryContexts::new("pg_search_index_build"),
             index_info,
+            tupdesc: unsafe { PgTupleDesc::from_pg_copy(indexrel.rd_att) },
         }
     }
 }
@@ -248,7 +251,7 @@ fn do_heap_scan<'a>(
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
 ) -> BuildState {
-    let mut state = BuildState::new(index_info);
+    let mut state = BuildState::new(index_relation, index_info);
     unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -279,15 +282,18 @@ unsafe fn build_callback_internal(
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     state: *mut std::os::raw::c_void,
-    index: pg_sys::Relation,
+    indexrel: pg_sys::Relation,
 ) {
     check_for_interrupts!();
-    let state = (state as *mut BuildState)
+    let build_state = (state as *mut BuildState)
         .as_mut()
         .expect("BuildState pointer should not be null");
 
-    let insert_state = init_insert_state(index, state.index_info);
-    let writer = &mut (*insert_state).writer;
+    let tupdesc = &build_state.tupdesc;
+    let insert_state = init_insert_state(indexrel, build_state.index_info);
+    let search_index = &(*insert_state).index;
+    let writer = &(*insert_state).writer;
+    let schema = &(*insert_state).index.schema;
 
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a
@@ -298,20 +304,16 @@ unsafe fn build_callback_internal(
     // By running in our own memory context, we can force the memory to be freed with
     // the call to reset().
     unsafe {
-        state.memctx.reset();
-        state.memctx.switch_to(|_| {
-            let index_relation_ref: PgRelation = PgRelation::from_pg(index);
-            let tupdesc = index_relation_ref.tuple_desc();
-
-            let mut search_index = open_search_index(&index_relation_ref).expect("should be able to open search index");
+        build_state.memctx.reset();
+        build_state.memctx.switch_to(|_| {
             let search_document =
-                row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)
-                    .unwrap_or_else(|err| {
-                        panic!(
-                            "error creating index entries for index '{}': {err}",
-                            index_relation_ref.name()
-                        );
-                    });
+                row_to_search_document(ctid, tupdesc, values, isnull, schema).unwrap_or_else(|err| {
+                    panic!(
+                        "error creating index entries for index '{}': {err}",
+                        CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr())
+                            .to_string_lossy()
+                    );
+                });
 
             search_index
                 .insert(writer, search_document)
@@ -319,11 +321,11 @@ unsafe fn build_callback_internal(
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
         });
-        state.memctx.reset();
+        build_state.memctx.reset();
 
         // important to count the number of items we've indexed for proper statistics updates,
         // especially after CREATE INDEX has finished
-        state.count += 1;
+        build_state.count += 1;
     }
 }
 

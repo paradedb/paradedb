@@ -52,9 +52,6 @@ jobs:
           fi
           echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Configure Depot CLI
-        uses: depot/setup-action@v1
-
       - name: Setup Docker Image tags
         id: meta
         uses: docker/metadata-action@v5

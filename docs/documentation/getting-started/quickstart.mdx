@@ -48,7 +48,8 @@ CALL paradedb.create_bm25(
   numeric_fields => paradedb.field('rating'),
   boolean_fields => paradedb.field('in_stock'),
   datetime_fields => paradedb.field('created_at'),
-  json_fields => paradedb.field('metadata')
+  json_fields => paradedb.field('metadata'),
+  range_fields => paradedb.field('weight_range')
 );
 ```
 

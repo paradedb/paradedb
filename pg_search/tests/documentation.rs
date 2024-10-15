@@ -58,7 +58,8 @@ fn quickstart(mut conn: PgConnection) {
         numeric_fields => paradedb.field('rating'),
         boolean_fields => paradedb.field('in_stock'),
         datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
+        json_fields => paradedb.field('metadata'),
+        range_fields => paradedb.field('weight_range')
     )"#
     .execute(&mut conn);
 
@@ -558,7 +559,8 @@ fn term_level_queries(mut conn: PgConnection) {
         numeric_fields => paradedb.field('rating'),
         boolean_fields => paradedb.field('in_stock'),
         datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
+        json_fields => paradedb.field('metadata'),
+        range_fields => paradedb.field('weight_range')
     );
     "#
     .execute(&mut conn);
@@ -625,6 +627,46 @@ fn term_level_queries(mut conn: PgConnection) {
     )"#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 41);
+
+    // Range term
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM mock_items
+    WHERE id @@@ paradedb.range_term('weight_range', 1)
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 16);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM mock_items
+    WHERE id @@@ paradedb.boolean(
+        must => ARRAY[
+            paradedb.range_term('weight_range', 1),
+            paradedb.term('category', 'footwear')
+        ]
+    )"#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM mock_items
+    WHERE id @@@ paradedb.range_term('weight_range', '(10, 12]'::int4range, 'Intersects')
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 6);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM mock_items
+    WHERE id @@@ paradedb.range_term('weight_range', '(3, 9]'::int4range, 'Contains')
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 7);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM mock_items
+    WHERE id @@@ paradedb.range_term('weight_range', '(2, 11]'::int4range, 'Within')
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 6);
 
     // Regex
     let rows: Vec<(String, i32, String)> = r#"

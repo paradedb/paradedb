@@ -15,7 +15,8 @@ CALL paradedb.create_bm25(
   numeric_fields => paradedb.field('rating'),
   boolean_fields => paradedb.field('in_stock'),
   datetime_fields => paradedb.field('created_at'),
-  json_fields => paradedb.field('metadata')
+  json_fields => paradedb.field('metadata'),
+  range_fields => paradedb.field('weight_range')
 );
 ```
 
@@ -245,6 +246,24 @@ type `TEXT[]` can be passed into `text_fields`, and columns of type `INT[]` can 
   The only exception are `JSON[]` and `JSONB[]` types, which are not yet
   supported.
 </Note>
+
+### Range Fields
+
+Columns of type `int4range`, `int8range`, `numrange`, `tsrange`, and `tstzrange` can be indexed as `range_fields`.
+The [range term](/documentation/advanced/term/range_term) query is used to filter over these fields.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  range_fields => paradedb.field('weight_range')
+);
+```
+
+<ParamField body="stored" default={true}>
+  Whether the original value of the field is stored.
+</ParamField>
 
 ### Multiple Fields
 

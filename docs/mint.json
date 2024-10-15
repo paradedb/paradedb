@@ -124,6 +124,7 @@
                     "documentation/advanced/term/exists",
                     "documentation/advanced/term/fuzzy_term",
                     "documentation/advanced/term/range",
+                    "documentation/advanced/term/range_term",
                     "documentation/advanced/term/regex",
                     "documentation/advanced/term/term",
                     "documentation/advanced/term/term_set"

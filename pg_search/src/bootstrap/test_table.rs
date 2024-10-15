@@ -20,7 +20,7 @@ use std::str::FromStr;
 use anyhow::Result;
 use pgrx::pg_sys::BuiltinOid;
 use pgrx::spi::Spi;
-use pgrx::{prelude::*, JsonB};
+use pgrx::{datum::RangeBound, prelude::*, JsonB};
 use serde::Serialize;
 use serde_json::json;
 use std::fmt::{Display, Formatter};
@@ -102,7 +102,8 @@ fn create_bm25_test_table(
                                 metadata JSONB,
                                 created_at TIMESTAMP,
                                 last_updated_date DATE,
-                                latest_available_time TIME
+                                latest_available_time TIME,
+                                weight_range INT4RANGE
                             )",
                             full_table_name
                         ),
@@ -113,7 +114,7 @@ fn create_bm25_test_table(
                     for record in mock_items_data() {
                         client.update(
                             &format!(
-                                "INSERT INTO {} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                                "INSERT INTO {} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
                                 full_table_name
                             ),
                             Some(1),
@@ -126,6 +127,7 @@ fn create_bm25_test_table(
                                 (PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID), record.5.into_datum()),
                                 (PgOid::BuiltIn(BuiltinOid::DATEOID), record.6.into_datum()),
                                 (PgOid::BuiltIn(BuiltinOid::TIMEOID), record.7.into_datum()),
+                                (PgOid::BuiltIn(BuiltinOid::INT4RANGEOID), record.8.into_datum()),
                             ]),
                         )?;
                     }
@@ -275,6 +277,7 @@ fn mock_items_data() -> Vec<(
     Timestamp,
     Date,
     Time,
+    Range<i32>,
 )> {
     vec![
         (
@@ -286,6 +289,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-01 09:12:34").unwrap(),
             Date::from_str("2023-05-03").unwrap(),
             Time::from_str("09:12:34").unwrap(),
+            Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(10)),
         ),
         (
             "Plastic Keyboard",
@@ -296,6 +300,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-15 13:27:09").unwrap(),
             Date::from_str("2023-04-16").unwrap(),
             Time::from_str("13:27:09").unwrap(),
+            Range::new(RangeBound::Infinite, RangeBound::Inclusive(9)),
         ),
         (
             "Sleek running shoes",
@@ -306,6 +311,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-28 10:55:43").unwrap(),
             Date::from_str("2023-04-29").unwrap(),
             Time::from_str("10:55:43").unwrap(),
+            Range::new(RangeBound::Inclusive(2), RangeBound::Exclusive(10)),
         ),
         (
             "White jogging shoes",
@@ -316,6 +322,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-20 16:38:02").unwrap(),
             Date::from_str("2023-04-22").unwrap(),
             Time::from_str("16:38:02").unwrap(),
+            Range::new(RangeBound::Infinite, RangeBound::Exclusive(11)),
         ),
         (
             "Generic shoes",
@@ -326,6 +333,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-02 08:45:11").unwrap(),
             Date::from_str("2023-05-03").unwrap(),
             Time::from_str("08:45:11").unwrap(),
+            Range::new(RangeBound::Inclusive(3), RangeBound::Infinite),
         ),
         (
             "Compact digital camera",
@@ -336,6 +344,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-25 11:20:35").unwrap(),
             Date::from_str("2023-04-26").unwrap(),
             Time::from_str("11:20:35").unwrap(),
+            Range::new(RangeBound::Exclusive(1), RangeBound::Inclusive(9)),
         ),
         (
             "Hardcover book on history",
@@ -346,6 +355,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-18 14:59:27").unwrap(),
             Date::from_str("2023-04-19").unwrap(),
             Time::from_str("14:59:27").unwrap(),
+            Range::new(RangeBound::Inclusive(1), RangeBound::Inclusive(11)),
         ),
         (
             "Organic green tea",
@@ -356,6 +366,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-30 09:18:45").unwrap(),
             Date::from_str("2023-05-01").unwrap(),
             Time::from_str("09:18:45").unwrap(),
+            Range::new(RangeBound::Exclusive(2), RangeBound::Exclusive(9)),
         ),
         (
             "Modern wall clock",
@@ -366,6 +377,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-24 12:37:52").unwrap(),
             Date::from_str("2023-04-25").unwrap(),
             Time::from_str("12:37:52").unwrap(),
+            Range::new(RangeBound::Infinite, RangeBound::Infinite),
         ),
         (
             "Colorful kids toy",
@@ -376,6 +388,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-04 15:29:12").unwrap(),
             Date::from_str("2023-05-06").unwrap(),
             Time::from_str("15:29:12").unwrap(),
+            Range::new(RangeBound::Inclusive(3), RangeBound::Exclusive(11)),
         ),
         (
             "Soft cotton shirt",
@@ -386,6 +399,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-29 08:10:17").unwrap(),
             Date::from_str("2023-04-30").unwrap(),
             Time::from_str("08:10:17").unwrap(),
+            Range::new(RangeBound::Inclusive(4), RangeBound::Exclusive(10)),
         ),
         (
             "Innovative wireless earbuds",
@@ -396,6 +410,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-22 10:05:39").unwrap(),
             Date::from_str("2023-04-23").unwrap(),
             Time::from_str("10:05:39").unwrap(),
+            Range::new(RangeBound::Exclusive(2), RangeBound::Inclusive(8)),
         ),
         (
             "Sturdy hiking boots",
@@ -406,6 +421,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-05 13:45:22").unwrap(),
             Date::from_str("2023-05-07").unwrap(),
             Time::from_str("13:45:22").unwrap(),
+            Range::new(RangeBound::Inclusive(3), RangeBound::Exclusive(9)),
         ),
         (
             "Elegant glass table",
@@ -416,6 +432,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-26 17:22:58").unwrap(),
             Date::from_str("2023-04-28").unwrap(),
             Time::from_str("17:22:58").unwrap(),
+            Range::new(RangeBound::Infinite, RangeBound::Exclusive(10)),
         ),
         (
             "Refreshing face wash",
@@ -426,6 +443,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-27 09:52:04").unwrap(),
             Date::from_str("2023-04-29").unwrap(),
             Time::from_str("09:52:04").unwrap(),
+            Range::new(RangeBound::Inclusive(1), RangeBound::Infinite),
         ),
         (
             "High-resolution DSLR",
@@ -436,6 +454,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-21 14:30:19").unwrap(),
             Date::from_str("2023-04-23").unwrap(),
             Time::from_str("14:30:19").unwrap(),
+            Range::new(RangeBound::Exclusive(2), RangeBound::Exclusive(11)),
         ),
         (
             "Paperback romantic novel",
@@ -446,6 +465,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-03 10:08:57").unwrap(),
             Date::from_str("2023-05-04").unwrap(),
             Time::from_str("10:08:57").unwrap(),
+            Range::new(RangeBound::Inclusive(3), RangeBound::Inclusive(9)),
         ),
         (
             "Freshly ground coffee beans",
@@ -456,6 +476,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-23 08:40:15").unwrap(),
             Date::from_str("2023-04-25").unwrap(),
             Time::from_str("08:40:15").unwrap(),
+            Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(10)),
         ),
         (
             "Artistic ceramic vase",
@@ -466,6 +487,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-19 15:17:29").unwrap(),
             Date::from_str("2023-04-21").unwrap(),
             Time::from_str("15:17:29").unwrap(),
+            Range::new(RangeBound::Infinite, RangeBound::Exclusive(11)),
         ),
         (
             "Interactive board game",
@@ -476,6 +498,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-01 12:25:06").unwrap(),
             Date::from_str("2023-05-02").unwrap(),
             Time::from_str("12:25:06").unwrap(),
+            Range::new(RangeBound::Exclusive(3), RangeBound::Exclusive(10)),
         ),
         (
             "Slim-fit denim jeans",
@@ -486,6 +509,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-28 16:54:33").unwrap(),
             Date::from_str("2023-04-30").unwrap(),
             Time::from_str("16:54:33").unwrap(),
+            Range::new(RangeBound::Inclusive(2), RangeBound::Inclusive(8)),
         ),
         (
             "Fast charging power bank",
@@ -496,6 +520,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-17 11:35:52").unwrap(),
             Date::from_str("2023-04-19").unwrap(),
             Time::from_str("11:35:52").unwrap(),
+            Range::new(RangeBound::Exclusive(4), RangeBound::Inclusive(9)),
         ),
         (
             "Comfortable slippers",
@@ -506,6 +531,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-16 09:20:37").unwrap(),
             Date::from_str("2023-04-17").unwrap(),
             Time::from_str("09:20:37").unwrap(),
+            Range::new(RangeBound::Infinite, RangeBound::Inclusive(9)),
         ),
         (
             "Classic leather sofa",
@@ -516,6 +542,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-06 14:45:27").unwrap(),
             Date::from_str("2023-05-08").unwrap(),
             Time::from_str("14:45:27").unwrap(),
+            Range::new(RangeBound::Exclusive(2), RangeBound::Exclusive(10)),
         ),
         (
             "Anti-aging serum",
@@ -526,6 +553,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-09 10:30:15").unwrap(),
             Date::from_str("2023-05-10").unwrap(),
             Time::from_str("10:30:15").unwrap(),
+            Range::new(RangeBound::Inclusive(1), RangeBound::Infinite),
         ),
         (
             "Portable tripod stand",
@@ -536,6 +564,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-07 15:20:48").unwrap(),
             Date::from_str("2023-05-09").unwrap(),
             Time::from_str("15:20:48").unwrap(),
+            Range::new(RangeBound::Inclusive(3), RangeBound::Inclusive(11)),
         ),
         (
             "Mystery detective novel",
@@ -546,6 +575,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-04 11:55:23").unwrap(),
             Date::from_str("2023-05-05").unwrap(),
             Time::from_str("11:55:23").unwrap(),
+            Range::new(RangeBound::Exclusive(4), RangeBound::Exclusive(9)),
         ),
         (
             "Organic breakfast cereal",
@@ -556,6 +586,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-05-02 07:40:59").unwrap(),
             Date::from_str("2023-05-03").unwrap(),
             Time::from_str("07:40:59").unwrap(),
+            Range::new(RangeBound::Inclusive(2), RangeBound::Inclusive(10)),
         ),
         (
             "Designer wall paintings",
@@ -566,6 +597,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-30 14:18:37").unwrap(),
             Date::from_str("2023-05-01").unwrap(),
             Time::from_str("14:18:37").unwrap(),
+            Range::new(RangeBound::Exclusive(2), RangeBound::Inclusive(9)),
         ),
         (
             "Robot building kit",
@@ -576,6 +608,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-29 16:25:42").unwrap(),
             Date::from_str("2023-05-01").unwrap(),
             Time::from_str("16:25:42").unwrap(),
+            Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(10)),
         ),
         (
             "Sporty tank top",
@@ -586,6 +619,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-27 12:09:53").unwrap(),
             Date::from_str("2023-04-28").unwrap(),
             Time::from_str("12:09:53").unwrap(),
+            Range::new(RangeBound::Inclusive(2), RangeBound::Inclusive(9)),
         ),
         (
             "Bluetooth-enabled speaker",
@@ -596,6 +630,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-26 09:34:11").unwrap(),
             Date::from_str("2023-04-28").unwrap(),
             Time::from_str("09:34:11").unwrap(),
+            Range::new(RangeBound::Inclusive(4), RangeBound::Exclusive(8)),
         ),
         (
             "Winter woolen socks",
@@ -606,6 +641,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-25 14:55:08").unwrap(),
             Date::from_str("2023-04-27").unwrap(),
             Time::from_str("14:55:08").unwrap(),
+            Range::new(RangeBound::Exclusive(3), RangeBound::Inclusive(9)),
         ),
         (
             "Rustic bookshelf",
@@ -616,6 +652,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-24 08:20:47").unwrap(),
             Date::from_str("2023-04-25").unwrap(),
             Time::from_str("08:20:47").unwrap(),
+            Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(10)),
         ),
         (
             "Moisturizing lip balm",
@@ -626,6 +663,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-23 13:48:29").unwrap(),
             Date::from_str("2023-04-24").unwrap(),
             Time::from_str("13:48:29").unwrap(),
+            Range::new(RangeBound::Infinite, RangeBound::Exclusive(11)),
         ),
         (
             "Lightweight camera bag",
@@ -636,6 +674,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-22 17:10:55").unwrap(),
             Date::from_str("2023-04-24").unwrap(),
             Time::from_str("17:10:55").unwrap(),
+            Range::new(RangeBound::Inclusive(3), RangeBound::Exclusive(9)),
         ),
         (
             "Historical fiction book",
@@ -646,6 +685,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-21 10:35:40").unwrap(),
             Date::from_str("2023-04-22").unwrap(),
             Time::from_str("10:35:40").unwrap(),
+            Range::new(RangeBound::Exclusive(2), RangeBound::Inclusive(8)),
         ),
         (
             "Pure honey jar",
@@ -656,6 +696,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-20 15:22:14").unwrap(),
             Date::from_str("2023-04-22").unwrap(),
             Time::from_str("15:22:14").unwrap(),
+            Range::new(RangeBound::Inclusive(4), RangeBound::Exclusive(9)),
         ),
         (
             "Handcrafted wooden frame",
@@ -666,6 +707,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-19 08:55:06").unwrap(),
             Date::from_str("2023-04-21").unwrap(),
             Time::from_str("08:55:06").unwrap(),
+            Range::new(RangeBound::Infinite, RangeBound::Exclusive(10)),
         ),
         (
             "Plush teddy bear",
@@ -676,6 +718,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-18 11:40:59").unwrap(),
             Date::from_str("2023-04-19").unwrap(),
             Time::from_str("11:40:59").unwrap(),
+            Range::new(RangeBound::Inclusive(1), RangeBound::Exclusive(9)),
         ),
         (
             "Warm woolen sweater",
@@ -686,6 +729,7 @@ fn mock_items_data() -> Vec<(
             Timestamp::from_str("2023-04-17 14:28:37").unwrap(),
             Date::from_str("2023-04-18").unwrap(),
             Time::from_str("14:28:37").unwrap(),
+            Range::new(RangeBound::Inclusive(2), RangeBound::Inclusive(10)),
         ),
     ]
 }

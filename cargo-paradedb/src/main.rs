@@ -51,12 +51,12 @@ fn main() -> Result<()> {
                     subcommand::bench_eslogs_build_search_index(table, index, url),
                 ),
                 EsLogsCommand::QuerySearchIndex {
-                    index,
+                    table,
                     query,
                     limit,
                     url,
                 } => block_on(subcommand::bench_eslogs_query_search_index(
-                    index, query, limit, url,
+                    table, query, limit, url,
                 )),
                 EsLogsCommand::BuildGinIndex { table, index, url } => {
                     block_on(subcommand::bench_eslogs_build_gin_index(table, index, url))

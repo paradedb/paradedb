@@ -19,15 +19,14 @@ use crate::api::operator::{
     anyelement_jsonb_opoid, estimate_selectivity, find_var_relation, ReturnedNodePointer,
 };
 use crate::index::SearchIndex;
-use crate::index::WriterDirectory;
+use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::relfilenode_from_index_oid;
-use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
+use crate::postgres::utils::locate_bm25_index;
 use crate::schema::SearchConfig;
 use crate::{nodecast, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal, JsonB,
-    PgList, PgOid,
+    PgList, PgOid, PgRelation,
 };
 use rustc_hash::FxHashSet;
 use shared::gucs::GlobalGucSettings;
@@ -44,13 +43,14 @@ pub fn search_with_search_config(
         let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
             .expect("could not parse search config");
 
-        let index_oid = search_config.index_oid;
-        let database_oid = search_config.database_oid;
-        let relfilenode = relfilenode_from_index_oid(index_oid);
+        let search_index = open_search_index(unsafe {
+            &PgRelation::with_lock(
+                pg_sys::Oid::from(search_config.index_oid),
+                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+            )
+        })
+        .expect("should be able to open search index");
 
-        let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
-        let search_index = SearchIndex::from_disk(&directory)
-            .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
         let scan_state = search_index.get_reader().unwrap();
         let query = search_index.query(&search_config, &scan_state);
         let top_docs =
@@ -134,14 +134,13 @@ pub fn search_config_restrict(
             let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
             let (heaprelid, _, _) = find_var_relation(var, info);
             let indexrel = locate_bm25_index(heaprelid)?;
-            let relfilenode = relfilenode_from_pg_relation(&indexrel);
 
             let search_config_jsonb =
                 JsonB::from_datum((*const_).constvalue, (*const_).constisnull)?;
             let search_config = SearchConfig::from_jsonb(search_config_jsonb)
                 .expect("SearchConfig should be valid");
 
-            estimate_selectivity(heaprelid, relfilenode, &search_config)
+            estimate_selectivity(&indexrel, &search_config)
         }
     }
 

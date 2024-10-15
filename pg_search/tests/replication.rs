@@ -579,9 +579,14 @@ async fn test_wal_streaming_replication() -> Result<()> {
         .fetch_result::<(i32,)>(&mut target_conn)
     {
         Ok(_) => panic!("index WAL replication not yet implemented"),
-        Err(err) => assert!(err
-            .to_string()
-            .contains("could not read from file to load index")),
+        Err(err) => {
+            if !err
+                .to_string()
+                .contains("should be able to open search index")
+            {
+                panic!("expected an error, but not this one: {err}");
+            }
+        }
     }
 
     Ok(())

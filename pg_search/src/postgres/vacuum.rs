@@ -17,10 +17,7 @@
 
 use pgrx::*;
 
-use crate::{
-    index::{SearchIndex, WriterDirectory},
-    postgres::utils::relfilenode_from_index_oid,
-};
+use crate::postgres::index::open_search_index;
 
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
@@ -39,18 +36,11 @@ pub extern "C" fn amvacuumcleanup(
             unsafe { pg_sys::palloc0(std::mem::size_of::<pg_sys::IndexBulkDeleteResult>()).cast() };
     }
 
-    let index_rel: pg_sys::Relation = info.index;
-    let index_relation = unsafe { PgRelation::from_pg(index_rel) };
+    let index_relation = unsafe { PgRelation::from_pg(info.index) };
     let index_name = index_relation.name();
 
-    let index_oid = index_relation.oid().as_u32();
-    let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
-    let database_oid = crate::MyDatabaseId();
-
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
-    let mut search_index = SearchIndex::from_disk(&directory)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
+    let mut search_index =
+        open_search_index(&index_relation).expect("should be able to open search index");
     let mut writer = search_index
         .get_writer()
         .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));

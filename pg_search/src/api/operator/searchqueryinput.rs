@@ -19,7 +19,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, anyelement_query_input_procoid, estimate_selectivity,
     find_var_relation, make_search_config_opexpr_node, ReturnedNodePointer,
 };
-use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
+use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
@@ -104,12 +104,11 @@ pub fn query_input_restrict(
 
             let (heaprelid, _, _) = find_var_relation(var, info);
             let indexrel = locate_bm25_index(heaprelid)?;
-            let relfilenode = relfilenode_from_pg_relation(&indexrel);
 
             let query = SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-            let search_config = SearchConfig::from((query, indexrel));
+            let search_config = SearchConfig::from((query, &indexrel));
 
-            estimate_selectivity(heaprelid, relfilenode, &search_config)
+            estimate_selectivity(&indexrel, &search_config)
         }
     }
 

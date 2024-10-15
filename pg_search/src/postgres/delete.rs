@@ -15,10 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::{
-    index::{SearchIndex, WriterDirectory},
-    postgres::utils::relfilenode_from_index_oid,
-};
+use crate::postgres::index::open_search_index;
 use pgrx::{pg_sys::ItemPointerData, *};
 
 #[pg_guard]
@@ -30,17 +27,10 @@ pub extern "C" fn ambulkdelete(
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = unsafe { PgBox::from_pg(info) };
     let mut stats = unsafe { PgBox::from_pg(stats) };
-    let index_rel: pg_sys::Relation = info.index;
-    let index_relation = unsafe { PgRelation::from_pg(index_rel) };
+    let index_relation = unsafe { PgRelation::from_pg(info.index) };
 
-    let index_oid = index_relation.oid().as_u32();
-    let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
-    let database_oid = crate::MyDatabaseId();
-
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
-    let mut search_index = SearchIndex::from_disk(&directory)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
+    let mut search_index =
+        open_search_index(&index_relation).expect("should be able to open search index");
     let reader = search_index
         .get_reader()
         .unwrap_or_else(|err| panic!("error loading index reader in bulkdelete: {err}"));

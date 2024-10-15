@@ -160,9 +160,9 @@ where
     }
 }
 
-pub type IndexRelation = PgRelation;
+pub type IndexRelation<'a> = &'a PgRelation;
 
-impl From<(String, IndexRelation)> for SearchConfig {
+impl From<(String, IndexRelation<'_>)> for SearchConfig {
     fn from(value: (String, IndexRelation)) -> Self {
         let (query_string, indexrel) = value;
         SearchConfig::from((
@@ -176,8 +176,8 @@ impl From<(String, IndexRelation)> for SearchConfig {
     }
 }
 
-impl From<(SearchQueryInput, IndexRelation)> for SearchConfig {
-    fn from(value: (SearchQueryInput, IndexRelation)) -> Self {
+impl From<(SearchQueryInput, IndexRelation<'_>)> for SearchConfig {
+    fn from(value: (SearchQueryInput, IndexRelation<'_>)) -> Self {
         let (query, indexrel) = value;
         let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
         let ops = unsafe { ops.as_ref().expect("indexrel.rd_options must not be null") };

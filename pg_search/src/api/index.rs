@@ -18,10 +18,8 @@
 use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 
-use crate::index::SearchIndex;
-use crate::index::WriterDirectory;
+use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::relfilenode_from_index_oid;
 use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
 use serde::{Deserialize, Serialize};
@@ -60,15 +58,8 @@ pub fn schema(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
-    let index_oid = index.oid();
-    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
-    let database_oid = crate::MyDatabaseId();
 
-    let directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
-    let search_index = SearchIndex::from_disk(&directory)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
+    let search_index = open_search_index(&index).expect("should be able to open search index");
     let schema = search_index.schema.schema.clone();
     let mut field_entries: Vec<_> = schema.fields().collect();
 

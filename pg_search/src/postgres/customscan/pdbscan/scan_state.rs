@@ -21,7 +21,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::ExecState;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScanState;
-use crate::postgres::utils::VisibilityChecker;
+use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::schema::SearchConfig;
 use pgrx::{name_data_to_str, pg_sys};
 use std::collections::HashMap;

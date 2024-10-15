@@ -25,7 +25,7 @@ mod scan_state;
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
 use crate::api::{AsCStr, AsInt, Cardinality};
 use crate::index::score::SearchIndexScore;
-use crate::index::{SearchIndex, WriterDirectory};
+use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -48,11 +48,10 @@ use crate::postgres::customscan::pdbscan::projections::{
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{
-    relfilenode_from_index_oid, relfilenode_from_pg_relation, VisibilityChecker,
-};
+use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
@@ -132,12 +131,7 @@ impl CustomScan for PdbScan {
                 } else {
                     // ask the index
                     let search_config = SearchConfig::from(quals);
-                    estimate_selectivity(
-                        table.oid(),
-                        relfilenode_from_pg_relation(&bm25_index),
-                        &search_config,
-                    )
-                    .unwrap_or(UNKNOWN_SELECTIVITY)
+                    estimate_selectivity(&bm25_index, &search_config).unwrap_or(UNKNOWN_SELECTIVITY)
                 };
 
                 builder.custom_private().set_heaprelid(table.oid());
@@ -509,7 +503,6 @@ impl CustomScan for PdbScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        let indexrelid = state.custom_state().indexrelid;
         let need_scores = state.custom_state().need_scores();
         let need_snippets = state.custom_state().need_snippets();
         let mut search_config = state.custom_state().search_config.clone();
@@ -517,15 +510,15 @@ impl CustomScan for PdbScan {
         search_config.stable_sort = Some(false);
         search_config.need_scores = need_scores;
 
-        // Create the index and scan state
-        let database_oid = crate::MyDatabaseId();
-        let relfilenode = relfilenode_from_index_oid(indexrelid.as_u32());
-
-        let directory =
-            WriterDirectory::from_oids(database_oid, indexrelid.as_u32(), relfilenode.as_u32());
-        let search_index = SearchIndex::from_disk(&directory)
-            .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
+        // Open the index and query it
+        let indexrel = state
+            .custom_state()
+            .indexrel
+            .as_ref()
+            .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
+            .expect("custom_state.indexrel should already be open");
+        let search_index =
+            open_search_index(&indexrel).expect("should be able to open search index");
         let search_reader = search_index
             .get_reader()
             .expect("search index reader should have been constructed correctly");

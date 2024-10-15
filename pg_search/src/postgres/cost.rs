@@ -15,9 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::SearchIndex;
-use crate::index::WriterDirectory;
-use crate::postgres::utils::relfilenode_from_index_oid;
+use crate::postgres::index::open_search_index;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
@@ -50,12 +48,8 @@ pub unsafe extern "C" fn amcostestimate(
         .unwrap_or(1.0) as f64;
     let page_estimate = {
         assert!(!indexrel.rd_options.is_null());
-        let database_oid = crate::MyDatabaseId();
-        let index_oid = indexrel.oid().as_u32();
-        let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
-        let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
-        let search_index = SearchIndex::from_disk(&directory)
-            .expect("should be able to retrieve a SearchIndex from internal cache");
+        let search_index =
+            open_search_index(&indexrel).expect("should be able to open search index");
         search_index
             .get_reader()
             .expect("must be able to initialize index reader in amcostestimate")

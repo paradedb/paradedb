@@ -62,6 +62,7 @@ jobs:
         with:
           version: "lab:latest"
           driver: cloud
+          endpoint: "ORG/default"
           install: true
           platforms: linux/${{ matrix.arch }}
 

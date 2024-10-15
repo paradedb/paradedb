@@ -15,12 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::relfilenode_from_index_oid;
 use crate::index::SearchIndex;
 use crate::index::SearchIndexWriter;
-use crate::index::WriterDirectory;
+use crate::postgres::index::open_search_index;
 use crate::postgres::utils::row_to_search_document;
-use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgTupleDesc};
+use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 
@@ -56,18 +55,8 @@ impl Drop for InsertState {
 }
 
 impl InsertState {
-    fn new(
-        database_oid: pg_sys::Oid,
-        index_oid: pg_sys::Oid,
-        relfilenode: pg_sys::Oid,
-    ) -> anyhow::Result<Self> {
-        let directory = WriterDirectory::from_oids(
-            database_oid.as_u32(),
-            index_oid.as_u32(),
-            relfilenode.as_u32(),
-        );
-
-        let index = SearchIndex::from_disk(&directory)?;
+    fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
+        let index = open_search_index(indexrel)?;
         let writer = index.get_writer()?;
         Ok(Self {
             index,
@@ -85,12 +74,8 @@ pub unsafe fn init_insert_state(
     let state = (*index_info).ii_AmCache;
     if state.is_null() {
         // we don't have any cached state yet, so create it now
-        let state = InsertState::new(
-            pg_sys::MyDatabaseId,
-            (*index_relation).rd_id,
-            relfilenode_from_index_oid((*index_relation).rd_id.as_u32()),
-        )
-        .expect("should be able to open new SearchIndex for writing");
+        let state = InsertState::new(&PgRelation::open((*index_relation).rd_id))
+            .expect("should be able to open new SearchIndex for writing");
 
         // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
         //

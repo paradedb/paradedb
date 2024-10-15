@@ -17,9 +17,10 @@
 
 use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
+use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
+use crate::postgres::utils::row_to_search_document;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
 use std::collections::HashMap;
@@ -53,7 +54,7 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
     let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+    let relfilenode = relfilenode_from_pg_relation(&index_relation);
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
@@ -301,14 +302,8 @@ unsafe fn build_callback_internal(
         state.memctx.switch_to(|_| {
             let index_relation_ref: PgRelation = PgRelation::from_pg(index);
             let tupdesc = index_relation_ref.tuple_desc();
-            let index_oid = index_relation_ref.oid();
-            let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
-            let database_oid = crate::MyDatabaseId();
 
-            let directory =
-                WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
-            let mut search_index = SearchIndex::from_disk(&directory)
-                .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+            let mut search_index = open_search_index(&index_relation_ref).expect("should be able to open search index");
             let search_document =
                 row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)
                     .unwrap_or_else(|err| {

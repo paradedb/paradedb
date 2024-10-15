@@ -19,8 +19,7 @@ mod searchconfig;
 mod searchqueryinput;
 mod text;
 
-use crate::index::SearchIndex;
-use crate::index::WriterDirectory;
+use crate::postgres::index::open_search_index;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
@@ -118,23 +117,20 @@ pub fn anyelement_jsonb_opoid() -> pg_sys::Oid {
 }
 
 pub(crate) fn estimate_selectivity(
-    heaprelid: pg_sys::Oid,
-    relfilenode: pg_sys::Oid,
+    indexrel: &PgRelation,
     search_config: &SearchConfig,
 ) -> Option<f64> {
-    let reltuples = unsafe { PgRelation::open(heaprelid).reltuples().unwrap_or(1.0) as f64 };
+    let reltuples = indexrel
+        .heap_relation()
+        .expect("indexrel should be an index")
+        .reltuples()
+        .unwrap_or(1.0) as f64;
     if !reltuples.is_normal() || reltuples.is_sign_negative() {
         // we can't estimate against a non-normal or negative estimate of heap tuples
         return None;
     }
 
-    let directory = WriterDirectory::from_oids(
-        search_config.database_oid,
-        search_config.index_oid,
-        relfilenode.as_u32(),
-    );
-    let search_index = SearchIndex::from_disk(&directory)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+    let search_index = open_search_index(indexrel).expect("should be able to open search index");
     let search_reader = search_index
         .get_reader()
         .expect("search reader creation should not fail");
@@ -214,7 +210,7 @@ unsafe fn make_search_config_opexpr_node(
     if let Some(query) = query {
         // fabricate a `SearchConfig` from the above relation and query string
         // and get it serialized into a JSONB Datum
-        let search_config = SearchConfig::from((query, indexrel));
+        let search_config = SearchConfig::from((query, &indexrel));
 
         let search_config_json =
             serde_json::to_value(&search_config).expect("SearchConfig should serialize to json");

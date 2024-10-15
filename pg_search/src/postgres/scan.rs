@@ -17,8 +17,7 @@
 
 use crate::index::reader::SearchResults;
 use crate::index::SearchIndex;
-use crate::index::WriterDirectory;
-use crate::postgres::utils::relfilenode_from_index_oid;
+use crate::postgres::index::open_search_index;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
@@ -84,14 +83,14 @@ pub extern "C" fn amrescan(
                 let query = String::from_datum(key.sk_argument, false)
                     .expect("ScanKey.sk_argument must not be null");
                 let indexrel = PgRelation::from_pg(indexrel);
-                SearchConfig::from((query, indexrel))
+                SearchConfig::from((query, &indexrel))
             },
 
             ScanStrategy::SearchQueryInput => unsafe {
                 let query = SearchQueryInput::from_datum(key.sk_argument, false)
                     .expect("ScanKey.sk_argument must not be null");
                 let indexrel = PgRelation::from_pg(indexrel);
-                SearchConfig::from((query, indexrel))
+                SearchConfig::from((query, &indexrel))
             },
         }
     }
@@ -106,13 +105,13 @@ pub extern "C" fn amrescan(
         let indexrel = (*scan).indexRelation;
         let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
 
-        (indexrel, keys)
+        (PgRelation::from_pg(indexrel), keys)
     };
 
     // build a Boolean "must" clause of all the ScanKeys
-    let mut search_config = key_to_config(indexrel, &keys[0]);
+    let mut search_config = key_to_config(indexrel.as_ptr(), &keys[0]);
     for key in &keys[1..] {
-        let key = key_to_config(indexrel, key);
+        let key = key_to_config(indexrel.as_ptr(), key);
 
         search_config.query = SearchQueryInput::Boolean {
             must: vec![search_config.query, key.query],
@@ -122,13 +121,7 @@ pub extern "C" fn amrescan(
     }
 
     // Create the index and scan state
-    let index_oid = search_config.index_oid;
-    let relfilenode = relfilenode_from_index_oid(index_oid);
-    let database_oid = search_config.database_oid;
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode.as_u32());
-
-    let search_index = SearchIndex::from_disk(&directory)
-        .expect("index should be valid for SearchIndex::from_cache");
+    let search_index = open_search_index(&indexrel).expect("should be able to open search index");
     let state = search_index
         .get_reader()
         .expect("SearchState should construct cleanly");

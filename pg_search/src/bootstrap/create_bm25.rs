@@ -23,7 +23,7 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::index::{SearchFs, SearchIndex, WriterDirectory};
-use crate::postgres::utils::relfilenode_from_index_oid;
+use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
 
 // The maximum length of an index name in Postgres is 63 characters,
 // but we need to account for the trailing _bm25_index suffix
@@ -302,7 +302,7 @@ fn index_size(index: PgRelation) -> Result<i64> {
     let index_oid = index.oid();
 
     let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+    let relfilenode = relfilenode_from_pg_relation(&index);
 
     // Create a WriterDirectory with the obtained index_oid
     let writer_directory =
@@ -337,16 +337,10 @@ fn index_info(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
-    let index_oid = index.oid();
 
-    let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
-
-    // Create a WriterDirectory with the obtained index_oid
-    let writer_directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
-
-    let index = SearchIndex::from_disk(&writer_directory)?;
+    // open the specified index
+    let index = open_search_index(&index).expect("should be able to open search index");
+    let directory = index.directory.clone();
     let data = index
         .underlying_index
         .searchable_segment_metas()?
@@ -357,7 +351,7 @@ fn index_info(
                 .list_files()
                 .into_iter()
                 .map(|file| {
-                    let mut full_path = writer_directory.tantivy_dir_path(false).unwrap().0;
+                    let mut full_path = directory.tantivy_dir_path(false).unwrap().0;
                     full_path.push(file);
 
                     if full_path.exists() {

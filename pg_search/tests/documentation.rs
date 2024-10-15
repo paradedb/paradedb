@@ -1294,7 +1294,7 @@ fn index_size(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let size: i64 = "SELECT paradedb.index_size('search_idx_bm25_index')"
+    let size: i64 = "SELECT size paradedb.index_size('search_idx_bm25_index')"
         .fetch_one::<(i64,)>(&mut conn)
         .0;
 

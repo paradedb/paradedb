@@ -134,7 +134,7 @@ jobs:
 
       - name: Initialize cargo-pgrx environment
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Add pg_search to shared_preload_libraries
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

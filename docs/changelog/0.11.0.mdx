@@ -2,63 +2,142 @@
 title: 0.11.0
 ---
 
-## Query API
+## Brand New Query API ✨
 
-- feat: A Custom Scan Implementation by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1739](https://github.com/paradedb/paradedb/pull/1739)
-- feat: JSON support for query builder term/phrase functions by [@rebasedming](https://github.com/rebasedming) in [#1742](https://github.com/paradedb/paradedb/pull/1742)
-- feat: Move `lenient` and `conjunction_mode` to `paradedb.parse`/`paradedb.parse_with_field` by [@rebasedming](https://github.com/rebasedming) in [#1773](https://github.com/paradedb/paradedb/pull/1773)
-- feat: Support range field types by [@rebasedming](https://github.com/rebasedming) in [#1761](https://github.com/paradedb/paradedb/pull/1761)
-- feat: function to inspect index segments by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1770](https://github.com/paradedb/paradedb/pull/1770)
-- fix: `paradedb.term` over flat JSONB arrays by [@rebasedming](https://github.com/rebasedming) in [#1766](https://github.com/paradedb/paradedb/pull/1766)
-- feat: Remove dynamic schema generation and search() function by [@neilyio](https://github.com/neilyio) in [#1781](https://github.com/paradedb/paradedb/pull/1781)
-- feat: Range comparison queries (contains, within, intersects) by [@rebasedming](https://github.com/rebasedming) in [#1783](https://github.com/paradedb/paradedb/pull/1783)
+[#1739](https://github.com/paradedb/paradedb/pull/1739) by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) brought a custom scan implementation to `pg_search`.
+Barring the technical details, this PR centers the entire ParadeDB search API around the `@@@` operator. The old `.search()` syntax has been deprecated in
+[#1781](https://github.com/paradedb/paradedb/pull/1781) by [@neilyio](https://github.com/neilyio) and the documentation has been overhauled.
 
-## Performance
+<Note>
+  By upgrading to `0.11.0`, any queries that rely on the old search syntax will
+  need to be rewritten.
+</Note>
 
-- feat: concurrent writes by moving index writer to connection process by [@neilyio](https://github.com/neilyio) in [#1707](https://github.com/paradedb/paradedb/pull/1707)
-- feat: incredibly efficient "Top N" queries with plain SQL by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1765](https://github.com/paradedb/paradedb/pull/1765)
+```sql
+-- Old query syntax
+SELECT description, rating, category
+FROM search_idx.search(
+  '(description:keyboard OR category:electronics) AND rating:>2',
+  limit_rows => 5
+);
 
-## Fixes
+-- New query syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
+ORDER BY description
+LIMIT 5;
+```
 
-- fix: prepared statements will replan to avoid sequential scans by [@rebasedming](https://github.com/rebasedming) in [#1786](https://github.com/paradedb/paradedb/pull/1786)
-- fix: @@@ crashes, rti/varno confusion, and minor test query cleanup by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1780](https://github.com/paradedb/paradedb/pull/1780)
-- fix: build more precise TargetEntries to detect usages of `paradedb.score()` and `paradedb.snippet()` by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1754](https://github.com/paradedb/paradedb/pull/1754)
-- fix: custom scan is better at joins by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1788](https://github.com/paradedb/paradedb/pull/1788)
-- fix: explicitly call `IndexWriter::wait_merging_threads()` by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1772](https://github.com/paradedb/paradedb/pull/1772)
-- fix: transparently turn on scoring when a query uses "more like this" by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1755](https://github.com/paradedb/paradedb/pull/1755)
-- fix: re-implement scoring check for more like this queries by [@neilyio](https://github.com/neilyio) in [#1779](https://github.com/paradedb/paradedb/pull/1779)
+This new query syntax brings a number of serious benefits:
 
-## Documentation
+### JOIN Friendly
 
-- docs: Deprecate function-based syntax, introduce `@@@` by [@rebasedming](https://github.com/rebasedming) in [#1750](https://github.com/paradedb/paradedb/pull/1750)
-- docs: fix wrong links by [@rebasedming](https://github.com/rebasedming) in [#1731](https://github.com/paradedb/paradedb/pull/1731)
+The old `.search()` syntax made it difficult to search over joined tables. The `@@@` operator, on the other hand, acts like any other Postgres operator
+and can be dropped into both sides of a JOIN query:
 
-## Code Cleanup
+```sql
+SELECT o.order_id
+FROM orders o
+JOIN mock_items m ON o.product_id = m.id
+WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes';
+```
 
-- chore(deps): bump actions/github-script from 6 to 7 in the github-actions-dependencies group by [@dependabot](https://github.com/dependabot) in [#1734](https://github.com/paradedb/paradedb/pull/1734)
-- chore: pgrx `0.12.6` upgrade by [@rebasedming](https://github.com/rebasedming) in [#1787](https://github.com/paradedb/paradedb/pull/1787)
-- chore: make working with `pg_sys::Integer`/`pg_sys::Value`(pg13/14) a little easier by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1757](https://github.com/paradedb/paradedb/pull/1757)
-- chore: adjust tantivy commit and aminsert memory context by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1771](https://github.com/paradedb/paradedb/pull/1771)
-- chore: extract SearchIndexReader from SearchIndex by [@neilyio](https://github.com/neilyio) in [#1762](https://github.com/paradedb/paradedb/pull/1762)
-- chore: remove caching and load index instance from disk on each query. by [@neilyio](https://github.com/neilyio) in [#1764](https://github.com/paradedb/paradedb/pull/1764)
+### Intuitive SQL Syntax
 
-## Docker Image
+The `@@@` operator relies on SQL `LIMIT`, `OFFSET`, and `ORDER BY` clauses for limits, offsets, and sorting. These parameters no longer need to be passed in
+as arguments to the `.search()` function.
 
-- chore: Add Docker images for Postgres 13 to 17 by [@CatMe0w](https://github.com/CatMe0w) in [#1737](https://github.com/paradedb/paradedb/pull/1737)
-- chore: Reboot no longer necessary in Postgis install by [@philippemnoel](https://github.com/philippemnoel) in [#1767](https://github.com/paradedb/paradedb/pull/1767)
-- chore: Update comment from schema upgrade if already exists by [@philippemnoel](https://github.com/philippemnoel) in [#1775](https://github.com/paradedb/paradedb/pull/1775)
-- feat: Install extensions in template1 by [@philippemnoel](https://github.com/philippemnoel) in [#1749](https://github.com/paradedb/paradedb/pull/1749)
+### Direct Scores and Snippets
 
-## Testing/CI
+The old `.score_bm25()` and `.snippet()` functions needed to be JOINed with the original tables to associate rows with their scores/snippets. This is no longer the
+case with the custom scan, which is capable of projecting scores and snippets directly onto the result table:
 
-- chore: Add rust cache to lint rust for faster runtime by [@philippemnoel](https://github.com/philippemnoel) in [#1740](https://github.com/paradedb/paradedb/pull/1740)
-- chore: Add test for WAL replication not supported by [@rebasedming](https://github.com/rebasedming) in [#1735](https://github.com/paradedb/paradedb/pull/1735)
-- chore: RUST_BACKTRACE=1 in CI by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1768](https://github.com/paradedb/paradedb/pull/1768)
-- chore: switch all tests to @@@ operator by [@neilyio](https://github.com/neilyio) in [#1777](https://github.com/paradedb/paradedb/pull/1777)
-- fix: Fix manual deploy of Helm chart by [@philippemnoel](https://github.com/philippemnoel) in [#1741](https://github.com/paradedb/paradedb/pull/1741)
+```sql
+-- BM25 scoring
+SELECT id, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'shoes';
 
-## New Contributors
+-- Snippets
+SELECT id, paradedb.snippet(description)
+FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+## Performance Improvements 🚀
+
+### Incredibly Efficient Top N Queries
+
+[#1765](https://github.com/paradedb/paradedb/pull/1765) brought significant performance improvements to "top N" style search queries:
+
+```sql
+-- Top 5 results by score
+SELECT id, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'shoes'
+LIMIT 5;
+```
+
+On test datasets with 1 billion+ rows, we've seen query times drop from over 10 seconds to under 20 milliseconds.
+
+### Concurrent Writes
+
+[#1707](https://github.com/paradedb/paradedb/pull/1707) brought concurrent writes to multiple indexes. Prior to this change, a write to one index
+would block writes to any other index. This PR also removes the background writer from `pg_search`, which significantly reduces the surface area for bugs.
+
+## Query Builder 💡
+
+### JSON Support
+
+Query builder term, phrase, and range functions can now query [JSON fields](/documentation/advanced/json/overview) in the same way as text fields.
+
+```sql
+-- Queries {"metadata": {"color": "white"}}
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.term('metadata.color', 'white');
+```
+
+### Range Term
+
+Columns of type `int4range`, `int8range`, `numrange`, `tsrange`, and `tstzrange` can be indexed as `range_fields`.
+The [range term](/documentation/advanced/term/range_term) query is used to filter over these fields.
+
+```sql
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  range_fields => paradedb.field('weight_range')
+);
+
+SELECT id, weight_range FROM mock_items
+WHERE id @@@ paradedb.range_term('weight_range', 1);
+```
+
+### Parse
+
+`paradedb.parse` now accepts `lenient` and `conjunction_mode` parameters. A [new function](/documentation/advanced/compound/parse), `paradedb.parse_with_field`, has also been introduced.
+
+## Stability Improvements 💪
+
+### Flat JSONB Arrays
+
+Fixed a bug where `paradedb.term` failed to search over flat JSONB arrays like `'["red", "blue", "green"]'::JSONB`.
+
+### Prepared Statements
+
+Fixed a bug where prepared statements using the `@@@` operator would incorrectly choose a sequential scan.
+
+## Docker Image 🐳
+
+The ParadeDB Docker image is now available for all versions of Postgres from 13 to 17. Previously, only Postgres 16 was available.
+
+## New Contributors 👋
 
 - [@ethe](https://github.com/ethe) made their first contribution in [#1756](https://github.com/paradedb/paradedb/pull/1756)
 
-**Full Changelog**: https://github.com/paradedb/paradedb/compare/v0.10.3...v0.11.0
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.11.0).

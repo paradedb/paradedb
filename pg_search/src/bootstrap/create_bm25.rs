@@ -271,7 +271,20 @@ LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
 unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
     let database_oid = crate::MyDatabaseId();
-    crate::api::search::drop_bm25_internal(database_oid, index_oid.as_u32());
+    let relfile_paths = WriterDirectory::relfile_paths(database_oid, index_oid.as_u32())
+        .expect("could not look up pg_search relfilenode directory");
+
+    for directory in relfile_paths {
+        // Drop the Tantivy data directory.
+        // It's expected that this will be queued to actually perform the delete upon
+        // transaction commit.
+        let mut search_index = SearchIndex::from_disk(&directory)
+            .expect("index directory should be a valid SearchIndex");
+
+        search_index
+            .drop_index()
+            .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
+    }
     Ok(())
 }
 

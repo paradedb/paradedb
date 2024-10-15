@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
 use crate::index::reader::SearchIndexReader;
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
@@ -27,6 +26,9 @@ use std::collections::HashMap;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::DocAddress;
+
+const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
+const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct SnippetInfo {

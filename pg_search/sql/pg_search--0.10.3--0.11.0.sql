@@ -421,3 +421,9 @@ CREATE  FUNCTION "range_term"(
 IMMUTABLE STRICT PARALLEL SAFE 
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'range_term_range_tstzrange_wrapper';
+
+DROP FUNCTION IF EXISTS highlight(_key anyelement, _field text, _prefix text, _postfix text, _max_num_chars pg_catalog.int4, _alias text);
+DROP FUNCTION IF EXISTS minmax_bm25(_config_json jsonb, _key_type_dummy anyelement, _key_oid oid);
+DROP FUNCTION IF EXISTS rank_bm25(_key anyelement, _alias text);
+DROP FUNCTION IF EXISTS score_bm25(config_json jsonb, _key_type_dummy anyelement, key_oid oid);
+DROP FUNCTION IF EXISTS snippet(config_json jsonb, _key_type_dummy anyelement, key_oid oid);

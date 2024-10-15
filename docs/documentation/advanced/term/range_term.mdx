@@ -10,7 +10,7 @@ The following query finds all ranges that contain a specific value:
 
 ```sql
 SELECT id, weight_range FROM mock_items
-WHERE id @@@ paradedb.range_term('weight_range', 3);
+WHERE id @@@ paradedb.range_term('weight_range', 1);
 ```
 
 `range_term` can be used with `boolean` queries to "push down" the range filter into the full text search query.
@@ -19,7 +19,7 @@ WHERE id @@@ paradedb.range_term('weight_range', 3);
 SELECT id, description, category, weight_range FROM mock_items
 WHERE id @@@ paradedb.boolean(
     must => ARRAY[
-        paradedb.range_term('weight_range', 3),
+        paradedb.range_term('weight_range', 1),
         paradedb.term('category', 'footwear')
     ]
 );
@@ -37,7 +37,7 @@ point with the query range:
 
 ```sql
 SELECT id, weight_range FROM mock_items
-WHERE id @@@ paradedb.range_term('weight_range', '(5, 15]'::int4range, 'Intersects');
+WHERE id @@@ paradedb.range_term('weight_range', '(10, 12]'::int4range, 'Intersects');
 ```
 
 ### Contains
@@ -46,7 +46,7 @@ The following query finds all ranges that are contained by the query range:
 
 ```sql
 SELECT id, weight_range FROM mock_items
-WHERE id @@@ paradedb.range_term('weight_range', '(2, 11]'::int4range, 'Contains');
+WHERE id @@@ paradedb.range_term('weight_range', '(3, 9]'::int4range, 'Contains');
 ```
 
 ### Within
@@ -55,5 +55,5 @@ The following query finds all ranges that contain the query range:
 
 ```sql
 SELECT id, weight_range FROM mock_items
-WHERE id @@@ paradedb.range_term('weight_range', '(2, 5]'::int4range, 'Within');
+WHERE id @@@ paradedb.range_term('weight_range', '(2, 11]'::int4range, 'Within');
 ```

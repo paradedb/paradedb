@@ -250,6 +250,7 @@ type `TEXT[]` can be passed into `text_fields`, and columns of type `INT[]` can 
 ### Range Fields
 
 Columns of type `int4range`, `int8range`, `numrange`, `tsrange`, and `tstzrange` can be indexed as `range_fields`.
+The [range term](/documentation/advanced/term/range_term) query is used to filter over these fields.
 
 ```sql
 CALL paradedb.create_bm25(

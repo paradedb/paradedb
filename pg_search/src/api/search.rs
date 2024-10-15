@@ -18,7 +18,8 @@
 use crate::index::reader::SearchIndexReader;
 use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
-use crate::postgres::utils::{relfilenode_from_index_oid, VisibilityChecker};
+use crate::postgres::utils::relfilenode_from_index_oid;
+use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::schema::SearchConfig;
 use pgrx::pg_sys::FunctionCallInfo;
 use pgrx::{prelude::TableIterator, *};

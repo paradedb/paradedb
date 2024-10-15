@@ -50,9 +50,8 @@ use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{
-    relfilenode_from_index_oid, relfilenode_from_pg_relation, VisibilityChecker,
-};
+use crate::postgres::utils::{relfilenode_from_index_oid, relfilenode_from_pg_relation};
+use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::schema::SearchConfig;
 use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;

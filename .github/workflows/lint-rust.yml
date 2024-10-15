@@ -57,7 +57,7 @@ jobs:
         run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv )" >> $GITHUB_ENV
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}
+        run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
 
       - name: Initialize pgrx for Current PostgreSQL Version
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config

@@ -344,7 +344,7 @@ jobs:
         run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)" >> $GITHUB_ENV
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}
+        run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
 
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Initialize pgrx for Current PostgreSQL Version

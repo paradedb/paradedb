@@ -129,7 +129,7 @@ jobs:
       - name: Install pgrx & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
           rustup component add llvm-tools-preview
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
@@ -298,7 +298,7 @@ jobs:
       - name: Install pgrx & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
           rustup component add llvm-tools-preview
           cargo pgrx init "--pg${{ matrix.pg_version }}=download"
 

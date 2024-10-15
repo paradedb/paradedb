@@ -6,15 +6,28 @@ title: Inspect an Index
 
 The `schema` function returns a table with information about the index schema. This is useful for inspecting how an index was configured.
 
+The following code block inspects an index called `search_idx`. The argument should be the index name as a symbol, as opposed to quoted in a string.
+
 ```sql
-SELECT * FROM search_idx.schema();
+SELECT * FROM paradedb.schema(search_idx);
 ```
+
+<ParamField body="index" required>
+	The index to inspect.
+</ParamField>
+
 
 ## Index Size
 
 Because BM25 indexes rely on a custom storage implementation, the built-in Postgres `pg_relation_size` function does not work. Instead, the custom
 `index_size` function returns the size of a BM25 index in bytes.
 
+The following code block returns the size of an index called `search_idx`. The argument should be the index name as a symbol, as opposed to quoted in a string.
+
 ```sql
-SELECT * FROM search_idx.index_size();
+SELECT * FROM paradedb.index_size(search_idx);
 ```
+
+<ParamField body="index" required>
+	The index to inspect.
+</ParamField>

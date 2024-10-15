@@ -97,7 +97,7 @@ pub enum EsLogsCommand {
     },
     QuerySearchIndex {
         /// Postgres table name to query.
-        #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_INDEX_NAME)]
+        #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_TABLE)]
         table: String,
         /// Query to run.
         #[arg(short, long, default_value = "message:flame")]

@@ -212,7 +212,7 @@ pub async fn bench_eslogs_query_search_index(
         group_name: "Search Query".into(),
         function_name: "bench_eslogs_query_search_index".into(),
         setup_query: None,
-        query: format!("SELECT * FROM {table} WHERE {table} @@@ '{query} LIMIT {limit}'"),
+        query: format!("SELECT * FROM {table} WHERE {table} @@@ '{query}' LIMIT {limit}"),
         database_url: url,
     }
     .run_pg()

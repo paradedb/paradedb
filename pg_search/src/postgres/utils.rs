@@ -189,24 +189,6 @@ extern "C" {
 }
 
 impl VisibilityChecker {
-    /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
-    /// `relid` in whatever the current snapshot happens to be at the time this function is called.
-    pub fn new(relid: pg_sys::Oid) -> Self {
-        unsafe {
-            // SAFETY:  `pg_sys::RelationIdGetRelation()` will raise an ERROR if the specified
-            // relation oid is not a valid relation.
-            //
-            // `pg_sys::GetTransactionSnapshot()` causes no concern
-            Self {
-                relation: pg_sys::RelationIdGetRelation(relid),
-                need_close: true,
-                snapshot: pg_sys::GetTransactionSnapshot(),
-                last_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
-                ipd: pg_sys::ItemPointerData::default(),
-            }
-        }
-    }
-
     pub fn with_rel_and_snap(relation: pg_sys::Relation, snapshot: pg_sys::Snapshot) -> Self {
         Self {
             relation,
@@ -215,12 +197,6 @@ impl VisibilityChecker {
             last_buffer: pg_sys::InvalidBuffer as pg_sys::Buffer,
             ipd: pg_sys::ItemPointerData::default(),
         }
-    }
-
-    /// Returns true if the specified 64bit ctid is visible by the backing snapshot in the backing
-    /// relation
-    pub fn ctid_satisfies_snapshot(&mut self, ctid: u64) -> bool {
-        self.exec_if_visible(ctid, |_, _, _| ()).is_some()
     }
 
     pub fn exec_if_visible<T, F: FnMut(pg_sys::Oid, pg_sys::HeapTupleData, pg_sys::Buffer) -> T>(

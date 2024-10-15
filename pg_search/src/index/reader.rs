@@ -222,26 +222,6 @@ impl SearchIndexReader {
 
     /// Search the Tantivy index for matching documents.
     ///
-    /// This method honors all of ParadeDB's search features including scoring, limits, orderbys,
-    /// and stable sorting.  As such, the returned [`SearchIndexScore`] item will be fully populated.
-    ///
-    /// Additionally, the results will always be sorted descending by score and include tie-breaking,
-    /// regardless of the [`SearchConfig`]'s `stable_sort` property.
-    ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
-    pub fn search(
-        &self,
-        executor: &'static Executor,
-        config: &SearchConfig,
-        query: &dyn Query,
-    ) -> SearchResults {
-        let results = self.search_with_top_docs(executor, true, config, query);
-        SearchResults::AllFeatures(results.len(), results.into_iter())
-    }
-
-    /// Search the Tantivy index for matching documents.
-    ///
     /// This method will do the minimal amount of work necessary to return [`SearchResults`].  If,
     /// for example, it determines that scoring and sorting are not strictly necessary, it will
     /// use a "fast path" for searching where the returned [`SearchIndexScore`] will be minimally

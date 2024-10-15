@@ -19,6 +19,12 @@ CREATE  FUNCTION "fieldname_out"(
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'fieldname_out_wrapper';
+CREATE TYPE FieldName (
+  INTERNALLENGTH = variable,
+  INPUT = fieldname_in, /* pg_search::api::index::fieldname_in */
+  OUTPUT = fieldname_out, /* pg_search::api::index::fieldname_out */
+  STORAGE = extended
+);
 DROP FUNCTION IF EXISTS "exists"(field text);
 CREATE OR REPLACE FUNCTION "exists"(field fieldname) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'exists_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
 DROP FUNCTION IF EXISTS fuzzy_phrase(field text, value text, distance pg_catalog.int4, transposition_cost_one bool, prefix bool, match_all_terms bool);
@@ -171,15 +177,9 @@ CREATE  FUNCTION "index_info"(
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'index_info_wrapper';
 
-DROP TYPE paradedb.TestTable;
-CREATE TYPE paradedb.TestTable AS ENUM (
-	'Items',
-	'Orders',
-	'Parts',
-	'Deliveries'
-);
+ALTER TYPE paradedb.TestTable ADD VALUE 'Deliveries';
 
-DROP FUNCTION IF EXISTS paradedb.create_bm25(index_name text, table_name text, key_field text, schema_name text, text_fields jsonb, numeric_fields jsonb, boolean_fields jsonb, json_fields jsonb, datetime_fields jsonb, predicates text);
+DROP PROCEDURE IF EXISTS paradedb.create_bm25(index_name text, table_name text, key_field text, schema_name text, text_fields jsonb, numeric_fields jsonb, boolean_fields jsonb, json_fields jsonb, datetime_fields jsonb, predicates text);
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(index_name text DEFAULT '', table_name text DEFAULT '', key_field text DEFAULT '', schema_name text DEFAULT 'current_schema', text_fields jsonb DEFAULT '{}', numeric_fields jsonb DEFAULT '{}', boolean_fields jsonb DEFAULT '{}', json_fields jsonb DEFAULT '{}', range_fields jsonb DEFAULT '{}', datetime_fields jsonb DEFAULT '{}', predicates text DEFAULT '') AS 'MODULE_PATHNAME', 'create_bm25_jsonb_wrapper' LANGUAGE c;
 /* </end connected objects> */
 /* <begin connected objects> */
@@ -297,12 +297,10 @@ CREATE OR REPLACE FUNCTION parse(query_string text, lenient bool DEFAULT NULL, c
 DROP FUNCTION IF EXISTS parse_with_field(field fieldname, query_string text);
 CREATE OR REPLACE FUNCTION parse_with_field(field fieldname, query_string text, lenient bool DEFAULT NULL, conjunction_mode bool DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'parse_with_field_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
 
-DROP FUNCTION IF EXISTS search_with_query_input(_element anyelement, query searchqueryinput);
-CREATE OR REPLACE FUNCTION search_with_query_input(_element anyelement, query searchqueryinput) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_query_input_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
-DROP FUNCTION IF EXISTS search_with_search_config(element anyelement, config_json jsonb);
-CREATE OR REPLACE FUNCTION search_with_search_config(element anyelement, config_json jsonb) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_search_config_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
-DROP FUNCTION IF EXISTS search_with_text(_element anyelement, query text);
-CREATE OR REPLACE FUNCTION search_with_text(_element anyelement, query text) RETURNS bool AS 'MODULE_PATHNAME', 'search_with_text_wrapper' COST 1000000000 IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+ALTER FUNCTION search_with_query_input COST 1000000000;
+ALTER FUNCTION search_with_search_config COST 1000000000;
+ALTER FUNCTION search_with_text COST 1000000000;
+
 DROP FUNCTION IF EXISTS paradedb.index_size_impl(index_name text);
 DROP FUNCTION IF EXISTS schema_bm25(index_name text);
 /* </end connected objects> */

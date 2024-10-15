@@ -46,7 +46,7 @@ jobs:
             echo "environment=prod" >> $GITHUB_OUTPUT
             echo "Using prod configuration..."
           else
-            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "environment=prod" >> $GITHUB_OUTPUT
             echo "Using dev configuration..."
           fi
 
@@ -62,7 +62,7 @@ jobs:
         with:
           version: "lab:latest"
           driver: cloud
-          endpoint: "ORG/default"
+          endpoint: "${{ secrets.DOCKERHUB_USERNAME }}/paradedb"
           install: true
           platforms: linux/${{ matrix.arch }}
 

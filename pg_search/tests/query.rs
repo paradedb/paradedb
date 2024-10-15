@@ -23,7 +23,7 @@ use core::panic;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Row};
 
 #[rstest]
 fn boolean_tree(mut conn: PgConnection) {

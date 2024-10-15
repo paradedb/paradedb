@@ -451,6 +451,17 @@ fn multiple_fields(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn missing_schema_index(mut conn: PgConnection) {
+    match "SELECT paradedb.schema('paradedb.missing_bm25_index')".fetch_result::<(i64,)>(&mut conn)
+    {
+        Err(err) => assert!(err
+            .to_string()
+            .contains(r#"relation "paradedb.missing_bm25_index" does not exist"#)),
+        _ => panic!("non-existing index should throw an error"),
+    }
+}
+
+#[rstest]
 fn null_values(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);

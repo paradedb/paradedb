@@ -61,9 +61,9 @@ jobs:
         with:
           images: paradedb/paradedb
           tags: |
-            type=raw,value=${{ steps.version.outputs.tag }}
-            type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == 16 }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == 16 }}
             type=raw,value=latest,enable=${{ matrix.pg_version == 16 }}
 
       - name: Login to Docker Hub

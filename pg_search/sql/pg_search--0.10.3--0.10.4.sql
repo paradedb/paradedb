@@ -180,7 +180,7 @@ AS 'MODULE_PATHNAME', 'index_info_wrapper';
 ALTER TYPE paradedb.TestTable ADD VALUE 'Deliveries';
 
 DROP PROCEDURE IF EXISTS paradedb.create_bm25(index_name text, table_name text, key_field text, schema_name text, text_fields jsonb, numeric_fields jsonb, boolean_fields jsonb, json_fields jsonb, datetime_fields jsonb, predicates text);
-CREATE OR REPLACE PROCEDURE paradedb.create_bm25(index_name text DEFAULT '', table_name text DEFAULT '', key_field text DEFAULT '', schema_name text DEFAULT 'current_schema', text_fields jsonb DEFAULT '{}', numeric_fields jsonb DEFAULT '{}', boolean_fields jsonb DEFAULT '{}', json_fields jsonb DEFAULT '{}', range_fields jsonb DEFAULT '{}', datetime_fields jsonb DEFAULT '{}', predicates text DEFAULT '') AS 'MODULE_PATHNAME', 'create_bm25_jsonb_wrapper' LANGUAGE c;
+CREATE OR REPLACE PROCEDURE paradedb.create_bm25(index_name text DEFAULT '', table_name text DEFAULT '', key_field text DEFAULT '', schema_name text DEFAULT CURRENT_SCHEMA, text_fields jsonb DEFAULT '{}', numeric_fields jsonb DEFAULT '{}', boolean_fields jsonb DEFAULT '{}', json_fields jsonb DEFAULT '{}', range_fields jsonb DEFAULT '{}', datetime_fields jsonb DEFAULT '{}', predicates text DEFAULT '') AS 'MODULE_PATHNAME', 'create_bm25_jsonb_wrapper' LANGUAGE c;
 /* </end connected objects> */
 /* <begin connected objects> */
 -- pg_search/src/api/index.rs:670

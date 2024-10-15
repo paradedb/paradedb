@@ -4,61 +4,61 @@ title: 0.11.0
 
 ## Query API
 
-* feat: A Custom Scan Implementation by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1739
-* feat: JSON support for query builder term/phrase functions by @rebasedming in https://github.com/paradedb/paradedb/pull/1742
-* feat: Move `lenient` and `conjunction_mode` to `paradedb.parse`/`paradedb.parse_with_field` by @rebasedming in https://github.com/paradedb/paradedb/pull/1773
-* feat: Support range field types by @rebasedming in https://github.com/paradedb/paradedb/pull/1761
-* feat: function to inspect index segments by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1770
-* fix: `paradedb.term` over flat JSONB arrays by @rebasedming in https://github.com/paradedb/paradedb/pull/1766
-* feat: Remove dynamic schema generation and search() function by @neilyio in https://github.com/paradedb/paradedb/pull/1781
-* feat: Range comparison queries (contains, within, intersects) by @rebasedming in https://github.com/paradedb/paradedb/pull/1783
+- feat: A Custom Scan Implementation by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1739](https://github.com/paradedb/paradedb/pull/1739)
+- feat: JSON support for query builder term/phrase functions by [@rebasedming](https://github.com/rebasedming) in [#1742](https://github.com/paradedb/paradedb/pull/1742)
+- feat: Move `lenient` and `conjunction_mode` to `paradedb.parse`/`paradedb.parse_with_field` by [@rebasedming](https://github.com/rebasedming) in [#1773](https://github.com/paradedb/paradedb/pull/1773)
+- feat: Support range field types by [@rebasedming](https://github.com/rebasedming) in [#1761](https://github.com/paradedb/paradedb/pull/1761)
+- feat: function to inspect index segments by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1770](https://github.com/paradedb/paradedb/pull/1770)
+- fix: `paradedb.term` over flat JSONB arrays by [@rebasedming](https://github.com/rebasedming) in [#1766](https://github.com/paradedb/paradedb/pull/1766)
+- feat: Remove dynamic schema generation and search() function by [@neilyio](https://github.com/neilyio) in [#1781](https://github.com/paradedb/paradedb/pull/1781)
+- feat: Range comparison queries (contains, within, intersects) by [@rebasedming](https://github.com/rebasedming) in [#1783](https://github.com/paradedb/paradedb/pull/1783)
 
 ## Performance
 
-* feat: concurrent writes by moving index writer to connection process by @neilyio in https://github.com/paradedb/paradedb/pull/1707
-* feat: incredibly efficient "Top N" queries with plain SQL by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1765
+- feat: concurrent writes by moving index writer to connection process by [@neilyio](https://github.com/neilyio) in [#1707](https://github.com/paradedb/paradedb/pull/1707)
+- feat: incredibly efficient "Top N" queries with plain SQL by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1765](https://github.com/paradedb/paradedb/pull/1765)
 
-## Fixes 
+## Fixes
 
-* fix: prepared statements will replan to avoid sequential scans by @rebasedming in https://github.com/paradedb/paradedb/pull/1786
-* fix: @@@ crashes, rti/varno confusion, and minor test query cleanup by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1780
-* fix: build more precise TargetEntries to detect usages of `paradedb.score()` and `paradedb.snippet()` by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1754
-* fix: custom scan is better at joins by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1788
-* fix: explicitly call `IndexWriter::wait_merging_threads()` by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1772
-* fix: transparently turn on scoring when a query uses "more like this" by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1755
-* fix: re-implement scoring check for more like this queries by @neilyio in https://github.com/paradedb/paradedb/pull/1779
+- fix: prepared statements will replan to avoid sequential scans by [@rebasedming](https://github.com/rebasedming) in [#1786](https://github.com/paradedb/paradedb/pull/1786)
+- fix: @@@ crashes, rti/varno confusion, and minor test query cleanup by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1780](https://github.com/paradedb/paradedb/pull/1780)
+- fix: build more precise TargetEntries to detect usages of `paradedb.score()` and `paradedb.snippet()` by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1754](https://github.com/paradedb/paradedb/pull/1754)
+- fix: custom scan is better at joins by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1788](https://github.com/paradedb/paradedb/pull/1788)
+- fix: explicitly call `IndexWriter::wait_merging_threads()` by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1772](https://github.com/paradedb/paradedb/pull/1772)
+- fix: transparently turn on scoring when a query uses "more like this" by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1755](https://github.com/paradedb/paradedb/pull/1755)
+- fix: re-implement scoring check for more like this queries by [@neilyio](https://github.com/neilyio) in [#1779](https://github.com/paradedb/paradedb/pull/1779)
 
 ## Documentation
 
-* docs: Deprecate function-based syntax, introduce `@@@` by @rebasedming in https://github.com/paradedb/paradedb/pull/1750
-* docs: fix wrong links by @rebasedming in https://github.com/paradedb/paradedb/pull/1731
+- docs: Deprecate function-based syntax, introduce `@@@` by [@rebasedming](https://github.com/rebasedming) in [#1750](https://github.com/paradedb/paradedb/pull/1750)
+- docs: fix wrong links by [@rebasedming](https://github.com/rebasedming) in [#1731](https://github.com/paradedb/paradedb/pull/1731)
 
 ## Code Cleanup
 
-* chore(deps): bump actions/github-script from 6 to 7 in the github-actions-dependencies group by @dependabot in https://github.com/paradedb/paradedb/pull/1734
-* chore: pgrx `0.12.6` upgrade by @rebasedming in https://github.com/paradedb/paradedb/pull/1787
-* chore: make working with `pg_sys::Integer`/`pg_sys::Value`(pg13/14) a little easier by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1757
-* chore: adjust tantivy commit and aminsert memory context by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1771
-* chore: extract SearchIndexReader from SearchIndex by @neilyio in https://github.com/paradedb/paradedb/pull/1762
-* chore: remove caching and load index instance from disk on each query. by @neilyio in https://github.com/paradedb/paradedb/pull/1764
+- chore(deps): bump actions/github-script from 6 to 7 in the github-actions-dependencies group by [@dependabot](https://github.com/dependabot) in [#1734](https://github.com/paradedb/paradedb/pull/1734)
+- chore: pgrx `0.12.6` upgrade by [@rebasedming](https://github.com/rebasedming) in [#1787](https://github.com/paradedb/paradedb/pull/1787)
+- chore: make working with `pg_sys::Integer`/`pg_sys::Value`(pg13/14) a little easier by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1757](https://github.com/paradedb/paradedb/pull/1757)
+- chore: adjust tantivy commit and aminsert memory context by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1771](https://github.com/paradedb/paradedb/pull/1771)
+- chore: extract SearchIndexReader from SearchIndex by [@neilyio](https://github.com/neilyio) in [#1762](https://github.com/paradedb/paradedb/pull/1762)
+- chore: remove caching and load index instance from disk on each query. by [@neilyio](https://github.com/neilyio) in [#1764](https://github.com/paradedb/paradedb/pull/1764)
 
 ## Docker Image
 
-* chore: Add Docker images for Postgres 13 to 17 by @CatMe0w in https://github.com/paradedb/paradedb/pull/1737
-* chore: Reboot no longer necessary in Postgis install by @philippemnoel in https://github.com/paradedb/paradedb/pull/1767
-* chore: Update comment from schema upgrade if already exists by @philippemnoel in https://github.com/paradedb/paradedb/pull/1775
-* feat: Install extensions in template1 by @philippemnoel in https://github.com/paradedb/paradedb/pull/1749
+- chore: Add Docker images for Postgres 13 to 17 by [@CatMe0w](https://github.com/CatMe0w) in [#1737](https://github.com/paradedb/paradedb/pull/1737)
+- chore: Reboot no longer necessary in Postgis install by [@philippemnoel](https://github.com/philippemnoel) in [#1767](https://github.com/paradedb/paradedb/pull/1767)
+- chore: Update comment from schema upgrade if already exists by [@philippemnoel](https://github.com/philippemnoel) in [#1775](https://github.com/paradedb/paradedb/pull/1775)
+- feat: Install extensions in template1 by [@philippemnoel](https://github.com/philippemnoel) in [#1749](https://github.com/paradedb/paradedb/pull/1749)
 
 ## Testing/CI
 
-* chore: Add rust cache to lint rust for faster runtime by @philippemnoel in https://github.com/paradedb/paradedb/pull/1740
-* chore: Add test for WAL replication not supported by @rebasedming in https://github.com/paradedb/paradedb/pull/1735
-* chore: RUST_BACKTRACE=1 in CI by @eeeebbbbrrrr in https://github.com/paradedb/paradedb/pull/1768
-* chore: switch all tests to @@@ operator by @neilyio in https://github.com/paradedb/paradedb/pull/1777
-* fix: Fix manual deploy of Helm chart by @philippemnoel in https://github.com/paradedb/paradedb/pull/1741
+- chore: Add rust cache to lint rust for faster runtime by [@philippemnoel](https://github.com/philippemnoel) in [#1740](https://github.com/paradedb/paradedb/pull/1740)
+- chore: Add test for WAL replication not supported by [@rebasedming](https://github.com/rebasedming) in [#1735](https://github.com/paradedb/paradedb/pull/1735)
+- chore: RUST_BACKTRACE=1 in CI by [@eeeebbbbrrrr](https://github.com/eeeebbbbrrrr) in [#1768](https://github.com/paradedb/paradedb/pull/1768)
+- chore: switch all tests to @@@ operator by [@neilyio](https://github.com/neilyio) in [#1777](https://github.com/paradedb/paradedb/pull/1777)
+- fix: Fix manual deploy of Helm chart by [@philippemnoel](https://github.com/philippemnoel) in [#1741](https://github.com/paradedb/paradedb/pull/1741)
 
 ## New Contributors
 
-* @ethe made their first contribution in https://github.com/paradedb/paradedb/pull/1756
+- [@ethe](https://github.com/ethe) made their first contribution in [#1756](https://github.com/paradedb/paradedb/pull/1756)
 
 **Full Changelog**: https://github.com/paradedb/paradedb/compare/v0.10.3...v0.11.0

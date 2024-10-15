@@ -582,7 +582,7 @@ async fn test_wal_streaming_replication() -> Result<()> {
         Err(err) => {
             if !err
                 .to_string()
-                .contains("could not read from file to load index")
+                .contains("should be able to open search index")
             {
                 panic!("expected an error, but not this one: {err}");
             }

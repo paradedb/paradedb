@@ -98,7 +98,7 @@ impl TryFrom<&PgOid> for SearchFieldType {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug, utoipa::ToSchema, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub enum SearchFieldConfig {
     Text {
         #[serde(default = "default_as_true")]
@@ -111,7 +111,6 @@ pub enum SearchFieldConfig {
         fieldnorms: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
-        #[schema(value_type = IndexRecordOptionSchema)]
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -128,7 +127,6 @@ pub enum SearchFieldConfig {
         expand_dots: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
-        #[schema(value_type = IndexRecordOptionSchema)]
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -698,13 +696,9 @@ impl SearchIndexSchema {
 
 // Index record schema
 #[allow(unused)] // used by serde
-#[derive(utoipa::ToSchema)]
 pub enum IndexRecordOptionSchema {
-    #[schema(rename = "basic")]
     Basic,
-    #[schema(rename = "freq")]
     WithFreqs,
-    #[schema(rename = "position")]
     WithFreqsAndPositions,
 }
 

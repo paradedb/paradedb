@@ -17,7 +17,6 @@
 
 pub mod github;
 pub mod gucs;
-pub mod telemetry;
 pub mod trace;
 
 #[cfg(feature = "fixtures")]

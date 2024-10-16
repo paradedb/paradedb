@@ -148,6 +148,7 @@ jobs:
 
       - name: Start Postgres via cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           # Necessary for the ephemeral Postgres test to have proper permissions

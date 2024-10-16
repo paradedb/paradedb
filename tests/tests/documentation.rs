@@ -679,6 +679,14 @@ fn term_level_queries(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
 
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.regex('description', 'key.*rd')
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
     // Term
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category

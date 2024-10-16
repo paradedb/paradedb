@@ -36,7 +36,6 @@ impl DirectoryStore for PostgresDirectoryStore {
 
         Ok(match name.as_str() {
             "pg_search" => root.join("paradedb").join("pg_search"),
-            "pg_analytics" => root.join("paradedb").join("pg_analytics"),
             _ => panic!("no extension_path for unrecognized extension: {name:?}"),
         })
     }

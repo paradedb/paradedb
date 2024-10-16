@@ -6,7 +6,14 @@ edition = "2021"
 license = "AGPL-3.0"
 
 [features]
-fixtures = ["async-std", "datafusion", "rstest", "soa_derive", "sqlx", "bigdecimal"]
+fixtures = [
+  "async-std",
+  "datafusion",
+  "rstest",
+  "soa_derive",
+  "sqlx",
+  "bigdecimal",
+]
 
 [dependencies]
 anyhow = "1.0.87"
@@ -26,10 +33,17 @@ url = "2.5.2"
 # for testing
 async-std = { version = "1.13.0", features = ["attributes"], optional = true }
 bigdecimal = { version = "0.3.1", features = ["serde"], optional = true }
-datafusion = {  version = "38.0.0", optional = true }
+datafusion = { version = "38.0.0", optional = true }
 rstest = { version = "0.18.2", optional = true }
 soa_derive = { version = "0.13.0", optional = true }
-sqlx = { version = "0.7.4", features = [ "postgres", "runtime-async-std", "time", "bigdecimal", "uuid", "chrono", ], optional = true }
+sqlx = { version = "0.7.4", features = [
+  "postgres",
+  "runtime-async-std",
+  "time",
+  "bigdecimal",
+  "uuid",
+  "chrono",
+], optional = true }
 
 
 [dev-dependencies]

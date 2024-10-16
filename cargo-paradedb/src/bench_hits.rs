@@ -48,7 +48,7 @@ pub async fn bench_hits(url: &str, workload: &str, full: bool) -> Result<()> {
     let _os = run_fun!(uname)?;
 
     println!("\n*********************************************************************************");
-    println!("* Benchmarking pg_analytics against ClickBench");
+    println!("* Benchmarking Analytics against ClickBench");
     println!("*********************************************************************************\n");
 
     let root_file_path = PathBuf::from_str("/tmp")?;

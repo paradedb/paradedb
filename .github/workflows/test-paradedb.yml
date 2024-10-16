@@ -14,12 +14,6 @@ on:
     paths:
       - ".github/workflows/test-paradedb.yml"
       - "docker/**"
-      - "pg_analytics/**"
-      - "!pg_analytics/README.md"
-      - "pg_search/**"
-      - "!pg_search/README.md"
-      - "shared/**"
-      - "tokenizers/**"
   workflow_dispatch:
 
 concurrency:

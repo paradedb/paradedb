@@ -249,7 +249,5 @@ RUN apt-get update && \
 # Switch back to the postgres user, with the new uid
 USER postgres
 
-# Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
+# Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
-COPY ./docker/update_pg_search.sh /usr/local/bin/
-COPY ./docker/update_pg_analytics.sh /usr/local/bin/

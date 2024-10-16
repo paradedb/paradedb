@@ -3003,39 +3003,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pg_search-tests"
-version = "0.11.0"
-dependencies = [
- "anyhow",
- "approx",
- "async-std",
- "bigdecimal",
- "bytes",
- "chrono",
- "cmd_lib",
- "dotenvy",
- "futures",
- "pgvector",
- "portpicker",
- "pretty_assertions",
- "rand",
- "rstest 0.18.2",
- "serde",
- "serde_json",
- "soa_derive",
- "sqlx",
- "strum",
- "strum_macros",
- "tantivy",
- "tantivy-common",
- "tempfile",
- "time",
- "tokenizers",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "pgrx"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4678,6 +4645,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "tests"
+version = "0.11.0"
+dependencies = [
+ "anyhow",
+ "approx",
+ "async-std",
+ "bigdecimal",
+ "bytes",
+ "chrono",
+ "cmd_lib",
+ "dotenvy",
+ "futures",
+ "pgvector",
+ "portpicker",
+ "pretty_assertions",
+ "rand",
+ "rstest 0.18.2",
+ "serde",
+ "serde_json",
+ "soa_derive",
+ "sqlx",
+ "strum",
+ "strum_macros",
+ "tantivy",
+ "tantivy-common",
+ "tempfile",
+ "time",
+ "tokenizers",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

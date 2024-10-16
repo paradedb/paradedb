@@ -1,5 +1,5 @@
 [package]
-name = "pg_search-tests"
+name = "tests"
 description = "test suite for pg_search"
 version = "0.11.0"
 edition = "2021"

@@ -16,8 +16,8 @@ on:
       - "pg_search/**"
       - "!pg_search/README.md"
       - "tokenizers/**"
-      - "pg_search-tests/**"
-      - "!pg_search-tests/README.md"
+      - "tests/**"
+      - "!tests/README.md"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it

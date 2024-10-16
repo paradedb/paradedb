@@ -148,6 +148,7 @@ async fn run_queries(conn: &mut PgConnection) -> Result<()> {
     Ok(())
 }
 
+// TODO: Convert the ClickBench test from pg_analytics to pg_search once fast facets are implemented.
 fn create_query_sql(file_path: &str) -> String {
     format!(
         r#"

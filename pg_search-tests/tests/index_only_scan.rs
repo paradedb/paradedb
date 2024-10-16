@@ -15,27 +15,32 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_imports)]
-use async_std::task::block_on;
+mod fixtures;
+
+use fixtures::db::Query;
+use fixtures::*;
 use rstest::*;
-use sqlx::{self, PgConnection};
+use sqlx::PgConnection;
 
-pub use shared::fixtures::db::*;
-pub use shared::fixtures::tables::*;
+#[rstest]
+fn index_only_scan_on_key_field(mut conn: PgConnection) {
+    use serde_json::Value;
 
-#[fixture]
-pub fn database() -> Db {
-    block_on(async { Db::new().await })
-}
+    SimpleProductsTable::setup().execute(&mut conn);
 
-#[fixture]
-pub fn conn(database: Db) -> PgConnection {
-    block_on(async {
-        let mut conn = database.connection().await;
-        sqlx::query("CREATE EXTENSION pg_search;")
-            .execute(&mut conn)
-            .await
-            .expect("could not create extension pg_search");
-        conn
-    })
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let plan = plan
+        .get(0)
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("Plan")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    eprintln!("{plan:#?}");
+    pretty_assertions::assert_eq!(
+        plan.get("Node Type"),
+        Some(&Value::String(String::from("Index Only Scan")))
+    );
 }

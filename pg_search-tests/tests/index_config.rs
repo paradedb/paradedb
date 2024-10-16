@@ -20,10 +20,10 @@ mod fixtures;
 
 use std::path::PathBuf;
 
+use fixtures::utils::pg_search_index_directory_path;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use shared::fixtures::utils::pg_search_index_directory_path;
 use sqlx::PgConnection;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {

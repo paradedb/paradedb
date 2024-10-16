@@ -38,40 +38,16 @@ rustc-hash = "1.1.0"
 serde = "1.0.210"
 serde_json = "1.0.128"
 serde_path_to_error = "0.1.16"
-shared = { path = "../shared" }
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "33be46c" }
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "33be46c" }
 thiserror = "1.0.63"
 tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 walkdir = "2.5.0"
 ordered-float = "4.2.2"
 uuid = "1.10.0"
+url = "2.5.2"
 strum = { version = "0.26.3" }
-
-[dev-dependencies]
-approx = "0.5.1"
-async-std = { version = "1.13.0", features = ["attributes"] }
-bigdecimal = "0.4.5"
-cmd_lib = "1.9.4"
-dotenvy = "0.15.7"
-futures = "0.3.30"
-pgvector = { version = "0.3.4", features = ["sqlx"] }
-portpicker = "0.1.1"
-pretty_assertions = "1.4.0"
-rand = "0.8.5"
-rstest = "0.18.2"
-shared = { path = "../shared", features = ["fixtures"] }
-sqlx = { version = "0.7.4", features = [
-  "postgres",
-  "runtime-async-std",
-  "time",
-  "bigdecimal",
-  "uuid",
-] }
-strum_macros = "0.26.4"
-tempfile = "3.12.0"
-time = "0.3.36"
-tokio = "1.40.0"
 
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]

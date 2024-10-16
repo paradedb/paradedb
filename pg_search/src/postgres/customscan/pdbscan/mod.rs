@@ -24,6 +24,7 @@ mod scan_state;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
 use crate::api::{AsCStr, AsInt, Cardinality};
+use crate::gucs::GlobalGucSettings;
 use crate::index::score::SearchIndexScore;
 use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -57,7 +58,6 @@ use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgRelation};
 use scan_state::SortDirection;
-use shared::gucs::GlobalGucSettings;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};

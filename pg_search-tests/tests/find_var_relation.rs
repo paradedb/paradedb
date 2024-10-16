@@ -17,9 +17,9 @@
 
 mod fixtures;
 
+use fixtures::db::Query;
 use fixtures::*;
 use rstest::*;
-use shared::fixtures::db::Query;
 use sqlx::PgConnection;
 
 #[rstest]

@@ -100,7 +100,7 @@ pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
 pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     // This function runs in the spawned background worker process. That means
     // that we need to re-initialize logging.
-    shared::init_ereport_logger("pg_search");
+    crate::trace::init_ereport_logger("pg_search");
 
     let extension_i32 = unsafe { i32::from_datum(extension_name_datum, false) }
         .expect("extension enum i32 not passed to bgworker");

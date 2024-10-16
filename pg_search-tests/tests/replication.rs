@@ -1,8 +1,10 @@
+mod fixtures;
+
 use anyhow::Result;
 use cmd_lib::{run_cmd, run_fun};
 use dotenvy::dotenv;
+use fixtures::db::Query;
 use rstest::*;
-use shared::fixtures::db::Query;
 use sqlx::{Connection, PgConnection};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;

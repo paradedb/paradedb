@@ -17,6 +17,7 @@
 
 mod fixtures;
 
+use crate::fixtures::utils::pg_search_index_directory_path;
 use anyhow::Result;
 use approx::assert_relative_eq;
 use core::panic;
@@ -24,7 +25,6 @@ use fixtures::*;
 use pgvector::Vector;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use shared::fixtures::utils::pg_search_index_directory_path;
 use sqlx::{types::BigDecimal, PgConnection};
 use std::str::FromStr;
 use tantivy::Index;

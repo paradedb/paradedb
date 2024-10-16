@@ -25,11 +25,14 @@ mod schema;
 
 #[cfg(test)]
 pub mod fixtures;
+pub mod github;
+pub mod gucs;
 pub mod telemetry;
+pub mod trace;
 
 use self::postgres::customscan;
+use gucs::PostgresGlobalGucSettings;
 use pgrx::*;
-use shared::gucs::PostgresGlobalGucSettings;
 use telemetry::setup_telemetry_background_worker;
 
 // A static variable is required to host grand unified configuration settings.
@@ -51,7 +54,7 @@ extension_sql!(
     finalize
 );
 
-static mut TRACE_HOOK: shared::trace::TraceHook = shared::trace::TraceHook;
+static mut TRACE_HOOK: trace::TraceHook = trace::TraceHook;
 
 /// Convenience method for [`pgrx::pg_sys::MyDatabaseId`]
 #[allow(non_snake_case)]

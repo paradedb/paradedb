@@ -10,11 +10,11 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["pg16"]
-pg13 = ["pgrx/pg13", "pgrx-tests/pg13"]
-pg14 = ["pgrx/pg14", "pgrx-tests/pg14"]
-pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
-pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
-pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
+pg13 = ["pgrx/pg13"]
+pg14 = ["pgrx/pg14"]
+pg15 = ["pgrx/pg15"]
+pg16 = ["pgrx/pg16"]
+pg17 = ["pgrx/pg17"]
 pg_test = []
 icu = ["tokenizers/icu"]
 
@@ -56,7 +56,6 @@ bigdecimal = "0.4.5"
 cmd_lib = "1.9.4"
 dotenvy = "0.15.7"
 futures = "0.3.30"
-pgrx-tests = "0.12.6"
 pgvector = { version = "0.3.4", features = ["sqlx"] }
 portpicker = "0.1.1"
 pretty_assertions = "1.4.0"

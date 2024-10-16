@@ -43,7 +43,6 @@ libc = "0.2.158"
 
 [dev-dependencies]
 mockall = "0.12.1"
-pgrx-tests = "0.12.6"
 
 [package.metadata.cargo-machete]
 ignored = ["rstest"]

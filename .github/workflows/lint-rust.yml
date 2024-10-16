@@ -34,27 +34,25 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Extract pgrx version
+        working-directory: pg_search/
+        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv )" >> $GITHUB_ENV
+
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
+          prefix-key: "v1-rust"
+          key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}
           cache-targets: true
-          cache-on-failure: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-
-      - name: Extract pgrx version
-        working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv )" >> $GITHUB_ENV
 
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug

@@ -21,7 +21,6 @@ bigdecimal = { version = "0.3.1", features = ["serde"] }
 bytes = "1.7.2"
 chrono = { version = "0.4.38", features = ["clock", "alloc"] }
 cmd_lib = "1.9.4"
-datafusion = "38.0.0"
 dotenvy = "0.15.7"
 futures = "0.3.30"
 pgvector = { version = "0.3.4", features = ["sqlx"] }
@@ -47,5 +46,5 @@ tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "33be4
 tempfile = "3.12.0"
 time = { version = "0.3.36", features = ["serde"] }
 tokenizers = { path = "../tokenizers" }
-tokio = "1.40.0"
+tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros" ] }
 uuid = "1.11.0"

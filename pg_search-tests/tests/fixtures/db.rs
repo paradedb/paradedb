@@ -20,7 +20,6 @@ use async_std::prelude::Stream;
 use async_std::stream::StreamExt;
 use async_std::task::block_on;
 use bytes::Bytes;
-use datafusion::arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use sqlx::{
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},

@@ -191,7 +191,10 @@ pub enum SearchQueryInput {
     },
     RangeWithin {
         field: String,
-        #[serde(serialize_with = "serialize_bound")]
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",

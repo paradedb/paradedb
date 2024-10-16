@@ -1,7 +1,9 @@
 use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
+use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 use std::ops::Bound;
 use tantivy::{
     query::{RangeQuery, RegexQuery, TermQuery},
@@ -180,29 +182,53 @@ where
     }
 }
 
-/// Custom serialization function for `Bound<T>`.
-/// The goal of this function is to deserialize `Bound<T>` with **lowercase keys**.
-/// By default, Rust would deserialize the `Bound` enum using its variant names,
-/// but we want to support a structure with keys like "included",
-/// "excluded", and "unbounded" appearing in lowercase.
+/// Custom deserialization function for `Bound<T>`.
+/// This function attempts to deserialize `Bound<T>` with lowercase keys (e.g., "included", "excluded"),
+/// and if that fails, it falls back to deserializing with capitalized keys ("Included", "Excluded").
 pub fn deserialize_bound<'de, D, T>(deserializer: D) -> Result<Bound<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    #[serde(untagged)]
-    enum BoundDef<T> {
-        Included { included: T },
-        Excluded { excluded: T },
-        Unbounded,
+    // First, deserialize into a `serde_json::Value`.
+    let value: Value = Value::deserialize(deserializer)?;
+
+    // Try to deserialize using lowercase keys.
+    if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
+        return match bound {
+            LowercaseBoundDef::Included { included } => Ok(Bound::Included(included)),
+            LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Excluded(excluded)),
+            LowercaseBoundDef::Unbounded => Ok(Bound::Unbounded),
+        };
     }
 
-    let bound_def = BoundDef::deserialize(deserializer)?;
-    match bound_def {
-        BoundDef::Included { included } => Ok(Bound::Included(included)),
-        BoundDef::Excluded { excluded } => Ok(Bound::Excluded(excluded)),
-        BoundDef::Unbounded { .. } => Ok(Bound::Unbounded),
+    // If lowercase deserialization fails, try with capitalized keys.
+    let bound = CapitalizedBoundDef::deserialize(value)
+        .map_err(|e| D::Error::custom(format!("Failed to deserialize: {}", e)))?; // Convert serde_json error to D::Error
+
+    match bound {
+        CapitalizedBoundDef::Included { Included } => Ok(Bound::Included(Included)),
+        CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Excluded(Excluded)),
+        CapitalizedBoundDef::Unbounded => Ok(Bound::Unbounded),
     }
+}
+
+// Define Lowercase and Capitalized variants to support both cases.
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
+enum LowercaseBoundDef<T> {
+    Included { included: T },
+    Excluded { excluded: T },
+    Unbounded,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[serde(untagged)]
+#[allow(non_snake_case)]
+enum CapitalizedBoundDef<T> {
+    Included { Included: T },
+    Excluded { Excluded: T },
+    Unbounded,
 }

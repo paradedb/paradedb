@@ -23,9 +23,6 @@ jobs:
     name: Lint Rust Files
     runs-on: ubicloud-standard-2
     if: github.event.pull_request.draft == false
-    strategy:
-      matrix:
-        pg_version: [16]
 
     steps:
       - name: Checkout Git Repository
@@ -34,31 +31,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Extract pgrx version
-        working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv )" >> $GITHUB_ENV
-
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         uses: ubicloud/rust-cache@v2
         with:
-          prefix-key: "v1-rust"
-          key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}
           cache-targets: true
           cache-all-crates: true
-
-      - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-
-      - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
-
-      - name: Initialize pgrx for Current PostgreSQL Version
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run Rustfmt
         run: cargo fmt -- --check
@@ -66,11 +45,14 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 
-      - name: Dependency Check
-        run: cargo install cargo-machete && cargo machete
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --debug
 
       - name: Install taplo
-        run: cargo +stable install taplo-cli --version ^0.9 --locked
+        run: cargo install taplo-cli --version ^0.9 --locked --debug
+
+      - name: Run cargo-machete
+        run: cargo machete
 
       # If you encounter an error, try running 'taplo format' to fix the formatting automatically.
       - name: Check Cargo.toml Formatting

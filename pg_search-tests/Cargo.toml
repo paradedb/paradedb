@@ -46,5 +46,5 @@ tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "33be4
 tempfile = "3.12.0"
 time = { version = "0.3.36", features = ["serde"] }
 tokenizers = { path = "../tokenizers" }
-tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros" ] }
+tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros"] }
 uuid = "1.11.0"

@@ -18,6 +18,7 @@
 use crate::api::operator::{
     anyelement_jsonb_opoid, estimate_selectivity, find_var_relation, ReturnedNodePointer,
 };
+use crate::gucs::GlobalGucSettings;
 use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
@@ -29,7 +30,6 @@ use pgrx::{
     PgList, PgOid, PgRelation,
 };
 use rustc_hash::FxHashSet;
-use shared::gucs::GlobalGucSettings;
 use std::ptr::NonNull;
 
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]

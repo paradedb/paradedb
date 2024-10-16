@@ -10,70 +10,50 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["pg16"]
-pg13 = ["pgrx/pg13", "pgrx-tests/pg13"]
-pg14 = ["pgrx/pg14", "pgrx-tests/pg14"]
-pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
-pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
-pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
+pg13 = ["pgrx/pg13"]
+pg14 = ["pgrx/pg14"]
+pg15 = ["pgrx/pg15"]
+pg16 = ["pgrx/pg16"]
+pg17 = ["pgrx/pg17"]
 pg_test = []
 icu = ["tokenizers/icu"]
 
 [dependencies]
 anyhow = { version = "1.0.87", features = ["backtrace"] }
+chrono = "0.4.38"
 crossbeam = "0.8.4"
-csv = "1.3.0"
 derive_more = "0.99.18"
 fs2 = "0.4.3"
-indexmap = "2.5.0"
+humansize = "2.1.3"
 json5 = "0.4.1"
 libc = "0.2.158"
 memoffset = "0.9.1"
 once_cell = "1.19.0"
+os_info = { version = "3", default-features = false }
 parking_lot = "0.12.3"
 tokenizers = { path = "../tokenizers" }
 pgrx = "0.12.6"
+reqwest = { version = "0.11.27", features = ["blocking"] }
 rustc-hash = "1.1.0"
 serde = "1.0.210"
 serde_json = "1.0.128"
 serde_path_to_error = "0.1.16"
-shared = { path = "../shared" }
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "33be46c" }
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "33be46c" }
 thiserror = "1.0.63"
 tracing = "0.1.40"
-utoipa = "4.2.3"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 walkdir = "2.5.0"
-num_cpus = "1.16.0"
-chrono = "0.4.38"
 ordered-float = "4.2.2"
 uuid = "1.10.0"
+url = "2.5.2"
 strum = { version = "0.26.3" }
 
 [dev-dependencies]
-approx = "0.5.1"
-async-std = { version = "1.13.0", features = ["attributes"] }
-bigdecimal = "0.4.5"
-cmd_lib = "1.9.4"
-dotenvy = "0.15.7"
-futures = "0.3.30"
-pgrx-tests = "0.12.6"
-pgvector = { version = "0.3.4", features = ["sqlx"] }
-portpicker = "0.1.1"
-pretty_assertions = "1.4.0"
-rand = "0.8.5"
-rstest = "0.18.2"
-shared = { path = "../shared", features = ["fixtures"] }
-sqlx = { version = "0.7.4", features = [
-  "postgres",
-  "runtime-async-std",
-  "time",
-  "bigdecimal",
-  "uuid",
-] }
-strum_macros = "0.26.4"
-tempfile = "3.12.0"
-time = "0.3.36"
-tokio = "1.40.0"
+fixture = "0.3.1"
+rstest = "0.23.0"
+tempfile = "3.13.0"
+
 
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]

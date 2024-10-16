@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cargo-paradedb", "pg_search", "shared", "tokenizers"]
+members = ["cargo-paradedb", "pg_search", "tests", "tokenizers"]
 
 [profile.dev]
 panic = "unwind"

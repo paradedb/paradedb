@@ -16,7 +16,8 @@ on:
       - "pg_search/**"
       - "!pg_search/README.md"
       - "tokenizers/**"
-      - "shared/**"
+      - "tests/**"
+      - "!tests/README.md"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
@@ -90,18 +91,21 @@ jobs:
           fi
           echo "Version check passed!"
 
+      - name: Extract pgrx version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)" >> $GITHUB_ENV
+
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: ubicloud/rust-cache@v2
         with:
-          prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
+          prefix-key: "v1-rust"
+          key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}
           cache-targets: true
-          cache-on-failure: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install & Configure Supported PostgreSQL Version
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -121,111 +125,43 @@ jobs:
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
 
-      - name: Extract pgrx version
+      - name: Install llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)" >> $GITHUB_ENV
+        run: rustup component add llvm-tools-preview
 
-      - name: Install pgrx & llvm-tools-preview
+      - name: Install cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
-          rustup component add llvm-tools-preview
-          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
+
+      - name: Initialize cargo-pgrx environment
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Add pg_search to shared_preload_libraries
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
-      - name: Run pg_search Cargo Test Suite
+      - name: Compile & install pg_search extension
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+      - name: Start Postgres via cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          # # Variables (we disable telemetry to avoid skewing the user metrics with CI runs)
-          # BASE_RELEASE="0.10.0"
-          # PARADEDB_TELEMETRY=false
-
-          # echo ""
-          # echo "Enabling code coverage..."
-          # echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
-          # mkdir -p ../target/coverage ../target/coverage-report
-
-          # # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
-          # if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
-          #   echo ""
-          #   echo "Promotion PR detected! Running extension upgrade test..."
-          #   if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
-          #     echo "Using the GitHub Variables version..."
-          #     NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}
-          #   else
-          #     echo "Using the workflow_dispatch version..."
-          #     NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
-          #   fi
-          #   echo "Running extension upgrade test from v$BASE_RELEASE to v$NEW_VERSION..."
-
-          #   echo ""
-          #   echo "Downloading pg_search v$BASE_RELEASE..."
-          #   curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/postgresql-${{ matrix.pg_version }}-pg_search_$BASE_RELEASE-1PARADEDB-noble_${{ matrix.arch }}.deb"
-          #   sudo dpkg -i "postgresql-${{ matrix.pg_version }}-pg_search_$BASE_RELEASE-1PARADEDB-noble_${{ matrix.arch }}.deb"
-
-          #   echo ""
-          #   echo "Starting Postgres..."
-          #   cargo pgrx start pg${{ matrix.pg_version }}
-
-          #   echo ""
-          #   echo "Loading pg_search v$BASE_RELEASE..."
-          #   psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE';"
-
-          #   echo ""
-          #   echo "Verifying current pg_search installed version..."
-          #   psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';"
-
-          #   echo ""
-          #   echo "Building pg_search v$NEW_VERSION..."
-          #   sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
-          #   cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
-
-          #   echo ""
-          #   echo "Upgrading pg_search to v$NEW_VERSION..."
-          #   psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
-
-          #   echo ""
-          #   echo "Verifying current pg_search installed version..."
-          #   psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';"
-
-          #   echo ""
-          #   echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
-
-          #   echo ""
-          #   echo "Restarting Postgres..."
-          #   cargo pgrx stop pg${{ matrix.pg_version }}
-          #   cargo pgrx start pg${{ matrix.pg_version }}
-          # else
-          #   echo ""
-          #   echo "Building pg_search..."
-          #   cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
-
-          #   echo ""
-          #   echo "Starting Postgres..."
-          #   cargo pgrx start pg${{ matrix.pg_version }}
-          # fi
-          # echo ""
-          echo "Building pg_search..."
-          cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
-
-          echo ""
-          echo "Starting Postgres..."
-          cargo pgrx start pg${{ matrix.pg_version }}
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 
-          echo ""
-          echo "Running Rust tests..."
+      - name: Run pg_search test suite
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          cargo pgrx test "pg${{ matrix.pg_version }}" --features icu
-          cat ~/.pgrx/${{ matrix.pg_version}}.log
+          export PARADEDB_TELEMETRY=false
+          RUST_BACKTRACE=1 cargo test --features pg${{ matrix.pg_version }},icu --no-default-features
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
@@ -277,30 +213,33 @@ jobs:
           fi
           echo "Version check passed!"
 
+      - name: Extract pgrx version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: echo "PGRX_VERSION=$(grep '^pgrx = ' Cargo.toml | sed -E 's/pgrx = "(.*)"/\1/')" >> $GITHUB_ENV
+
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: ubicloud/rust-cache@v2
         with:
-          prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_search--enable-cassert${{ HashFiles('Cargo.lock') }}
+          prefix-key: "v1-rust"
+          key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}
           cache-targets: true
-          cache-on-failure: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
-      - name: Extract pgrx version
+      - name: Install llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(grep '^pgrx = ' Cargo.toml | sed -E 's/pgrx = "(.*)"/\1/')" >> $GITHUB_ENV
+        run: rustup component add llvm-tools-preview
 
-      - name: Install pgrx & llvm-tools-preview
+      - name: Install cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
-          rustup component add llvm-tools-preview
-          cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
+
+      - name: Initialize cargo-pgrx environment
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
 
       # Needed for hybrid search unit tests
       - name: Install pgvector
@@ -316,16 +255,26 @@ jobs:
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
-      - name: Run pg_search Cargo Test Suite Against pgrx Postgres
+      - name: Stop postgres
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: cargo pgrx stop all
+
+      - name: Compile & install pg_search extension
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+
+      - name: Start Postgres and create database
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          PARADEDB_TELEMETRY=false
-          cargo pgrx stop all
-          cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
-          RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
+
+      - name: Run pg_search test suite against pgrx-managed Postgres
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()

@@ -15,18 +15,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod github;
-pub mod gucs;
-pub mod telemetry;
-pub mod trace;
+mod deliveries;
+mod duckdb_types;
+mod icu_amharic_posts;
+mod icu_arabic_posts;
+mod icu_czech_posts;
+mod icu_greek_posts;
+mod nyc_trips;
+mod simple_products;
+mod user_session_logs;
 
-#[cfg(feature = "fixtures")]
-pub mod fixtures;
-
-// We need to re-export the dependencies below, because they're used by our public macros.
-// This lets consumers of the macros use them without needing to also install these dependencies.
-pub use pgrx;
-pub use serde_json;
-pub use trace::init_ereport_logger;
-pub use tracing;
-pub use tracing_subscriber;
+pub use deliveries::*;
+pub use duckdb_types::*;
+pub use icu_amharic_posts::*;
+pub use icu_arabic_posts::*;
+pub use icu_czech_posts::*;
+pub use icu_greek_posts::*;
+pub use nyc_trips::*;
+pub use simple_products::*;
+pub use user_session_logs::*;

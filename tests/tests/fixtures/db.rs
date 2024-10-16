@@ -15,13 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::arrow::schema_to_batch;
 use anyhow::Result;
 use async_std::prelude::Stream;
 use async_std::stream::StreamExt;
 use async_std::task::block_on;
 use bytes::Bytes;
-use datafusion::arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use sqlx::{
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
@@ -70,6 +68,7 @@ impl Drop for Db {
     }
 }
 
+#[allow(dead_code)]
 pub trait Query
 where
     Self: AsRef<str> + Sized,
@@ -144,30 +143,6 @@ where
                 .fetch_all(connection)
                 .await
                 .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()))
-        })
-    }
-
-    /// A convenient helper for processing PgRow results from Postgres into a DataFusion RecordBatch.
-    /// It's important to note that the retrieved RecordBatch may not necessarily have the same
-    /// column order as your Postgres table, or parquet file in a foreign table.
-    /// You shouldn't expect to be able to test two RecordBatches directly for equality.
-    /// Instead, just test the column equality for each column, like so:
-    ///
-    /// assert_eq!(stored_batch.num_columns(), retrieved_batch.num_columns());
-    /// for field in stored_batch.schema().fields() {
-    ///     assert_eq!(
-    ///         stored_batch.column_by_name(field.name()),
-    ///         retrieved_batch.column_by_name(field.name())
-    ///     )
-    /// }
-    ///
-    fn fetch_recordbatch(self, connection: &mut PgConnection, schema: &SchemaRef) -> RecordBatch {
-        block_on(async {
-            let rows = sqlx::query(self.as_ref())
-                .fetch_all(connection)
-                .await
-                .unwrap_or_else(|e| panic!("{e}:  error in query '{}'", self.as_ref()));
-            schema_to_batch(schema, &rows).expect("could not convert rows to RecordBatch")
         })
     }
 

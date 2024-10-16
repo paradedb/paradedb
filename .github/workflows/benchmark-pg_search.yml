@@ -20,7 +20,6 @@ on:
       - "docker/Dockerfile"
       - "pg_search/**"
       - "!pg_search/README.md"
-      - "shared/Cargo.toml"
       - "tokenizers/Cargo.toml"
   workflow_dispatch:
 

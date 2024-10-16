@@ -25,11 +25,15 @@ mod schema;
 
 #[cfg(test)]
 pub mod fixtures;
+pub mod github;
+pub mod gucs;
+pub mod telemetry;
+pub mod trace;
 
 use self::postgres::customscan;
+use gucs::PostgresGlobalGucSettings;
 use pgrx::*;
-use shared::gucs::PostgresGlobalGucSettings;
-use shared::telemetry::setup_telemetry_background_worker;
+use telemetry::setup_telemetry_background_worker;
 
 // A static variable is required to host grand unified configuration settings.
 pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
@@ -50,7 +54,7 @@ extension_sql!(
     finalize
 );
 
-static mut TRACE_HOOK: shared::trace::TraceHook = shared::trace::TraceHook;
+static mut TRACE_HOOK: trace::TraceHook = trace::TraceHook;
 
 /// Convenience method for [`pgrx::pg_sys::MyDatabaseId`]
 #[allow(non_snake_case)]
@@ -75,7 +79,7 @@ pub unsafe extern "C" fn _PG_init() {
     postgres::options::init();
     GUCS.init("pg_search");
 
-    setup_telemetry_background_worker(shared::telemetry::ParadeExtension::PgSearch);
+    setup_telemetry_background_worker(telemetry::ParadeExtension::PgSearch);
 
     // Register our tracing / logging hook, so that we can ensure that the logger
     // is initialized for all connections.

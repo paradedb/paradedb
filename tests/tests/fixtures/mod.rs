@@ -15,13 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+#![allow(dead_code)]
 #![allow(unused_imports)]
+
+pub mod db;
+pub mod tables;
+pub mod utils;
+
 use async_std::task::block_on;
 use rstest::*;
 use sqlx::{self, PgConnection};
 
-pub use shared::fixtures::db::*;
-pub use shared::fixtures::tables::*;
+pub use crate::fixtures::db::*;
+pub use crate::fixtures::tables::*;
 
 #[fixture]
 pub fn database() -> Db {

@@ -1,0 +1,50 @@
+[package]
+name = "tests"
+description = "test suite for pg_search"
+version = "0.11.0"
+edition = "2021"
+license = "AGPL-3.0"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+icu = ["tokenizers/icu"]
+
+[dependencies]
+
+[dev-dependencies]
+approx = "0.5.1"
+anyhow = "1.0.89"
+async-std = { version = "1.13.0", features = ["attributes"] }
+bigdecimal = { version = "0.3.1", features = ["serde"] }
+bytes = "1.7.2"
+chrono = { version = "0.4.38", features = ["clock", "alloc"] }
+cmd_lib = "1.9.4"
+dotenvy = "0.15.7"
+futures = "0.3.30"
+pgvector = { version = "0.3.4", features = ["sqlx"] }
+portpicker = "0.1.1"
+pretty_assertions = "1.4.0"
+rand = "0.8.5"
+rstest = "0.18.2"
+serde = "1.0.210"
+serde_json = "1.0.128"
+soa_derive = "0.13.0"
+sqlx = { version = "0.7.4", features = [
+  "postgres",
+  "runtime-async-std",
+  "time",
+  "bigdecimal",
+  "uuid",
+  "chrono",
+] }
+strum = "0.26.3"
+strum_macros = "0.26.4"
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "33be46c" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "33be46c" }
+tempfile = "3.12.0"
+time = { version = "0.3.36", features = ["serde"] }
+tokenizers = { path = "../tokenizers" }
+tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros"] }
+uuid = "1.11.0"

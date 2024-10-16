@@ -15,24 +15,32 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod deliveries;
-mod duckdb_types;
-mod icu_amharic_posts;
-mod icu_arabic_posts;
-mod icu_czech_posts;
-mod icu_greek_posts;
-mod nyc_trips;
-mod research_project_arrays;
-mod simple_products;
-mod user_session_logs;
+mod fixtures;
 
-pub use deliveries::*;
-pub use duckdb_types::*;
-pub use icu_amharic_posts::*;
-pub use icu_arabic_posts::*;
-pub use icu_czech_posts::*;
-pub use icu_greek_posts::*;
-pub use nyc_trips::*;
-pub use research_project_arrays::*;
-pub use simple_products::*;
-pub use user_session_logs::*;
+use fixtures::db::Query;
+use fixtures::*;
+use rstest::*;
+use sqlx::PgConnection;
+
+#[rstest]
+fn index_only_scan_on_key_field(mut conn: PgConnection) {
+    use serde_json::Value;
+
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
+    let plan = plan
+        .get(0)
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("Plan")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    eprintln!("{plan:#?}");
+    pretty_assertions::assert_eq!(
+        plan.get("Node Type"),
+        Some(&Value::String(String::from("Index Only Scan")))
+    );
+}

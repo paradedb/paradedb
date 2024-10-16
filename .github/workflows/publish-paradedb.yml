@@ -30,7 +30,7 @@ permissions:
 jobs:
   publish-paradedb-container-image:
     name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-latest-2
+    runs-on: ubicloud-standard-2
     strategy:
       matrix:
         pg_version: [13, 14, 15, 16, 17]
@@ -107,7 +107,7 @@ jobs:
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-latest-2
+    runs-on: ubicloud-standard-2
     strategy:
       matrix:
         pg_version: [16]

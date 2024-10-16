@@ -18,3 +18,13 @@ WHERE id @@@ paradedb.regex('description', '(plush|leather)');
 <ParamField body="pattern" required>
   A regex pattern string.
 </ParamField>
+
+## Wildcard Query
+
+The following query finds all documents that match a wildcard pattern.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.regex('description', 'key.*rd');
+```

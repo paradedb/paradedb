@@ -15,14 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::reader::SearchIndexReader;
-use super::IndexError;
+use super::reader::index::SearchIndexReader;
+use super::writer::index::IndexError;
 use crate::gucs;
-use crate::index::merge_policy::NPlusOneMergePolicy;
-use crate::index::SearchIndexWriter;
-use crate::index::{
-    BlockingDirectory, SearchDirectoryError, SearchFs, TantivyDirPath, WriterDirectory,
-};
+use crate::index::writer::index::SearchIndexWriter;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::query::SearchQueryInput;
 use crate::schema::{
@@ -32,10 +28,8 @@ use crate::schema::{
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use pgrx::PgRelation;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::Serialize;
 use std::num::NonZeroUsize;
-use tantivy::indexer::NoMergePolicy;
-use tantivy::merge_policy::MergePolicy;
 use tantivy::query::Query;
 use tantivy::{query::QueryParser, Executor, Index};
 use thiserror::Error;
@@ -44,12 +38,7 @@ use tracing::trace;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
-pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
-    let num_threads = std::thread::available_parallelism()
-        .expect("this computer should have at least one CPU")
-        .get();
-    Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
-});
+pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(Executor::single_thread);
 
 pub enum WriterResources {
     CreateIndex,
@@ -92,25 +81,18 @@ impl WriterResources {
 #[derive(Serialize)]
 pub struct SearchIndex {
     pub schema: SearchIndexSchema,
-    pub directory: WriterDirectory,
+    pub index_oid: pgrx::pg_sys::Oid,
     #[serde(skip_serializing)]
     pub underlying_index: Index,
 }
 
 impl SearchIndex {
     pub fn create_index(
-        directory: WriterDirectory,
+        index_oid: pgrx::pg_sys::Oid,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         key_field_index: usize,
-    ) -> Result<Self, SearchIndexError> {
-        SearchIndexWriter::create_index(directory.clone(), fields, key_field_index)?;
-
-        // As the new index instance was created in a background process, we need
-        // to load it from disk to use it.
-        let new_self_ref = Self::from_disk(&directory)
-            .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
-        Ok(new_self_ref)
+    ) -> Result<Self> {
+        SearchIndexWriter::create_index(index_oid, fields, key_field_index)
     }
 
     pub fn get_reader(&self) -> Result<SearchIndexReader> {
@@ -125,60 +107,7 @@ impl SearchIndex {
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
     ) -> Result<SearchIndexWriter> {
-        let (parallelism, memory_budget, target_segment_count, merge_on_insert) =
-            resources.resources(index_options);
-        let parallelism = parallelism.get().min(target_segment_count);
-
-        let underlying_writer = self
-            .underlying_index
-            .writer_with_num_threads(parallelism, memory_budget)?;
-
-        let (wants_merge, merge_policy) = match resources {
-            // During a CREATE INDEX we use `target_segment_count` but require twice
-            // as many segments before we'll do a merge.
-            WriterResources::CreateIndex => {
-                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segment_count,
-                    min_num_segments: target_segment_count * 2,
-                });
-                (true, policy)
-            }
-
-            // During a VACUUM we want to merge down to our `target_segment_count`
-            WriterResources::Vacuum => {
-                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segment_count,
-                    min_num_segments: 0,
-                });
-                (true, policy)
-            }
-
-            // During regular INSERT/UPDATE/COPY statements, if we were asked to "merge_on_insert"
-            // then we use our `NPlusOneMergePolicy` which will ensure we don't more than
-            // `target_segment_count` segments, requiring at least 2 to merge together.
-            // The idea being that only the very smallest segments will be merged together, reducing write amplification
-            WriterResources::Statement if merge_on_insert => {
-                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segment_count,
-                    min_num_segments: 2,
-                });
-                (true, policy)
-            }
-
-            // During regular INSERT/UPDATE/COPY statements, if we were told not to "merge_on_insert"
-            // then we don't do any merging at all.
-            WriterResources::Statement => {
-                let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
-                (false, policy)
-            }
-        };
-
-        underlying_writer.set_merge_policy(merge_policy);
-
-        Ok(SearchIndexWriter {
-            underlying_writer: Some(underlying_writer),
-            wants_merge,
-        })
+        SearchIndexWriter::new(&self.underlying_index, resources, index_options)
     }
 
     #[allow(static_mut_refs)]
@@ -214,25 +143,6 @@ impl SearchIndex {
         self.key_field().name.to_string()
     }
 
-    pub fn from_disk(directory: &WriterDirectory) -> Result<Self, SearchIndexError> {
-        let mut new_self: Self = directory.load_index()?;
-
-        // In the case of a physical replication of the database, the absolute path that is stored
-        // in the serialized WriterDirectory might refer to the source database's file system.
-        // We should overwrite it with the dynamically generated one that's been passed as an
-        // argument here.
-        new_self.directory = directory.clone();
-
-        Ok(new_self)
-    }
-
-    pub fn segment_count(&self) -> usize {
-        self.underlying_index
-            .searchable_segments()
-            .unwrap_or_default()
-            .len()
-    }
-
     pub fn query_parser(&self) -> QueryParser {
         QueryParser::for_index(
             &self.underlying_index,
@@ -260,86 +170,11 @@ impl SearchIndex {
 
     pub fn insert(
         &self,
-        writer: &SearchIndexWriter,
+        writer: &mut SearchIndexWriter,
         document: SearchDocument,
     ) -> Result<(), SearchIndexError> {
-        // the index is about to change, and that requires our transaction callbacks be registered
-        crate::postgres::transaction::register_callback();
-
         writer.insert(document)?;
-
         Ok(())
-    }
-
-    /// Using the `should_delete` argument, determine, one-by-one, if a document in this index
-    /// needs to be deleted.
-    ///
-    /// This function is atomic in that it ensures the underlying changes to the tantivy index
-    /// are committed before returning an [`Ok`] response.
-    pub fn delete(
-        &self,
-        reader: &SearchIndexReader,
-        writer: &SearchIndexWriter,
-        should_delete: impl Fn(u64) -> bool,
-    ) -> Result<(u32, u32), SearchIndexError> {
-        let ctid_field = self.schema.ctid_field().id.0;
-        let (ctids_to_delete, not_deleted) = reader.get_ctids_to_delete(should_delete)?;
-        if !ctids_to_delete.is_empty() {
-            writer.delete(&ctid_field, &ctids_to_delete)?;
-        }
-
-        Ok((ctids_to_delete.len() as u32, not_deleted))
-    }
-
-    pub fn drop_index(&mut self) -> Result<(), SearchIndexError> {
-        // the index is about to be queued to drop and that requires our transaction callbacks be registered
-        crate::postgres::transaction::register_callback();
-
-        // Mark in our global store that this index is pending drop so it can be physically
-        // deleted on commit, or in case it needs to be rolled back on abort.
-        SearchIndexWriter::mark_pending_drop(&self.directory);
-
-        Ok(())
-    }
-
-    pub fn vacuum(&self, writer: &SearchIndexWriter) -> Result<(), SearchIndexError> {
-        writer.vacuum()?;
-        Ok(())
-    }
-}
-
-impl<'de> Deserialize<'de> for SearchIndex {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // A helper struct that lets us use the default serialization for most fields.
-        #[derive(Deserialize)]
-        struct SearchIndexHelper {
-            schema: SearchIndexSchema,
-            directory: WriterDirectory,
-        }
-
-        // Deserialize into the struct with automatic handling for most fields
-        let SearchIndexHelper { schema, directory } = SearchIndexHelper::deserialize(deserializer)?;
-
-        let TantivyDirPath(tantivy_dir_path) = directory
-            .tantivy_dir_path(true)
-            .expect("tantivy directory path should be valid");
-
-        let tantivy_dir = BlockingDirectory::open(tantivy_dir_path)
-            .expect("need a valid path to open a tantivy index");
-        let mut underlying_index = Index::open(tantivy_dir).map_err(serde::de::Error::custom)?;
-
-        // We need to setup tokenizers again after retrieving an index from disk.
-        Self::setup_tokenizers(&mut underlying_index, &schema);
-
-        // Construct the SearchIndex.
-        Ok(SearchIndex {
-            underlying_index,
-            directory,
-            schema,
-        })
     }
 }
 
@@ -360,9 +195,6 @@ pub enum SearchIndexError {
 
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
-
-    #[error(transparent)]
-    WriterDirectoryError(#[from] SearchDirectoryError),
 
     #[error(transparent)]
     AnyhowError(#[from] anyhow::Error),

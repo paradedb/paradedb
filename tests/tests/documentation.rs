@@ -1909,6 +1909,7 @@ fn schema(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "paradedb.index_size deprecated"]
 fn index_size(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(

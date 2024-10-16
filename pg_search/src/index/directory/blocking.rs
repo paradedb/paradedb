@@ -1,0 +1,503 @@
+// Copyright (c) 2023-2024 Retake, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use anyhow::{bail, Result};
+use once_cell::sync::Lazy;
+use parking_lot::RwLock;
+use pgrx::pg_sys;
+use pgrx::pg_sys::AsPgCStr;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::path::PathBuf;
+use std::slice::from_raw_parts;
+use std::sync::Arc;
+use std::{io, result};
+use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
+use tantivy::Directory;
+use tantivy::{
+    directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
+    directory::{INDEX_WRITER_LOCK, MANAGED_LOCK, META_LOCK},
+    error::TantivyError,
+};
+
+use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::storage::block::{
+    bm25_max_free_space, bm25_max_item_size, BM25PageSpecialData, MetaPageData,
+    SegmentComponentOpaque, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
+    META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
+};
+use crate::postgres::storage::linked_list::{LinkedItem, LinkedItemList};
+use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
+
+/// Defined by Tantivy in core/mod.rs
+pub static META_FILEPATH: Lazy<&'static Path> = Lazy::new(|| Path::new("meta.json"));
+
+/// Keep SegmentComponentOpaque instances in memory for the duration of the backend process
+/// to make lookups faster
+type SegmentComponentCacheEntry = (
+    SegmentComponentOpaque,
+    pg_sys::BlockNumber,
+    pg_sys::OffsetNumber,
+);
+pub static SEGMENT_COMPONENT_CACHE: Lazy<RwLock<HashMap<PathBuf, SegmentComponentCacheEntry>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+/// Custom lock passed to acquire_lock that uses a buffer as a blocking lock
+#[derive(Debug)]
+pub struct BlockingLock {
+    buffer: pg_sys::Buffer,
+}
+
+impl BlockingLock {
+    pub unsafe fn new(relation_oid: pg_sys::Oid, blockno: pg_sys::BlockNumber) -> Self {
+        let cache = BM25BufferCache::open(relation_oid);
+        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+        Self { buffer }
+    }
+}
+
+impl Drop for BlockingLock {
+    fn drop(&mut self) {
+        unsafe {
+            if pg_sys::IsTransactionState() {
+                pg_sys::UnlockReleaseBuffer(self.buffer)
+            }
+        };
+    }
+}
+
+impl LinkedItem for PathBuf {
+    fn from_pg_item(item: pg_sys::Item, size: pg_sys::Size) -> Self {
+        unsafe {
+            PathBuf::from(
+                std::str::from_utf8(std::slice::from_raw_parts(item as *const u8, size))
+                    .expect("expected valid Utf-8"),
+            )
+        }
+    }
+
+    fn as_pg_item(&self) -> (pg_sys::Item, pg_sys::Size) {
+        let path_str = self.to_str().expect("file path is not valid UTF-8");
+        (
+            path_str.as_pg_cstr() as pg_sys::Item,
+            path_str.as_bytes().len() as pg_sys::Size,
+        )
+    }
+}
+
+impl LinkedItem for SegmentComponentOpaque {
+    fn from_pg_item(item: pg_sys::Item, size: pg_sys::Size) -> Self {
+        let opaque: SegmentComponentOpaque = unsafe {
+            serde_json::from_slice(from_raw_parts(item as *const u8, size))
+                .expect("expected to deserialize valid SegmentComponent")
+        };
+        opaque
+    }
+
+    fn as_pg_item(&self) -> (pg_sys::Item, pg_sys::Size) {
+        let bytes: Vec<u8> =
+            serde_json::to_vec(self).expect("expected to serialize valid SegmentComponent");
+        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
+        }
+        (pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+    }
+}
+
+/// Tantivy Directory trait implementation over block storage
+#[derive(Clone, Debug)]
+pub struct BlockingDirectory {
+    relation_oid: pg_sys::Oid,
+}
+
+impl BlockingDirectory {
+    pub fn new(relation_oid: pg_sys::Oid) -> Self {
+        Self { relation_oid }
+    }
+
+    pub unsafe fn acquire_blocking_lock(&self, lock: &Lock) -> Result<BlockingLock> {
+        let blockno = if lock.filepath == META_LOCK.filepath {
+            META_LOCK_BLOCKNO
+        } else if lock.filepath == MANAGED_LOCK.filepath {
+            MANAGED_LOCK_BLOCKNO
+        } else if lock.filepath == INDEX_WRITER_LOCK.filepath {
+            INDEX_WRITER_LOCK_BLOCKNO
+        } else {
+            bail!("acquire_lock unexpected lock {:?}", lock)
+        };
+
+        Ok(BlockingLock::new(self.relation_oid, blockno))
+    }
+
+    /// ambulkdelete wants to know how many pages were deleted, but the Directory trait doesn't let delete
+    /// return a value, so we implement our own delete method
+    pub fn try_delete(&self, path: &Path) -> Result<Option<SegmentComponentOpaque>> {
+        let (opaque, _, _) = unsafe { self.lookup_segment_component(path)? };
+
+        if unsafe {
+            pg_sys::TransactionIdDidCommit(opaque.xid) || pg_sys::TransactionIdDidAbort(opaque.xid)
+        } {
+            let blocks = opaque.blocks.clone();
+            let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+
+            // Mark pages as deleted, but don't actually free them
+            // It's important that only VACUUM frees pages, because pages might still be used by other transactions
+            for blockno in &blocks {
+                unsafe {
+                    let buffer = cache.get_buffer(*blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                    let page = pg_sys::BufferGetPage(buffer);
+                    page.mark_deleted();
+
+                    pg_sys::MarkBufferDirty(buffer);
+                    pg_sys::UnlockReleaseBuffer(buffer);
+                }
+            }
+
+            Ok(Some(opaque))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub unsafe fn lookup_segment_component(
+        &self,
+        path: &Path,
+    ) -> Result<SegmentComponentCacheEntry> {
+        if let Some(entry) = SEGMENT_COMPONENT_CACHE.read().get(path) {
+            return Ok(entry.clone());
+        }
+
+        let linked_list = LinkedItemList::<SegmentComponentOpaque>::new(
+            self.relation_oid,
+            |metadata| (*metadata).segment_component_first_blockno,
+            |metadata| (*metadata).segment_component_last_blockno,
+            |metadata, blockno| (*metadata).segment_component_first_blockno = blockno,
+            |metadata, blockno| (*metadata).segment_component_last_blockno = blockno,
+        );
+
+        let result = linked_list.lookup(
+            |opaque| opaque.path == path,
+            |opaque, blockno, offsetno| {
+                SEGMENT_COMPONENT_CACHE
+                    .write()
+                    .insert(opaque.path.clone(), (opaque.clone(), blockno, offsetno));
+            },
+        )?;
+        Ok(result)
+    }
+}
+
+impl Directory for BlockingDirectory {
+    fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
+        let (opaque, _, _) = unsafe {
+            self.lookup_segment_component(path)
+                .map_err(|err| OpenReadError::IoError {
+                    io_error: io::Error::new(io::ErrorKind::Other, err.to_string()).into(),
+                    filepath: PathBuf::from(path),
+                })?
+        };
+
+        Ok(Arc::new(SegmentComponentReader::new(
+            self.relation_oid,
+            opaque,
+        )))
+    }
+
+    fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
+        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
+        Ok(io::BufWriter::with_capacity(
+            unsafe { bm25_max_free_space() },
+            Box::new(result),
+        ))
+    }
+
+    fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+        // Atomic write should only ever be used for writing meta.json
+        if path.to_path_buf() != *META_FILEPATH {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("atomic_write unexpected path: {:?}", path),
+            ));
+        }
+
+        unsafe {
+            const ITEM_SIZE: usize = unsafe { bm25_max_item_size() };
+            let cache = BM25BufferCache::open(self.relation_oid);
+            let mut buffer =
+                cache.get_buffer(TANTIVY_META_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let mut page = pg_sys::BufferGetPage(buffer);
+
+            for (i, chunk) in data.chunks(ITEM_SIZE).enumerate() {
+                if i > 0 {
+                    let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+                    if (*special).next_blockno == pg_sys::InvalidBlockNumber {
+                        let new_buffer = cache.new_buffer();
+                        (*special).next_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
+                        pg_sys::MarkBufferDirty(buffer);
+                        pg_sys::UnlockReleaseBuffer(buffer);
+                        buffer = new_buffer;
+                        page = pg_sys::BufferGetPage(buffer);
+                    } else {
+                        let next_blockno = (*special).next_blockno;
+                        pg_sys::MarkBufferDirty(buffer);
+                        pg_sys::UnlockReleaseBuffer(buffer);
+                        buffer =
+                            cache.get_buffer(next_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                        page = pg_sys::BufferGetPage(buffer);
+                    }
+                }
+
+                if pg_sys::PageGetMaxOffsetNumber(page) == pg_sys::InvalidOffsetNumber {
+                    pg_sys::PageAddItemExtended(
+                        page,
+                        chunk.as_ptr() as pg_sys::Item,
+                        chunk.len(),
+                        pg_sys::FirstOffsetNumber,
+                        0,
+                    );
+                } else {
+                    let overwrite = pg_sys::PageIndexTupleOverwrite(
+                        page,
+                        pg_sys::FirstOffsetNumber,
+                        chunk.as_ptr() as pg_sys::Item,
+                        chunk.len(),
+                    );
+                    assert!(overwrite);
+                }
+            }
+
+            let last_blockno = pg_sys::BufferGetBlockNumber(buffer);
+            pg_sys::MarkBufferDirty(buffer);
+            pg_sys::UnlockReleaseBuffer(buffer);
+
+            // Update the last blockno in the metadata page
+            let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let data = pg_sys::PageGetContents(page) as *mut MetaPageData;
+            (*data).tantivy_meta_last_blockno = last_blockno;
+
+            pg_sys::MarkBufferDirty(buffer);
+            pg_sys::UnlockReleaseBuffer(buffer);
+        }
+
+        Ok(())
+    }
+
+    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        // Atomic read should only ever be used for reading .meta.json
+        if path.to_path_buf() != *META_FILEPATH {
+            return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
+        }
+
+        let bytes = unsafe {
+            let cache = BM25BufferCache::open(self.relation_oid);
+            let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
+            let last_blockno = (*metadata).tantivy_meta_last_blockno;
+            pg_sys::UnlockReleaseBuffer(buffer);
+
+            let mut current_blockno = TANTIVY_META_BLOCKNO;
+            let mut bytes = Vec::new();
+
+            loop {
+                let buffer = cache.get_buffer(current_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                let page = pg_sys::BufferGetPage(buffer);
+                let item_id = pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber);
+                let item = pg_sys::PageGetItem(page, item_id);
+                let len = (*item_id).lp_len() as usize;
+
+                bytes.extend(std::slice::from_raw_parts(item as *const u8, len));
+
+                let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+                let next_blockno = (*special).next_blockno;
+
+                if current_blockno == last_blockno || next_blockno == pg_sys::InvalidBlockNumber {
+                    pg_sys::UnlockReleaseBuffer(buffer);
+                    break;
+                } else {
+                    current_blockno = next_blockno;
+                    pg_sys::UnlockReleaseBuffer(buffer);
+                }
+            }
+
+            bytes
+        };
+
+        if bytes.is_empty() {
+            return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
+        }
+
+        Ok(bytes)
+    }
+
+    fn delete(&self, _path: &Path) -> result::Result<(), DeleteError> {
+        unimplemented!("BlockingDirectory should not call delete");
+    }
+
+    // Internally, Tantivy only uses this for meta.json, which should always exist
+    fn exists(&self, _path: &Path) -> Result<bool, OpenReadError> {
+        Ok(true)
+    }
+
+    fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
+        let blocking_lock = unsafe {
+            self.acquire_blocking_lock(lock)
+                .expect("acquire blocking lock should succeed")
+        };
+        Ok(DirectoryLock::from(Box::new(blocking_lock)))
+    }
+
+    // Internally, tantivy only uses this API to detect new commits to implement the
+    // `OnCommitWithDelay` `ReloadPolicy`. Not implementing watch in a `Directory` only prevents
+    // the `OnCommitWithDelay` `ReloadPolicy` to work properly.
+    fn watch(&self, _watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
+        unimplemented!("OnCommitWithDelay ReloadPolicy not supported");
+    }
+
+    /// Postgres block storage handles flushing to disk for us
+    /// We do not need to and should not implement this ourselves
+    fn sync_directory(&self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
+        let linked_list = LinkedItemList::<SegmentComponentOpaque>::new(
+            self.relation_oid,
+            |metadata| unsafe { (*metadata).segment_component_first_blockno },
+            |metadata| unsafe { (*metadata).segment_component_last_blockno },
+            |metadata, blockno| unsafe { (*metadata).segment_component_first_blockno = blockno },
+            |metadata, blockno| unsafe { (*metadata).segment_component_last_blockno = blockno },
+        );
+
+        unsafe {
+            Ok(linked_list
+                .list_all_items()
+                .map_err(|err| TantivyError::InternalError(err.to_string()))?
+                .into_iter()
+                .map(|opaque| opaque.path)
+                .collect())
+        }
+    }
+
+    // This is intentionally a no-op
+    // This function is called by Tantivy in two places: during garbage collection and when a new segment is created
+    // In the garbage collection case, we want to handle this ourselves because we need to do transaction visibility checks
+    // In the new segment case, we want to handle this ourselves because we also store the segment's byte length and block numbers alongside the path
+    fn register_files_as_managed(
+        &self,
+        _files: Vec<PathBuf>,
+        _overwrite: bool,
+    ) -> tantivy::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+    use std::collections::HashSet;
+    use uuid::Uuid;
+
+    #[pg_test]
+    fn test_pathbuf_linked_item() {
+        let actual_path = PathBuf::from(format!("{}.ext", Uuid::new_v4()));
+        let (item, size) = actual_path.as_pg_item();
+        let deserialized_path = PathBuf::from_pg_item(item, size);
+        assert_eq!(actual_path, deserialized_path);
+    }
+
+    #[pg_test]
+    fn test_segment_component_opaque_linked_item() {
+        let blocks: Vec<pg_sys::BlockNumber> = vec![1, 2, 3];
+        let segment = SegmentComponentOpaque {
+            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+            blocks,
+            total_bytes: 100 as usize,
+            xid: u32,
+        };
+        let (item, size) = segment.as_pg_item();
+        let deserialized_segment = SegmentComponentOpaque::from_pg_item(item, size);
+        assert_eq!(segment, deserialized_segment);
+    }
+
+    #[pg_test]
+    fn test_register_single_file_as_managed() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run(
+            "CALL paradedb.create_bm25(
+            index_name => 't_idx',
+            table_name => 't',
+            key_field => 'id',
+            text_fields => paradedb.field('data')
+        )",
+        )
+        .unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let directory = BlockingDirectory { relation_oid };
+        let file = PathBuf::from("file.ext");
+        directory
+            .register_files_as_managed(vec![file.clone()], false)
+            .unwrap();
+        let listed_files = directory.list_managed_files().unwrap();
+        assert!(listed_files.contains(&file));
+    }
+
+    #[pg_test]
+    fn test_register_files_as_managed_with_overwrite() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run(
+            "CALL paradedb.create_bm25(
+            index_name => 't_idx',
+            table_name => 't',
+            key_field => 'id',
+            text_fields => paradedb.field('data')
+        )",
+        )
+        .unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let directory = BlockingDirectory { relation_oid };
+        let files: Vec<PathBuf> = (0..10000)
+            .map(|_| {
+                let uuid = Uuid::new_v4();
+                let mut path = PathBuf::new();
+                path.set_file_name(format!("{}.ext", uuid));
+                path
+            })
+            .collect();
+        directory
+            .register_files_as_managed(files.clone(), true)
+            .unwrap();
+        let listed_files = directory.list_managed_files().unwrap();
+        assert_eq!(
+            listed_files,
+            files.into_iter().collect::<HashSet<PathBuf>>()
+        );
+    }
+}

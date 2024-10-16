@@ -10,11 +10,11 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["pg17"]
-pg13 = ["pgrx/pg13"]
-pg14 = ["pgrx/pg14"]
-pg15 = ["pgrx/pg15"]
-pg16 = ["pgrx/pg16"]
-pg17 = ["pgrx/pg17"]
+pg13 = ["pgrx/pg13", "pgrx-tests/pg13"]
+pg14 = ["pgrx/pg14", "pgrx-tests/pg14"]
+pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
+pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
+pg17 = ["pgrx/pg17", "pgrx-tests/pg14"]
 pg_test = []
 icu = ["tokenizers/icu"]
 
@@ -23,7 +23,6 @@ anyhow = { version = "1.0.87", features = ["backtrace"] }
 chrono = "0.4.38"
 crossbeam = "0.8.4"
 derive_more = "0.99.18"
-fs2 = "0.4.3"
 humansize = "2.1.3"
 json5 = "0.4.1"
 libc = "0.2.158"
@@ -32,11 +31,11 @@ once_cell = "1.19.0"
 os_info = { version = "3", default-features = false }
 parking_lot = "0.12.3"
 tokenizers = { path = "../tokenizers" }
-pgrx = "=0.12.7"
+pgrx = { git = "https://github.com/paradedb/pgrx.git", rev = "f251f1e" }
 reqwest = { version = "0.11.27", features = ["blocking"] }
 rustc-hash = "1.1.0"
 serde = "1.0.210"
-serde_json = "1.0.128"
+serde_json = { version = "1.0.128", features = ["preserve_order"] }
 tantivy.workspace = true
 tantivy-common.workspace = true
 thiserror = "2.0.2"
@@ -51,9 +50,9 @@ serde_path_to_error = "0.1.16"
 
 [dev-dependencies]
 fixture = "0.3.1"
+pgrx-tests = { git = "https://github.com/paradedb/pgrx.git", rev = "f251f1e" }
 rstest = "0.23.0"
 tempfile = "3.13.0"
-
 
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]

@@ -37,8 +37,8 @@ serde = "1.0.210"
 serde_json = "1.0.128"
 serde_path_to_error = "0.1.16"
 shared = { path = "../shared" }
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "33be46c" }
-tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "33be46c" }
+tantivy = { path = "../../tantivy" }
+tantivy-common = { path = "../../tantivy/common" }
 thiserror = "1.0.63"
 tracing = "0.1.40"
 utoipa = "4.2.3"

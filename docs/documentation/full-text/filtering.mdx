@@ -95,3 +95,11 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND rating @@@ 'IN [2 3 4]';
 ```
+
+Terms can also be provided to the set.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND description @@@ 'IN [shoes running]';
+```

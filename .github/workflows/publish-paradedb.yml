@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   publish-paradedb-container-image:
-    name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
+    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubicloud-standard-2
     strategy:
       matrix:
@@ -69,17 +69,19 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          version: "lab:latest"
+          driver: cloud
+          endpoint: "${{ secrets.DOCKERHUB_USERNAME }}/paradedb"
+          install: true
+          platforms: linux/amd64,linux/arm64
 
       # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
           build-args: |
@@ -91,8 +93,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance

@@ -891,7 +891,7 @@ dependencies = [
  "itertools 0.12.1",
  "once_cell",
  "reqwest 0.12.8",
- "rstest",
+ "rstest 0.18.2",
  "serde",
  "serde_json",
  "sqlx",
@@ -2011,6 +2011,12 @@ name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
+
+[[package]]
+name = "fixture"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f0c4a72dcc7f44ac5c9c5035f9e459ef863aa56a49c338c3ecfa12e0856656b"
 
 [[package]]
 name = "flatbuffers"
@@ -3859,6 +3865,7 @@ dependencies = [
  "chrono",
  "crossbeam",
  "derive_more",
+ "fixture",
  "fs2",
  "humansize",
  "json5",
@@ -3870,6 +3877,7 @@ dependencies = [
  "parking_lot",
  "pgrx",
  "reqwest 0.11.27",
+ "rstest 0.23.0",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -3877,6 +3885,7 @@ dependencies = [
  "strum",
  "tantivy",
  "tantivy-common",
+ "tempfile",
  "thiserror",
  "tokenizers",
  "tracing",
@@ -3904,7 +3913,7 @@ dependencies = [
  "portpicker",
  "pretty_assertions",
  "rand",
- "rstest",
+ "rstest 0.18.2",
  "serde",
  "serde_json",
  "soa_derive",
@@ -4214,6 +4223,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro-crate"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ecf48c7ca261d60b74ab1a7b20da18bede46776b2e55535cb958eb595c5fa7b"
+dependencies = [
+ "toml_edit",
+]
+
+[[package]]
 name = "proc-macro-error-attr2"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4505,7 +4523,19 @@ checksum = "97eeab2f3c0a199bc4be135c36c924b6590b88c377d416494288c14f2db30199"
 dependencies = [
  "futures",
  "futures-timer",
- "rstest_macros",
+ "rstest_macros 0.18.2",
+ "rustc_version 0.4.1",
+]
+
+[[package]]
+name = "rstest"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a2c585be59b6b5dd66a9d2084aa1d8bd52fbdb806eafdeffb52791147862035"
+dependencies = [
+ "futures",
+ "futures-timer",
+ "rstest_macros 0.23.0",
  "rustc_version 0.4.1",
 ]
 
@@ -4517,6 +4547,24 @@ checksum = "d428f8247852f894ee1be110b375111b586d4fa431f6c46e64ba5a0dcccbe605"
 dependencies = [
  "cfg-if",
  "glob",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "relative-path",
+ "rustc_version 0.4.1",
+ "syn 2.0.79",
+ "unicode-ident",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "825ea780781b15345a146be27eaefb05085e337e869bff01b4306a4fd4a9ad5a"
+dependencies = [
+ "cfg-if",
+ "glob",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "regex",
@@ -5755,7 +5803,7 @@ dependencies = [
  "lindera-dictionary",
  "lindera-tokenizer",
  "once_cell",
- "rstest",
+ "rstest 0.18.2",
  "rust_icu_common",
  "rust_icu_sys",
  "rust_icu_ubrk",

@@ -148,7 +148,6 @@ jobs:
 
       - name: Start Postgres via cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           # Necessary for the ephemeral Postgres test to have proper permissions
@@ -156,7 +155,6 @@ jobs:
 
       - name: Run pg_search test suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
@@ -365,7 +363,6 @@ jobs:
 
       - name: Run pg_search test suite against pgrx-managed Postgres
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
         run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
 
       - name: Print the Postgres Logs

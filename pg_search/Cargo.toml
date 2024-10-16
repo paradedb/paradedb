@@ -49,6 +49,12 @@ uuid = "1.10.0"
 url = "2.5.2"
 strum = { version = "0.26.3" }
 
+[dev-dependencies]
+fixture = "0.3.1"
+rstest = "0.23.0"
+tempfile = "3.13.0"
+
+
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]
 

@@ -41,7 +41,7 @@ jobs:
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: ubicloud/rust-cache@v2
         with:
           prefix-key: "v1-rust"
           key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}

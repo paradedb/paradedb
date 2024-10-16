@@ -22,24 +22,15 @@ concurrency:
 
 jobs:
   test-paradedb:
-    name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    name: Test ParadeDB Docker Image
+    runs-on: depot-ubuntu-latest-8
     if: github.event.pull_request.draft == false
-    strategy:
-      matrix:
-        include:
-          - runner: ubicloud-standard-8
-            pg_version: 16
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 16
-            arch: arm64
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Set Environment
+      - name: Set up Environment
         id: env
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
@@ -50,17 +41,30 @@ jobs:
             echo "Using dev configuration..."
           fi
 
-      - name: Configure Depot CLI
+      - name: Login to Docker Hub
         if: steps.env.outputs.environment == 'prod'
-        uses: depot/setup-action@v1
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      # We only build with Depot when promoting to `main` as doing so requires access to GitHub Secrets,
+      - name: Set up Docker Buildx with Build Cloud
+        if: steps.env.outputs.environment == 'prod'
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+          version: lab:latest
+          driver: cloud
+          endpoint: ${{ secrets.DOCKERHUB_USERNAME }}/paradedb
+          install: true
+
+      # We only build with Docker Build Cloud when promoting to `main` as doing so requires access to GitHub Secrets,
       # which community contributors don't have access to.
       #
       # We keep PARADEDB_TELEMETRY=true to test the telemetry feature, even though this isn't real usage.
-      - name: Build the ParadeDB Docker Image via Depot (prod only)
+      - name: Build the ParadeDB Docker Image (prod only)
         if: steps.env.outputs.environment == 'prod'
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
           build-args: |
@@ -68,13 +72,12 @@ jobs:
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=testcommitsha
             PARADEDB_TELEMETRY=true
-          platforms: linux/${{ matrix.arch }}
+          platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: false # Don't push to Docker Hub
           load: true # Load the image into the Docker daemon of the runner
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
           tags: paradedb/paradedb:latest # Tag the local image as latest so it gets picked up by Docker Compose
+          outputs: "type=cacheonly" # Export results to the build cache
 
       # On any branch other than `main`, we build the ParadeDB Docker Image using Docker Compose so that community
       # contributors can trigger the workflow without needing access to GitHub Secrets.

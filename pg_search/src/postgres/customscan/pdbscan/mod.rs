@@ -52,8 +52,8 @@ use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::schema::SearchConfig;
-use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
+use crate::query::SearchQueryInput;
+use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgRelation};
 use scan_state::SortDirection;
@@ -125,7 +125,7 @@ impl CustomScan for PdbScan {
                     (*restrict_info.get_ptr(0).unwrap()).norm_selec
                 } else {
                     // ask the index
-                    let search_config = SearchConfig::from(quals);
+                    let search_config = SearchQueryInput::from(quals);
                     estimate_selectivity(&bm25_index, &search_config).unwrap_or(UNKNOWN_SELECTIVITY)
                 };
 
@@ -252,16 +252,12 @@ impl CustomScan for PdbScan {
                     pg_sys::AccessShareLock as _,
                 );
                 let ops = indexrel.rd_options as *mut SearchIndexCreateOptions;
-                let uuid = (*ops)
-                    .get_uuid()
-                    .expect("`USING bm25` index should have a value `uuid` option");
                 let key_field = (*ops)
                     .get_key_field()
                     .expect("`USING bm25` index should have a valued `key_field` option")
                     .0;
 
                 builder.custom_state().index_name = indexrel.name().to_string();
-                builder.custom_state().index_uuid = uuid;
                 builder.custom_state().key_field = key_field;
                 builder.custom_state().rti = builder
                     .custom_private()
@@ -278,7 +274,7 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .quals()
                 .expect("should have a Qual structure");
-            builder.custom_state().search_config = SearchConfig::from(quals);
+            builder.custom_state().search_query_input = SearchQueryInput::from(quals);
 
             // now build up the var attribute name lookup map
             unsafe fn populate_var_attname_lookup(
@@ -374,7 +370,7 @@ impl CustomScan for PdbScan {
             }
         }
 
-        let query = &state.custom_state().search_config.query;
+        let query = &state.custom_state().search_query_input;
         let pretty_json = if explainer.is_verbose() {
             serde_json::to_string_pretty(&query)
         } else {
@@ -518,7 +514,10 @@ impl CustomScan for PdbScan {
             .get_reader()
             .expect("search index reader should have been constructed correctly");
 
-        state.custom_state_mut().query = Some(search_index.query(&search_config, &search_reader));
+        let search_query_input = &state.custom_state().search_query_input;
+
+        state.custom_state_mut().query =
+            Some(search_index.query(&search_query_input, &search_reader));
         let search_results = if let (Some(limit), Some(sort_direction)) = (
             state.custom_state().limit,
             state.custom_state().sort_direction,

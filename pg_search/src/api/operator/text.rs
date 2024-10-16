@@ -17,11 +17,10 @@
 
 use crate::api::operator::{
     anyelement_text_opoid, anyelement_text_procoid, attname_from_var, estimate_selectivity,
-    make_search_config_opexpr_node, ReturnedNodePointer,
+    make_search_query_input_opexpr_node, ReturnedNodePointer,
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
@@ -64,7 +63,7 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
             panic!("when the left side of the `@@@` operator is a column name the right side must be a text literal");
         }
 
-        Some(make_search_config_opexpr_node(
+        Some(make_search_query_input_opexpr_node(
             srs,
             &mut input_args,
             var,
@@ -93,11 +92,10 @@ pub fn text_restrict(
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
             let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
 
-            let (heaprelid, query) = make_query_from_var_and_const(info, var, const_);
+            let (heaprelid, search_query_input) = make_query_from_var_and_const(info, var, const_);
             let indexrel = locate_bm25_index(heaprelid)?;
-            let search_config = SearchConfig::from((query, &indexrel));
 
-            estimate_selectivity(&indexrel, &search_config)
+            estimate_selectivity(&indexrel, &search_query_input)
         }
     }
 

@@ -148,7 +148,6 @@ pub(crate) fn estimate_selectivity(
             search_query_input.clone(),
         )
         .unwrap_or(1) as f64;
-
     let mut selectivity = estimate / reltuples;
     if selectivity > 1.0 {
         selectivity = 1.0;

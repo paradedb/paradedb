@@ -15,15 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::str::FromStr;
-
-use crate::index::IndexError;
+use crate::index::writer::index::IndexError;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
+use std::str::FromStr;
 
 /// Finds and returns the `USING bm25` index on the specified relation with the
 /// highest OID, or [`None`] if there aren't any.

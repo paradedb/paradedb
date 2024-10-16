@@ -22,6 +22,7 @@ use crate::schema::{IndexRecordOption, SearchConfig};
 use anyhow::Result;
 use core::panic;
 use pgrx::PostgresType;
+use range::{deserialize_bound, serialize_bound};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
 use tantivy::{
@@ -38,6 +39,7 @@ use tantivy::{
 use thiserror::Error;
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
     All,
     Boolean {
@@ -72,7 +74,15 @@ pub enum SearchQueryInput {
     },
     FastFieldRangeWeight {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<u64>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<u64>,
     },
     FuzzyTerm {
@@ -101,7 +111,7 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
-        document_fields: Vec<(String, tantivy::schema::OwnedValue)>,
+        document_fields: Option<Vec<(String, tantivy::schema::OwnedValue)>>,
         document_id: Option<tantivy::schema::OwnedValue>,
     },
     Parse {
@@ -129,32 +139,66 @@ pub enum SearchQueryInput {
     },
     Range {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         path: Option<String>,
+        #[serde(default)]
         is_datetime: bool,
     },
     RangeContains {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(default)]
         is_datetime: bool,
     },
     RangeIntersects {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(default)]
         is_datetime: bool,
     },
     RangeTerm {
         field: String,
         value: tantivy::schema::OwnedValue,
+        #[serde(default)]
         is_datetime: bool,
     },
     RangeWithin {
         field: String,
+        #[serde(serialize_with = "serialize_bound")]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(default)]
         is_datetime: bool,
     },
     Regex {
@@ -165,6 +209,7 @@ pub enum SearchQueryInput {
         field: Option<String>,
         value: tantivy::schema::OwnedValue,
         path: Option<String>,
+        #[serde(default)]
         is_datetime: bool,
     },
     TermSet {
@@ -470,42 +515,51 @@ impl SearchQueryInput {
                     builder = builder.with_stop_words(stop_words);
                 }
 
-                if let Some(key_value) = document_id {
-                    let (field_type, field) = field_lookup
-                        .as_field_type(&config.key_field)
-                        .expect("internal error, key field should be found here");
-                    let term = value_to_term(field, &key_value, &field_type, None, false)?;
-                    let query: Box<dyn Query> =
-                        Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
-                    let addresses = searcher.search(&query, &DocSetCollector)?;
-                    let disjuncts: Vec<Box<dyn Query>> = addresses
-                        .into_iter()
-                        .map(|address| builder.clone().with_document(address))
-                        .map(|query| Box::new(query) as Box<dyn Query>)
-                        .collect();
-                    return Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)));
-                }
-
-                let mut fields_map = HashMap::new();
-                for (field_name, value) in document_fields {
-                    if !field_lookup.is_field_type(&field_name, &value) {
-                        return Err(Box::new(QueryError::WrongFieldType(field_name)));
+                match (document_id, document_fields) {
+                    (Some(key_value), None) => {
+                        let (field_type, field) = field_lookup
+                            .as_field_type(&config.key_field)
+                            .expect("internal error, key field should be found here");
+                        let term = value_to_term(field, &key_value, &field_type, None, false)?;
+                        let query: Box<dyn Query> =
+                            Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
+                        let addresses = searcher.search(&query, &DocSetCollector)?;
+                        let disjuncts: Vec<Box<dyn Query>> = addresses
+                            .into_iter()
+                            .map(|address| builder.clone().with_document(address))
+                            .map(|query| Box::new(query) as Box<dyn Query>)
+                            .collect();
+                        Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
                     }
 
-                    let (_, field) = field_lookup
-                        .as_field_type(&field_name)
-                        .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+                    (None, Some(doc_fields)) => {
+                        let mut fields_map = HashMap::new();
+                        for (field_name, value) in doc_fields {
+                            if !field_lookup.is_field_type(&field_name, &value) {
+                                return Err(Box::new(QueryError::WrongFieldType(field_name)));
+                            }
 
-                    fields_map.entry(field).or_insert_with(std::vec::Vec::new);
+                            let (_, field) = field_lookup
+                                .as_field_type(&field_name)
+                                .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
-                    if let Some(vec) = fields_map.get_mut(&field) {
-                        vec.push(value)
+                            fields_map.entry(field).or_insert_with(std::vec::Vec::new);
+
+                            if let Some(vec) = fields_map.get_mut(&field) {
+                                vec.push(value)
+                            }
+                        }
+                        Ok(Box::new(
+                            builder.with_document_fields(fields_map.into_iter().collect()),
+                        ))
+                    }
+                    (Some(_), Some(_)) => {
+                        panic!("more_like_this must be called with only one of with_document_id or with_document_fields")
+                    }
+                    (None, None) => {
+                        panic!("more_like_this must be called with either with_document_id or with_document_fields");
                     }
                 }
-
-                Ok(Box::new(
-                    builder.with_document_fields(fields_map.into_iter().collect()),
-                ))
             }
             Self::PhrasePrefix {
                 field,

@@ -94,7 +94,7 @@ jobs:
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: ubicloud@rust-cache@v2
+        uses: ubicloud/rust-cache@v2
         with:
           prefix-key: "v1"
           shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
@@ -281,7 +281,7 @@ jobs:
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: ubicloud@rust-cache@v2
+        uses: ubicloud/rust-cache@v2
         with:
           prefix-key: "v1"
           shared-key: ${{ runner.os }}-rust-cache-pg_search--enable-cassert${{ HashFiles('Cargo.lock') }}

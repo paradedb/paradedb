@@ -34,10 +34,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-latest-8
+          - runner: ubicloud-standard-8
             pg_version: 16
             arch: amd64
-          - runner: depot-ubuntu-latest-arm-8
+          - runner: ubicloud-standard-8-arm
             pg_version: 16
             arch: arm64
 
@@ -126,7 +126,7 @@ jobs:
   # community contributors don't have access to.
   test-paradedb-helm-chart:
     name: Test ParadeDB Helm Chart
-    runs-on: depot-ubuntu-latest-2
+    runs-on: ubicloud-standard-2
     if: github.event.pull_request.draft == false && github.event.pull_request.base.ref == 'main'
 
     steps:

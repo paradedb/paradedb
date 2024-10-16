@@ -31,7 +31,7 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
-    runs-on: depot-ubuntu-latest-8
+    runs-on: ubicloud-standard-8
     if: github.event.pull_request.draft == false
     strategy:
       matrix:

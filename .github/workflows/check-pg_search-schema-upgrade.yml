@@ -28,7 +28,7 @@ concurrency:
 jobs:
   check-pg_search-schema-upgrade:
     name: Post Schema Change to PR
-    runs-on: depot-ubuntu-latest-8
+    runs-on: ubicloud-standard-8
     if: github.event.pull_request.draft == false
     env:
       pg_version: 13 # Required by pg-schema-diff

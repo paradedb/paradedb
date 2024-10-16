@@ -546,62 +546,6 @@ fn partitioned_index(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
-        .execute(&mut conn);
-
-    r#"CREATE INDEX index_config_index ON index_config
-        USING bm25 (id, description) WITH (key_field='id')"#
-        .execute(&mut conn);
-
-    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_index");
-    assert!(
-        index_dir.exists(),
-        "expected index directory to exist at: {:?}",
-        index_dir
-    );
-
-    "DROP INDEX index_config_index CASCADE".execute(&mut conn);
-
-    assert!(
-        !index_dir.join("search-index.json").exists(),
-        "expected index directory to have been deleted at: {:?}",
-        index_dir
-    );
-}
-
-#[rstest]
-fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
-        .execute(&mut conn);
-
-    r#"CREATE INDEX index_config_index ON index_config
-        USING bm25 (id, description) WITH (key_field='id')"#
-        .execute(&mut conn);
-
-    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_index");
-    assert!(
-        index_dir.exists(),
-        "expected index directory to exist at: {:?}",
-        index_dir
-    );
-
-    "DO $$ 
-    BEGIN
-        DROP INDEX index_config_index CASCADE;
-        RAISE EXCEPTION 'Aborting the transaction intentionally';
-    END $$;"
-        .execute_result(&mut conn)
-        .ok();
-
-    assert!(
-        index_dir.join("search-index.json").exists(),
-        "expected index directory to have been not been deleted at: {:?}",
-        index_dir
-    );
-}
-
-#[rstest]
 fn custom_enum_term(mut conn: PgConnection) {
     r#"
     CREATE TYPE color AS ENUM ('red', 'green', 'blue');

@@ -15,10 +15,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::blocking::{BlockingDirectory, SEGMENT_COMPONENT_CACHE};
+use crate::index::channel::{
+    ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
+};
 use crate::index::WriterResources;
-use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::storage::block::SegmentComponentOpaque;
+use crate::postgres::storage::linked_list::LinkedItemList;
+use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
+use anyhow::Result;
 use pgrx::*;
+use std::path::PathBuf;
+use tantivy::directory::{Lock, MANAGED_LOCK};
+use tantivy::index::Index;
+use tantivy::{Directory, IndexWriter};
 
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
@@ -26,46 +37,202 @@ pub extern "C" fn amvacuumcleanup(
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = unsafe { PgBox::from_pg(info) };
-    let mut stats = stats;
-
     if info.analyze_only {
         return stats;
     }
 
-    if stats.is_null() {
-        stats =
-            unsafe { pg_sys::palloc0(std::mem::size_of::<pg_sys::IndexBulkDeleteResult>()).cast() };
-    }
-
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
-    let index_name = index_relation.name();
-
-    let search_index =
-        open_search_index(&index_relation).expect("should be able to open search index");
+    let index_oid = index_relation.oid();
     let options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-    let mut writer = search_index
-        .get_writer(WriterResources::Vacuum, unsafe {
-            options.as_ref().unwrap()
-        })
-        .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));
+    let (parallelism, memory_budget, _, _) =
+        WriterResources::Vacuum.resources(unsafe { options.as_ref().unwrap() });
 
-    // Garbage collect the index and clear the writer cache to free up locks.
-    search_index
-        .vacuum(&writer)
-        .unwrap_or_else(|err| panic!("error during vacuum on index {index_name}: {err:?}"));
+    let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
+    let (response_sender, response_receiver) = crossbeam::channel::unbounded::<ChannelResponse>();
+    let (request_sender_clone, response_receiver_clone) =
+        (request_sender.clone(), response_receiver.clone());
 
-    // we also need to make sure segments get merged.
-    //
-    // we can force this by doing a .commit(), even tho we don't have changes
-    // then directly taking control of the underlying_writer and waiting for the merge threads
-    // to complete
-    writer.commit().expect("commit should succeed");
-    writer
-        .underlying_writer
-        .take()
-        .unwrap()
-        .wait_merging_threads()
-        .expect("wait_merging_threads() should succeed");
+    // Let Tantivy merge and garbage collect segments
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let channel_directory = ChannelDirectory::new(
+                request_sender_clone.clone(),
+                response_receiver_clone.clone(),
+            );
+            let channel_index = Index::open(channel_directory).expect("channel index should open");
+            let mut writer: IndexWriter = channel_index
+                .writer_with_num_threads(parallelism.into(), memory_budget)
+                .unwrap();
 
-    stats
+            // Commit does garbage collect as well, no need to explicitly call it
+            writer.commit().unwrap();
+            writer.wait_merging_threads().unwrap();
+
+            request_sender_clone
+                .send(ChannelRequest::Terminate)
+                .unwrap();
+        });
+
+        let blocking_directory = BlockingDirectory::new(index_oid);
+        let mut handler = ChannelRequestHandler::open(
+            blocking_directory,
+            index_oid,
+            response_sender.clone(),
+            request_receiver.clone(),
+        );
+
+        let blocking_stats = handler
+            .receive_blocking(Some(|_| false))
+            .expect("blocking handler should succeed");
+
+        // Update the cache
+        for path in &blocking_stats.deleted_paths {
+            SEGMENT_COMPONENT_CACHE.write().remove(path);
+        }
+
+        // Vacuum the linked list of segment components
+        let cache = unsafe { BM25BufferCache::open(index_oid) };
+        let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
+        let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
+
+        unsafe {
+            vacuum_segment_components(index_oid, blocking_stats.deleted_paths)
+                .expect("vacuum segment components should succeed");
+        }
+
+        // Return all recyclable pages to the free space map
+        let nblocks = unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM)
+        };
+
+        for blockno in 0..nblocks {
+            unsafe {
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                let page = pg_sys::BufferGetPage(buffer);
+                if page.recyclable(heap_relation) {
+                    cache.record_free_index_page(blockno);
+                }
+                pg_sys::UnlockReleaseBuffer(buffer);
+            }
+        }
+
+        unsafe {
+            pg_sys::RelationClose(heap_relation);
+            pg_sys::IndexFreeSpaceMapVacuum(info.index)
+        };
+
+        // TODO: Update stats
+        stats
+    })
+}
+
+fn alive_segment_components(
+    segment_components_list: &LinkedItemList<SegmentComponentOpaque>,
+    paths_to_delete: Vec<PathBuf>,
+) -> Result<Vec<SegmentComponentOpaque>> {
+    unsafe {
+        Ok(segment_components_list
+            .list_all_items()?
+            .into_iter()
+            .filter(|opaque| !paths_to_delete.contains(&opaque.path))
+            .collect::<Vec<_>>())
+    }
+}
+
+unsafe fn vacuum_segment_components(
+    relation_oid: pg_sys::Oid,
+    paths_deleted: Vec<PathBuf>,
+) -> Result<()> {
+    let directory = BlockingDirectory::new(relation_oid);
+    // This lock is necessary because we are reading the segment components list, appending, and then overwriting
+    // If another process were to insert a segment component while we are doing this, that component would be forever lost
+    let _lock = directory.acquire_lock(&Lock {
+        filepath: MANAGED_LOCK.filepath.clone(),
+        is_blocking: true,
+    });
+
+    let mut segment_components_list = unsafe {
+        LinkedItemList::<SegmentComponentOpaque>::new(
+            relation_oid,
+            |metadata| (*metadata).segment_component_first_blockno,
+            |metadata| (*metadata).segment_component_last_blockno,
+            |metadata, blockno| (*metadata).segment_component_first_blockno = blockno,
+            |metadata, blockno| (*metadata).segment_component_last_blockno = blockno,
+        )
+    };
+
+    let alive_segment_components =
+        alive_segment_components(&segment_components_list, paths_deleted.clone())?;
+
+    segment_components_list.add_items(
+        alive_segment_components,
+        true,
+        |opaque, blockno, offsetno| {
+            SEGMENT_COMPONENT_CACHE
+                .write()
+                .insert(opaque.path.clone(), (opaque.clone(), blockno, offsetno));
+        },
+    )
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    use crate::postgres::storage::block::SegmentComponentOpaque;
+    use crate::postgres::storage::linked_list::LinkedItemList;
+
+    #[pg_test]
+    unsafe fn test_alive_segment_components() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run(
+            "CALL paradedb.create_bm25(
+            index_name => 't_idx',
+            table_name => 't',
+            key_field => 'id',
+            text_fields => paradedb.field('data')
+        )",
+        )
+        .unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let mut segment_components_list = unsafe {
+            LinkedItemList::<SegmentComponentOpaque>::new(
+                relation_oid,
+                |metadata| (*metadata).segment_component_first_blockno,
+                |metadata| (*metadata).segment_component_last_blockno,
+                |metadata, blockno| (*metadata).segment_component_first_blockno = blockno,
+                |metadata, blockno| (*metadata).segment_component_last_blockno = blockno,
+            )
+        };
+
+        let paths = (0..3)
+            .map(|_| PathBuf::from(format!("{:?}.term", Uuid::new_v4())))
+            .collect::<Vec<_>>();
+
+        let segments_to_vacuum = paths
+            .iter()
+            .map(|path| SegmentComponentOpaque {
+                path: path.to_path_buf(),
+                blocks: vec![1, 2, 3],
+                total_bytes: 100,
+                xid: 0,
+            })
+            .collect::<Vec<_>>();
+
+        segment_components_list
+            .add_items(segments_to_vacuum.clone(), true, |_, _, _| {})
+            .unwrap();
+
+        let dead_paths = vec![paths[0].clone(), paths[2].clone()];
+        let alive_segments =
+            alive_segment_components(&segment_components_list, dead_paths).unwrap();
+        assert_eq!(alive_segments, vec![segments_to_vacuum[1].clone()]);
+    }
 }

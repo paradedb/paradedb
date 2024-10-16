@@ -17,7 +17,6 @@
 
 mod fixtures;
 
-use crate::fixtures::utils::pg_search_index_directory_path;
 use anyhow::Result;
 use approx::assert_relative_eq;
 use core::panic;
@@ -27,7 +26,6 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
 use std::str::FromStr;
-use tantivy::Index;
 
 #[rstest]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
@@ -467,53 +465,18 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     "#
       .execute(&mut conn);
 
-    let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx");
-    assert!(index_dir_path.exists());
-
-    // Get the index metadata
-    let index = Index::open_in_dir(index_dir_path.join("tantivy"))?;
-    let reader = index.reader()?;
-    let searcher = reader.searcher();
-    let total_docs = searcher
-        .segment_readers()
-        .iter()
-        .map(|segment_reader| segment_reader.num_docs())
-        .reduce(|acc, count| acc + count)
-        .unwrap_or(0);
-
-    assert_eq!(total_docs, 41);
-
-    // Update an indexed column.
-    "UPDATE mock_items set description = 'Organic blue tea' WHERE description = 'Organic green tea'"
-        .execute(&mut conn);
-
-    reader.reload()?;
-
-    let searcher = reader.searcher();
-    let total_docs = searcher
-        .segment_readers()
-        .iter()
-        .map(|segment_reader| segment_reader.num_docs())
-        .reduce(|acc, count| acc + count)
-        .unwrap_or(0);
-
-    // The total document should be higher, as a new document was created for the updated row.
-    assert_eq!(total_docs, 42);
-
+    let page_size_before: (i64,) =
+        "SELECT pg_relation_size('search_idx') / current_setting('block_size')::int AS page_count"
+            .fetch_one(&mut conn);
     // Update a non-indexed column.
     "UPDATE mock_items set category = 'Books' WHERE description = 'Sleek running shoes'"
         .execute(&mut conn);
 
-    let searcher = reader.searcher();
-    let total_docs = searcher
-        .segment_readers()
-        .iter()
-        .map(|segment_reader| segment_reader.num_docs())
-        .reduce(|acc, count| acc + count)
-        .unwrap_or(0);
-
-    // The total document count should not have changed when updating a non-indexed column.
-    assert_eq!(total_docs, 42);
+    let page_size_after: (i64,) =
+        "SELECT pg_relation_size('search_idx') / current_setting('block_size')::int AS page_count"
+            .fetch_one(&mut conn);
+    // The total page count should not have changed when updating a non-indexed column.
+    assert_eq!(page_size_before, page_size_after);
 
     Ok(())
 }
@@ -972,36 +935,6 @@ fn high_limit_rows(mut conn: PgConnection) {
         "SELECT id FROM large_series WHERE large_series @@@ 'description:Product' ORDER BY id"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 200000);
-}
-
-#[rstest]
-fn index_size(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    let index_dir = pg_search_index_directory_path(&mut conn, "bm25_search_bm25_index");
-    assert!(
-        index_dir.exists(),
-        "expected index directory to exist at: {:?}",
-        index_dir
-    );
-
-    // Calculate the index size using the new method
-    let size: i64 = "SELECT paradedb.index_size('paradedb.bm25_search_bm25_index')"
-        .fetch_one::<(i64,)>(&mut conn)
-        .0;
-
-    // Ensure the size is greater than zero, meaning the index has been created
-    assert!(size > 0);
-
-    // Calculate the index size using the new method
-    match "SELECT paradedb.index_size('paradedb.missing_bm25_index')"
-        .fetch_result::<(i64,)>(&mut conn)
-    {
-        Err(err) => assert!(err
-            .to_string()
-            .contains(r#"relation "paradedb.missing_bm25_index" does not exist"#)),
-        _ => panic!("non-existing index should throw an error"),
-    }
 }
 
 #[rstest]

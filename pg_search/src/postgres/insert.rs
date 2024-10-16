@@ -15,12 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::SearchIndexWriter;
+use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{SearchIndex, WriterResources};
 use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
-use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgRelation, PgTupleDesc};
+use anyhow::Result;
+use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 
@@ -28,6 +29,17 @@ pub struct InsertState {
     pub index: SearchIndex,
     pub writer: Option<SearchIndexWriter>,
     abort_on_drop: bool,
+    committed: bool,
+}
+
+impl InsertState {
+    pub fn try_commit(&mut self) -> Result<()> {
+        if let Some(writer) = self.writer.take() {
+            writer.commit()?;
+            self.committed = true;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for InsertState {
@@ -35,23 +47,17 @@ impl Drop for InsertState {
     /// or abort.
     fn drop(&mut self) {
         unsafe {
-            if let Some(mut writer) = self.writer.take() {
-                pgrx_extern_c_guard(|| {
-                    if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop {
-                        writer
-                            .commit()
-                            .expect("tantivy index commit should succeed");
-                    } else if let Err(e) = writer.abort() {
-                        if pg_sys::IsAbortedTransactionBlockState() {
-                            // we're in an aborted state, so the best we can do is warn that our
-                            // attempt to abort the tantivy changes failed
-                            pgrx::warning!("failed to abort tantivy index changes: {}", e);
-                        } else {
-                            // haven't aborted yet so we can raise the error we got during abort
-                            panic!("{e}")
-                        }
-                    }
-                });
+            if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop && !self.committed {
+                if let Some(writer) = self.writer.take() {
+                    writer
+                        .commit()
+                        .expect("tantivy index commit should succeed");
+                }
+                self.committed = true;
+            }
+
+            if pg_sys::IsAbortedTransactionBlockState() || self.abort_on_drop {
+                drop(self.writer.take());
             }
         }
     }
@@ -69,6 +75,7 @@ impl InsertState {
             index,
             writer: Some(writer),
             abort_on_drop: false,
+            committed: false,
         })
     }
 }
@@ -80,9 +87,10 @@ pub unsafe fn init_insert_state(
 ) -> *mut InsertState {
     assert!(!index_info.is_null());
     let state = (*index_info).ii_AmCache;
+    let index_relation = PgRelation::from_pg(index_relation);
     if state.is_null() {
         // we don't have any cached state yet, so create it now
-        let state = InsertState::new(&PgRelation::open((*index_relation).rd_id), writer_resources)
+        let state = InsertState::new(&index_relation, writer_resources)
             .expect("should be able to open new SearchIndex for writing");
 
         // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
@@ -138,13 +146,10 @@ unsafe fn aminsert_internal(
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
     let result = catch_unwind(|| {
-        let state = &*init_insert_state(index_relation, index_info, WriterResources::Statement);
+        let state = &mut *init_insert_state(index_relation, index_info, WriterResources::Statement);
         let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
         let search_index = &state.index;
-        let writer = state
-            .writer
-            .as_ref()
-            .expect("InsertState::writer should be set");
+        let writer = state.writer.as_mut().expect("writer should not be null");
         let search_document =
             row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
                 .unwrap_or_else(|err| {
@@ -157,6 +162,7 @@ unsafe fn aminsert_internal(
         search_index
             .insert(writer, search_document)
             .expect("insertion into index should succeed");
+
         true
     });
 

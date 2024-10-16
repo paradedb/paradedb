@@ -19,7 +19,7 @@ use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use serde_json::json;
+use serde_json::{json, Map};
 use std::collections::HashMap;
 use std::ffi::CStr;
 
@@ -244,10 +244,9 @@ impl SearchIndexCreateOptions {
         serialized: String,
         parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig)> {
-        let config_map: HashMap<String, serde_json::Value> = serde_json::from_str(&serialized)
-            .unwrap_or_else(|_| {
-                panic!("failed to deserialize field config: invalid JSON string: {serialized}")
-            });
+        let config_map: Map<String, serde_json::Value> = serde_json::from_str(&serialized)
+            .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
+
         config_map
             .into_iter()
             .map(|(field_name, field_config)| {

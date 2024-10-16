@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::reader::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::{search_via_channel, SearchIndexReader, SearchResults};
 use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -126,6 +126,7 @@ pub extern "C" fn amrescan(
         let results = if (*scan).parallel_scan.is_null() {
             // not a parallel scan
             search_reader.search_via_channel(
+                (*(*scan).indexRelation).rd_id,
                 need_scores,
                 !(*scan).xs_want_itup,
                 SearchIndex::executor(),

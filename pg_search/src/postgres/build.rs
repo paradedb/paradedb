@@ -15,19 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::WriterDirectory;
 use crate::index::{SearchIndex, WriterResources};
-use crate::postgres::index::relfilenode_from_pg_relation;
+use crate::postgres::index::get_fields;
 use crate::postgres::insert::init_insert_state;
-use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::storage::block::{
+    MetaPageData, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
+    META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
+};
+use crate::postgres::storage::utils::BM25BufferCache;
 use crate::postgres::utils::row_to_search_document;
-use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
-use std::collections::HashMap;
 use std::ffi::CStr;
 use std::time::Instant;
-use tokenizers::manager::SearchTokenizerFilters;
-use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 // For now just pass the count on the build callback state
 struct BuildState {
@@ -59,8 +58,9 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
-    let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_pg_relation(&index_relation);
+
+    // Create the metadata blocks for the index
+    unsafe { create_metadata(index_oid) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -83,160 +83,25 @@ pub extern "C" fn ambuild(
         }
     }
 
-    let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
-        unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
-    } else {
-        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
-        ops.into_pg_boxed()
-    };
-
-    // Create a map from column name to column type. We'll use this to verify that index
-    // configurations passed by the user reference the correct types for each column.
-    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heap_relation
-        .tuple_desc()
-        .into_iter()
-        .filter_map(|attribute| {
-            let attname = attribute.name();
-            let attribute_type_oid = attribute.type_oid();
-            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-            let base_oid = if array_type != pg_sys::InvalidOid {
-                PgOid::from(array_type)
-            } else {
-                attribute_type_oid
-            };
-            if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
-                Some((attname.into(), search_field_type))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    for (name, _) in rdopts.get_text_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Text)) {
-            panic!("'{name}' cannot be indexed as a text field");
-        }
-    }
-
-    for (name, _) in rdopts.get_numeric_fields() {
-        if !matches!(
-            name_type_map.get(&name),
-            Some(SearchFieldType::U64 | SearchFieldType::I64 | SearchFieldType::F64)
-        ) {
-            panic!("'{name}' cannot be indexed as a numeric field");
-        }
-    }
-
-    for (name, _) in rdopts.get_boolean_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Bool)) {
-            panic!("'{name}' cannot be indexed as a boolean field");
-        }
-    }
-
-    for (name, _) in rdopts.get_json_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Json)) {
-            panic!("'{name}' cannot be indexed as a JSON field");
-        }
-    }
-
-    for (name, _) in rdopts.get_range_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Range)) {
-            panic!("'{name}' cannot be indexed as a range field");
-        }
-    }
-
-    for (name, _) in rdopts.get_datetime_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Date)) {
-            panic!("'{name}' cannot be indexed as a datetime field");
-        }
-    }
-
-    let key_field = rdopts.get_key_field().expect("must specify key field");
-    let key_field_type = match name_type_map.get(&key_field) {
-        Some(field_type) => field_type,
-        None => panic!("key field does not exist"),
-    };
-    let key_config = match key_field_type {
-        SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
-            SearchFieldConfig::Numeric {
-                indexed: true,
-                fast: true,
-                stored: true,
-            }
-        }
-        SearchFieldType::Text => SearchFieldConfig::Text {
-            indexed: true,
-            fast: true,
-            stored: true,
-            fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-        },
-        SearchFieldType::Json => SearchFieldConfig::Json {
-            indexed: true,
-            fast: true,
-            stored: true,
-            fieldnorms: false,
-            expand_dots: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-        },
-        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
-        SearchFieldType::Bool => SearchFieldConfig::Boolean {
-            indexed: true,
-            fast: true,
-            stored: true,
-        },
-        SearchFieldType::Date => SearchFieldConfig::Date {
-            indexed: true,
-            fast: true,
-            stored: true,
-        },
-    };
-
-    // Concatenate the separate lists of fields.
-    let fields: Vec<_> = rdopts
-        .get_fields(&heap_relation, index_info)
-        .into_iter()
-        .filter(|(name, _, _)| name != &key_field) // Process key_field separately.
-        .chain(std::iter::once((
-            key_field.clone(),
-            key_config,
-            *key_field_type,
-        )))
-        // "ctid" is a reserved column name in Postgres, so we don't need to worry about
-        // creating a name conflict with a user-named column.
-        .chain(std::iter::once((
-            "ctid".into(),
-            SearchFieldConfig::Ctid,
-            SearchFieldType::U64,
-        )))
-        .collect();
-
-    let key_field_index = fields
-        .iter()
-        .position(|(name, _, _)| name == &key_field)
-        .expect("key field not found in columns"); // key field is already validated by now.
-
+    let (fields, key_field_index) = unsafe { get_fields(&index_relation) };
     // If there's only two fields in the vector, then those are just the Key and Ctid fields,
     // which we added above, and the user has not specified any fields to index.
     if fields.len() == 2 {
         panic!("no fields specified")
     }
 
-    let directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
-
-    SearchIndex::create_index(directory, fields, key_field_index)
+    SearchIndex::create_index(index_oid, fields, key_field_index)
         .expect("error creating new index instance");
 
     let state = do_heap_scan(index_info, &heap_relation, &index_relation);
+    unsafe {
+        let insert_state = init_insert_state(indexrel, index_info, WriterResources::CreateIndex);
+        (*insert_state).try_commit().expect("commit should succeed");
+    }
+
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = state.count as f64;
     result.index_tuples = state.count as f64;
-
     result.into_pg()
 }
 
@@ -314,10 +179,9 @@ unsafe fn build_callback_internal(
     let search_index = &(*insert_state).index;
     let writer = (*insert_state)
         .writer
-        .as_ref()
-        .expect("InsertState::writer should be set");
+        .as_mut()
+        .expect("writer should not be null");
     let schema = &(*insert_state).index.schema;
-
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a
     // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it
@@ -337,7 +201,6 @@ unsafe fn build_callback_internal(
                             .to_string_lossy()
                     );
                 });
-
             search_index
                 .insert(writer, search_document)
                 .unwrap_or_else(|err| {
@@ -366,4 +229,49 @@ fn is_bm25_index(indexrel: &PgRelation) -> bool {
         // SAFETY:  we ensure that `indexrel.rd_indam` is non null and can be dereferenced
         !indexrel.rd_indam.is_null() && (*indexrel.rd_indam).ambuild == Some(ambuild)
     }
+}
+
+unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
+    let cache = BM25BufferCache::open(relation_oid);
+    let metadata_buffer = cache.new_buffer();
+    let page = pg_sys::BufferGetPage(metadata_buffer);
+    let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
+    (*metadata).tantivy_meta_last_blockno = TANTIVY_META_BLOCKNO;
+
+    let writer_lock_buffer = cache.new_buffer();
+    let meta_lock_buffer = cache.new_buffer();
+    let managed_lock_buffer = cache.new_buffer();
+    let tantivy_meta_buffer = cache.new_buffer();
+
+    let segment_component_buffer = cache.new_buffer();
+    let segment_component_blockno = pg_sys::BufferGetBlockNumber(segment_component_buffer);
+    (*metadata).segment_component_first_blockno = segment_component_blockno;
+    (*metadata).segment_component_last_blockno = segment_component_blockno;
+
+    let tantivy_managed_buffer = cache.new_buffer();
+    let tantivy_managed_blockno = pg_sys::BufferGetBlockNumber(tantivy_managed_buffer);
+    (*metadata).tantivy_managed_first_blockno = tantivy_managed_blockno;
+    (*metadata).tantivy_managed_last_blockno = tantivy_managed_blockno;
+
+    assert!(pg_sys::BufferGetBlockNumber(metadata_buffer) == METADATA_BLOCKNO);
+    assert!(pg_sys::BufferGetBlockNumber(writer_lock_buffer) == INDEX_WRITER_LOCK_BLOCKNO);
+    assert!(pg_sys::BufferGetBlockNumber(meta_lock_buffer) == META_LOCK_BLOCKNO);
+    assert!(pg_sys::BufferGetBlockNumber(managed_lock_buffer) == MANAGED_LOCK_BLOCKNO);
+    assert!(pg_sys::BufferGetBlockNumber(tantivy_meta_buffer) == TANTIVY_META_BLOCKNO);
+
+    pg_sys::MarkBufferDirty(metadata_buffer);
+    pg_sys::MarkBufferDirty(writer_lock_buffer);
+    pg_sys::MarkBufferDirty(meta_lock_buffer);
+    pg_sys::MarkBufferDirty(managed_lock_buffer);
+    pg_sys::MarkBufferDirty(segment_component_buffer);
+    pg_sys::MarkBufferDirty(tantivy_meta_buffer);
+    pg_sys::MarkBufferDirty(tantivy_managed_buffer);
+
+    pg_sys::UnlockReleaseBuffer(metadata_buffer);
+    pg_sys::UnlockReleaseBuffer(writer_lock_buffer);
+    pg_sys::UnlockReleaseBuffer(meta_lock_buffer);
+    pg_sys::UnlockReleaseBuffer(managed_lock_buffer);
+    pg_sys::UnlockReleaseBuffer(segment_component_buffer);
+    pg_sys::UnlockReleaseBuffer(tantivy_meta_buffer);
+    pg_sys::UnlockReleaseBuffer(tantivy_managed_buffer);
 }

@@ -1,6 +1,7 @@
 use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ops::Bound;
 use tantivy::{
     query::{RangeQuery, RegexQuery, TermQuery},
@@ -139,5 +140,69 @@ impl RangeField {
         path: Option<&str>,
     ) -> Result<Term, Box<dyn std::error::Error>> {
         value_to_json_term(self.field, value, path, EXPAND_DOTS, self.is_datetime)
+    }
+}
+
+/// Custom serialization function for `Bound<T>`.
+/// The goal of this function is to serialize `Bound<T>` with **lowercase keys**.
+/// By default, Rust would serialize the `Bound` enum using its variant names,
+/// but we want to control the output format to ensure that keys like "included",
+/// "excluded", and "unbounded" appear in lowercase.
+pub fn serialize_bound<S, T>(bound: &Bound<T>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    T: Serialize,
+{
+    match bound {
+        Bound::Included(val) => {
+            #[derive(Serialize)]
+            #[serde(rename_all = "snake_case")]
+            struct IncludedBound<T> {
+                included: T,
+            }
+            IncludedBound { included: val }.serialize(serializer)
+        }
+        Bound::Excluded(val) => {
+            #[derive(Serialize)]
+            #[serde(rename_all = "snake_case")]
+            struct ExcludedBound<T> {
+                excluded: T,
+            }
+            ExcludedBound { excluded: val }.serialize(serializer)
+        }
+        Bound::Unbounded => {
+            #[derive(Serialize)]
+            #[serde(rename_all = "snake_case")]
+            struct UnboundedBound;
+
+            UnboundedBound.serialize(serializer)
+        }
+    }
+}
+
+/// Custom serialization function for `Bound<T>`.
+/// The goal of this function is to deserialize `Bound<T>` with **lowercase keys**.
+/// By default, Rust would deserialize the `Bound` enum using its variant names,
+/// but we want to support a structure with keys like "included",
+/// "excluded", and "unbounded" appearing in lowercase.
+pub fn deserialize_bound<'de, D, T>(deserializer: D) -> Result<Bound<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    #[serde(untagged)]
+    enum BoundDef<T> {
+        Included { included: T },
+        Excluded { excluded: T },
+        Unbounded,
+    }
+
+    let bound_def = BoundDef::deserialize(deserializer)?;
+    match bound_def {
+        BoundDef::Included { included } => Ok(Bound::Included(included)),
+        BoundDef::Excluded { excluded } => Ok(Bound::Excluded(excluded)),
+        BoundDef::Unbounded { .. } => Ok(Bound::Unbounded),
     }
 }

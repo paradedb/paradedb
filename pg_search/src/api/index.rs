@@ -298,7 +298,7 @@ pub fn more_like_this_fields(
         max_word_length: with_max_word_length.map(|n| n as usize),
         boost_factor: with_boost_factor,
         stop_words: with_stop_words,
-        document_fields: document_fields.into_iter().collect(),
+        document_fields: Some(document_fields.into_iter().collect()),
         document_id: None,
     }
 }
@@ -325,7 +325,7 @@ pub fn more_like_this_id(
         max_word_length: with_max_word_length.map(|n| n as usize),
         boost_factor: with_boost_factor,
         stop_words: with_stop_words,
-        document_fields: vec![],
+        document_fields: Some(vec![]),
         document_id: unsafe {
             Some(
                 TantivyValue::try_from_datum(
@@ -350,6 +350,25 @@ pub fn parse(
         lenient,
         conjunction_mode,
     }
+}
+
+#[pg_extern(immutable, parallel_safe)]
+pub fn parse_json(query_json: JsonB) -> SearchQueryInput {
+    serde_path_to_error::deserialize(query_json.0).unwrap_or_else(|err| {
+        panic!(
+            r#"error parsing search query input json at "{}": {}"#,
+            err.path().to_string(),
+            match err.inner().to_string() {
+                msg if msg.contains("expected unit") => {
+                    format!(
+                        r#"invalid type: map, pass null as value for "{}""#,
+                        err.path().to_string()
+                    )
+                }
+                msg => msg,
+            }
+        )
+    })
 }
 
 #[pg_extern(immutable, parallel_safe)]

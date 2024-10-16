@@ -26,7 +26,11 @@ use sqlx::PgConnection;
 fn mlt_enables_scoring_issue1747(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (id,) = "SELECT id FROM paradedb.bm25_search WHERE id @@@ paradedb.more_like_this(with_document_id => 3, with_min_term_frequency => 1) ORDER BY id LIMIT 1"
+    let (id,) = "
+    SELECT id FROM paradedb.bm25_search WHERE id @@@ paradedb.more_like_this(
+        with_document_id => 3,
+        with_min_term_frequency => 1
+    ) ORDER BY id LIMIT 1"
         .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 3);
 }

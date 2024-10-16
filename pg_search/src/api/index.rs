@@ -325,7 +325,7 @@ pub fn more_like_this_id(
         max_word_length: with_max_word_length.map(|n| n as usize),
         boost_factor: with_boost_factor,
         stop_words: with_stop_words,
-        document_fields: Some(vec![]),
+        document_fields: None,
         document_id: unsafe {
             Some(
                 TantivyValue::try_from_datum(

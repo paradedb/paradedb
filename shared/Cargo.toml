@@ -22,8 +22,6 @@ time = { version = "0.3.36", features = ["serde"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = "2.5.2"
-uuid = "1.10.0"
-walkdir = "2.5.0"
 
 # for testing
 async-std = { version = "1.13.0", features = ["attributes"], optional = true }

@@ -29,7 +29,7 @@ automatically detect "available parallelism" of the host computer.
 
 For best performance it is recommended to use one less than the total number of host computer cores.
 
-This GUC can oly be changed by the superuser.
+This GUC can only be changed by the superuser.
 
 ### `paradedb.create_index_memory_budget`
 
@@ -42,7 +42,7 @@ memory. In terms of raw indexing performance, generally larger is better. Keep i
 The value follows Postgres' rules for GUCs that specify byte values. It is measured in megabytes. As such, an
 qualified value of `1024` is the same as `1GB`.
 
-This GUC can oly be changed by the superuser.
+This GUC can only be changed by the superuser.
 
 ### `paradedb.statement_parallelism`
 
@@ -53,7 +53,7 @@ If your typical update patterns are single-record atomic INSERTs or UPDATEs, the
 your update patterns typically update many thousands of rows, a larger value might be preferred for greater indexing
 concurrency.
 
-This GUC can oly be changed by the superuser.
+This GUC can only be changed by the superuser.
 
 ### `paradedb.statement_memory_budget`
 
@@ -74,7 +74,7 @@ Generally speaking, for statement level indexing, the parallelism value dictates
 segments that will be created, so there's a trade-off between finishing the INSERT/UPDATE statement quickly and the
 longer-term search overhead of having many additional index segments until (auto)VACUUM runs.
 
-This GUC can oly be changed by the superuser.
+This GUC can only be changed by the superuser.
 
 ### `paradedb.log_create_index_progress`
 

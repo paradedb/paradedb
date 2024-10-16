@@ -14,7 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-
+#![allow(unused)]
 use crate::api::operator::{
     anyelement_jsonb_opoid, estimate_selectivity, find_var_relation, ReturnedNodePointer,
 };

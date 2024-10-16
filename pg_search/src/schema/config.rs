@@ -15,8 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use serde::{Deserialize, Serialize};
+
 use crate::query::SearchQueryInput;
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq)]

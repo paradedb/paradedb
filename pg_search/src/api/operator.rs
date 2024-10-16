@@ -22,7 +22,6 @@ mod text;
 use crate::postgres::index::open_search_index;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchConfig;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -118,7 +117,7 @@ pub fn anyelement_jsonb_opoid() -> pg_sys::Oid {
 
 pub(crate) fn estimate_selectivity(
     indexrel: &PgRelation,
-    search_config: &SearchConfig,
+    search_query_input: &SearchQueryInput,
 ) -> Option<f64> {
     let reltuples = indexrel
         .heap_relation()
@@ -134,8 +133,9 @@ pub(crate) fn estimate_selectivity(
     let search_reader = search_index
         .get_reader()
         .expect("search reader creation should not fail");
-    let query = search_index.query(search_config, &search_reader);
-    let estimate = search_reader.estimate_docs(&query).unwrap_or(1) as f64;
+    let estimate = search_reader
+        .estimate_docs(search_index.query_parser(), search_query_input.clone())
+        .unwrap_or(1) as f64;
 
     let mut selectivity = estimate / reltuples;
     if selectivity > 1.0 {
@@ -145,7 +145,7 @@ pub(crate) fn estimate_selectivity(
     Some(selectivity)
 }
 
-unsafe fn make_search_config_opexpr_node(
+unsafe fn make_search_query_input_opexpr_node(
     srs: *mut pg_sys::SupportRequestSimplify,
     input_args: &mut PgList<pg_sys::Node>,
     var: *mut pg_sys::Var,
@@ -206,15 +206,15 @@ unsafe fn make_search_config_opexpr_node(
     (*var).vartypmod = att.atttypmod;
     (*var).varcollid = att.attcollation;
 
-    let have_query = query.is_some();
-    if let Some(query) = query {
-        // fabricate a `SearchConfig` from the above relation and query string
-        // and get it serialized into a JSONB Datum
-        let search_config = SearchConfig::from((query, &indexrel));
+    // we're about to fabricate a new pg_sys::OpExpr node to return
+    // that represents the `@@@(anyelement, jsonb)` operator
+    let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
 
-        let search_config_json =
-            serde_json::to_value(&search_config).expect("SearchConfig should serialize to json");
-        let jsonb_datum = JsonB(search_config_json).into_datum().unwrap();
+    if let Some(query) = query {
+        // get the SearchQueryInput serialized into a JSONB Datum
+        let query_json =
+            serde_json::to_value(&query).expect("SearchConfig should serialize to json");
+        let jsonb_datum = JsonB(query_json).into_datum().unwrap();
 
         // from which we'll create a new pg_sys::Const node
         let jsonb_const = pg_sys::makeConst(
@@ -229,19 +229,14 @@ unsafe fn make_search_config_opexpr_node(
 
         // and assign it to the original argument list
         input_args.replace_ptr(1, jsonb_const.cast());
-    }
 
-    // we're about to fabricate a new pg_sys::OpExpr node to return
-    // that represents the `@@@(anyelement, jsonb)` operator
-    let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
-
-    if have_query {
         newopexpr.opno = anyelement_jsonb_opoid();
         newopexpr.opfuncid = anyelement_jsonb_procoid();
     } else {
         newopexpr.opno = opoid;
         newopexpr.opfuncid = procoid;
     }
+
     newopexpr.opresulttype = pg_sys::BOOLOID;
     newopexpr.opcollid = pg_sys::DEFAULT_COLLATION_OID;
     newopexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;

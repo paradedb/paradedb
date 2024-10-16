@@ -17,11 +17,10 @@
 
 use crate::api::operator::{
     anyelement_query_input_opoid, anyelement_query_input_procoid, estimate_selectivity,
-    find_var_relation, make_search_config_opexpr_node, ReturnedNodePointer,
+    find_var_relation, make_search_query_input_opexpr_node, ReturnedNodePointer,
 };
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
@@ -72,7 +71,7 @@ fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePoi
             .map(|const_| SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull))
             .flatten();
 
-        Some(make_search_config_opexpr_node(
+        Some(make_search_query_input_opexpr_node(
             srs,
             &mut input_args,
             var,
@@ -105,10 +104,10 @@ pub fn query_input_restrict(
             let (heaprelid, _, _) = find_var_relation(var, info);
             let indexrel = locate_bm25_index(heaprelid)?;
 
-            let query = SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-            let search_config = SearchConfig::from((query, &indexrel));
+            let search_query_input =
+                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
 
-            estimate_selectivity(&indexrel, &search_config)
+            estimate_selectivity(&indexrel, &search_query_input)
         }
     }
 

@@ -18,6 +18,7 @@
 use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
+use crate::query::SearchQueryInput;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
 use std::cmp::Ordering;
@@ -26,6 +27,7 @@ use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
+use tantivy::query::QueryParser;
 use tantivy::schema::{FieldType, Value};
 use tantivy::{
     query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyDocument, TantivyError,
@@ -431,7 +433,11 @@ impl SearchIndexReader {
             .expect("failed to search")
     }
 
-    pub fn estimate_docs(&self, query: &dyn Query) -> Option<usize> {
+    pub fn estimate_docs(
+        &self,
+        mut query_parser: QueryParser,
+        search_query_input: SearchQueryInput,
+    ) -> Option<usize> {
         let readers = self.searcher.segment_readers();
         let (ordinal, largest_reader) = readers
             .iter()
@@ -440,6 +446,10 @@ impl SearchIndexReader {
 
         let collector = tantivy::collector::Count;
         let schema = self.schema.schema.clone();
+        let query = &search_query_input
+            .clone()
+            .into_tantivy_query(&self.schema, &mut query_parser, &self.searcher)
+            .expect("must be able to parse query");
         let weight = match query.weight(tantivy::query::EnableScoring::Disabled {
             schema: &schema,
             searcher_opt: Some(&self.searcher),

@@ -22,9 +22,10 @@ use crate::index::SearchIndexWriter;
 use crate::index::{
     BlockingDirectory, SearchDirectoryError, SearchFs, TantivyDirPath, WriterDirectory,
 };
+use crate::query::SearchQueryInput;
 use crate::schema::{
-    SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
-    SearchIndexSchema, SearchIndexSchemaError,
+    SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
+    SearchIndexSchemaError,
 };
 use anyhow::Result;
 use once_cell::sync::Lazy;
@@ -161,13 +162,16 @@ impl SearchIndex {
         )
     }
 
-    pub fn query(&self, config: &SearchConfig, reader: &SearchIndexReader) -> Box<dyn Query> {
+    pub fn query(
+        &self,
+        search_query_input: &SearchQueryInput,
+        reader: &SearchIndexReader,
+    ) -> Box<dyn Query> {
         let mut parser = self.query_parser();
         let searcher = reader.underlying_reader.searcher();
-        config
-            .query
+        search_query_input
             .clone()
-            .into_tantivy_query(&self.schema, &mut parser, &searcher, config)
+            .into_tantivy_query(&self.schema, &mut parser, &searcher)
             .expect("must be able to parse query")
     }
 

@@ -18,8 +18,8 @@
 mod range;
 
 use crate::query::range::{Comparison, RangeField};
-use crate::schema::{IndexRecordOption, SearchConfig};
-use anyhow::Result;
+use crate::schema::IndexRecordOption;
+use anyhow::{anyhow, Result};
 use core::panic;
 use pgrx::PostgresType;
 use serde::{Deserialize, Serialize};
@@ -172,9 +172,52 @@ pub enum SearchQueryInput {
     },
 }
 
+impl SearchQueryInput {
+    pub fn from_json(json_value: &serde_json::Value) -> Result<Self> {
+        serde_path_to_error::deserialize(json_value).map_err(|err| {
+            anyhow!(
+                r#"error parsing search query input json at "{}": {}"#,
+                err.path(),
+                match err.inner().to_string() {
+                    msg if msg.contains("expected unit") => {
+                        format!(
+                            r#"invalid type: map, pass null as value for "{}""#,
+                            err.path()
+                        )
+                    }
+                    msg => msg,
+                }
+            )
+        })
+    }
+
+    pub fn contains_more_like_this(&self) -> bool {
+        match self {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .any(Self::contains_more_like_this),
+            SearchQueryInput::Boost { query, .. } => Self::contains_more_like_this(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::contains_more_like_this(query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::contains_more_like_this)
+            }
+            SearchQueryInput::MoreLikeThis { .. } => true,
+            _ => false,
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub trait AsFieldType<T> {
     fn fields(&self) -> Vec<(FieldType, Field)>;
+
+    fn key_field(&self) -> (FieldType, Field);
 
     fn as_field_type(&self, from: &T) -> Option<(FieldType, Field)>;
 
@@ -262,7 +305,6 @@ impl SearchQueryInput {
         field_lookup: &impl AsFieldType<String>,
         parser: &mut QueryParser,
         searcher: &Searcher,
-        config: &SearchConfig,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::All => Ok(Box::new(AllQuery)),
@@ -275,29 +317,29 @@ impl SearchQueryInput {
                 for input in must {
                     subqueries.push((
                         Occur::Must,
-                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
                     ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                query.into_tantivy_query(field_lookup, parser, searcher)?,
                 boost,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher, config)?,
+                query.into_tantivy_query(field_lookup, parser, searcher)?,
                 score,
             ))),
             Self::DisjunctionMax {
@@ -306,7 +348,7 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher, config))
+                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher))
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -471,9 +513,7 @@ impl SearchQueryInput {
                 }
 
                 if let Some(key_value) = document_id {
-                    let (field_type, field) = field_lookup
-                        .as_field_type(&config.key_field)
-                        .expect("internal error, key field should be found here");
+                    let (field_type, field) = field_lookup.key_field();
                     let term = value_to_term(field, &key_value, &field_type, None, false)?;
                     let query: Box<dyn Query> =
                         Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
@@ -565,7 +605,7 @@ impl SearchQueryInput {
                     lenient,
                     conjunction_mode,
                 }
-                .into_tantivy_query(field_lookup, parser, searcher, config)
+                .into_tantivy_query(field_lookup, parser, searcher)
             }
             Self::Phrase {
                 field,

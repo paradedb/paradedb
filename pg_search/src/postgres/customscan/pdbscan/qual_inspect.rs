@@ -17,7 +17,6 @@
 
 use crate::nodecast;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchConfig;
 use pgrx::{node_to_string, pg_sys, FromDatum, JsonB, PgList};
 
 #[derive(Debug, Clone)]
@@ -33,73 +32,58 @@ pub enum Qual {
     Not(Box<Qual>),
 }
 
-impl From<Qual> for SearchConfig {
+impl From<Qual> for SearchQueryInput {
     fn from(value: Qual) -> Self {
         match value {
-            Qual::Ignore => SearchConfig {
-                query: SearchQueryInput::All,
-                ..Default::default()
-            },
-
+            Qual::Ignore => SearchQueryInput::All,
             Qual::OperatorExpression { val, .. } => unsafe {
-                let config_jsonb = JsonB::from_datum((*val).constvalue, (*val).constisnull)
+                let jsonb = JsonB::from_datum((*val).constvalue, (*val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null");
 
-                SearchConfig::from_jsonb(config_jsonb)
-                    .expect("rhs of @@@ operator must be a valid SearchConfig")
+                SearchQueryInput::from_json(&jsonb.0)
+                    .expect("rhs of @@@ operator must be a valid SearchQueryInput")
             },
 
             Qual::And(quals) => {
-                let mut first: SearchConfig = quals
-                    .first()
-                    .cloned()
-                    .expect("Qual::Or should have at least one item")
-                    .into();
-
                 let must = quals
                     .into_iter()
-                    .map(|qual| SearchConfig::from(qual).query)
+                    .map(SearchQueryInput::from)
                     .collect::<Vec<_>>();
 
-                if must.len() > 1 {
-                    first.query = SearchQueryInput::Boolean {
+                match must.len() {
+                    0 => panic!("Qual::And should have at least one item"),
+                    1 => must.into_iter().next().unwrap(),
+                    _ => SearchQueryInput::Boolean {
                         must,
                         should: Default::default(),
                         must_not: Default::default(),
-                    };
+                    },
                 }
-                first
             }
             Qual::Or(quals) => {
-                let mut first: SearchConfig = quals
-                    .first()
-                    .cloned()
-                    .expect("Qual::Or should have at least one item")
-                    .into();
-
                 let should = quals
                     .into_iter()
-                    .map(|qual| SearchConfig::from(qual).query)
+                    .map(SearchQueryInput::from)
                     .collect::<Vec<_>>();
 
-                if should.len() > 1 {
-                    first.query = SearchQueryInput::Boolean {
+                match should.len() {
+                    0 => panic!("Qual::Or should have at least one item"),
+                    1 => should.into_iter().next().unwrap(),
+                    _ => SearchQueryInput::Boolean {
                         must: Default::default(),
                         should,
                         must_not: Default::default(),
-                    };
+                    },
                 }
-                first
             }
             Qual::Not(qual) => {
-                let mut not: SearchConfig = (*qual).into();
+                let must_not = vec![SearchQueryInput::from(*qual)];
 
-                not.query = SearchQueryInput::Boolean {
+                SearchQueryInput::Boolean {
                     must: Default::default(),
                     should: Default::default(),
-                    must_not: vec![not.query],
-                };
-                not
+                    must_not,
+                }
             }
         }
     }

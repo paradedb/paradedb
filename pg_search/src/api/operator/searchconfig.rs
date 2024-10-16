@@ -18,13 +18,12 @@
 use crate::api::operator::{
     anyelement_jsonb_opoid, estimate_selectivity, find_var_relation, ReturnedNodePointer,
 };
-use crate::gucs::GlobalGucSettings;
 use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::schema::SearchConfig;
-use crate::{nodecast, GUCS, UNKNOWN_SELECTIVITY};
+use crate::{gucs, nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal, JsonB,
     PgList, PgOid, PgRelation,
@@ -103,12 +102,12 @@ fn search_config_support_request_cost(arg: Internal) -> Option<ReturnedNodePoint
         // ultimately we have to hash all the resulting ctids in memory.  For lack of a better
         // value, we say it costs as much as the `GUCS.per_tuple_cost()`.  This is an arbitrary
         // number that we've documented as needing to be big.
-        (*src).startup = GUCS.per_tuple_cost();
+        (*src).startup = gucs::per_tuple_cost();
 
         // similarly, use the same GUC here.  Postgres will then add this into its per-tuple
         // cost evaluations for whatever scan it's considering using for the `@@@` operator.
         // our IAM provides more intelligent costs for the IndexScan situation.
-        (*src).per_tuple = GUCS.per_tuple_cost();
+        (*src).per_tuple = gucs::per_tuple_cost();
 
         Some(ReturnedNodePointer(NonNull::new(src.cast())))
     }

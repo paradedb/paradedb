@@ -15,10 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs::GlobalGucSettings;
+use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
-use crate::GUCS;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 use rustc_hash::FxHashMap;
@@ -67,7 +66,7 @@ pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
     rte: *mut pg_sys::RangeTblEntry,
 ) {
     unsafe {
-        if !GUCS.enable_custom_scan() {
+        if !gucs::enable_custom_scan() {
             return;
         }
 

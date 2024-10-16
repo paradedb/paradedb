@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::SearchIndex;
 use crate::index::SearchIndexWriter;
+use crate::index::{SearchIndex, WriterResources};
 use crate::postgres::index::open_search_index;
 use crate::postgres::utils::row_to_search_document;
 use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgRelation, PgTupleDesc};
@@ -55,9 +55,9 @@ impl Drop for InsertState {
 }
 
 impl InsertState {
-    fn new(indexrel: &PgRelation) -> anyhow::Result<Self> {
+    fn new(indexrel: &PgRelation, writer_resources: WriterResources) -> anyhow::Result<Self> {
         let index = open_search_index(indexrel)?;
-        let writer = index.get_writer()?;
+        let writer = index.get_writer(writer_resources)?;
         Ok(Self {
             index,
             writer,
@@ -69,12 +69,13 @@ impl InsertState {
 pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
+    writer_resources: WriterResources,
 ) -> *mut InsertState {
     assert!(!index_info.is_null());
     let state = (*index_info).ii_AmCache;
     if state.is_null() {
         // we don't have any cached state yet, so create it now
-        let state = InsertState::new(&PgRelation::open((*index_relation).rd_id))
+        let state = InsertState::new(&PgRelation::open((*index_relation).rd_id), writer_resources)
             .expect("should be able to open new SearchIndex for writing");
 
         // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
@@ -130,7 +131,7 @@ unsafe fn aminsert_internal(
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
     let result = catch_unwind(|| {
-        let state = &*init_insert_state(index_relation, index_info);
+        let state = &*init_insert_state(index_relation, index_info, WriterResources::Statement);
         let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
         let search_index = &state.index;
         let writer = &state.writer;

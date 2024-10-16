@@ -31,12 +31,8 @@ pub mod telemetry;
 pub mod trace;
 
 use self::postgres::customscan;
-use gucs::PostgresGlobalGucSettings;
 use pgrx::*;
 use telemetry::setup_telemetry_background_worker;
-
-// A static variable is required to host grand unified configuration settings.
-pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
 
 // A hardcoded value when we can't figure out a good selectivity value
 const UNKNOWN_SELECTIVITY: f64 = 0.00001;
@@ -77,7 +73,7 @@ pub unsafe extern "C" fn _PG_init() {
     }
 
     postgres::options::init();
-    GUCS.init("pg_search");
+    gucs::init();
 
     setup_telemetry_background_worker(telemetry::ParadeExtension::PgSearch);
 

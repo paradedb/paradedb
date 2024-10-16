@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::*;
-
+use crate::index::WriterResources;
 use crate::postgres::index::open_search_index;
+use pgrx::*;
 
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
@@ -42,7 +42,7 @@ pub extern "C" fn amvacuumcleanup(
     let search_index =
         open_search_index(&index_relation).expect("should be able to open search index");
     let writer = search_index
-        .get_writer()
+        .get_writer(WriterResources::Vacuum)
         .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));
 
     // Garbage collect the index and clear the writer cache to free up locks.

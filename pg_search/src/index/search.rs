@@ -17,6 +17,7 @@
 
 use super::reader::SearchIndexReader;
 use super::IndexError;
+use crate::gucs;
 use crate::index::SearchIndexWriter;
 use crate::index::{
     BlockingDirectory, SearchDirectoryError, SearchFs, TantivyDirPath, WriterDirectory,
@@ -28,14 +29,12 @@ use crate::schema::{
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::num::NonZeroUsize;
 use tantivy::query::Query;
 use tantivy::{query::QueryParser, Executor, Index};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::trace;
-
-// Must be at least 15,000,000 or Tantivy will panic.
-pub const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -45,6 +44,33 @@ pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
         .get();
     Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
 });
+
+pub enum WriterResources {
+    CreateIndex,
+    Statement,
+    Vacuum,
+}
+pub type Parallelism = NonZeroUsize;
+pub type MemoryBudget = usize;
+
+impl WriterResources {
+    pub fn resources(&self) -> (Parallelism, MemoryBudget) {
+        match self {
+            WriterResources::CreateIndex => (
+                gucs::create_index_parallelism(),
+                gucs::create_index_memory_budget(),
+            ),
+            WriterResources::Statement => (
+                gucs::statement_parallelism(),
+                gucs::statement_memory_budget(),
+            ),
+            WriterResources::Vacuum => (
+                gucs::statement_parallelism(),
+                gucs::statement_memory_budget(),
+            ),
+        }
+    }
+}
 
 #[derive(Serialize)]
 pub struct SearchIndex {
@@ -77,8 +103,11 @@ impl SearchIndex {
     /// Retrieve an owned writer for a given index. This will block until this process
     /// can get an exclusive lock on the Tantivy writer. The return type needs to
     /// be entirely owned by the new process, with no references.
-    pub fn get_writer(&self) -> Result<SearchIndexWriter> {
-        let underlying_writer = self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
+    pub fn get_writer(&self, resources: WriterResources) -> Result<SearchIndexWriter> {
+        let (parallelism, memory_budget) = resources.resources();
+        let underlying_writer = self
+            .underlying_index
+            .writer_with_num_threads(parallelism.get(), memory_budget)?;
         Ok(SearchIndexWriter {
             underlying_writer: Some(underlying_writer),
         })

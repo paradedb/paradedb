@@ -34,7 +34,7 @@ use tracing::debug;
 /// Only primitive integers and booleans can be passed to workers, so we there's no
 /// way otherwise for a background worker to tell which extension it is working for.
 pub enum ParadeExtension {
-    PgSearch = 1
+    PgSearch = 1,
 }
 
 impl ParadeExtension {

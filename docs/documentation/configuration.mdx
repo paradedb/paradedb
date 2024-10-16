@@ -14,6 +14,76 @@ SET paradedb.enable_custom_scan = true;
 Custom scans should only be disabled for debugging purposes. They must be enabled for scoring, highlighting,
 and various predicate pushdowns to work.
 
+## Indexing Resource Usage
+
+ParadeDB offers a number of `postgresql.conf` settings, which can only be changed by a superuser, to control the number
+of concurrent indexing threads and the amount of memory each thread should use.
+
+These settings are split between `CREATE INDEX` and regular `INSERT/UPDATE/COPY` statements as it seems logical that
+more resources might be desired for `CREATE INDEX`, which typically only needs to happen once.
+
+### `paradedb.create_index_parallelism`
+
+This is the number of indexing threads to use during `CREATE INDEX`. The default is `8`. A value of zero will
+automatically detect "available parallelism" of the host computer.
+
+For best performance it is recommended to use one less than the total number of host computer cores.
+
+This GUC can only be changed by the superuser.
+
+### `paradedb.create_index_memory_budget`
+
+This is the amount of memory to dedicate, **per indexing thread** (see above), before the index segment needs to be
+written to disk.
+
+It defaults to whatever the Postgres `maintenance_work_mem` is, but can be changed to suit the host system's available
+memory. In terms of raw indexing performance, generally larger is better. Keep in mind that this
+
+The value follows Postgres' rules for GUCs that specify byte values. It is measured in megabytes. As such, an
+qualified value of `1024` is the same as `1GB`.
+
+This GUC can only be changed by the superuser.
+
+### `paradedb.statement_parallelism`
+
+This is the number of indexing threads to use during `INSERT/UPDATE/COPY` statements. The default is `8`. A value of
+zero will automatically detect "available parallelism" of the host computer.
+
+If your typical update patterns are single-record atomic INSERTs or UPDATEs, then a value of `1` is ideal. If
+your update patterns typically update many thousands of rows, a larger value might be preferred for greater indexing
+concurrency.
+
+This GUC can only be changed by the superuser.
+
+### `paradedb.statement_memory_budget`
+
+This is the amount of memory to dedicate, **per indexing thread** (see above), before the index segment needs to be
+written to disk.
+
+It defaults to whatever the Postgres `maintenance_work_mem` is, but can be changed to suit the host system's available
+memory. In terms of raw indexing performance, generally larger is better. Keep in mind that this
+
+The value follows Postgres' rules for GUCs that specify byte values. It is measured in megabytes. As such, an
+qualified value of `1024` is the same as `1GB`.
+
+If your typical update patterns are single-record atomic INSERTs or UPDATEs, then a value of `15MB` is ideal. If
+your update patterns typically update many thousands of rows, a larger value might be preferred for greater indexing
+concurrency.
+
+Generally speaking, for statement level indexing, the parallelism value dictates the number of new Tantivy index
+segments that will be created, so there's a trade-off between finishing the INSERT/UPDATE statement quickly and the
+longer-term search overhead of having many additional index segments until (auto)VACUUM runs.
+
+This GUC can only be changed by the superuser.
+
+### `paradedb.log_create_index_progress`
+
+A boolean setting, defaulting to `false`, which will create Postgres `LOG:` entries every 100,000 rows which include
+the indexing rate (rows per second).
+
+This can be useful to monitor the progress of a long-running `CREATE INDEX` statement. The GUC can be changed by
+any user.
+
 ## Telemetry
 
 By default, ParadeDB collects anonymous telemetry to better understand how many people are

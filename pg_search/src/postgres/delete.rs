@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::WriterResources;
 use crate::postgres::index::open_search_index;
 use pgrx::{pg_sys::ItemPointerData, *};
 
@@ -35,7 +36,7 @@ pub extern "C" fn ambulkdelete(
         .get_reader()
         .unwrap_or_else(|err| panic!("error loading index reader in bulkdelete: {err}"));
     let mut writer = search_index
-        .get_writer()
+        .get_writer(WriterResources::Vacuum)
         .unwrap_or_else(|err| panic!("error loading index writer in bulkdelete: {err}"));
 
     if stats.is_null() {

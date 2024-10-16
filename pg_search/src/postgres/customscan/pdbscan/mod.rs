@@ -24,7 +24,6 @@ mod scan_state;
 
 use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
 use crate::api::{AsCStr, AsInt, Cardinality};
-use crate::gucs::GlobalGucSettings;
 use crate::index::score::SearchIndexScore;
 use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -54,7 +53,7 @@ use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::schema::SearchConfig;
-use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
+use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgRelation};
 use scan_state::SortDirection;
@@ -73,10 +72,6 @@ impl CustomScan for PdbScan {
     type PrivateData = PrivateData;
 
     fn callback(mut builder: CustomPathBuilder<Self::PrivateData>) -> Option<pg_sys::CustomPath> {
-        if !GUCS.enable_custom_scan() {
-            return None;
-        }
-
         unsafe {
             if builder.restrict_info().is_empty() {
                 return None;

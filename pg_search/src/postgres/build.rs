@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
+use crate::index::{SearchIndex, WriterResources};
 use crate::postgres::index::relfilenode_from_pg_relation;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -25,6 +25,7 @@ use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, Searc
 use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::CStr;
+use std::time::Instant;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
@@ -34,6 +35,7 @@ struct BuildState {
     memctx: PgMemoryContexts,
     index_info: *mut pg_sys::IndexInfo,
     tupdesc: PgTupleDesc<'static>,
+    start: Instant,
 }
 
 impl BuildState {
@@ -43,6 +45,7 @@ impl BuildState {
             memctx: PgMemoryContexts::new("pg_search_index_build"),
             index_info,
             tupdesc: unsafe { PgTupleDesc::from_pg_copy(indexrel.rd_att) },
+            start: Instant::now(),
         }
     }
 }
@@ -290,7 +293,11 @@ unsafe fn build_callback_internal(
         .expect("BuildState pointer should not be null");
 
     let tupdesc = &build_state.tupdesc;
-    let insert_state = init_insert_state(indexrel, build_state.index_info);
+    let insert_state = init_insert_state(
+        indexrel,
+        build_state.index_info,
+        WriterResources::CreateIndex,
+    );
     let search_index = &(*insert_state).index;
     let writer = &(*insert_state).writer;
     let schema = &(*insert_state).index.schema;
@@ -326,6 +333,15 @@ unsafe fn build_callback_internal(
         // important to count the number of items we've indexed for proper statistics updates,
         // especially after CREATE INDEX has finished
         build_state.count += 1;
+
+        if crate::gucs::log_create_index_progress() && build_state.count % 100_000 == 0 {
+            let secs = build_state.start.elapsed().as_secs_f64();
+            let rate = build_state.count as f64 / secs;
+            pgrx::log!(
+                "processed {} rows in {secs:.2} seconds ({rate:.2} per second)",
+                build_state.count,
+            );
+        }
     }
 }
 

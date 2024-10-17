@@ -27,7 +27,7 @@ LIMIT 5;
 ```
 
 <Note>
-  Soring by a field with a limit other than `paradedb.score()`, while returning `paradedb.score()` in the query's target
+  Sorting by a field with a limit other than `paradedb.score()`, while returning `paradedb.score()` in the query's target
   list defeat the "top N" optimization.  The results will still be sorted by the specified field, but not as efficiently
 </Note>
 

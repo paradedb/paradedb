@@ -95,7 +95,7 @@ jobs:
           cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       - name: Save criterion output, if dev
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && steps.env.outputs.environment == 'dev'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.ref == 'refs/heads/dev'
         uses: actions/cache/save@v4
         with:
           path: target/criterion

@@ -20,6 +20,18 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
+use std::mem::size_of;
+use std::ptr::null_mut;
+
+const P_NEW: u32 = pg_sys::InvalidBlockNumber;
+const RBM_NORMAL: u32 = pg_sys::ReadBufferMode::RBM_NORMAL;
+const METADATA_BLOCKNO: pg_sys::BlockNumber = 0;
+const MANAGED_BLOCKNO: pg_sys::BlockNumber = 1;
+
+pub(crate) struct BM25SpecialData {
+    next_blockno: pg_sys::BlockNumber,
+    len: u32,
+}
 
 /// Finds and returns the first `USING bm25` index on the specified relation, or [`None`] if there
 /// aren't any
@@ -133,4 +145,108 @@ pub unsafe fn row_to_search_document(
     document.insert(schema.ctid_field().id, ctid_index_value.into());
 
     Ok(document)
+}
+
+pub unsafe fn bm25_create_meta(index: pg_sys::Relation, forkno: i32) {
+    bm25_init_page(index, P_NEW, forkno);
+}
+
+pub unsafe fn bm25_create_managed(index: pg_sys::Relation, forkno: i32) {
+    bm25_init_page(index, P_NEW, forkno);
+}
+
+pub unsafe fn bm25_write_meta(index_oid: u32, metadata: &[u8]) {
+    write_to_page(index_oid, METADATA_BLOCKNO, metadata);
+}
+
+pub unsafe fn bm25_write_managed(index_oid: u32, managed: &[u8]) {
+    write_to_page(index_oid, MANAGED_BLOCKNO, managed);
+}
+
+pub unsafe fn read_meta(index_oid: u32) -> Vec<u8> {
+    read_page_contents(index_oid, METADATA_BLOCKNO)
+}
+
+pub unsafe fn read_managed(index_oid: u32) -> Vec<u8> {
+    read_page_contents(index_oid, MANAGED_BLOCKNO)
+}
+
+pub unsafe fn read_page_contents(index_oid: u32, blockno: pg_sys::BlockNumber) -> Vec<u8> {
+    let index = pg_sys::relation_open(index_oid.into(), pg_sys::AccessShareLock as i32);
+    let buffer = pg_sys::ReadBufferExtended(
+        index,
+        pg_sys::ForkNumber::MAIN_FORKNUM,
+        blockno,
+        RBM_NORMAL,
+        null_mut(),
+    );
+    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+
+    let page = pg_sys::BufferGetPage(buffer);
+    let item = pg_sys::PageGetItem(page, pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber));
+    let special = bm25_get_special(page);
+
+    pgrx::info!("special.len: {}", (*special).len);
+
+    pg_sys::UnlockReleaseBuffer(buffer);
+    pg_sys::RelationClose(index);
+
+    Vec::from_raw_parts(
+        item as *mut u8,
+        (*special).len as usize,
+        (*special).len as usize,
+    )
+}
+
+pub unsafe fn write_to_page(index_oid: u32, blockno: pg_sys::BlockNumber, data: &[u8]) {
+    let index = pg_sys::relation_open(index_oid.into(), pg_sys::AccessShareLock as i32);
+    let buffer = pg_sys::ReadBufferExtended(
+        index,
+        pg_sys::ForkNumber::MAIN_FORKNUM,
+        blockno,
+        RBM_NORMAL,
+        null_mut(),
+    );
+    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+
+    let page = pg_sys::BufferGetPage(buffer);
+    let contents = pg_sys::PageGetContents(page);
+
+    let special = bm25_get_special(page);
+    (*special).len = data.len() as u32;
+
+    pgrx::info!("special.len: {}", data.len());
+
+    pg_sys::PageAddItemExtended(
+        page,
+        data.as_ptr() as pg_sys::Item,
+        data.len(),
+        pg_sys::FirstOffsetNumber,
+        pg_sys::PAI_OVERWRITE as i32,
+    );
+    pg_sys::MarkBufferDirty(buffer);
+    pg_sys::UnlockReleaseBuffer(buffer);
+    pg_sys::RelationClose(index);
+}
+
+pub unsafe fn bm25_init_page(index: pg_sys::Relation, blockno: pg_sys::BlockNumber, forkno: i32) {
+    let buffer = pg_sys::ReadBufferExtended(index, forkno, blockno, RBM_NORMAL, null_mut());
+    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+
+    let page = pg_sys::BufferGetPage(buffer);
+    pg_sys::PageInit(
+        page,
+        pg_sys::BufferGetPageSize(buffer),
+        size_of::<BM25SpecialData>(),
+    );
+    let special = bm25_get_special(page);
+    (*special).next_blockno = pg_sys::InvalidBlockNumber;
+    (*special).len = 0;
+
+    pg_sys::MarkBufferDirty(buffer);
+    pg_sys::UnlockReleaseBuffer(buffer);
+}
+
+pub unsafe fn bm25_get_special(page: pg_sys::Page) -> *mut BM25SpecialData {
+    pg_sys::PageGetSpecialPointer(page) as *mut BM25SpecialData
 }

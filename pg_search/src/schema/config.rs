@@ -18,7 +18,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::query::SearchQueryInput;
-use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 pub struct SearchConfig {
@@ -48,15 +47,6 @@ impl SearchConfig {
             Some(direction) => direction.eq_ignore_ascii_case("asc"),
             None => true,
         }
-    }
-}
-
-impl FromStr for SearchConfig {
-    type Err = serde_path_to_error::Error<json5::Error>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut deserializer = json5::Deserializer::from_str(s).expect("input is not valid json");
-        serde_path_to_error::deserialize(&mut deserializer)
     }
 }
 

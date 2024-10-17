@@ -68,6 +68,7 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/cache/restore@v4
         with:
+          path: target/criterion
           key: "pg_search-criterion-benchmark"
 
       - name: Install pgrx & pg_search

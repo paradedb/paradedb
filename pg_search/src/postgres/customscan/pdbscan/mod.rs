@@ -53,7 +53,7 @@ use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
-use crate::{DEFAULT_STARTUP_COST, GUCS, UNKNOWN_SELECTIVITY};
+use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgRelation};
 use scan_state::SortDirection;

@@ -236,6 +236,7 @@ impl SearchIndexWriter {
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
         let tantivy_dir = BlockingDirectory(directory.index_oid);
+        pgrx::info!("create index");
         let mut underlying_index =
             Index::create(tantivy_dir, schema.schema.clone(), IndexSettings::default())?;
 

@@ -215,6 +215,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);
 
+        pgrx::info!("deserialize");
         // Construct the SearchIndex.
         Ok(SearchIndex {
             underlying_index,

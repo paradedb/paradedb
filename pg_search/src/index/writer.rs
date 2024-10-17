@@ -62,7 +62,7 @@ impl Directory for BlockingDirectory {
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        todo!("open_write");
+        todo!("open_write {:?}", path);
         // self.0.open_write(path)
     }
 
@@ -229,12 +229,9 @@ impl SearchIndexWriter {
             schema,
         };
 
-        pgrx::info!("saving");
-
         // Serialize SearchIndex to disk so it can be initialized by other connections.
         new_self.directory.save_index(&new_self)?;
 
-        pgrx::info!("index saved");
         // Mark in our global store that this index is pending create, in case it
         // needs to be rolled back on abort.
         Self::mark_pending_create(&directory);

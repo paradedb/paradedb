@@ -25,10 +25,19 @@ use std::ptr::null_mut;
 
 const P_NEW: u32 = pg_sys::InvalidBlockNumber;
 const RBM_NORMAL: u32 = pg_sys::ReadBufferMode::RBM_NORMAL;
-const MANAGED_BLOCKNO: pg_sys::BlockNumber = 0;
-const METADATA_BLOCKNO: pg_sys::BlockNumber = 1;
+// The first block of the index is the metadata block, which is essentially a "map" for
+// how the rest of the index is laid out in block storage.
+// It is our responsibility to ensure that the metadata block is the first block by creating it immediately
+// when the index is built.
+const METADATA_BLOCKNO: pg_sys::BlockNumber = 0;
 
-pub(crate) struct BM25SpecialData {
+pub(crate) struct MetaPageSpecialData {
+    next_blockno: pg_sys::BlockNumber,
+    tantivy_meta_blockno: pg_sys::BlockNumber,
+    tantivy_managed_blockno: pg_sys::BlockNumber,
+}
+
+pub(crate) struct TantivyMetaSpecialData {
     next_blockno: pg_sys::BlockNumber,
     len: u32,
 }
@@ -148,27 +157,61 @@ pub unsafe fn row_to_search_document(
 }
 
 pub unsafe fn bm25_create_meta(index: pg_sys::Relation, forkno: i32) {
-    bm25_init_page(index, P_NEW, forkno);
-}
+    let bm25_meta_blockno = bm25_init_page(index, P_NEW, forkno, size_of::<MetaPageSpecialData>());
+    assert!(
+        bm25_meta_blockno == METADATA_BLOCKNO,
+        "Expected metadata block to be 0 but got {}",
+        bm25_meta_blockno
+    );
 
-pub unsafe fn bm25_create_managed(index: pg_sys::Relation, forkno: i32) {
-    bm25_init_page(index, P_NEW, forkno);
+    let tantivy_meta_blockno =
+        bm25_init_page(index, P_NEW, forkno, size_of::<TantivyMetaSpecialData>());
+    let tantivy_managed_blockno =
+        bm25_init_page(index, P_NEW, forkno, size_of::<TantivyMetaSpecialData>());
+
+    let bm25_meta_buffer = read_buffer(
+        index,
+        bm25_meta_blockno,
+        forkno,
+        pg_sys::BUFFER_LOCK_EXCLUSIVE,
+    );
+    let tantivy_meta_buffer = read_buffer(
+        index,
+        tantivy_meta_blockno,
+        forkno,
+        pg_sys::BUFFER_LOCK_SHARE,
+    );
+    let tantivy_managed_buffer = read_buffer(
+        index,
+        tantivy_managed_blockno,
+        forkno,
+        pg_sys::BUFFER_LOCK_SHARE,
+    );
+
+    let bm25_meta_special = bm25_get_special(pg_sys::BufferGetPage(bm25_meta_buffer));
+    (*bm25_meta_special).tantivy_meta_blockno = tantivy_meta_blockno;
+    (*bm25_meta_special).tantivy_managed_blockno = tantivy_managed_blockno;
+
+    pg_sys::MarkBufferDirty(bm25_meta_buffer);
+    pg_sys::UnlockReleaseBuffer(bm25_meta_buffer);
+    pg_sys::UnlockReleaseBuffer(tantivy_meta_buffer);
+    pg_sys::UnlockReleaseBuffer(tantivy_managed_buffer);
 }
 
 pub unsafe fn bm25_write_meta(index_oid: u32, metadata: &[u8]) {
-    write_to_page(index_oid, METADATA_BLOCKNO, metadata);
+    write_to_page(index_oid, tantivy_meta_blockno(index_oid), metadata);
 }
 
 pub unsafe fn bm25_write_managed(index_oid: u32, managed: &[u8]) {
-    write_to_page(index_oid, MANAGED_BLOCKNO, managed);
+    write_to_page(index_oid, tantivy_managed_blockno(index_oid), managed);
 }
 
 pub unsafe fn read_meta(index_oid: u32) -> Vec<u8> {
-    read_page_contents(index_oid, METADATA_BLOCKNO)
+    read_page_contents(index_oid, tantivy_meta_blockno(index_oid))
 }
 
 pub unsafe fn read_managed(index_oid: u32) -> Vec<u8> {
-    read_page_contents(index_oid, MANAGED_BLOCKNO)
+    read_page_contents(index_oid, tantivy_managed_blockno(index_oid))
 }
 
 pub unsafe fn read_page_contents(index_oid: u32, blockno: pg_sys::BlockNumber) -> Vec<u8> {
@@ -184,7 +227,7 @@ pub unsafe fn read_page_contents(index_oid: u32, blockno: pg_sys::BlockNumber) -
 
     let page = pg_sys::BufferGetPage(buffer);
     let item = pg_sys::PageGetItem(page, pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber));
-    let special = bm25_get_special(page);
+    let special = tantivy_get_special(page);
 
     pg_sys::UnlockReleaseBuffer(buffer);
     pg_sys::RelationClose(index);
@@ -210,7 +253,7 @@ pub unsafe fn write_to_page(index_oid: u32, blockno: pg_sys::BlockNumber, data: 
     let page = pg_sys::BufferGetPage(buffer);
     let contents = pg_sys::PageGetContents(page);
 
-    let special = bm25_get_special(page);
+    let special = tantivy_get_special(page);
     (*special).len = data.len() as u32;
 
     pg_sys::PageAddItemExtended(
@@ -225,24 +268,72 @@ pub unsafe fn write_to_page(index_oid: u32, blockno: pg_sys::BlockNumber, data: 
     pg_sys::RelationClose(index);
 }
 
-pub unsafe fn bm25_init_page(index: pg_sys::Relation, blockno: pg_sys::BlockNumber, forkno: i32) {
-    let buffer = pg_sys::ReadBufferExtended(index, forkno, blockno, RBM_NORMAL, null_mut());
-    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
-
+pub unsafe fn bm25_init_page(
+    index: pg_sys::Relation,
+    blockno: pg_sys::BlockNumber,
+    forkno: i32,
+    special_size: usize,
+) -> pg_sys::BlockNumber {
+    let buffer = read_buffer(index, blockno, forkno, pg_sys::BUFFER_LOCK_EXCLUSIVE as u32);
+    let actual_blockno = pg_sys::BufferGetBlockNumber(buffer);
     let page = pg_sys::BufferGetPage(buffer);
-    pg_sys::PageInit(
-        page,
-        pg_sys::BufferGetPageSize(buffer),
-        size_of::<BM25SpecialData>(),
-    );
-    let special = bm25_get_special(page);
-    (*special).next_blockno = pg_sys::InvalidBlockNumber;
-    (*special).len = 0;
+    pg_sys::PageInit(page, pg_sys::BufferGetPageSize(buffer), special_size);
 
     pg_sys::MarkBufferDirty(buffer);
     pg_sys::UnlockReleaseBuffer(buffer);
+
+    actual_blockno
 }
 
-pub unsafe fn bm25_get_special(page: pg_sys::Page) -> *mut BM25SpecialData {
-    pg_sys::PageGetSpecialPointer(page) as *mut BM25SpecialData
+pub unsafe fn read_buffer(
+    index: pg_sys::Relation,
+    blockno: pg_sys::BlockNumber,
+    forkno: i32,
+    lock: u32,
+) -> pg_sys::Buffer {
+    let buffer = pg_sys::ReadBufferExtended(index, forkno, blockno, RBM_NORMAL, null_mut());
+    pg_sys::LockBuffer(buffer, lock as i32);
+    buffer
+}
+
+pub unsafe fn bm25_get_special(page: pg_sys::Page) -> *mut MetaPageSpecialData {
+    pg_sys::PageGetSpecialPointer(page) as *mut MetaPageSpecialData
+}
+
+pub unsafe fn tantivy_get_special(page: pg_sys::Page) -> *mut TantivyMetaSpecialData {
+    pg_sys::PageGetSpecialPointer(page) as *mut TantivyMetaSpecialData
+}
+
+pub unsafe fn tantivy_meta_blockno(index_oid: u32) -> pg_sys::BlockNumber {
+    let index = pg_sys::relation_open(index_oid.into(), pg_sys::AccessShareLock as i32);
+    let buffer = read_buffer(
+        index,
+        METADATA_BLOCKNO,
+        pg_sys::ForkNumber::MAIN_FORKNUM,
+        pg_sys::BUFFER_LOCK_SHARE,
+    );
+    let special = bm25_get_special(pg_sys::BufferGetPage(buffer));
+    let blockno = (*special).tantivy_meta_blockno;
+
+    pg_sys::UnlockReleaseBuffer(buffer);
+    pg_sys::RelationClose(index);
+
+    blockno
+}
+
+pub unsafe fn tantivy_managed_blockno(index_oid: u32) -> pg_sys::BlockNumber {
+    let index = pg_sys::relation_open(index_oid.into(), pg_sys::AccessShareLock as i32);
+    let buffer = read_buffer(
+        index,
+        METADATA_BLOCKNO,
+        pg_sys::ForkNumber::MAIN_FORKNUM,
+        pg_sys::BUFFER_LOCK_SHARE,
+    );
+    let special = bm25_get_special(pg_sys::BufferGetPage(buffer));
+    let blockno = (*special).tantivy_managed_blockno;
+
+    pg_sys::UnlockReleaseBuffer(buffer);
+    pg_sys::RelationClose(index);
+
+    blockno
 }

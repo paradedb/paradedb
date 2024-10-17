@@ -31,7 +31,7 @@ pub fn score_funcoid() -> pg_sys::Oid {
             pg_sys::regprocedurein,
             &[c"paradedb.score(anyelement)".into_datum()],
         )
-        .expect("the `paradedb.score(anyelement) type should exist")
+        .expect("the `paradedb.score(anyelement)` function should exist")
     }
 }
 

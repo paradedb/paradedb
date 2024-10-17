@@ -14,6 +14,33 @@ WHERE description @@@ 'shoes'
 LIMIT 5;
 ```
 
+## Top N with `ORDER BY ... LIMIT`
+
+Sorting a query by score and a limit is known as a "top N" query, and will be efficiently executed by ParadeDB:
+
+```sql
+SELECT id, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY paradedb.score(id)
+LIMIT 5;
+```
+
+<Note>
+Soring by a field with a limit other than score, while returning the score in the query's target list, will produce
+`NULL` score values if that field is defined in the index as `fast => true`.
+
+In this case, using the SQL `COALESCE` function to provide a constant score is recommended.
+
+```sql
+SELECT id, COALESCE(paradedb.score(id), 42.0)
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY id
+LIMIT 5;
+```
+</Note>
+
 ## Joined Scores
 
 The following query demonstrates how to compute a "combined BM25 score" over a joined search. It joins `mock_items` with `orders`,

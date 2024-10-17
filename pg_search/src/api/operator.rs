@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod searchconfig;
 mod searchqueryinput;
 mod text;
 
@@ -56,16 +55,6 @@ unsafe impl SqlTranslatable for ReturnedNodePointer {
     }
 }
 
-fn anyelement_jsonb_procoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"paradedb.search_with_search_config(anyelement, jsonb)".into_datum()],
-        )
-        .expect("the `paradedb.search_with_search_config(anyelement, jsonb) function should exist")
-    }
-}
-
 fn anyelement_query_input_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -95,23 +84,13 @@ fn anyelement_text_opoid() -> pg_sys::Oid {
     }
 }
 
-fn anyelement_query_input_opoid() -> pg_sys::Oid {
+pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regoperatorin,
             &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
         )
         .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist")
-    }
-}
-
-pub fn anyelement_jsonb_opoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regoperatorin,
-            &[c"@@@(anyelement, jsonb)".into_datum()],
-        )
-        .expect("the `@@@(anyelement, jsonb)` operator should exist")
     }
 }
 
@@ -211,27 +190,29 @@ unsafe fn make_search_query_input_opexpr_node(
     let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
 
     if let Some(query) = query {
-        // get the SearchQueryInput serialized into a JSONB Datum
-        let query_json =
-            serde_json::to_value(&query).expect("SearchConfig should serialize to json");
-        let jsonb_datum = JsonB(query_json).into_datum().unwrap();
+        // In case a sequential scan gets triggered, we need a way to pass the index oid
+        // to the scan function. It otherwise will not know which index to use.
+        let wrapped_query = SearchQueryInput::WithIndex {
+            oid: indexrel.oid(),
+            query: Box::new(query),
+        };
 
-        // from which we'll create a new pg_sys::Const node
-        let jsonb_const = pg_sys::makeConst(
-            pg_sys::JSONBOID,
+        // create a new pg_sys::Const node
+        let search_query_input_const = pg_sys::makeConst(
+            pgrx::pg_sys::Oid::from(16735), // SearchQueryInput::type_oid(),
             -1,
             pg_sys::DEFAULT_COLLATION_OID,
             -1,
-            jsonb_datum,
+            wrapped_query.into_datum().unwrap(),
             false,
             false,
         );
 
         // and assign it to the original argument list
-        input_args.replace_ptr(1, jsonb_const.cast());
+        input_args.replace_ptr(1, search_query_input_const.cast());
 
-        newopexpr.opno = anyelement_jsonb_opoid();
-        newopexpr.opfuncid = anyelement_jsonb_procoid();
+        newopexpr.opno = anyelement_query_input_opoid();
+        newopexpr.opfuncid = anyelement_query_input_procoid();
     } else {
         newopexpr.opno = opoid;
         newopexpr.opfuncid = procoid;
@@ -389,10 +370,6 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
 "#,
     name = "bm25_ops_anyelement_operator",
     requires = [
-        // for using a SearchConfig on the rhs
-        searchconfig::search_with_search_config,
-        searchconfig::search_config_restrict,
-        searchconfig::search_config_support,
         // for using plain text on the rhs
         text::search_with_text,
         text::text_restrict,

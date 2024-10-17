@@ -24,8 +24,8 @@ use crate::index::{
 };
 use crate::query::SearchQueryInput;
 use crate::schema::{
-    SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
-    SearchIndexSchemaError,
+    SearchDocument, SearchField, SearchFieldConfig, SearchFieldName, SearchFieldType,
+    SearchIndexSchema, SearchIndexSchemaError,
 };
 use anyhow::Result;
 use once_cell::sync::Lazy;
@@ -139,8 +139,12 @@ impl SearchIndex {
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 
+    pub fn key_field(&self) -> SearchField {
+        self.schema.key_field()
+    }
+
     pub fn key_field_name(&self) -> String {
-        self.schema.key_field().name.to_string()
+        self.key_field().name.to_string()
     }
 
     pub fn from_disk(directory: &WriterDirectory) -> Result<Self, SearchIndexError> {

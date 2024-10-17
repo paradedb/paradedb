@@ -25,7 +25,7 @@ use crate::{nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 
 /// This is the function behind the `@@@(anyelement, text)` operator. Since we transform those to
-/// use `@@@(anyelement, jsonb`), this function won't be called in normal circumstances, but it
+/// use `@@@(anyelement, searchqueryinput`), this function won't be called in normal circumstances, but it
 /// could be called if the rhs of the @@@ is some kind of volatile value.
 ///
 /// And in that case we just have to give up.

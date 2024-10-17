@@ -86,13 +86,21 @@ jobs:
         working-directory: cargo-paradedb/
         run: cargo run install
 
-      - name: Run pg_search Benchmarks
+      - name: Start Postgres
         working-directory: pg_search/
-        run: |
-          cargo pgrx start pg${{ matrix.pg_version }}
-          cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+        run: cargo pgrx start pg${{ matrix.pg_version }}
+
+      - name: Generate benchmark data
+        working-directory: pg_search/
+        run: cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+
+      - name: Index benchmark data
+        working-directory: pg_search/
+        run: cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+
+      - name: Run benchmarks
+        working-directory: pg_search/
+        run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       - name: Save criterion output, if dev
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.ref == 'refs/heads/dev'

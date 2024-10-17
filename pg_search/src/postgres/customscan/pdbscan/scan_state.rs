@@ -23,7 +23,6 @@ use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchConfig;
 use pgrx::{name_data_to_str, pg_sys};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -98,7 +97,6 @@ pub struct PdbScanState {
 
     pub query: Option<Box<dyn Query>>,
 
-    pub search_config: SearchConfig,
     pub search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 

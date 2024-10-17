@@ -496,10 +496,6 @@ impl CustomScan for PdbScan {
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         let need_scores = state.custom_state().need_scores();
         let need_snippets = state.custom_state().need_snippets();
-        let mut search_config = state.custom_state().search_config.clone();
-
-        search_config.stable_sort = Some(false);
-        search_config.need_scores = need_scores;
 
         // Open the index and query it
         let indexrel = state
@@ -514,7 +510,7 @@ impl CustomScan for PdbScan {
             .get_reader()
             .expect("search index reader should have been constructed correctly");
 
-        let search_query_input = &state.custom_state().search_query_input;
+        let search_query_input = &state.custom_state().search_query_input.clone();
 
         state.custom_state_mut().query =
             Some(search_index.query(&search_query_input, &search_reader));
@@ -543,8 +539,9 @@ impl CustomScan for PdbScan {
         } else {
             let results = search_reader.search_minimal(
                 false,
+                search_query_input.contains_more_like_this(),
+                search_index.key_field_name(),
                 SearchIndex::executor(),
-                &search_config,
                 state.custom_state().query.as_ref().unwrap(),
             );
             state.custom_state_mut().scan_func = Some(normal_scan_exec);

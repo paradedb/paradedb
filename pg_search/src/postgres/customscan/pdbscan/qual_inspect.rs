@@ -17,7 +17,7 @@
 
 use crate::nodecast;
 use crate::query::SearchQueryInput;
-use pgrx::{node_to_string, pg_sys, FromDatum, JsonB, PgList};
+use pgrx::{node_to_string, pg_sys, FromDatum, PgList};
 
 #[derive(Debug, Clone)]
 pub enum Qual {
@@ -37,11 +37,8 @@ impl From<Qual> for SearchQueryInput {
         match value {
             Qual::Ignore => SearchQueryInput::All,
             Qual::OperatorExpression { val, .. } => unsafe {
-                let jsonb = JsonB::from_datum((*val).constvalue, (*val).constisnull)
-                    .expect("rhs of @@@ operator Qual must not be null");
-
-                SearchQueryInput::from_json(&jsonb.0)
-                    .expect("rhs of @@@ operator must be a valid SearchQueryInput")
+                SearchQueryInput::from_datum((*val).constvalue, (*val).constisnull)
+                    .expect("rhs of @@@ operator Qual must not be null")
             },
 
             Qual::And(quals) => {

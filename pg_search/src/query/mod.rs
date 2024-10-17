@@ -19,9 +19,9 @@ mod range;
 
 use crate::query::range::{Comparison, RangeField};
 use crate::schema::IndexRecordOption;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use core::panic;
-use pgrx::PostgresType;
+use pgrx::{pg_sys, PostgresType};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
 use tantivy::{
@@ -170,27 +170,13 @@ pub enum SearchQueryInput {
     TermSet {
         terms: Vec<(String, tantivy::schema::OwnedValue, Option<String>, bool)>,
     },
+    WithIndex {
+        oid: pg_sys::Oid,
+        query: Box<SearchQueryInput>,
+    },
 }
 
 impl SearchQueryInput {
-    pub fn from_json(json_value: &serde_json::Value) -> Result<Self> {
-        serde_path_to_error::deserialize(json_value).map_err(|err| {
-            anyhow!(
-                r#"error parsing search query input json at "{}": {}"#,
-                err.path(),
-                match err.inner().to_string() {
-                    msg if msg.contains("expected unit") => {
-                        format!(
-                            r#"invalid type: map, pass null as value for "{}""#,
-                            err.path()
-                        )
-                    }
-                    msg => msg,
-                }
-            )
-        })
-    }
-
     pub fn contains_more_like_this(&self) -> bool {
         match self {
             SearchQueryInput::Boolean {
@@ -207,6 +193,7 @@ impl SearchQueryInput {
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
                 disjuncts.iter().any(Self::contains_more_like_this)
             }
+            SearchQueryInput::WithIndex { query, .. } => Self::contains_more_like_this(query),
             SearchQueryInput::MoreLikeThis { .. } => true,
             _ => false,
         }
@@ -1320,6 +1307,9 @@ impl SearchQueryInput {
                 }
 
                 Ok(Box::new(TermSetQuery::new(terms)))
+            }
+            Self::WithIndex { query, .. } => {
+                query.into_tantivy_query(field_lookup, parser, searcher)
             }
         }
     }

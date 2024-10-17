@@ -14,15 +14,26 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-
-use crate::api::operator::{
-    anyelement_query_input_opoid, anyelement_query_input_procoid, estimate_selectivity,
-    find_var_relation, make_search_query_input_opexpr_node, ReturnedNodePointer,
-};
+use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
+use crate::gucs::GlobalGucSettings;
+use crate::index::SearchIndex;
+use crate::postgres::index::open_search_index;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
-use crate::{nodecast, UNKNOWN_SELECTIVITY};
-use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
+use crate::{nodecast, GUCS, UNKNOWN_SELECTIVITY};
+use pgrx::pg_sys::Datum;
+use pgrx::{
+    check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
+    PgList, PgOid, PgRelation,
+};
+use rustc_hash::FxHashSet;
+use std::ptr::NonNull;
+
+use super::{
+    anyelement_query_input_opoid, anyelement_query_input_procoid,
+    make_search_query_input_opexpr_node,
+};
 
 /// This is the function behind the `@@@(anyelement, paradedb.searchqueryinput)` operator. Since we
 /// transform those to use `@@@(anyelement, jsonb`), this function won't be called in normal
@@ -31,30 +42,91 @@ use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 /// And in that case we just have to give up.
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
-    _element: AnyElement,
+    element: AnyElement,
     query: SearchQueryInput,
-    _fcinfo: pg_sys::FunctionCallInfo,
+    fcinfo: pg_sys::FunctionCallInfo,
 ) -> bool {
-    panic!("query is incompatible with pg_search's `@@@(key_field, paradedb.searchqueryinput)` operator: `{query:?}`")
+    let default_hash_set = || {
+        let index_oid = {
+            // We don't have access to the index oid here, so we don't know what index to use.
+            // That means we're going to need to rely on the query being correctly wrapped
+            // with the WithIndex when it is rewritten with our custom operator.
+            match query {
+                SearchQueryInput::WithIndex { oid, .. } => oid,
+                _ => panic!("the SeachQueryInput must be wrapped in a WithIndex variant"),
+            }
+        };
+        let search_index = open_search_index(unsafe {
+            &PgRelation::with_lock(
+                pg_sys::Oid::from(index_oid),
+                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+            )
+        })
+        .expect("should be able to open search index");
+
+        let scan_state = search_index.get_reader().unwrap();
+        let top_docs = scan_state.search_minimal(
+            true,
+            query.contains_more_like_this(),
+            search_index.key_field_name(),
+            SearchIndex::executor(),
+            &search_index.query(&query, &scan_state),
+        );
+        let mut hs = FxHashSet::default();
+        for (scored, _) in top_docs {
+            check_for_interrupts!();
+            hs.insert(scored.key.expect("key should have been retrieved"));
+        }
+
+        (search_index.key_field(), hs)
+    };
+
+    let cached = unsafe { pg_func_extra(fcinfo, default_hash_set) };
+    let key_field = &cached.0;
+    let hash_set = &cached.1;
+
+    let key_field_value = match unsafe {
+        TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
+    } {
+        Err(err) => panic!(
+            "no value present in key_field {} in tuple: {err}",
+            key_field.name
+        ),
+        Ok(value) => value,
+    };
+
+    hash_set.contains(&key_field_value)
 }
 
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn query_input_support(arg: Internal) -> ReturnedNodePointer {
-    query_input_support_request_simplify(arg).unwrap_or(ReturnedNodePointer(None))
+    let datum = match arg.unwrap() {
+        Some(d) => d,
+        None => return ReturnedNodePointer(None),
+    };
+
+    if let Some(node) = query_input_support_request_simplify(&datum) {
+        return node;
+    }
+
+    if let Some(node) = search_query_input_request_cost(&datum) {
+        return node;
+    }
+
+    return ReturnedNodePointer(None);
 }
 
-fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
+fn query_input_support_request_simplify(arg: &Datum) -> Option<ReturnedNodePointer> {
     unsafe {
         let srs = nodecast!(
             SupportRequestSimplify,
             T_SupportRequestSimplify,
-            arg.unwrap()?.cast_mut_ptr::<pg_sys::Node>()
+            arg.cast_mut_ptr::<pg_sys::Node>()
         )?;
 
         // rewrite this node, which is using the @@@(key_field, paradedb.searchqueryinput) operator
         // to instead use the @@@(key_field, jsonb) operator.  This involves converting the rhs
-        // of the operator into the jsonb representation of a SearchConfig, which is built
-        // in `make_new_opexpr_node()`
+        // of the operator into a SearchQueryInput.
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
         let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
 
@@ -119,4 +191,31 @@ pub fn query_input_restrict(
     }
 
     selectivity
+}
+
+fn search_query_input_request_cost(arg: &Datum) -> Option<ReturnedNodePointer> {
+    unsafe {
+        let src = nodecast!(
+            SupportRequestCost,
+            T_SupportRequestCost,
+            arg.cast_mut_ptr::<pg_sys::Node>()
+        )?;
+        // our `search_with_*` functions are *incredibly* expensive.  So much so that
+        // we really don't ever want Postgres to prefer them.
+        //
+        // The higher the `per_tuple` cost is here, the better.
+        //
+        // it can cost a lot to startup the `@@@` operator outside of an IndexScan because
+        // ultimately we have to hash all the resulting ctids in memory.  For lack of a better
+        // value, we say it costs as much as the `GUCS.per_tuple_cost()`.  This is an arbitrary
+        // number that we've documented as needing to be big.
+        (*src).startup = GUCS.per_tuple_cost();
+
+        // similarly, use the same GUC here.  Postgres will then add this into its per-tuple
+        // cost evaluations for whatever scan it's considering using for the `@@@` operator.
+        // our IAM provides more intelligent costs for the IndexScan situation.
+        (*src).per_tuple = GUCS.per_tuple_cost();
+
+        Some(ReturnedNodePointer(NonNull::new(src.cast())))
+    }
 }

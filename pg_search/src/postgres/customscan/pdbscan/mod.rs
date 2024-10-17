@@ -22,7 +22,7 @@ mod projections;
 mod qual_inspect;
 mod scan_state;
 
-use crate::api::operator::{anyelement_jsonb_opoid, attname_from_var, estimate_selectivity};
+use crate::api::operator::{anyelement_query_input_opoid, attname_from_var, estimate_selectivity};
 use crate::api::{AsCStr, AsInt, Cardinality};
 use crate::index::score::SearchIndexScore;
 use crate::index::SearchIndex;
@@ -114,9 +114,11 @@ impl CustomScan for PdbScan {
             // look for quals we can support
             //
             let restrict_info = builder.restrict_info();
-            if let Some(quals) =
-                extract_quals(rti, restrict_info.as_ptr().cast(), anyelement_jsonb_opoid())
-            {
+            if let Some(quals) = extract_quals(
+                rti,
+                restrict_info.as_ptr().cast(),
+                anyelement_query_input_opoid(),
+            ) {
                 let selectivity = if let Some(limit) = limit {
                     // use the limit
                     limit / table.reltuples().map(|n| n as Cardinality).unwrap_or(limit)

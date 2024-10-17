@@ -57,7 +57,7 @@ fn sort_by_lower(mut conn: PgConnection) {
         .unwrap()
         .as_array()
         .unwrap()
-        .get(0)
+        .first()
         .unwrap()
         .as_object()
         .unwrap();
@@ -102,7 +102,7 @@ fn sort_by_raw(mut conn: PgConnection) {
         .unwrap()
         .as_array()
         .unwrap()
-        .get(0)
+        .first()
         .unwrap()
         .as_object()
         .unwrap();
@@ -147,7 +147,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
         .unwrap()
         .as_array()
         .unwrap()
-        .get(0)
+        .first()
         .unwrap()
         .as_object()
         .unwrap()
@@ -155,7 +155,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
         .unwrap()
         .as_array()
         .unwrap()
-        .get(0)
+        .first()
         .unwrap()
         .as_object()
         .unwrap();

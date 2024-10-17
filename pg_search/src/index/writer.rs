@@ -77,10 +77,10 @@ impl Directory for BlockingDirectory {
         pgrx::info!("atomic_write");
 
         if path.ends_with("meta.json") {
-            pgrx::info!("writing meta.json");
+            pgrx::info!("writing {} bytes", data.len());
             unsafe { bm25_write_meta(self.0, data) };
         } else if path.ends_with(".managed.json") {
-            pgrx::info!("writing managed.json {:?}", data);
+            pgrx::info!("writing {} bytes", data.len());
             unsafe { bm25_write_managed(self.0, data) };
         } else {
             todo!("write {:?}", path);
@@ -89,11 +89,9 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        pgrx::info!("atomic_read: {:?}", path);
-
         if path.ends_with(".meta.json") {
-            pgrx::info!("reading meta.json");
             let data = unsafe { read_meta(self.0) };
+            pgrx::info!("reading {} bytes", data.len());
             Ok(data)
         } else if path.ends_with(".managed.json") {
             pgrx::info!("reading managed.json");
@@ -102,7 +100,7 @@ impl Directory for BlockingDirectory {
             if data.is_empty() {
                 return Err(OpenReadError::FileDoesNotExist(path.to_path_buf()));
             } else {
-                pgrx::info!("read managed.json: {:?}", data);
+                pgrx::info!("reading {} bytes", data.len());
                 return Ok(data);
             }
         } else {

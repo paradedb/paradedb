@@ -39,3 +39,7 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ '"plastic keyb"*';
 ```
+
+## Special Characters
+
+The special characters `+` , `^`, `` ` ``, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `~`, `!`, `\\`, `\*`, and `SPACE` must be escaped by a`\` inside the query term.

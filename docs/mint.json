@@ -248,6 +248,7 @@
     {
       "group": "Deploy",
       "pages": [
+        "deploy/overview",
         {
           "group": "Self-Hosted ParadeDB",
           "pages": [
@@ -259,9 +260,8 @@
         {
           "group": "Logical Replication",
           "pages": [
-            "deploy/replication/overview",
-            "deploy/replication/self-hosted",
-            "deploy/replication/managed"
+            "deploy/replication/managed",
+            "deploy/replication/self-hosted"
           ]
         },
         "deploy/high-availability",

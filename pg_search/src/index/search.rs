@@ -211,11 +211,9 @@ impl<'de> Deserialize<'de> for SearchIndex {
 
         let tantivy_dir = BlockingDirectory(directory.index_oid);
         let mut underlying_index = Index::open(tantivy_dir).expect("index should be openable");
-
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);
 
-        pgrx::info!("deserialize");
         // Construct the SearchIndex.
         Ok(SearchIndex {
             underlying_index,

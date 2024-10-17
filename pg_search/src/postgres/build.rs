@@ -54,8 +54,8 @@ pub extern "C" fn ambuild(
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
     unsafe {
-        bm25_create_meta(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
         bm25_create_managed(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
+        bm25_create_meta(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
     };
 
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };

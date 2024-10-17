@@ -47,15 +47,8 @@ use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 /// We maintain our own tantivy::directory::Directory implementation for finer-grained
 /// control over the locking behavior, which enables us to manage Writer instances
 /// across multiple connections.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BlockingDirectory(pub u32);
-
-impl DirectoryClone for BlockingDirectory {
-    fn box_clone(&self) -> Box<dyn Directory> {
-        pgrx::info!("box_clone");
-        Box::new(BlockingDirectory(self.0))
-    }
-}
 
 impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
@@ -74,20 +67,16 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        if path.ends_with("meta.json") {
-            pgrx::info!("writing {} bytes", data.len());
-            unsafe { bm25_write_meta(self.0, data) };
-        } else if path.ends_with(".managed.json") {
-            pgrx::info!("writing {} bytes", data.len());
-            unsafe { bm25_write_managed(self.0, data) };
-        } else {
-            todo!("write {:?}", path);
-        }
+        match path.to_str().unwrap().ends_with("meta.json") {
+            true => unsafe { bm25_write_meta(self.0, data) },
+            false => unsafe { bm25_write_managed(self.0, data) },
+        };
+
         Ok(())
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        let data = match path.ends_with(".meta.json") {
+        let data = match path.to_str().unwrap().ends_with("meta.json") {
             true => unsafe { read_meta(self.0) },
             false => unsafe { read_managed(self.0) },
         };
@@ -96,20 +85,14 @@ impl Directory for BlockingDirectory {
             return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
         }
 
-        pgrx::info!("read {} bytes", data.len());
-
-        let file_slice = FileSlice::from(data);
-        let bytes = file_slice
+        Ok(FileSlice::from(data)
             .read_bytes()
             .map_err(|io_error| OpenReadError::IoError {
                 io_error: Arc::new(io_error),
                 filepath: path.to_path_buf(),
             })?
             .as_slice()
-            .to_owned();
-
-        pgrx::info!("got file slice {:?}", String::from_utf8_lossy(&bytes));
-        Ok(bytes)
+            .to_owned())
     }
 
     fn delete(&self, path: &Path) -> result::Result<(), DeleteError> {
@@ -124,18 +107,17 @@ impl Directory for BlockingDirectory {
         // self.0.exists(path)
     }
 
-    fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
-        todo!("acquire_lock");
-        // pgrx::info!("acquire_lock: {:?}", lock.filepath);
-        // // This is the only change we actually need to make to the Directory trait impl.
-        // // We want the acquire_lock behavior to block and wait for a lock to be available,
-        // // instead of panicking. Internally, Tantivy just polls for its availability.
-        // let blocking_lock = Lock {
-        //     filepath: lock.filepath.clone(),
-        //     is_blocking: true,
-        // };
-        // self.0.acquire_lock(&blocking_lock)
-    }
+    // fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
+    //     // pgrx::info!("acquire_lock: {:?}", lock.filepath);
+    //     // This is the only change we actually need to make to the Directory trait impl.
+    //     // We want the acquire_lock behavior to block and wait for a lock to be available,
+    //     // instead of panicking. Internally, Tantivy just polls for its availability.
+    //     let blocking_lock = Lock {
+    //         filepath: lock.filepath.clone(),
+    //         is_blocking: true,
+    //     };
+    //     self.0.acquire_lock(&blocking_lock)
+    // }
 
     fn watch(&self, watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
         todo!("watch");
@@ -236,7 +218,6 @@ impl SearchIndexWriter {
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
         let tantivy_dir = BlockingDirectory(directory.index_oid);
-        pgrx::info!("create index");
         let mut underlying_index =
             Index::create(tantivy_dir, schema.schema.clone(), IndexSettings::default())?;
 
@@ -248,9 +229,12 @@ impl SearchIndexWriter {
             schema,
         };
 
+        pgrx::info!("saving");
+
         // Serialize SearchIndex to disk so it can be initialized by other connections.
         new_self.directory.save_index(&new_self)?;
 
+        pgrx::info!("index saved");
         // Mark in our global store that this index is pending create, in case it
         // needs to be rolled back on abort.
         Self::mark_pending_create(&directory);

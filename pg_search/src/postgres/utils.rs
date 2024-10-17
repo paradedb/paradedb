@@ -25,8 +25,8 @@ use std::ptr::null_mut;
 
 const P_NEW: u32 = pg_sys::InvalidBlockNumber;
 const RBM_NORMAL: u32 = pg_sys::ReadBufferMode::RBM_NORMAL;
-const METADATA_BLOCKNO: pg_sys::BlockNumber = 0;
-const MANAGED_BLOCKNO: pg_sys::BlockNumber = 1;
+const MANAGED_BLOCKNO: pg_sys::BlockNumber = 0;
+const METADATA_BLOCKNO: pg_sys::BlockNumber = 1;
 
 pub(crate) struct BM25SpecialData {
     next_blockno: pg_sys::BlockNumber,
@@ -189,11 +189,11 @@ pub unsafe fn read_page_contents(index_oid: u32, blockno: pg_sys::BlockNumber) -
     pg_sys::UnlockReleaseBuffer(buffer);
     pg_sys::RelationClose(index);
 
-    Vec::from_raw_parts(
-        item as *mut u8,
-        (*special).len as usize,
-        (*special).len as usize,
-    )
+    let mut vec = Vec::with_capacity((*special).len as usize);
+    std::ptr::copy(item as *mut u8, vec.as_mut_ptr(), (*special).len as usize);
+    vec.set_len((*special).len as usize);
+
+    vec
 }
 
 pub unsafe fn write_to_page(index_oid: u32, blockno: pg_sys::BlockNumber, data: &[u8]) {

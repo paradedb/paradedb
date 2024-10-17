@@ -148,7 +148,7 @@ impl WriterDirectory {
     /// It's also important to note that this functionis called in contexts that cannot
     /// ask Postgres for the data_dir_path, so we must use the one already initialized
     /// on the WriterDirectory instance.
-    fn search_index_dir_path(
+    pub(crate) fn search_index_dir_path(
         &self,
         ensure_exists: bool,
     ) -> Result<SearchIndexDirPath, SearchDirectoryError> {

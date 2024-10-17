@@ -27,6 +27,22 @@ ORDER BY rating DESC
 LIMIT 5;
 ```
 
+When sorting by a field and a limit indexed as `fast => true`, ParadeDB will efficiently return the "top N" fields
+sorted by that field. This is true for all numeric fields (including dates) along with text fields that use the
+`normalizer = 'raw'` setting.
+
+If the field is a text field defined as `fast => true, normalizer => 'lowercase'` (ParadeDB's default for "text" fields),
+then the query can be ordered by `lower(field)` for efficient "top N" results sorted by the lowercase version of the
+field.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY lower(category) DESC
+LIMIT 5;
+```
+
 ## Tiebreaking
 
 Postgres can `ORDER BY` multiple columns to break ties in BM25 scores. In the following query, rows with the same

@@ -57,7 +57,7 @@ use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::schema::SearchConfig;
 use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::{direct_function_call, is_a, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::{addr_of, addr_of_mut};
@@ -696,65 +696,78 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
     root: *mut pg_sys::PlannerInfo,
 ) -> Option<OrderByStyle> {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
-    let mut pathkey = None;
+
     if let Some(first_pathkey) = pathkeys.get_ptr(0) {
         let equivclass = (*first_pathkey).pk_eclass;
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
+
             if is_score_func(expr.cast(), rti as _) {
-                pathkey = Some(OrderByStyle::Score(first_pathkey));
-                break;
-            } else if is_lower_func(expr.cast(), rti as _) {
-                let funcexpr = nodecast!(FuncExpr, T_FuncExpr, expr)?;
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if let Some(arg) = nodecast!(Var, T_Var, args.get_ptr(0)?) {
-                    let (heaprelid, attno, _) = find_var_relation(arg, root);
+                return Some(OrderByStyle::Score(first_pathkey));
+            } else if let Some(var) = is_lower_func(expr.cast(), rti as _) {
+                let (heaprelid, attno, _) = find_var_relation(var, root);
+                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                let tupdesc = heaprel.tuple_desc();
+                if let Some(att) = tupdesc.get(attno as usize - 1) {
+                    if search_index.schema.is_field_lower_sortable(att.name()) {
+                        return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
+                    }
+                }
+            } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if search_index.schema.is_field_lower_sortable(att.name()) {
-                            pathkey =
-                                Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
-                            break;
+                        if search_index.schema.is_field_raw_sortable(att.name()) {
+                            return Some(OrderByStyle::Field(
+                                first_pathkey,
+                                att.name().to_string(),
+                            ));
                         }
                     }
                 }
-            } else if is_a(expr.cast(), pg_sys::NodeTag::T_Var) {
-                let var = nodecast!(Var, T_Var, expr)?;
+            } else if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let (heaprelid, attno, _) = find_var_relation(var, root);
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
                     if search_index.schema.is_field_raw_sortable(att.name()) {
-                        pathkey = Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
-                        break;
+                        return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }
             }
         }
     }
-    pathkey
+    None
 }
 
-unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> bool {
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        if (*funcexpr).funcid == text_lower_funcoid() {
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            assert!(
-                args.len() == 1,
-                "`lower(text)` function must have 1 argument"
-            );
-            if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys::Var> {
+    let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
+    if (*funcexpr).funcid == text_lower_funcoid() {
+        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        assert!(
+            args.len() == 1,
+            "`lower(text)` function must have 1 argument"
+        );
+        if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+            if (*var).varno as i32 == rti as i32 {
+                return Some(var);
+            }
+        } else if let Some(relabel) =
+            nodecast!(RelabelType, T_RelabelType, args.get_ptr(0).unwrap())
+        {
+            if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
                 if (*var).varno as i32 == rti as i32 {
-                    return true;
+                    return Some(var);
                 }
             }
         }
     }
 
-    false
+    None
 }
 
 pub fn text_lower_funcoid() -> pg_sys::Oid {

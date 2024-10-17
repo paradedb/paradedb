@@ -20,7 +20,6 @@ use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchConfig;
 use pgrx::*;
 
 struct PgSearchScanState {
@@ -114,8 +113,9 @@ pub extern "C" fn amrescan(
         let query = search_index.query(&search_query_input, &state);
         let results = state.search_minimal(
             (*scan).xs_want_itup,
+            search_query_input.contains_more_like_this(),
+            search_index.key_field_name(),
             SearchIndex::executor(),
-            &SearchConfig::default(),
             &query,
         );
         let natts = (*(*scan).xs_hitupdesc).natts as usize;

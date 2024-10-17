@@ -364,16 +364,8 @@ pub unsafe fn attname_from_var(
 
 extension_sql!(
     r#"
-ALTER FUNCTION paradedb.search_with_search_config SUPPORT paradedb.search_config_support;
 ALTER FUNCTION paradedb.search_with_text SUPPORT paradedb.text_support;
 ALTER FUNCTION paradedb.search_with_query_input SUPPORT paradedb.query_input_support;
-
-CREATE OPERATOR pg_catalog.@@@ (
-    PROCEDURE = search_with_search_config,
-    LEFTARG = anyelement,
-    RIGHTARG = jsonb,
-    RESTRICT = search_config_restrict
-);
 
 CREATE OPERATOR pg_catalog.@@@ (
     PROCEDURE = search_with_text,
@@ -390,7 +382,6 @@ CREATE OPERATOR pg_catalog.@@@ (
 );
 
 CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25 AS
-    OPERATOR 1 pg_catalog.@@@(anyelement, jsonb),                        /* for querying with a full search query jsonb object */
     OPERATOR 2 pg_catalog.@@@(anyelement, text),                         /* for querying with a tantivy-compatible text query */
     OPERATOR 3 pg_catalog.@@@(anyelement, paradedb.searchqueryinput),    /* for querying with a paradedb.searchqueryinput structure */
     STORAGE anyelement;

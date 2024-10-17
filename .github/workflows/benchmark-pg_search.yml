@@ -64,11 +64,10 @@ jobs:
           cache-targets: true
           cache-all-crates: true
 
-      - name: Cache criterion output
+      - name: Restore prior criterion output
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v4
         with:
-          path: target/criterion
           key: "pg_search-criterion-benchmark"
 
       - name: Install pgrx & pg_search
@@ -93,6 +92,13 @@ jobs:
           cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
           cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
           cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+
+      - name: Save criterion output, if dev
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && steps.env.outputs.environment == 'dev'
+        uses: actions/cache/save@v4
+        with:
+          path: target/criterion
+          key: "pg_search-criterion-benchmark"
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

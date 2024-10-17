@@ -278,12 +278,19 @@ unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
         // Drop the Tantivy data directory.
         // It's expected that this will be queued to actually perform the delete upon
         // transaction commit.
-        let mut search_index = SearchIndex::from_disk(&directory)
-            .expect("index directory should be a valid SearchIndex");
-
-        search_index
-            .drop_index()
-            .unwrap_or_else(|err| panic!("error dropping index with OID {index_oid:?}: {err:?}"));
+        match SearchIndex::from_disk(&directory) {
+            Ok(mut search_index) => {
+                search_index.drop_index().unwrap_or_else(|err| {
+                    panic!("error dropping index with OID {index_oid:?}: {err:?}")
+                });
+            }
+            Err(e) => {
+                pgrx::warning!(
+                    "error dropping index with OID {index_oid:?} at path {}: {e:?}",
+                    directory.search_index_dir_path(false).unwrap().0.display()
+                );
+            }
+        }
     }
     Ok(())
 }

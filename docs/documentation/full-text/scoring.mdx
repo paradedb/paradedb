@@ -27,18 +27,8 @@ LIMIT 5;
 ```
 
 <Note>
-Soring by a field with a limit other than score, while returning the score in the query's target list, will produce
-`NULL` score values if that field is defined in the index as `fast => true`.
-
-In this case, using the SQL `COALESCE` function to provide a constant score is recommended.
-
-```sql
-SELECT id, COALESCE(paradedb.score(id), 42.0)
-FROM mock_items
-WHERE description @@@ 'shoes'
-ORDER BY id
-LIMIT 5;
-```
+  Soring by a field with a limit other than `paradedb.score()`, while returning `paradedb.score()` in the query's target
+  list defeat the "top N" optimization.  The results will still be sorted by the specified field, but not as efficiently
 </Note>
 
 ## Joined Scores

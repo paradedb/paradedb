@@ -139,13 +139,19 @@ impl CustomScan for PdbScan {
                 builder.custom_private().set_quals(restrict_info);
 
                 if limit.is_some() && pathkey.is_some() {
-                    // we can only set our limit/pathkey values if we have both
-                    builder = builder.add_path_key(&pathkey);
-                    builder.custom_private().set_limit(limit);
-                    builder.custom_private().set_sort_field(&pathkey);
-                    builder
-                        .custom_private()
-                        .set_sort_direction(pathkey.map(|style| style.direction()));
+                    // sorting by a field only works if we're not doing const projections
+                    //
+                    // and sorting by score always works
+                    if !(maybe_needs_const_projections
+                        && matches!(&pathkey, Some(OrderByStyle::Field(..))))
+                    {
+                        builder = builder.add_path_key(&pathkey);
+                        builder.custom_private().set_sort_field(&pathkey);
+                        builder.custom_private().set_limit(limit);
+                        builder
+                            .custom_private()
+                            .set_sort_direction(pathkey.map(|style| style.direction()));
+                    }
                 }
 
                 let reltuples = table.reltuples().unwrap_or(1.0) as f64;

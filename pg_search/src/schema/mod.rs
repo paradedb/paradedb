@@ -564,7 +564,7 @@ impl From<SearchFieldConfig> for DateOptions {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchField {
     /// The id of the field, stored in the index.
     pub id: SearchFieldId,

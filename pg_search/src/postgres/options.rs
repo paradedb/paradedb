@@ -302,15 +302,6 @@ impl SearchIndexCreateOptions {
         }
     }
 
-    pub fn get_uuid(&self) -> Option<String> {
-        let uuid = self.get_str(self.uuid_offset, "".to_string());
-        if uuid.is_empty() {
-            None
-        } else {
-            Some(uuid)
-        }
-    }
-
     fn get_str(&self, offset: i32, default: String) -> String {
         if offset == 0 {
             default

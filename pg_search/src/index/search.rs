@@ -22,8 +22,9 @@ use crate::index::SearchIndexWriter;
 use crate::index::{
     BlockingDirectory, SearchDirectoryError, SearchFs, TantivyDirPath, WriterDirectory,
 };
+use crate::query::SearchQueryInput;
 use crate::schema::{
-    SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
+    SearchDocument, SearchField, SearchFieldConfig, SearchFieldName, SearchFieldType,
     SearchIndexSchema, SearchIndexSchemaError,
 };
 use anyhow::Result;
@@ -138,6 +139,14 @@ impl SearchIndex {
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 
+    pub fn key_field(&self) -> SearchField {
+        self.schema.key_field()
+    }
+
+    pub fn key_field_name(&self) -> String {
+        self.key_field().name.to_string()
+    }
+
     pub fn from_disk(directory: &WriterDirectory) -> Result<Self, SearchIndexError> {
         let mut new_self: Self = directory.load_index()?;
 
@@ -161,13 +170,16 @@ impl SearchIndex {
         )
     }
 
-    pub fn query(&self, config: &SearchConfig, reader: &SearchIndexReader) -> Box<dyn Query> {
+    pub fn query(
+        &self,
+        search_query_input: &SearchQueryInput,
+        reader: &SearchIndexReader,
+    ) -> Box<dyn Query> {
         let mut parser = self.query_parser();
         let searcher = reader.underlying_reader.searcher();
-        config
-            .query
+        search_query_input
             .clone()
-            .into_tantivy_query(&self.schema, &mut parser, &searcher, config)
+            .into_tantivy_query(&self.schema, &mut parser, &searcher)
             .expect("must be able to parse query")
     }
 

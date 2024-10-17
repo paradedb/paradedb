@@ -24,6 +24,7 @@ mod insert;
 pub mod options;
 mod range;
 mod scan;
+mod storage;
 mod vacuum;
 mod validate;
 

@@ -40,7 +40,7 @@ use tantivy::{
 use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, IndexWriter};
 use thiserror::Error;
 
-use crate::postgres::utils::{bm25_write_managed, bm25_write_meta, read_managed, read_meta};
+use crate::postgres::storage::TantivyMetaDirectory;
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 
@@ -48,7 +48,15 @@ use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 /// control over the locking behavior, which enables us to manage Writer instances
 /// across multiple connections.
 #[derive(Clone, Debug)]
-pub struct BlockingDirectory(pub u32);
+pub struct BlockingDirectory {
+    relation_oid: u32,
+}
+
+impl BlockingDirectory {
+    pub fn new(relation_oid: u32) -> Self {
+        Self { relation_oid }
+    }
+}
 
 impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
@@ -67,18 +75,22 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+        pgrx::info!("atomic_write: {:?}", path);
+        let directory = unsafe { TantivyMetaDirectory::new(self.relation_oid) };
         match path.to_str().unwrap().ends_with("meta.json") {
-            true => unsafe { bm25_write_meta(self.0, data) },
-            false => unsafe { bm25_write_managed(self.0, data) },
+            true => unsafe { directory.write_meta(data) },
+            false => unsafe { directory.write_managed(data) },
         };
 
         Ok(())
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        pgrx::info!("atomic_read: {:?}", path);
+        let directory = unsafe { TantivyMetaDirectory::new(self.relation_oid) };
         let data = match path.to_str().unwrap().ends_with("meta.json") {
-            true => unsafe { read_meta(self.0) },
-            false => unsafe { read_managed(self.0) },
+            true => unsafe { directory.read_meta() },
+            false => unsafe { directory.read_managed() },
         };
 
         if data.is_empty() {
@@ -217,7 +229,7 @@ impl SearchIndexWriter {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
-        let tantivy_dir = BlockingDirectory(directory.index_oid);
+        let tantivy_dir = BlockingDirectory::new(directory.index_oid);
         let mut underlying_index =
             Index::create(tantivy_dir, schema.schema.clone(), IndexSettings::default())?;
 

@@ -209,7 +209,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             .tantivy_dir_path(true)
             .expect("tantivy directory path should be valid");
 
-        let tantivy_dir = BlockingDirectory(directory.index_oid);
+        let tantivy_dir = BlockingDirectory::new(directory.index_oid);
         let mut underlying_index = Index::open(tantivy_dir).expect("index should be openable");
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);

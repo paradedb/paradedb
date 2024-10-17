@@ -20,7 +20,8 @@ use crate::index::WriterDirectory;
 use crate::postgres::index::relfilenode_from_pg_relation;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::{bm25_create_meta, row_to_search_document};
+use crate::postgres::storage::create_metadata;
+use crate::postgres::utils::row_to_search_document;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
 use std::collections::HashMap;
@@ -53,15 +54,14 @@ pub extern "C" fn ambuild(
     indexrel: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
-    unsafe {
-        bm25_create_meta(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
-    };
-
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
     let database_oid = crate::MyDatabaseId();
     let relfilenode = relfilenode_from_pg_relation(&index_relation);
+
+    // Create the metadata blocks for the index
+    unsafe { create_metadata(index_oid.into()) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {

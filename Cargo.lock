@@ -5809,6 +5809,7 @@ dependencies = [
  "memmap2",
  "once_cell",
  "oneshot",
+ "pgrx",
  "rayon",
  "regex",
  "rust-stemmers",

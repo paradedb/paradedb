@@ -50,10 +50,10 @@ use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 #[derive(Debug)]
 pub struct BlockingDirectory(pub u32);
 
-impl Clone for BlockingDirectory {
-    fn clone(&self) -> Self {
-        pgrx::info!("BlockingDirectory::clone");
-        BlockingDirectory(self.0)
+impl DirectoryClone for BlockingDirectory {
+    fn box_clone(&self) -> Box<dyn Directory> {
+        pgrx::info!("box_clone");
+        Box::new(BlockingDirectory(self.0))
     }
 }
 
@@ -74,8 +74,6 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        pgrx::info!("atomic_write");
-
         if path.ends_with("meta.json") {
             pgrx::info!("writing {} bytes", data.len());
             unsafe { bm25_write_meta(self.0, data) };
@@ -89,23 +87,29 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        if path.ends_with(".meta.json") {
-            let data = unsafe { read_meta(self.0) };
-            pgrx::info!("reading {} bytes", data.len());
-            Ok(data)
-        } else if path.ends_with(".managed.json") {
-            pgrx::info!("reading managed.json");
-            let data = unsafe { read_managed(self.0) };
+        let data = match path.ends_with(".meta.json") {
+            true => unsafe { read_meta(self.0) },
+            false => unsafe { read_managed(self.0) },
+        };
 
-            if data.is_empty() {
-                return Err(OpenReadError::FileDoesNotExist(path.to_path_buf()));
-            } else {
-                pgrx::info!("reading {} bytes", data.len());
-                return Ok(data);
-            }
-        } else {
-            todo!("read {:?}", path);
+        if data.is_empty() {
+            return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
         }
+
+        pgrx::info!("read {} bytes", data.len());
+
+        let file_slice = FileSlice::from(data);
+        let bytes = file_slice
+            .read_bytes()
+            .map_err(|io_error| OpenReadError::IoError {
+                io_error: Arc::new(io_error),
+                filepath: path.to_path_buf(),
+            })?
+            .as_slice()
+            .to_owned();
+
+        pgrx::info!("got file slice {:?}", String::from_utf8_lossy(&bytes));
+        Ok(bytes)
     }
 
     fn delete(&self, path: &Path) -> result::Result<(), DeleteError> {

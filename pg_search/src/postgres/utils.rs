@@ -186,8 +186,6 @@ pub unsafe fn read_page_contents(index_oid: u32, blockno: pg_sys::BlockNumber) -
     let item = pg_sys::PageGetItem(page, pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber));
     let special = bm25_get_special(page);
 
-    pgrx::info!("special.len: {}", (*special).len);
-
     pg_sys::UnlockReleaseBuffer(buffer);
     pg_sys::RelationClose(index);
 
@@ -214,8 +212,6 @@ pub unsafe fn write_to_page(index_oid: u32, blockno: pg_sys::BlockNumber, data: 
 
     let special = bm25_get_special(page);
     (*special).len = data.len() as u32;
-
-    pgrx::info!("special.len: {}", data.len());
 
     pg_sys::PageAddItemExtended(
         page,

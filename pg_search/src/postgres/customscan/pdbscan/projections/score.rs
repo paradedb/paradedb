@@ -21,8 +21,8 @@ use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, AnyElement, IntoDa
 use std::ptr::addr_of_mut;
 
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
-fn score_from_relation(_relation_reference: AnyElement) -> f32 {
-    f32::NAN
+fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
+    None
 }
 
 pub fn score_funcoid() -> pg_sys::Oid {
@@ -84,7 +84,7 @@ pub unsafe fn inject_scores(
                     pg_sys::Oid::INVALID,
                     size_of::<f32>() as _,
                     (*context).score.into_datum().unwrap(),
-                    false,
+                    (*context).score.is_nan(),
                     true,
                 );
 

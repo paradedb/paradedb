@@ -145,7 +145,7 @@ impl WriterDirectory {
     /// An important note for formatting this path. We face a limitation on the length of any
     /// file path used by our extension (relative to the Postgres DATA_DIRECTORY).
     ///
-    /// It's also important to note that this functionis called in contexts that cannot
+    /// It's also important to note that this function is called in contexts that cannot
     /// ask Postgres for the data_dir_path, so we must use the one already initialized
     /// on the WriterDirectory instance.
     pub(crate) fn search_index_dir_path(

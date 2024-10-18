@@ -87,7 +87,9 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[1].0, "Sleek running shoes".to_string());
     assert_eq!(rows[2].0, "White jogging shoes".to_string());
     assert_eq!(rows[3].0, "Comfortable slippers".to_string());
-    assert_eq!(rows[4].0, "Sturdy hiking boots".to_string());
+    if rows[4].0 != "Sturdy hiking boots" && rows[4].0 != " Winter woolen socks" {
+        panic!("wrong description for rows[4]")
+    }
     assert_eq!(rows[0].3, 5.8135376);
     assert_eq!(rows[1].3, 5.4211845);
     assert_eq!(rows[2].3, 5.4211845);

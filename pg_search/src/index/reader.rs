@@ -20,7 +20,6 @@ use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
-use pgrx::pg_sys;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -279,15 +278,9 @@ impl SearchIndexReader {
             })
             .expect("weight should be constructable");
         let segment_reader = self.searcher.segment_reader(segment_ord);
-        let start = std::time::Instant::now();
         let results = collector
             .collect_segment(weight.as_ref(), segment_ord, segment_reader)
             .expect("single segment collection should succeed");
-        pgrx::warning!(
-            "seg #{segment_ord}, worker #{}: {:?}",
-            unsafe { pg_sys::ParallelWorkerNumber },
-            start.elapsed()
-        );
         SearchResults::AllFeatures(results.len(), results.into_iter())
     }
 

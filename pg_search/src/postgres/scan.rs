@@ -284,20 +284,16 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
 
 // if there's a segment to be claimed for parallel query execution, do that now
 fn maybe_claim_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
-    unsafe {
-        if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-            state.results = state.reader.search_segment(
-                &state.search_config,
-                &state.query,
-                segment_number,
-                (*scan).xs_want_itup,
-            );
-
-            // loop back around to start returning results from this segment
-            return true;
-        }
-        false
+    if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
+        state.results = state.reader.search_segment(
+            &state.search_config,
+            &state.query,
+            segment_number,
+            unsafe { (*scan).xs_want_itup },
+        );
+        return true;
     }
+    false
 }
 
 #[pg_guard]

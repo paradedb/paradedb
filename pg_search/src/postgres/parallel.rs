@@ -76,14 +76,15 @@ unsafe fn bm25_shared_state(
     }
 }
 
-pub unsafe fn maybe_init_parallel_scan(
+pub fn maybe_init_parallel_scan(
     scan: pg_sys::IndexScanDesc,
     searcher: &tantivy::Searcher,
 ) -> Option<i32> {
     let state = get_bm25_scan_state(&scan)?;
 
+    let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
     let _mutex = state.lock();
-    if pg_sys::ParallelWorkerNumber == -1 {
+    if worker_number == -1 {
         // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
         // our shared memory information
         state.remaining_segments = searcher
@@ -92,10 +93,10 @@ pub unsafe fn maybe_init_parallel_scan(
             .try_into()
             .expect("should not have more than u32 index segments");
     }
-    Some(pg_sys::ParallelWorkerNumber)
+    Some(worker_number)
 }
 
-pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<tantivy::SegmentOrdinal> {
+pub fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<tantivy::SegmentOrdinal> {
     let state = get_bm25_scan_state(&scan)?;
 
     let _mutex = state.lock();
@@ -109,9 +110,10 @@ pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<tantivy
     }
 }
 
-unsafe fn get_bm25_scan_state(scan: &pg_sys::IndexScanDesc) -> Option<&mut Bm25ParallelScanState> {
-    assert!(!scan.is_null());
-    let scan = scan.as_mut().unwrap_unchecked();
-    let state = bm25_shared_state(scan)?;
-    Some(state)
+fn get_bm25_scan_state(scan: &pg_sys::IndexScanDesc) -> Option<&mut Bm25ParallelScanState> {
+    unsafe {
+        assert!(!scan.is_null());
+        let scan = scan.as_mut().unwrap_unchecked();
+        bm25_shared_state(scan)
+    }
 }

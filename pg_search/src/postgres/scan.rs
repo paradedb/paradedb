@@ -232,7 +232,7 @@ pub extern "C" fn amgettuple(
                 return true;
             },
             None => {
-                if maybe_claim_segment(scan, state) {
+                if search_next_segment(scan, state) {
                     // loop back around to start returning results from this segment
                     continue;
                 }
@@ -272,7 +272,7 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
         }
 
         // check if the bitmap scan needs to claim another individual segment
-        if maybe_claim_segment(scan, state) {
+        if search_next_segment(scan, state) {
             continue;
         }
 
@@ -283,7 +283,7 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
 }
 
 // if there's a segment to be claimed for parallel query execution, do that now
-fn maybe_claim_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
+fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
     if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
         state.results = state.reader.search_segment(
             &state.search_config,

@@ -48,7 +48,6 @@ chrono = "0.4.38"
 ordered-float = "4.2.2"
 uuid = "1.10.0"
 strum = { version = "0.26.3" }
-bincode = "1.3.3"
 
 [dev-dependencies]
 approx = "0.5.1"

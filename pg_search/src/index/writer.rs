@@ -75,7 +75,6 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        pgrx::info!("atomic_write: {:?}", path);
         let directory = unsafe { TantivyMetaDirectory::new(self.relation_oid) };
         match path.to_str().unwrap().ends_with("meta.json") {
             true => unsafe { directory.write_meta(data) },

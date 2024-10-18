@@ -1,4 +1,10 @@
 use pgrx::*;
+use serde::{Deserialize, Serialize};
+use std::cmp::min;
+use std::collections::HashMap;
+use std::io::Write;
+use std::mem::size_of;
+use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
 // The first block of the index is the metadata block, which is essentially a map for how the rest of the blocks are organized.
@@ -11,9 +17,18 @@ pub(crate) struct SearchMetaSpecialData {
     tantivy_managed_blockno: pg_sys::BlockNumber,
 }
 
+#[derive(Deserialize, Serialize)]
+pub(crate) struct SearchMetaMap {
+    segments: HashMap<pg_sys::BlockNumber, PathBuf>,
+}
+
 pub(crate) struct TantivyMetaSpecialData {
     next_blockno: pg_sys::BlockNumber,
     len: u32,
+}
+
+pub(crate) struct SegmentSpecialData {
+    next_blockno: pg_sys::BlockNumber,
 }
 
 #[derive(Clone, Debug)]
@@ -21,6 +36,7 @@ pub struct BaseDirectory {
     relation: pg_sys::Relation,
 }
 
+#[derive(Clone, Debug)]
 pub struct PgBuffer(pub pg_sys::Buffer);
 impl PgBuffer {
     pub unsafe fn from_pg_owned(buffer: pg_sys::Buffer) -> Self {
@@ -72,7 +88,7 @@ impl BaseDirectory {
         buffer.mark_dirty();
     }
 
-    pub unsafe fn add_page(&self, special_size: usize) -> pg_sys::BlockNumber {
+    pub unsafe fn new_buffer(&self, special_size: usize) -> PgBuffer {
         // Providing an InvalidBlockNumber creates a new page
         let buffer = self.get_buffer(pg_sys::InvalidBlockNumber, pg_sys::BUFFER_LOCK_EXCLUSIVE);
         let blockno = buffer.block_number();
@@ -80,15 +96,14 @@ impl BaseDirectory {
         pg_sys::PageInit(buffer.page(), buffer.page_size(), special_size);
         buffer.mark_dirty();
         // Returns the BlockNumber of the newly-created page
-        blockno
+        buffer
     }
 
     pub unsafe fn get_item(
         &self,
-        blockno: pg_sys::BlockNumber,
+        buffer: &PgBuffer,
         offsetno: pg_sys::OffsetNumber,
     ) -> pg_sys::Item {
-        let buffer = self.get_buffer(blockno, pg_sys::BUFFER_LOCK_SHARE);
         let page = buffer.page();
         let item = pg_sys::PageGetItem(page, pg_sys::PageGetItemId(page, offsetno));
         item
@@ -156,7 +171,7 @@ impl TantivyMetaDirectory {
         let buffer = self.base.get_buffer(blockno, pg_sys::BUFFER_LOCK_SHARE);
         let page = buffer.page();
         let special = pg_sys::PageGetSpecialPointer(page) as *mut TantivyMetaSpecialData;
-        let item = self.base.get_item(blockno, pg_sys::FirstOffsetNumber);
+        let item = self.base.get_item(&buffer, pg_sys::FirstOffsetNumber);
         let len = (*special).len as usize;
 
         let mut vec = Vec::with_capacity(len);
@@ -166,7 +181,6 @@ impl TantivyMetaDirectory {
     }
 
     unsafe fn write_bytes(&self, data: &[u8], blockno: pg_sys::BlockNumber) {
-        pgrx::info!("writing {} bytes to blockno {}", data.len(), blockno);
         let buffer = self.base.get_buffer(blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
         let page = buffer.page();
         let special = pg_sys::PageGetSpecialPointer(page) as *mut TantivyMetaSpecialData;
@@ -180,29 +194,106 @@ impl TantivyMetaDirectory {
             pg_sys::PAI_OVERWRITE,
         );
 
-        pgrx::info!("wrote {} bytes to blockno {}", data.len(), blockno);
-
         buffer.mark_dirty();
+    }
+}
 
-        pgrx::info!("released buffer");
+struct SegmentWriter {
+    base: BaseDirectory,
+    start_blockno: pg_sys::BlockNumber,
+}
+
+impl SegmentWriter {
+    pub unsafe fn new(relation_oid: u32, path: &Path) -> Self {
+        let base = BaseDirectory::new(relation_oid);
+        let segment_blockno = base
+            .new_buffer(std::mem::size_of::<SegmentSpecialData>())
+            .block_number();
+        let meta_buffer = base.get_buffer(SEARCH_META_BLOCKNO, pg_sys::BUFFER_LOCK_SHARE);
+        let page = meta_buffer.page();
+        let item = base.get_item(&meta_buffer, pg_sys::FirstOffsetNumber) as *mut SearchMetaMap;
+
+        // Add segment to the metadata map
+        match item.is_null() {
+            true => {
+                let mut segments = HashMap::new();
+                segments.insert(segment_blockno, PathBuf::from(path));
+                (*item).segments = segments
+            }
+            false => {
+                let mut segments = (*item).segments.clone();
+                segments.insert(segment_blockno, PathBuf::from(path));
+                (*item).segments = segments
+            }
+        };
+
+        Self {
+            base: BaseDirectory::new(relation_oid),
+            start_blockno: segment_blockno,
+        }
+    }
+}
+
+impl Write for SegmentWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        unsafe {
+            let data_size = data.len();
+            let mut buffer = self.base.get_buffer(self.start_blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
+            let mut page = buffer.page();
+            let mut start_byte = 0;
+            let mut end_byte = min(data_size, pg_sys::PageGetFreeSpace(page) - std::mem::size_of::<pg_sys::ItemIdData>());
+            let mut data_slice = &data[start_byte..end_byte];
+    
+            while end_byte <= data_size {
+                pgrx::info!("writing start_byte: {start_byte}, end_byte: {end_byte}");
+                if start_byte != 0 {
+                    let new_buffer = self.base.new_buffer(std::mem::size_of::<SegmentSpecialData>());
+                    let special = pg_sys::PageGetSpecialPointer(page) as *mut SegmentSpecialData;
+                    (*special).next_blockno = new_buffer.block_number();
+                    buffer = new_buffer.clone();
+                    page = new_buffer.page();
+                    pgrx::info!("new buffer created");
+                }
+    
+                self.base.add_item(
+                    &buffer,
+                    pg_sys::InvalidOffsetNumber,
+                    data_slice.as_ptr() as pg_sys::Item,
+                    data_slice.len(),
+                    pg_sys::PAI_OVERWRITE,
+                );
+    
+                start_byte = end_byte;
+                end_byte = min(data_size, end_byte + pg_sys::PageGetFreeSpace(page) - std::mem::size_of::<pg_sys::ItemIdData>());
+                data_slice = &data[start_byte..end_byte];
+            }
+
+            Ok(data_size)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
 pub unsafe fn create_metadata(relation_oid: u32) {
     let base = BaseDirectory::new(relation_oid);
-    let blockno = base.add_page(std::mem::size_of::<SearchMetaSpecialData>());
+    let buffer = base.new_buffer(std::mem::size_of::<SearchMetaSpecialData>());
     assert!(
-        blockno == SEARCH_META_BLOCKNO,
+        buffer.block_number() == SEARCH_META_BLOCKNO,
         "expected metadata blockno to be 0 but got {SEARCH_META_BLOCKNO}"
     );
 
-    let buffer = base.get_buffer(blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
     let page = buffer.page();
     let special = pg_sys::PageGetSpecialPointer(page) as *mut SearchMetaSpecialData;
 
-    (*special).tantivy_meta_blockno = base.add_page(std::mem::size_of::<TantivyMetaSpecialData>());
-    (*special).tantivy_managed_blockno =
-        base.add_page(std::mem::size_of::<TantivyMetaSpecialData>());
+    (*special).tantivy_meta_blockno = base
+        .new_buffer(std::mem::size_of::<TantivyMetaSpecialData>())
+        .block_number();
+    (*special).tantivy_managed_blockno = base
+        .new_buffer(std::mem::size_of::<TantivyMetaSpecialData>())
+        .block_number();
 
     buffer.mark_dirty();
 }

@@ -100,10 +100,10 @@ pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<tantivy
 
     let _mutex = state.lock();
     if state.remaining_segments == 0 {
-        // no more to check out
+        // no more to claim
         None
     } else {
-        // check one out
+        // claim the next one
         state.remaining_segments -= 1;
         Some(state.remaining_segments)
     }

@@ -121,13 +121,11 @@ fn real_time_search(mut conn: PgConnection) {
 fn sequential_scan_syntax(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let columns: SimpleProductsTableVec = format!(
-        "SELECT * FROM paradedb.bm25_search
+    let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search
         WHERE paradedb.search_with_query_input(
             id,
             paradedb.parse('category:electronics')
-        ) ORDER BY id"
-    )
+        ) ORDER BY id".to_string()
     .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32]);

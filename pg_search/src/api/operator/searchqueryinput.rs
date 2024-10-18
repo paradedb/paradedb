@@ -57,7 +57,7 @@ pub fn search_with_query_input(
         };
         let search_index = open_search_index(unsafe {
             &PgRelation::with_lock(
-                pg_sys::Oid::from(index_oid),
+                index_oid,
                 pg_sys::AccessShareLock as pg_sys::LOCKMODE,
             )
         })
@@ -112,7 +112,7 @@ pub unsafe fn query_input_support(arg: Internal) -> ReturnedNodePointer {
         return node;
     }
 
-    return ReturnedNodePointer(None);
+    ReturnedNodePointer(None)
 }
 
 fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNodePointer> {

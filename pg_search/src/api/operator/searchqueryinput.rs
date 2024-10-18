@@ -56,10 +56,7 @@ pub fn search_with_query_input(
             }
         };
         let search_index = open_search_index(unsafe {
-            &PgRelation::with_lock(
-                index_oid,
-                pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-            )
+            &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         })
         .expect("should be able to open search index");
 

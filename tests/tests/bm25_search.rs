@@ -125,8 +125,9 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
         WHERE paradedb.search_with_query_input(
             id,
             paradedb.parse('category:electronics')
-        ) ORDER BY id".to_string()
-    .fetch_collect(&mut conn);
+        ) ORDER BY id"
+        .to_string()
+        .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32]);
 }

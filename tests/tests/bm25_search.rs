@@ -33,9 +33,6 @@ use tantivy::Index;
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    // println!("PID {}", conn.process_id);
-    // std::thread::sleep(std::time::Duration::from_secs(10));
-
     let columns: SimpleProductsTableVec =
         "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard OR category:electronics' ORDER BY id"
             .fetch_collect(&mut conn);

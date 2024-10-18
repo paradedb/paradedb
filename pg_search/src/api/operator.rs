@@ -200,7 +200,7 @@ unsafe fn make_search_query_input_opexpr_node(
     (*var).varcollid = att.attcollation;
 
     // we're about to fabricate a new pg_sys::OpExpr node to return
-    // that represents the `@@@(anyelement, jsonb)` operator
+    // that represents the `@@@(anyelement, paradedb.searchqueryinput)` operator
     let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
 
     if let Some(query) = query {

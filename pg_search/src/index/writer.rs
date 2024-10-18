@@ -25,13 +25,14 @@ use crate::{
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::{collections::HashSet, path::Path};
 use std::{fs, io, result};
 use tantivy::directory::{
-    DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback, WatchHandle,
-    WritePtr,
+    AntiCallToken, DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, TerminatingWrite,
+    WatchCallback, WatchHandle, WritePtr,
 };
 use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
@@ -40,9 +41,15 @@ use tantivy::{
 use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, IndexWriter};
 use thiserror::Error;
 
-use crate::postgres::storage::TantivyMetaDirectory;
+use crate::postgres::storage::{SegmentWriter, TantivyMetaDirectory};
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
+
+impl TerminatingWrite for SegmentWriter {
+    fn terminate_ref(&mut self, _: AntiCallToken) -> io::Result<()> {
+        self.flush()
+    }
+}
 
 /// We maintain our own tantivy::directory::Directory implementation for finer-grained
 /// control over the locking behavior, which enables us to manage Writer instances
@@ -70,11 +77,14 @@ impl Directory for BlockingDirectory {
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        todo!("open_write {:?}", path);
-        // self.0.open_write(path)
+        pgrx::info!("open_write");
+        Ok(io::BufWriter::new(Box::new(unsafe {
+            SegmentWriter::new(self.relation_oid, path)
+        })))
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+        pgrx::info!("atomic_write {:?}", path);
         let directory = unsafe { TantivyMetaDirectory::new(self.relation_oid) };
         match path.to_str().unwrap().ends_with("meta.json") {
             true => unsafe { directory.write_meta(data) },
@@ -96,6 +106,8 @@ impl Directory for BlockingDirectory {
             return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
         }
 
+        pgrx::info!("read succeeded");
+        
         Ok(FileSlice::from(data)
             .read_bytes()
             .map_err(|io_error| OpenReadError::IoError {

@@ -34,11 +34,6 @@ use super::{
     make_search_query_input_opexpr_node,
 };
 
-/// This is the function behind the `@@@(anyelement, paradedb.searchqueryinput)` operator. Since we
-/// transform those to use `@@@(anyelement, jsonb`), this function won't be called in normal
-/// circumstances, but it could be called if the rhs of the @@@ is some kind of volatile value.
-///
-/// And in that case we just have to give up.
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
     element: AnyElement,
@@ -120,9 +115,8 @@ fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNo
             arg.cast_mut_ptr::<pg_sys::Node>()
         )?;
 
-        // rewrite this node, which is using the @@@(key_field, paradedb.searchqueryinput) operator
-        // to instead use the @@@(key_field, jsonb) operator.  This involves converting the rhs
-        // of the operator into a SearchQueryInput.
+        // Rewrite this node touse the @@@(key_field, paradedb.searchqueryinput) operator.
+        // This involves converting the rhs of the operator into a SearchQueryInput.
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
         let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
 

@@ -178,6 +178,7 @@ pub enum SearchQueryInput {
 
 impl SearchQueryInput {
     pub fn contains_more_like_this(&self) -> bool {
+        return true;
         match self {
             SearchQueryInput::Boolean {
                 must,

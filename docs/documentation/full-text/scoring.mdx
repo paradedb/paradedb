@@ -11,17 +11,6 @@ The `paradedb.score(<key_field>)` function can be added to any query where an `@
 SELECT id, paradedb.score(id)
 FROM mock_items
 WHERE description @@@ 'shoes'
-LIMIT 5;
-```
-
-## Top N with `ORDER BY ... LIMIT`
-
-Sorting a query by score and a limit is known as a "top N" query, and will be efficiently executed by ParadeDB:
-
-```sql
-SELECT id, paradedb.score(id)
-FROM mock_items
-WHERE description @@@ 'shoes'
 ORDER BY paradedb.score(id)
 LIMIT 5;
 ```

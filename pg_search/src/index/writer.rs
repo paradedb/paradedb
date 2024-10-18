@@ -23,8 +23,9 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
-use std::path::Path;
+use once_cell::sync::Lazy;
 use std::sync::Arc;
+use std::{collections::HashSet, path::Path};
 use std::{fs, io, result};
 use tantivy::directory::{
     DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback, WatchHandle,
@@ -109,32 +110,62 @@ impl Directory for BlockingDirectory {
     }
 }
 
+/// A global store of which indexes have been created during a transaction,
+/// so that they can be committed or rolled back in case of an abort.
+static mut PENDING_INDEX_CREATES: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
+
+/// A global store of which indexes have been dropped during a transaction,
+/// so that they can be committed or rolled back in case of an abort.
+static mut PENDING_INDEX_DROPS: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashSet::new);
+
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
-    pub underlying_writer: IndexWriter,
+    // this is an Option<> because on drop we need to take ownership of the underlying
+    // IndexWriter instance so we can, in the background, wait for all merging threads to finish
+    pub underlying_writer: Option<IndexWriter>,
+}
+
+impl Drop for SearchIndexWriter {
+    fn drop(&mut self) {
+        if let Some(writer) = self.underlying_writer.take() {
+            // wait for all merging threads to finish.  we do this in the background
+            // because we don't want to block the connection that created this SearchIndexWriter
+            // from being able to do more work.
+            std::thread::spawn(move || {
+                if let Err(e) = writer.wait_merging_threads() {
+                    pgrx::warning!("`wait_merging_threads` failed: {e}");
+                }
+            });
+        }
+    }
 }
 
 impl SearchIndexWriter {
-    pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
+    pub fn insert(&self, document: SearchDocument) -> Result<(), IndexError> {
         // Add the Tantivy document to the index.
-        self.underlying_writer.add_document(document.into())?;
+        self.underlying_writer
+            .as_ref()
+            .unwrap()
+            .add_document(document.into())?;
 
         Ok(())
     }
 
-    pub fn delete(&mut self, ctid_field: &Field, ctid_values: &[u64]) -> Result<(), IndexError> {
+    pub fn delete(&self, ctid_field: &Field, ctid_values: &[u64]) -> Result<(), IndexError> {
         for ctid in ctid_values {
             let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
-            self.underlying_writer.delete_term(ctid_term);
+            self.underlying_writer
+                .as_ref()
+                .unwrap()
+                .delete_term(ctid_term);
         }
         Ok(())
     }
 
     pub fn commit(&mut self) -> Result<()> {
         self.underlying_writer
-            .prepare_commit()
-            .context("error preparing commit to tantivy index")?;
-        self.underlying_writer
+            .as_mut()
+            .unwrap()
             .commit()
             .context("error committing to tantivy index")?;
 
@@ -142,20 +173,22 @@ impl SearchIndexWriter {
     }
 
     pub fn abort(&mut self) -> Result<(), IndexError> {
-        self.underlying_writer.rollback()?;
-
+        self.underlying_writer.as_mut().unwrap().rollback()?;
         Ok(())
     }
 
-    pub fn vacuum(&mut self) -> Result<(), IndexError> {
-        self.underlying_writer.garbage_collect_files().wait()?;
+    pub fn vacuum(&self) -> Result<(), IndexError> {
+        self.underlying_writer
+            .as_ref()
+            .unwrap()
+            .garbage_collect_files()
+            .wait()?;
         Ok(())
     }
 
     pub fn create_index(
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
-        uuid: String,
         key_field_index: usize,
     ) -> Result<()> {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;
@@ -168,18 +201,43 @@ impl SearchIndexWriter {
         SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
 
         let new_self = SearchIndex {
-            reader: SearchIndex::reader(&underlying_index)?,
             underlying_index,
             directory: directory.clone(),
             schema,
-            uuid,
-            is_pending_drop: false,
-            is_pending_create: true,
         };
 
         // Serialize SearchIndex to disk so it can be initialized by other connections.
         new_self.directory.save_index(&new_self)?;
+
+        // Mark in our global store that this index is pending create, in case it
+        // needs to be rolled back on abort.
+        Self::mark_pending_create(&directory);
+
         Ok(())
+    }
+
+    pub fn mark_pending_create(directory: &WriterDirectory) -> bool {
+        unsafe { PENDING_INDEX_CREATES.insert(directory.clone()) }
+    }
+
+    pub fn mark_pending_drop(directory: &WriterDirectory) -> bool {
+        unsafe { PENDING_INDEX_DROPS.insert(directory.clone()) }
+    }
+
+    pub fn clear_pending_creates() {
+        unsafe { PENDING_INDEX_CREATES.clear() }
+    }
+
+    pub fn clear_pending_drops() {
+        unsafe { PENDING_INDEX_DROPS.clear() }
+    }
+
+    pub fn pending_creates() -> impl Iterator<Item = &'static WriterDirectory> {
+        unsafe { PENDING_INDEX_CREATES.iter() }
+    }
+
+    pub fn pending_drops() -> impl Iterator<Item = &'static WriterDirectory> {
+        unsafe { PENDING_INDEX_DROPS.iter() }
     }
 }
 

@@ -18,16 +18,12 @@
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
 use pgrx::{JsonB, PgRelation, Spi};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::index::{SearchFs, WriterDirectory};
-use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
-
-use super::format::format_bm25_function;
-use super::format::format_empty_function;
-use super::format::format_hybrid_function;
+use crate::index::{SearchFs, SearchIndex, WriterDirectory};
+use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
 
 // The maximum length of an index name in Postgres is 63 characters,
 // but we need to account for the trailing _bm25_index suffix
@@ -44,6 +40,7 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     numeric_fields jsonb DEFAULT '{}',
     boolean_fields jsonb DEFAULT '{}',
     json_fields jsonb DEFAULT '{}',
+    range_fields jsonb DEFAULT '{}',
     datetime_fields jsonb DEFAULT '{}',
     predicates text DEFAULT ''
 )
@@ -61,6 +58,7 @@ fn create_bm25_jsonb(
     numeric_fields: JsonB,
     boolean_fields: JsonB,
     json_fields: JsonB,
+    range_fields: JsonB,
     datetime_fields: JsonB,
     predicates: &str,
 ) -> Result<()> {
@@ -73,6 +71,7 @@ fn create_bm25_jsonb(
         &serde_json::to_string(&numeric_fields)?,
         &serde_json::to_string(&boolean_fields)?,
         &serde_json::to_string(&json_fields)?,
+        &serde_json::to_string(&range_fields)?,
         &serde_json::to_string(&datetime_fields)?,
         predicates,
     )
@@ -89,6 +88,7 @@ fn create_bm25_impl(
     numeric_fields: &str,
     boolean_fields: &str,
     json_fields: &str,
+    range_fields: &str,
     datetime_fields: &str,
     predicates: &str,
 ) -> Result<()> {
@@ -152,18 +152,14 @@ fn create_bm25_impl(
         && numeric_fields == "{}"
         && boolean_fields == "{}"
         && json_fields == "{}"
+        && range_fields == "{}"
         && datetime_fields == "{}"
     {
         bail!(
-            "no text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields were specified for index {}",
+            "no text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields were specified for index {}",
             spi::quote_literal(index_name)
         );
     }
-
-    Spi::run(&format!(
-        "CREATE SCHEMA {}",
-        spi::quote_identifier(index_name)
-    ))?;
 
     let mut column_names = HashSet::new();
     for fields in [
@@ -171,6 +167,7 @@ fn create_bm25_impl(
         numeric_fields,
         boolean_fields,
         json_fields,
+        range_fields,
         datetime_fields,
     ] {
         match json5::from_str::<Value>(fields) {
@@ -179,7 +176,7 @@ fn create_bm25_impl(
                     for key in map.keys() {
                         if key == key_field {
                             bail!(
-                                "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields",
+                                "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields",
                                 spi::quote_identifier(key.clone())
                             );
                         }
@@ -209,7 +206,7 @@ fn create_bm25_impl(
     let index_name_suffixed = format!("{}_bm25_index", index_name);
 
     Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, datetime_fields={}, uuid={}) {};",
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}, uuid={}) {};",
         spi::quote_identifier(index_name_suffixed.clone()),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
@@ -220,190 +217,10 @@ fn create_bm25_impl(
         spi::quote_literal(numeric_fields),
         spi::quote_literal(boolean_fields),
         spi::quote_literal(json_fields),
+        spi::quote_literal(range_fields),
         spi::quote_literal(datetime_fields),
         spi::quote_identifier(index_uuid.clone()),
         predicate_where))?;
-
-    let predicate = if !predicates.is_empty() {
-        format!("{} AND ", predicates)
-    } else {
-        "".to_string()
-    };
-
-    let index_oid = index_oid_from_index_name(&index_name_suffixed);
-
-    let pg_relation = unsafe {
-        PgRelation::open_with_name(&format!(
-            "{}.{}",
-            spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name)
-        ))
-        .expect("could not open relation")
-    };
-    let table_oid = pg_relation.oid().as_u32();
-
-    let index_json = json!({
-        "index_name": index_name_suffixed,
-        "index_oid": index_oid,
-        "table_oid": table_oid,
-        "database_oid": crate::MyDatabaseId(),
-        "table_name": table_name,
-        "key_field": key_field,
-        "schema_name": schema_name,
-        "uuid":  index_uuid
-    });
-
-    Spi::run(&format_bm25_function(
-        &spi::quote_qualified_identifier(index_name, "search"),
-        &format!(
-            "SETOF {}.{}",
-            spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name)
-        ),
-        &format!(
-            "RETURN QUERY SELECT * FROM {}.{} WHERE {} {} @@@ __paradedb_search_config__",
-            spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name),
-            predicate,
-            spi::quote_identifier(key_field)
-        ),
-        &index_json,
-    ))?;
-
-    Spi::run(&format_bm25_function(
-        &spi::quote_qualified_identifier(index_name, "explain"),
-        "TABLE(\"QUERY PLAN\" text)",
-        &format!(
-            "RETURN QUERY EXPLAIN SELECT * FROM {}.{} WHERE {} {} @@@ __paradedb_search_config__",
-            spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name),
-            predicate,
-            spi::quote_identifier(key_field)
-        ),
-        &index_json,
-    ))?;
-
-    Spi::run(&format_empty_function(
-        &spi::quote_qualified_identifier(index_name, "schema"),
-        "TABLE(name text, field_type text, stored bool, indexed bool, fast bool, fieldnorms bool, expand_dots bool, tokenizer text, record text, normalizer text)",
-        &format!("RETURN QUERY SELECT * FROM paradedb.schema_bm25({})", spi::quote_literal(index_name))
-    ))?;
-
-    // Get the type and type oid of the key column
-    let (key_oid, key_type) = match Spi::get_two::<pg_sys::Oid, String>(&format!(
-        "SELECT a.atttypid AS type_oid, CAST(t.typname AS TEXT) AS type_name
-            FROM pg_attribute a
-            JOIN pg_type t ON a.atttypid = t.oid
-            JOIN pg_class c ON a.attrelid = c.oid
-            JOIN pg_namespace n ON c.relnamespace = n.oid
-            WHERE c.relname = {} AND a.attname = {} AND n.nspname = {}",
-        spi::quote_literal(table_name),
-        spi::quote_literal(key_field),
-        spi::quote_literal(schema_name)
-    ))? {
-        (Some(key_oid), Some(key_type)) => (key_oid, key_type),
-        _ => bail!("could not select key field type and type oid"),
-    };
-
-    let predicate_where_escape = if !predicate_where.is_empty() {
-        predicate_where.replace('\'', "''")
-    } else {
-        "".to_string()
-    };
-
-    Spi::run(&format_bm25_function(
-        &spi::quote_qualified_identifier(index_name, "score_bm25"),
-        &format!("TABLE({} {}, score_bm25 REAL)", spi::quote_identifier(key_field), key_type),
-        &format!(
-            "RETURN QUERY SELECT * FROM paradedb.score_bm25(__paradedb_search_config__, NULL::{}, {})",
-            key_type,
-            key_oid.as_u32()
-        ),
-        &index_json,
-    ))?;
-
-    Spi::run(&format_bm25_function(
-        &spi::quote_qualified_identifier(index_name, "snippet"),
-        &format!(
-            "TABLE({} {}, snippet TEXT, score_bm25 REAL)",
-            spi::quote_identifier(key_field),
-            key_type
-        ),
-        &format!(
-            "RETURN QUERY SELECT * FROM paradedb.snippet(__paradedb_search_config__, NULL::{}, {})",
-            key_type,
-            key_oid.as_u32()
-        ),
-        &index_json,
-    ))?;
-
-    Spi::run(&format_hybrid_function(
-        &spi::quote_qualified_identifier(index_name, "score_hybrid"),
-        &format!("TABLE({} {}, score_hybrid real)", spi::quote_identifier(key_field), key_type),
-        &format!(
-            "
-                WITH similarity AS (
-                    SELECT
-                        __key_field__ as key_field,
-                        CASE
-                            WHEN (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ()) = 0 THEN
-                                0
-                            ELSE
-                                1 - ((__similarity_query__) - MIN(__similarity_query__) OVER ()) / 
-                                (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ())
-                        END AS score
-                    FROM {}.{}
-                    {}
-                    ORDER BY __similarity_query__
-                    LIMIT $2
-                ),
-                bm25 AS (
-                    SELECT 
-                        id as key_field,
-                        CASE
-                            WHEN (MAX(score_bm25) OVER () - MIN(score_bm25) OVER ()) = 0 THEN
-                                0
-                            ELSE
-                                ((score_bm25) - MIN(score_bm25) OVER ()) / 
-                                (MAX(score_bm25) OVER () - MIN(score_bm25) OVER ())
-                        END AS score
-                    FROM paradedb.score_bm25($1, NULL::{}, {})
-                )
-                SELECT
-                    COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,
-                    (COALESCE(similarity.score, 0.0) * $3 + COALESCE(bm25.score, 0.0) * $4)::real AS score_hybrid
-                FROM similarity
-                FULL OUTER JOIN bm25 ON similarity.key_field = bm25.key_field
-                ORDER BY score_hybrid DESC;
-            ",
-            spi::quote_identifier(schema_name),
-            spi::quote_identifier(table_name),
-            predicate_where_escape,
-            key_type,
-            key_oid.as_u32()
-        ),
-        &index_json
-    ))?;
-
-    Spi::run(&format!(
-        "CREATE OR REPLACE FUNCTION {index_name}.index_size() RETURNS bigint AS $func$
-        BEGIN
-            RETURN paradedb.index_size_impl('{index_name}');
-        END;
-        $func$ LANGUAGE plpgsql"
-    ))?;
-
-    let schema_oid_query = format!(
-        "SELECT oid FROM pg_namespace WHERE nspname = {}",
-        spi::quote_literal(index_name)
-    );
-    let schema_oid = Spi::get_one::<pg_sys::Oid>(&schema_oid_query)
-        .expect("error looking up schema in create_bm25")
-        .expect("no oid for schema created in create_bm25")
-        .as_u32();
-
-    // Add the dependency between the index and schema
-    add_pg_depend_entry(index_oid, pg_sys::Oid::from(schema_oid));
 
     Spi::run(&format!(
         "SET client_min_messages TO {}",
@@ -454,20 +271,45 @@ LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
 unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
     let database_oid = crate::MyDatabaseId();
-    crate::api::search::drop_bm25_internal(database_oid, index_oid.as_u32());
+    let relfile_paths = WriterDirectory::relfile_paths(database_oid, index_oid.as_u32())
+        .expect("could not look up pg_search relfilenode directory");
+
+    for directory in relfile_paths {
+        // Drop the Tantivy data directory.
+        // It's expected that this will be queued to actually perform the delete upon
+        // transaction commit.
+        match SearchIndex::from_disk(&directory) {
+            Ok(mut search_index) => {
+                search_index.drop_index().unwrap_or_else(|err| {
+                    panic!("error dropping index with OID {index_oid:?}: {err:?}")
+                });
+            }
+            Err(e) => {
+                pgrx::warning!(
+                    "error dropping index with OID {index_oid:?} at path {}: {e:?}",
+                    directory.search_index_dir_path(false).unwrap().0.display()
+                );
+            }
+        }
+    }
     Ok(())
 }
 
-#[pg_extern(sql = "
-CREATE OR REPLACE FUNCTION paradedb.index_size_impl(
-    index_name text
-) RETURNS bigint
-LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-")]
-fn index_size(index_name: &str) -> Result<i64> {
-    let index_oid = index_oid_from_index_name(&format!("{index_name}_bm25_index"));
+#[pg_extern]
+fn index_size(index: PgRelation) -> Result<i64> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+    let index_oid = index.oid();
+
     let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+    let relfilenode = relfilenode_from_pg_relation(&index);
 
     // Create a WriterDirectory with the obtained index_oid
     let writer_directory =
@@ -479,37 +321,64 @@ fn index_size(index_name: &str) -> Result<i64> {
     Ok(total_size as i64)
 }
 
-fn add_pg_depend_entry(index_oid: pg_sys::Oid, schema_oid: pg_sys::Oid) {
-    // SAFETY:  The calls to [`pg_sys::recordDependencyOn`] are unsafe purely because of FFI.
-    //    They operate on const pointers, which we stack allocate, and will raise their own ERRORs
-    //    should they fail.
-    unsafe {
-        let index_dep = pg_sys::ObjectAddress {
-            classId: pg_sys::RelationRelationId,
-            objectId: index_oid,
-            objectSubId: 0,
-        };
+#[pg_extern]
+fn index_info(
+    index: PgRelation,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(segno, String),
+            name!(byte_size, i64),
+            name!(num_docs, i64),
+            name!(num_deleted, i64),
+        ),
+    >,
+> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
-        let schema_dep = pg_sys::ObjectAddress {
-            classId: pg_sys::NamespaceRelationId,
-            objectId: schema_oid,
-            objectSubId: 0,
-        };
+    // open the specified index
+    let index = open_search_index(&index).expect("should be able to open search index");
+    let directory = index.directory.clone();
+    let data = index
+        .underlying_index
+        .searchable_segment_metas()?
+        .into_iter()
+        .map(|meta| {
+            let segno = meta.id().short_uuid_string();
+            let byte_size = meta
+                .list_files()
+                .into_iter()
+                .map(|file| {
+                    let mut full_path = directory.tantivy_dir_path(false).unwrap().0;
+                    full_path.push(file);
 
-        // Create dependency from index to schema
-        pg_sys::recordDependencyOn(
-            &index_dep,
-            &schema_dep,
-            pg_sys::DependencyType::DEPENDENCY_NORMAL,
-        );
+                    if full_path.exists() {
+                        full_path
+                            .metadata()
+                            .map(|metadata| metadata.len())
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    }
+                })
+                .sum::<u64>() as i64;
+            let num_docs = meta.num_docs() as i64;
+            let num_deleted = meta.num_deleted_docs() as i64;
 
-        // Create dependency from schema to index
-        pg_sys::recordDependencyOn(
-            &schema_dep,
-            &index_dep,
-            pg_sys::DependencyType::DEPENDENCY_NORMAL,
-        );
-    }
+            (segno, byte_size, num_docs, num_deleted)
+        })
+        .collect::<Vec<_>>();
+
+    Ok(TableIterator::new(data))
 }
 
 extension_sql!(

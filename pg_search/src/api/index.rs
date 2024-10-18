@@ -18,10 +18,8 @@
 use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 
-use crate::index::SearchIndex;
-use crate::index::WriterDirectory;
+use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::{index_oid_from_index_name, relfilenode_from_index_oid};
 use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
 use serde::{Deserialize, Serialize};
@@ -29,35 +27,39 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
 use std::ops::Bound;
+use tantivy::json_utils::split_json_path;
 use tantivy::schema::{FieldType, OwnedValue, Value};
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]
-pub fn schema_bm25(
-    index_name: &str,
-) -> TableIterator<(
-    name!(name, String),
-    name!(field_type, String),
-    name!(stored, bool),
-    name!(indexed, bool),
-    name!(fast, bool),
-    name!(fieldnorms, bool),
-    name!(expand_dots, Option<bool>),
-    name!(tokenizer, Option<String>),
-    name!(record, Option<String>),
-    name!(normalizer, Option<String>),
-)> {
-    let bm25_index_name = format!("{}_bm25_index", index_name);
+pub fn schema(
+    index: PgRelation,
+) -> TableIterator<
+    'static,
+    (
+        name!(name, String),
+        name!(field_type, String),
+        name!(stored, bool),
+        name!(indexed, bool),
+        name!(fast, bool),
+        name!(fieldnorms, bool),
+        name!(expand_dots, Option<bool>),
+        name!(tokenizer, Option<String>),
+        name!(record, Option<String>),
+        name!(normalizer, Option<String>),
+    ),
+> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
-    let database_oid = crate::MyDatabaseId();
-    let index_oid = index_oid_from_index_name(&bm25_index_name);
-    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
-
-    let directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
-    let search_index = SearchIndex::from_disk(&directory)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
+    let search_index = open_search_index(&index).expect("should be able to open search index");
     let schema = search_index.schema.schema.clone();
     let mut field_entries: Vec<_> = schema.fields().collect();
 
@@ -234,12 +236,14 @@ pub fn fuzzy_term(
     transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::FuzzyTerm {
-        field: field.into_inner(),
+        field,
         value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
+        path,
     }
 }
 
@@ -252,13 +256,15 @@ pub fn fuzzy_phrase(
     prefix: default!(Option<bool>, "NULL"),
     match_all_terms: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::FuzzyPhrase {
-        field: field.into_inner(),
+        field,
         value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
         match_all_terms,
+        path,
     }
 }
 
@@ -334,15 +340,30 @@ pub fn more_like_this_id(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn parse(query_string: String) -> SearchQueryInput {
-    SearchQueryInput::Parse { query_string }
+pub fn parse(
+    query_string: String,
+    lenient: default!(Option<bool>, "NULL"),
+    conjunction_mode: default!(Option<bool>, "NULL"),
+) -> SearchQueryInput {
+    SearchQueryInput::Parse {
+        query_string,
+        lenient,
+        conjunction_mode,
+    }
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn parse_with_field(field: FieldName, query_string: String) -> SearchQueryInput {
+pub fn parse_with_field(
+    field: FieldName,
+    query_string: String,
+    lenient: default!(Option<bool>, "NULL"),
+    conjunction_mode: default!(Option<bool>, "NULL"),
+) -> SearchQueryInput {
     SearchQueryInput::ParseWithField {
         field: field.into_inner(),
         query_string,
+        lenient,
+        conjunction_mode,
     }
 }
 
@@ -352,10 +373,12 @@ pub fn phrase(
     phrases: Vec<String>,
     slop: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::Phrase {
-        field: field.into_inner(),
+        field,
         phrases,
         slop: slop.map(|n| n as u32),
+        path,
     }
 }
 
@@ -365,23 +388,28 @@ pub fn phrase_prefix(
     phrases: Vec<String>,
     max_expansion: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::PhrasePrefix {
-        field: field.into_inner(),
+        field,
         phrases,
         max_expansions: max_expansion.map(|n| n as u32),
+        path,
     }
 }
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
+            path,
+            is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
@@ -392,20 +420,25 @@ pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
                 RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
             },
+            path,
+            is_datetime: false,
         },
     }
 }
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
+            path,
+            is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
@@ -416,20 +449,25 @@ pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
                 RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
             },
+            path,
+            is_datetime: false,
         },
     }
 }
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryInput {
+    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: Bound::Included(OwnedValue::F64(0.0)),
             upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
+            path,
+            is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field: field.into_inner(),
+            field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
@@ -448,6 +486,8 @@ pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryI
                     n.try_into().expect("numeric should be a valid f64"),
                 )),
             },
+            path,
+            is_datetime: false,
         },
     }
 }
@@ -456,18 +496,21 @@ macro_rules! datetime_range_fn {
     ($func_name:ident, $value_type:ty) => {
         #[pg_extern(name = "range", immutable, parallel_safe)]
         pub fn $func_name(field: FieldName, range: Range<$value_type>) -> SearchQueryInput {
+            let (field, path) = split_field_and_path(&field);
             match range.into_inner() {
                 None => SearchQueryInput::Range {
-                    field: field.into_inner(),
+                    field,
                     lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
                         tantivy::DateTime::from_timestamp_micros(0),
                     )),
                     upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
                         tantivy::DateTime::from_timestamp_micros(0),
                     )),
+                    path,
+                    is_datetime: true,
                 },
                 Some((lower, upper)) => SearchQueryInput::Range {
-                    field: field.into_inner(),
+                    field,
                     lower_bound: match lower {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
@@ -506,6 +549,8 @@ macro_rules! datetime_range_fn {
                                 .into(),
                         ),
                     },
+                    path,
+                    is_datetime: true,
                 },
             }
         }
@@ -532,11 +577,26 @@ macro_rules! term_fn {
             value: default!(Option<$value_type>, "NULL"),
         ) -> SearchQueryInput {
             if let Some(value) = value {
+                let (field, path) = if let Some(field) = field {
+                    let (field, path) = split_field_and_path(&field);
+                    (Some(field), path)
+                } else {
+                    (None, None)
+                };
+
+                let tantivy_value = TantivyValue::try_from(value)
+                    .expect("value should be a valid TantivyValue representation")
+                    .tantivy_schema_value();
+                let is_datetime = match tantivy_value {
+                    OwnedValue::Date(_) => true,
+                    _ => false,
+                };
+
                 SearchQueryInput::Term {
-                    field: field.map(|field| field.into_inner()),
-                    value: TantivyValue::try_from(value)
-                        .expect("value should be a valid TantivyValue representation")
-                        .tantivy_schema_value(),
+                    field,
+                    value: tantivy_value,
+                    path,
+                    is_datetime,
                 }
             } else {
                 panic!("no value provided to term query")
@@ -601,6 +661,157 @@ term_fn_unsupported!(
     "timestamp ranges with time zone"
 );
 
+macro_rules! range_term_fn {
+    ($func_name:ident, $value_type:ty, $is_datetime:expr) => {
+        #[pg_extern(name = "range_term", immutable, parallel_safe)]
+        pub fn $func_name(field: FieldName, term: $value_type) -> SearchQueryInput {
+            SearchQueryInput::RangeTerm {
+                field: field.into_inner(),
+                value: TantivyValue::try_from(term)
+                    .expect("term should be a valid TantivyValue representation")
+                    .tantivy_schema_value(),
+                is_datetime: $is_datetime,
+            }
+        }
+    };
+}
+
+range_term_fn!(range_term_i8, i8, false);
+range_term_fn!(range_term_i16, i16, false);
+range_term_fn!(range_term_i32, i32, false);
+range_term_fn!(range_term_i64, i64, false);
+range_term_fn!(range_term_f32, f32, false);
+range_term_fn!(range_term_f64, f64, false);
+range_term_fn!(range_term_numeric, pgrx::AnyNumeric, false);
+range_term_fn!(range_term_date, pgrx::datum::Date, true);
+range_term_fn!(range_term_timestamp, pgrx::datum::Timestamp, true);
+range_term_fn!(
+    range_term_timestamp_with_time_zone,
+    pgrx::datum::TimestampWithTimeZone,
+    true
+);
+
+#[derive(PostgresEnum, Serialize)]
+pub enum RangeRelation {
+    Intersects,
+    Contains,
+    Within,
+}
+
+impl Display for RangeRelation {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            RangeRelation::Intersects => write!(f, "Intersects"),
+            RangeRelation::Contains => write!(f, "Contains"),
+            RangeRelation::Within => write!(f, "Within"),
+        }
+    }
+}
+
+macro_rules! range_term_range_fn {
+    ($func_name:ident, $value_type:ty, $is_datetime:expr, $default:expr) => {
+        #[pg_extern(name = "range_term", immutable, parallel_safe)]
+        pub fn $func_name(
+            field: FieldName,
+            range: $value_type,
+            relation: RangeRelation,
+        ) -> SearchQueryInput {
+            let (lower_bound, upper_bound) = match range.into_inner() {
+                None => (Bound::Included($default), Bound::Excluded($default)),
+                Some((lower, upper)) => {
+                    let lower_bound = match lower {
+                        RangeBound::Infinite => Bound::Unbounded,
+                        RangeBound::Inclusive(n) => Bound::Included(
+                            TantivyValue::try_from(n)
+                                .expect("value should be a valid TantivyValue representation")
+                                .tantivy_schema_value(),
+                        ),
+                        RangeBound::Exclusive(n) => Bound::Excluded(
+                            TantivyValue::try_from(n)
+                                .expect("value should be a valid TantivyValue representation")
+                                .tantivy_schema_value(),
+                        ),
+                    };
+
+                    let upper_bound = match upper {
+                        RangeBound::Infinite => Bound::Unbounded,
+                        RangeBound::Inclusive(n) => Bound::Included(
+                            TantivyValue::try_from(n)
+                                .expect("value should be a valid TantivyValue representation")
+                                .tantivy_schema_value(),
+                        ),
+                        RangeBound::Exclusive(n) => Bound::Excluded(
+                            TantivyValue::try_from(n)
+                                .expect("value should be a valid TantivyValue representation")
+                                .tantivy_schema_value(),
+                        ),
+                    };
+
+                    (lower_bound, upper_bound)
+                }
+            };
+
+            match relation {
+                RangeRelation::Intersects => SearchQueryInput::RangeIntersects {
+                    field: field.into_inner(),
+                    lower_bound,
+                    upper_bound,
+                    is_datetime: $is_datetime,
+                },
+                RangeRelation::Contains => SearchQueryInput::RangeContains {
+                    field: field.into_inner(),
+                    lower_bound,
+                    upper_bound,
+                    is_datetime: $is_datetime,
+                },
+                RangeRelation::Within => SearchQueryInput::RangeWithin {
+                    field: field.into_inner(),
+                    lower_bound,
+                    upper_bound,
+                    is_datetime: $is_datetime,
+                },
+            }
+        }
+    };
+}
+
+range_term_range_fn!(
+    range_term_range_int4range,
+    pgrx::Range<i32>,
+    false,
+    OwnedValue::I64(0)
+);
+range_term_range_fn!(
+    range_term_range_int8range,
+    pgrx::Range<i64>,
+    false,
+    OwnedValue::I64(0)
+);
+range_term_range_fn!(
+    range_term_range_numrange,
+    pgrx::Range<pgrx::AnyNumeric>,
+    false,
+    OwnedValue::F64(0.0)
+);
+range_term_range_fn!(
+    range_term_range_daterange,
+    pgrx::Range<pgrx::datum::Date>,
+    true,
+    OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+);
+range_term_range_fn!(
+    range_term_range_tsrange,
+    pgrx::Range<pgrx::datum::Timestamp>,
+    true,
+    OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+);
+range_term_range_fn!(
+    range_term_range_tstzrange,
+    pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
+    true,
+    OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+);
+
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(
     terms: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
@@ -608,7 +819,13 @@ pub fn term_set(
     let terms: Vec<_> = terms
         .into_iter()
         .filter_map(|input| match input {
-            SearchQueryInput::Term { field, value, .. } => field.map(|field| (field, value)),
+            SearchQueryInput::Term {
+                field,
+                value,
+                path,
+                is_datetime,
+                ..
+            } => field.map(|field| (field, value, path, is_datetime)),
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();
@@ -678,5 +895,15 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
             panic!("type `paradedb.FieldName` should exist");
         }
         oid
+    }
+}
+
+#[inline]
+pub fn split_field_and_path(field: &FieldName) -> (String, Option<String>) {
+    let json_path = split_json_path(&field.clone().into_inner());
+    if json_path.len() == 1 {
+        (field.clone().into_inner(), None)
+    } else {
+        (json_path[0].clone(), Some(json_path[1..].join(".")))
     }
 }

@@ -20,7 +20,7 @@ concurrency:
 jobs:
   lint-docker:
     name: Lint Dockerfiles
-    runs-on: depot-ubuntu-latest-2
+    runs-on: ubicloud-standard-2
     if: github.event.pull_request.draft == false
 
     steps:

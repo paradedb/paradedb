@@ -22,15 +22,18 @@ mod cost;
 mod delete;
 mod insert;
 pub mod options;
+mod range;
 mod scan;
 mod vacuum;
 mod validate;
 
 pub mod customscan;
 pub mod datetime;
+pub mod index;
 pub mod transaction;
 pub mod types;
 pub mod utils;
+pub mod visibility_checker;
 
 #[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is
 pub enum ScanStrategy {

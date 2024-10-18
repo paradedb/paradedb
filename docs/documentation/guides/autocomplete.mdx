@@ -14,13 +14,11 @@ Several of ParadeDB's search APIs can be mixed and matched to build a full-fledg
 Suppose we want to find all documents containing `shoes`, but the user typed in `shoez`. The `fuzzy_term` query can find search results that approximately match the query term while allowing for minor typos in the input.
 
 ```sql
-SELECT description, rating, category
-FROM search_idx.search(
-    query => paradedb.fuzzy_term(
-        field => 'description',
-        value => 'shoez'
-    )
-);
+SELECT description, rating, category FROM mock_items
+WHERE id @@@ paradedb.fuzzy_term(
+    field => 'description',
+    value => 'shoez'
+) ORDER BY rating DESC;
 ```
 
 <Accordion title="Expected Response">
@@ -28,8 +26,8 @@ FROM search_idx.search(
      description     | rating | category
 ---------------------+--------+----------
  Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
  Generic shoes       |      4 | Footwear
+ White jogging shoes |      3 | Footwear
 (3 rows)
 ```
 </Accordion>
@@ -41,13 +39,11 @@ passing the entire phrase to `fuzzy_term` will not yield any matches. Instead, `
 **any** of the query's tokens are a `fuzzy_term` match.
 
 ```sql
-SELECT description, rating, category
-FROM search_idx.search(
-    query => paradedb.fuzzy_phrase(
-        field => 'description',
-        value => 'ruining shoez'
-    )
-);
+SELECT description, rating, category FROM mock_items
+WHERE id @@@ paradedb.fuzzy_phrase(
+    field => 'description',
+    value => 'ruining shoez'
+) ORDER BY rating DESC;
 ```
 
 <Accordion title="Expected Response">
@@ -55,8 +51,8 @@ FROM search_idx.search(
      description     | rating | category
 ---------------------+--------+----------
  Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
  Generic shoes       |      4 | Footwear
+ White jogging shoes |      3 | Footwear
 (3 rows)
 ```
 </Accordion>
@@ -64,13 +60,11 @@ FROM search_idx.search(
 For a stricter result set, `fuzzy_phrase` can be configured to match documents if **all** query tokens match.
 
 ```sql
-SELECT description, rating, category
-FROM search_idx.search(
-    query => paradedb.fuzzy_phrase(
-        field => 'description',
-        value => 'ruining shoez',
-        match_all_terms => true
-    )
+SELECT description, rating, category FROM mock_items
+WHERE id @@@ paradedb.fuzzy_phrase(
+    field => 'description',
+    value => 'ruining shoez',
+    match_all_terms => true
 );
 ```
 
@@ -88,15 +82,13 @@ FROM search_idx.search(
 Suppose we want to compare a query against both `description` and `category`. The `boolean` query can be used to query across multiple fields.
 
 ```sql
-SELECT description, rating, category
-FROM search_idx.search(
-    query => paradedb.boolean(
-        should => ARRAY[
-            paradedb.fuzzy_phrase(field => 'description', value => 'ruining shoez'),
-            paradedb.fuzzy_phrase(field => 'category', value => 'ruining shoez')
-        ]
-    )
-);
+SELECT description, rating, category FROM mock_items
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.fuzzy_phrase(field => 'description', value => 'ruining shoez'),
+        paradedb.fuzzy_phrase(field => 'category', value => 'ruining shoez')
+    ]
+) ORDER BY rating DESC;
 ```
 
 <Accordion title="Expected Response">
@@ -104,8 +96,8 @@ FROM search_idx.search(
      description     | rating | category
 ---------------------+--------+----------
  Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
  Generic shoes       |      4 | Footwear
+ White jogging shoes |      3 | Footwear
 (3 rows)
 ```
 </Accordion>
@@ -133,8 +125,9 @@ CALL paradedb.create_bm25(
 With `description` tokenized into n-grams, we can search for partial words.
 
 ```sql
-SELECT description, rating, category
-FROM ngrams_idx.search('description:sho');
+SELECT description, rating, category FROM mock_items
+WHERE description @@@ 'sho'
+ORDER BY rating DESC;
 ```
 
 <Accordion title="Expected Response">
@@ -142,8 +135,8 @@ FROM ngrams_idx.search('description:sho');
      description     | rating | category
 ---------------------+--------+----------
  Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
  Generic shoes       |      4 | Footwear
+ White jogging shoes |      3 | Footwear
 (3 rows)
 ```
 </Accordion>
@@ -157,14 +150,12 @@ To match documents where **any** ngram token of the query matches, the `fuzzy_ph
 exact ngram matches, the `distance` parameter can be lowered to `0`.
 
 ```sql
-SELECT description, rating, category
-FROM ngrams_idx.search(
-    query => paradedb.fuzzy_phrase(
-        field => 'description',
-        value => 'hsoes',
-        distance => 0
-    )
-);
+SELECT description, rating, category FROM mock_items
+WHERE id @@@ paradedb.fuzzy_phrase(
+    field => 'description',
+    value => 'hsoes',
+    distance => 0
+) ORDER BY rating DESC;
 ```
 
 <Accordion title="Expected Response">
@@ -172,8 +163,8 @@ FROM ngrams_idx.search(
      description     | rating | category
 ---------------------+--------+----------
  Sleek running shoes |      5 | Footwear
- White jogging shoes |      3 | Footwear
  Generic shoes       |      4 | Footwear
+ White jogging shoes |      3 | Footwear
 (3 rows)
 ```
 </Accordion>

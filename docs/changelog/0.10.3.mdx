@@ -7,7 +7,7 @@ title: 0.10.3
 Introduced support for index-only scans for queries that project **only** over the `key_field`. In practice, this means that
 simple `COUNT` facets will be much faster.
 
-```
+```sql
 SELECT COUNT(*) FROM mock_items
 WHERE id @@@ 'description:shoes';
 ```

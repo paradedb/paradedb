@@ -1,3 +1,4 @@
+# The default Postgres major version ParadeDB ships with. In CI, this gets updated to ship builds for all official PGDG versions.
 ARG PG_VERSION_MAJOR=16
 
 ###############################################
@@ -7,7 +8,7 @@ ARG PG_VERSION_MAJOR=16
 # Note: Debian Bookworm = Debian 12
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 ARG RUST_VERSION=1.80.0
 
 # Declare buildtime environment variables
@@ -91,7 +92,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-RUN git clone --branch v0.2.0 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
+RUN git clone --branch v0.2.1 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 
 # Build the extension
 WORKDIR /tmp/pg_analytics
@@ -103,7 +104,7 @@ RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/
 
 FROM builder AS builder-pgvector
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -121,7 +122,7 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
 
 FROM builder AS builder-pg_cron
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -138,7 +139,7 @@ RUN echo "trusted = true" >> pg_cron.control && \
 
 FROM builder AS builder-pg_ivm
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -159,7 +160,7 @@ LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \
     org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR
 
 # Declare runtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
@@ -248,7 +249,5 @@ RUN apt-get update && \
 # Switch back to the postgres user, with the new uid
 USER postgres
 
-# Copy ParadeDB scripts to install extensions, configure postgresql.conf, update extensions, etc.
+# Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
-COPY ./docker/update_pg_search.sh /usr/local/bin/
-COPY ./docker/update_pg_analytics.sh /usr/local/bin/

@@ -9,54 +9,19 @@ title: Overview
 
 ## Basic Usage
 
-Every BM25 index comes with a `search` function, which returns rows of a table that match a search query. By default, rows are sorted by relevance.
+`@@@` is ParadeDB's full text search operator that means "find all rows matching a full text query." The left-hand side of `@@@` accepts the field to search against, and the right-hand side accepts the query string.
 
 ```sql
-SELECT * FROM search_idx.search('<query>');
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+LIMIT 5;
 ```
+
+`@@@` itself **does not** perform any ordering, offsets, limits, or scoring. These operations need to be added to the overall query with `ORDER BY`, `OFFSET`, `LIMIT`, and [`paradedb.score`](/documentation/full-text/scoring).
 
 ## Query Language
 
-The query string accepts a mini query language which can be used to construct expressive queries.
-
-Each query must specify which field to search over. In the following example, we are querying for
-`keyboard` against the `description` field.
-
-```sql
-SELECT * FROM search_idx.search('description:keyboard');
-```
-
-## Search Options
-
-`search` accepts additional arguments for [pagination](/documentation/full-text/pagination) and [sorting](/documentation/full-text/sorting).
-
-```sql
-SELECT * FROM search_idx.search('description:keyboard', limit_rows => 10);
-```
-
-<ParamField body="limit_rows">
-  The maximum number of rows to return. Defaults to the number of documents in
-  the index. Providing a `limit_rows` can significantly improve query times.
-</ParamField>
-<ParamField body="offset_rows" default={0}>
-  The offset of the result set.
-</ParamField>
-<ParamField body="stable_sort" default={false}>
-  If set to `true`, equally-scored results will be sorted by `key_field`.
-</ParamField>
-<ParamField body="order_by_field">
-  If provided, results will be ordered by this field instead of by relevance.
-</ParamField>
-<ParamField body="order_by_direction" default={"asc"}>
-  Configures whether `order_by_field` orders in ascending or descending order.
-  Ascending is `asc`, descending is `desc`.
-</ParamField>
-<ParamField body="lenient_parsing" default={false}>
-  If set to `true`, the query parser will attempt to construct a valid query on
-  a best-effort basis, ignoring invalid components such as missing or
-  non-existent fields.
-</ParamField>
-<ParamField body="conjunction_mode" default={false}>
-  If set to `true`, the search function employs conjunction (AND) logic by
-  default.
-</ParamField>
+The query string on the right-hand side of `@@@` uses a mini query language that supports [term](/documentation/full-text/term),
+[phrase](/documentation/full-text/phrase), [filtered](/documentation/full-text/filtering), and [boosted](/documentation/full-text/boosting) queries.
+It also accepts [query builder functions](/documentation/advanced) for advanced, "Elastic DSL" style queries.

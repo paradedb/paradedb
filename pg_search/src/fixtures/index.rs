@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use uuid::Uuid;
-
 use crate::index::SearchIndexWriter;
 use crate::{
     index::SearchIndex,
@@ -27,7 +25,7 @@ use super::MockWriterDirectory;
 
 pub struct MockSearchIndex {
     pub directory: MockWriterDirectory,
-    pub index: &'static mut SearchIndex,
+    pub index: SearchIndex,
 }
 
 impl MockSearchIndex {
@@ -39,14 +37,8 @@ impl MockSearchIndex {
         // instance is dropped.
         // We can pass a fixed index OID as a mock.
         let directory = MockWriterDirectory::new(42);
-        let uuid = Uuid::new_v4().to_string();
-        SearchIndexWriter::create_index(
-            directory.writer_dir.clone(),
-            fields,
-            uuid,
-            key_field_index,
-        )
-        .expect("error creating index instance");
+        SearchIndexWriter::create_index(directory.writer_dir.clone(), fields, key_field_index)
+            .expect("error creating index instance");
 
         let index = SearchIndex::from_disk(&directory.writer_dir)
             .expect("error reading new index from cache");

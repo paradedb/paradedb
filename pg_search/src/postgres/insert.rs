@@ -15,12 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::relfilenode_from_index_oid;
-use crate::index::SearchIndex;
 use crate::index::SearchIndexWriter;
-use crate::index::WriterDirectory;
+use crate::index::{SearchIndex, WriterResources};
+use crate::postgres::index::open_search_index;
 use crate::postgres::utils::row_to_search_document;
-use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgTupleDesc};
+use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 
@@ -56,19 +55,9 @@ impl Drop for InsertState {
 }
 
 impl InsertState {
-    fn new(
-        database_oid: pg_sys::Oid,
-        index_oid: pg_sys::Oid,
-        relfilenode: pg_sys::Oid,
-    ) -> anyhow::Result<Self> {
-        let directory = WriterDirectory::from_oids(
-            database_oid.as_u32(),
-            index_oid.as_u32(),
-            relfilenode.as_u32(),
-        );
-
-        let index = SearchIndex::open_direct(&directory)?;
-        let writer = index.get_writer()?;
+    fn new(indexrel: &PgRelation, writer_resources: WriterResources) -> anyhow::Result<Self> {
+        let index = open_search_index(indexrel)?;
+        let writer = index.get_writer(writer_resources)?;
         Ok(Self {
             index,
             writer,
@@ -80,25 +69,24 @@ impl InsertState {
 pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
+    writer_resources: WriterResources,
 ) -> *mut InsertState {
     assert!(!index_info.is_null());
     let state = (*index_info).ii_AmCache;
     if state.is_null() {
         // we don't have any cached state yet, so create it now
-        let state = InsertState::new(
-            pg_sys::MyDatabaseId,
-            (*index_relation).rd_id,
-            relfilenode_from_index_oid((*index_relation).rd_id.as_u32()),
-        )
-        .expect("should be able to open new SearchIndex for writing");
+        let state = InsertState::new(&PgRelation::open((*index_relation).rd_id), writer_resources)
+            .expect("should be able to open new SearchIndex for writing");
 
         // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
         //
         // When that memory context is freed by Postgres is when we'll do our tantivy commit/abort
         // of the changes made during `aminsert`
-        (*index_info).ii_AmCache = PgMemoryContexts::For((*index_info).ii_Context)
-            .leak_and_drop_on_delete(state)
-            .cast();
+        //
+        // SAFETY: `leak_and_drop_on_delete` palloc's memory in CurrentMemoryContext, but in this
+        // case we want the thing it allocates to be palloc'd in the `ii_Context`
+        PgMemoryContexts::For((*index_info).ii_Context)
+            .switch_to(|mcxt| (*index_info).ii_AmCache = mcxt.leak_and_drop_on_delete(state).cast())
     };
 
     (*index_info).ii_AmCache.cast()
@@ -143,10 +131,10 @@ unsafe fn aminsert_internal(
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
     let result = catch_unwind(|| {
-        let state = &mut *init_insert_state(index_relation, index_info);
+        let state = &*init_insert_state(index_relation, index_info, WriterResources::Statement);
         let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
-        let search_index = &mut state.index;
-        let writer = &mut state.writer;
+        let search_index = &state.index;
+        let writer = &state.writer;
         let search_document =
             row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
                 .unwrap_or_else(|err| {

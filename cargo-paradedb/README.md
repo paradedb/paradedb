@@ -43,9 +43,7 @@ Benchmark tools are run under the `cargo paradedb bench` subcommand, which are o
 cargo paradedb bench eslogs query-search-index
 ```
 
-### Benchmark pg_search
-
-#### Generating pg_search Benchmark Data
+### Generating Benchmark Data
 
 Our benchmarks use the same generated data as the [elasticsearch-opensearch-benchmark](https://github.com/elastic/elasticsearch-opensearch-benchmark) project. To run the data generation tool, you must have [Go](https://go.dev/doc/install) installed. Run the generator tool with:
 
@@ -57,7 +55,7 @@ In the command above, `generate` can accept arguments to specify a random seed, 
 
 The `generate` tool is idempotent. It will produce a table in your Postgres database with the number of events that you asked it to generate. As it generates data, it will periodically commit the `INSERT` transaction to Postgres. If you kill the process, it will pick up where it left off the next time you run it.
 
-#### Running pg_search Benchmarks
+### Running Search Benchmarks
 
 All commands below operate on default tables, visible with `--help`. Defaults can be overridden with options passed to each command.
 
@@ -75,7 +73,9 @@ Query a `pg_search` index (index must already exist):
 cargo paradedb bench eslogs query-search-index
 ```
 
-### Benchmark pg_analytics
+### Running Analytics Benchmarks
+
+> NOTE: This feature is currently being reworked. It will be re-enabled once fast facets are implemented.
 
 Note: This benchmark pulls the entire 100 million-row ClickBench dataset in Parquet format, which is ~15GBs.
 

@@ -19,7 +19,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, anyelement_query_input_procoid, estimate_selectivity,
     find_var_relation, make_search_config_opexpr_node, ReturnedNodePointer,
 };
-use crate::postgres::utils::{locate_bm25_index, relfilenode_from_pg_relation};
+use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
@@ -30,7 +30,7 @@ use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 /// circumstances, but it could be called if the rhs of the @@@ is some kind of volatile value.
 ///
 /// And in that case we just have to give up.
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
     _element: AnyElement,
     query: SearchQueryInput,
@@ -68,7 +68,6 @@ fn query_input_support_request_simplify(arg: Internal) -> Option<ReturnedNodePoi
         // }
 
         let rhs = input_args.get_ptr(1)?;
-
         let query = nodecast!(Const, T_Const, rhs)
             .map(|const_| SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull))
             .flatten();
@@ -105,12 +104,11 @@ pub fn query_input_restrict(
 
             let (heaprelid, _, _) = find_var_relation(var, info);
             let indexrel = locate_bm25_index(heaprelid)?;
-            let relfilenode = relfilenode_from_pg_relation(&indexrel);
 
             let query = SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-            let search_config = SearchConfig::from((query, indexrel));
+            let search_config = SearchConfig::from((query, &indexrel));
 
-            estimate_selectivity(heaprelid, relfilenode, &search_config)
+            estimate_selectivity(&indexrel, &search_config)
         }
     }
 

@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
+use crate::postgres::range::RangeToTantivyValue;
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
@@ -217,6 +218,32 @@ impl TantivyValue {
                 PgBuiltInOids::UUIDOID => TantivyValue::try_from(
                     pgrx::datum::Uuid::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::INT4RANGEOID => TantivyValue::from_range(
+                    pgrx::datum::Range::<i32>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::INT8RANGEOID => TantivyValue::from_range(
+                    pgrx::datum::Range::<i64>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::NUMRANGEOID => TantivyValue::from_range(
+                    pgrx::datum::Range::<pgrx::AnyNumeric>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::DATERANGEOID => TantivyValue::from_range(
+                    pgrx::datum::Range::<pgrx::datum::Date>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TSRANGEOID => TantivyValue::from_range(
+                    pgrx::datum::Range::<pgrx::datum::Timestamp>::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::TSTZRANGEOID => TantivyValue::from_range(
+                    pgrx::datum::Range::<pgrx::datum::TimestampWithTimeZone>::from_datum(
+                        datum, false,
+                    )
+                    .ok_or(TantivyValueError::DatumDeref)?,
                 ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
@@ -802,7 +829,8 @@ impl TryFrom<pgrx::datum::TimestampWithTimeZone> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::TimestampWithTimeZone) -> Result<Self, Self::Error> {
-        let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
+        let val = val.to_utc();
+        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
         Ok(TantivyValue(datetime_components_to_tantivy_date(
             Some((val.year(), val.month(), val.day())),
             (v_h, v_m, v_s, v_ms),
@@ -906,68 +934,6 @@ impl TryFrom<pgrx::Inet> for TantivyValue {
     fn try_from(_val: pgrx::Inet) -> Result<Self, Self::Error> {
         Err(TantivyValueError::UnsupportedFromConversion(
             "inet".to_string(),
-        ))
-    }
-}
-
-impl TryFrom<pgrx::Range<i32>> for TantivyValue {
-    type Error = TantivyValueError;
-
-    fn try_from(_val: pgrx::Range<i32>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::UnsupportedFromConversion(
-            "int4 range".to_string(),
-        ))
-    }
-}
-
-impl TryFrom<pgrx::Range<i64>> for TantivyValue {
-    type Error = TantivyValueError;
-
-    fn try_from(_val: pgrx::Range<i64>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::UnsupportedFromConversion(
-            "int8 range".to_string(),
-        ))
-    }
-}
-
-impl TryFrom<pgrx::Range<pgrx::AnyNumeric>> for TantivyValue {
-    type Error = TantivyValueError;
-
-    fn try_from(_val: pgrx::Range<pgrx::AnyNumeric>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::UnsupportedFromConversion(
-            "nuemric range".to_string(),
-        ))
-    }
-}
-
-impl TryFrom<pgrx::Range<pgrx::datum::Date>> for TantivyValue {
-    type Error = TantivyValueError;
-
-    fn try_from(_val: pgrx::Range<pgrx::datum::Date>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::UnsupportedFromConversion(
-            "date range".to_string(),
-        ))
-    }
-}
-
-impl TryFrom<pgrx::Range<pgrx::datum::Timestamp>> for TantivyValue {
-    type Error = TantivyValueError;
-
-    fn try_from(_val: pgrx::Range<pgrx::datum::Timestamp>) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::UnsupportedFromConversion(
-            "timestamp range".to_string(),
-        ))
-    }
-}
-
-impl TryFrom<pgrx::Range<pgrx::datum::TimestampWithTimeZone>> for TantivyValue {
-    type Error = TantivyValueError;
-
-    fn try_from(
-        _val: pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
-    ) -> Result<Self, Self::Error> {
-        Err(TantivyValueError::UnsupportedFromConversion(
-            "timestamp with time zone range".to_string(),
         ))
     }
 }

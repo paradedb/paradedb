@@ -15,12 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::WriterResources;
+use crate::postgres::index::open_search_index;
 use pgrx::*;
-
-use crate::{
-    index::{SearchIndex, WriterDirectory},
-    postgres::utils::relfilenode_from_index_oid,
-};
 
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
@@ -39,25 +36,18 @@ pub extern "C" fn amvacuumcleanup(
             unsafe { pg_sys::palloc0(std::mem::size_of::<pg_sys::IndexBulkDeleteResult>()).cast() };
     }
 
-    let index_rel: pg_sys::Relation = info.index;
-    let index_relation = unsafe { PgRelation::from_pg(index_rel) };
+    let index_relation = unsafe { PgRelation::from_pg(info.index) };
     let index_name = index_relation.name();
 
-    let index_oid = index_relation.oid().as_u32();
-    let relfilenode = relfilenode_from_index_oid(index_oid).as_u32();
-    let database_oid = crate::MyDatabaseId();
-
-    let directory = WriterDirectory::from_oids(database_oid, index_oid, relfilenode);
-    let search_index = SearchIndex::from_disk(&directory)
-        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
-
-    let mut writer = search_index
-        .get_writer()
+    let search_index =
+        open_search_index(&index_relation).expect("should be able to open search index");
+    let writer = search_index
+        .get_writer(WriterResources::Vacuum)
         .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));
 
     // Garbage collect the index and clear the writer cache to free up locks.
     search_index
-        .vacuum(&mut writer)
+        .vacuum(&writer)
         .unwrap_or_else(|err| panic!("error during vacuum on index {index_name}: {err:?}"));
 
     stats

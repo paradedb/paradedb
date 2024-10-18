@@ -15,14 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::SearchIndex;
 use crate::index::WriterDirectory;
+use crate::index::{SearchIndex, WriterResources};
+use crate::postgres::index::relfilenode_from_pg_relation;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::utils::{relfilenode_from_index_oid, row_to_search_document};
+use crate::postgres::utils::row_to_search_document;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
 use std::collections::HashMap;
+use std::ffi::CStr;
+use std::time::Instant;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
@@ -30,17 +33,19 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 struct BuildState {
     count: usize,
     memctx: PgMemoryContexts,
-    uuid: String,
     index_info: *mut pg_sys::IndexInfo,
+    tupdesc: PgTupleDesc<'static>,
+    start: Instant,
 }
 
 impl BuildState {
-    fn new(uuid: String, index_info: *mut pg_sys::IndexInfo) -> Self {
+    fn new(indexrel: &PgRelation, index_info: *mut pg_sys::IndexInfo) -> Self {
         BuildState {
             count: 0,
             memctx: PgMemoryContexts::new("pg_search_index_build"),
             index_info,
-            uuid,
+            tupdesc: unsafe { PgTupleDesc::from_pg_copy(indexrel.rd_att) },
+            start: Instant::now(),
         }
     }
 }
@@ -55,7 +60,7 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
     let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
+    let relfilenode = relfilenode_from_pg_relation(&index_relation);
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
@@ -136,6 +141,13 @@ pub extern "C" fn ambuild(
                 _ => panic!("'{name}' cannot be indexed as a JSON field"),
             });
 
+    let range_fields = rdopts.get_range_fields().into_iter().map(|(name, config)| {
+        match name_type_map.get(&name) {
+            Some(field_type @ SearchFieldType::Range) => (name, config, *field_type),
+            _ => panic!("'{name}' cannot be indexed as a range field"),
+        }
+    });
+
     let datetime_fields = rdopts
         .get_datetime_fields()
         .into_iter()
@@ -144,9 +156,6 @@ pub extern "C" fn ambuild(
             _ => panic!("'{name}' cannot be indexed as a datetime field"),
         });
 
-    let uuid = rdopts
-        .get_uuid()
-        .expect("must specify uuid, this is done automatically in 'create_bm25'");
     let key_field = rdopts.get_key_field().expect("must specify key field");
     let key_field_type = match name_type_map.get(&key_field) {
         Some(field_type) => field_type,
@@ -178,6 +187,7 @@ pub extern "C" fn ambuild(
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
         },
+        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
@@ -195,6 +205,7 @@ pub extern "C" fn ambuild(
         .chain(numeric_fields)
         .chain(boolean_fields)
         .chain(json_fields)
+        .chain(range_fields)
         .chain(datetime_fields)
         .chain(std::iter::once((
             key_field.clone(),
@@ -224,10 +235,10 @@ pub extern "C" fn ambuild(
     let directory =
         WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
 
-    SearchIndex::create_index(directory, fields, uuid.clone(), key_field_index)
+    SearchIndex::create_index(directory, fields, key_field_index)
         .expect("error creating new index instance");
 
-    let state = do_heap_scan(index_info, &heap_relation, &index_relation, uuid);
+    let state = do_heap_scan(index_info, &heap_relation, &index_relation);
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = state.count as f64;
     result.index_tuples = state.count as f64;
@@ -242,9 +253,8 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
-    uuid: String,
 ) -> BuildState {
-    let mut state = BuildState::new(uuid, index_info);
+    let mut state = BuildState::new(index_relation, index_info);
     unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -275,15 +285,22 @@ unsafe fn build_callback_internal(
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     state: *mut std::os::raw::c_void,
-    index: pg_sys::Relation,
+    indexrel: pg_sys::Relation,
 ) {
     check_for_interrupts!();
-    let state = (state as *mut BuildState)
+    let build_state = (state as *mut BuildState)
         .as_mut()
         .expect("BuildState pointer should not be null");
 
-    let insert_state = init_insert_state(index, state.index_info);
-    let writer = &mut (*insert_state).writer;
+    let tupdesc = &build_state.tupdesc;
+    let insert_state = init_insert_state(
+        indexrel,
+        build_state.index_info,
+        WriterResources::CreateIndex,
+    );
+    let search_index = &(*insert_state).index;
+    let writer = &(*insert_state).writer;
+    let schema = &(*insert_state).index.schema;
 
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a
@@ -294,26 +311,16 @@ unsafe fn build_callback_internal(
     // By running in our own memory context, we can force the memory to be freed with
     // the call to reset().
     unsafe {
-        state.memctx.reset();
-        state.memctx.switch_to(|_| {
-            let index_relation_ref: PgRelation = PgRelation::from_pg(index);
-            let tupdesc = index_relation_ref.tuple_desc();
-            let index_oid = index_relation_ref.oid();
-            let relfilenode = relfilenode_from_index_oid(index_oid.as_u32());
-            let database_oid = crate::MyDatabaseId();
-
-            let directory =
-                WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
-            let search_index = SearchIndex::from_cache(&directory, &state.uuid)
-                .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
+        build_state.memctx.reset();
+        build_state.memctx.switch_to(|_| {
             let search_document =
-                row_to_search_document(ctid, &tupdesc, values, isnull, &search_index.schema)
-                    .unwrap_or_else(|err| {
-                        panic!(
-                            "error creating index entries for index '{}': {err}",
-                            index_relation_ref.name()
-                        );
-                    });
+                row_to_search_document(ctid, tupdesc, values, isnull, schema).unwrap_or_else(|err| {
+                    panic!(
+                        "error creating index entries for index '{}': {err}",
+                        CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr())
+                            .to_string_lossy()
+                    );
+                });
 
             search_index
                 .insert(writer, search_document)
@@ -321,11 +328,20 @@ unsafe fn build_callback_internal(
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
         });
-        state.memctx.reset();
+        build_state.memctx.reset();
 
         // important to count the number of items we've indexed for proper statistics updates,
         // especially after CREATE INDEX has finished
-        state.count += 1;
+        build_state.count += 1;
+
+        if crate::gucs::log_create_index_progress() && build_state.count % 100_000 == 0 {
+            let secs = build_state.start.elapsed().as_secs_f64();
+            let rate = build_state.count as f64 / secs;
+            pgrx::log!(
+                "processed {} rows in {secs:.2} seconds ({rate:.2} per second)",
+                build_state.count,
+            );
+        }
     }
 }
 

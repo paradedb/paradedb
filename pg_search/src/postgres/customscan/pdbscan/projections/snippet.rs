@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::search::{DEFAULT_SNIPPET_POSTFIX, DEFAULT_SNIPPET_PREFIX};
-use crate::index::state::SearchState;
+use crate::index::reader::SearchIndexReader;
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
@@ -27,6 +26,9 @@ use std::collections::HashMap;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::DocAddress;
+
+const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
+const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct SnippetInfo {
@@ -57,11 +59,13 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
 }
 
 pub unsafe fn uses_snippets(
+    rti: pg_sys::Index,
     attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
 ) -> Vec<SnippetInfo> {
     struct Context<'a> {
+        rti: pg_sys::Index,
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
         snippet_info: Vec<SnippetInfo>,
@@ -92,7 +96,7 @@ pub unsafe fn uses_snippets(
                 {
                     let attname = (*context)
                         .attname_lookup
-                        .get(&((*field_arg).varno as _, (*field_arg).varattno as _))
+                        .get(&((*context).rti as _, (*field_arg).varattno as _))
                         .cloned()
                         .expect("Var attname should be in lookup");
                     let start_tag =
@@ -110,7 +114,7 @@ pub unsafe fn uses_snippets(
                         max_num_chars: max_num_chars_arg as usize,
                     });
                 } else {
-                    panic!("`paradedb.snippet()`'s field and (optional) tag arguments must be text literals")
+                    panic!("`paradedb.snippet()`'s arguments must be literals")
                 }
             }
         }
@@ -119,6 +123,7 @@ pub unsafe fn uses_snippets(
     }
 
     let mut context = Context {
+        rti,
         attname_lookup,
         snippet_funcoid,
         snippet_info: vec![],
@@ -130,26 +135,26 @@ pub unsafe fn uses_snippets(
 
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn inject_snippet(
+    rti: pg_sys::Index,
     attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
-    search_state: &SearchState,
+    search_reader: &SearchIndexReader,
     field: &str,
     start: &str,
     end: &str,
-    max_num_chars: usize,
-    snippet_generator: &mut SnippetGenerator,
+    snippet_generator: &SnippetGenerator,
     doc_address: DocAddress,
 ) -> *mut pg_sys::Node {
     struct Context<'a> {
+        rti: pg_sys::Index,
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
-        search_state: &'a SearchState,
+        search_reader: &'a SearchIndexReader,
         field: &'a str,
         start: &'a str,
         end: &'a str,
-        max_num_chars: usize,
-        snippet_generator: &'a mut SnippetGenerator,
+        snippet_generator: &'a SnippetGenerator,
         doc_address: DocAddress,
     }
 
@@ -173,18 +178,14 @@ pub unsafe fn inject_snippet(
                 if let Some(first_arg) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                     let attname = (*context)
                         .attname_lookup
-                        .get(&((*first_arg).varno as _, (*first_arg).varattno as _))
+                        .get(&((*context).rti as _, (*first_arg).varattno as _))
                         .cloned()
                         .expect("Var attname should be in lookup");
                     if attname == (*context).field {
                         let doc = (*context)
-                            .search_state
+                            .search_reader
                             .get_doc((*context).doc_address)
                             .expect("should be able to retrieve doc for snippet generation");
-
-                        (*context)
-                            .snippet_generator
-                            .set_max_num_chars((*context).max_num_chars);
 
                         let mut snippet = (*context).snippet_generator.snippet_from_doc(&doc);
                         snippet.set_snippet_prefix_postfix((*context).start, (*context).end);
@@ -218,13 +219,13 @@ pub unsafe fn inject_snippet(
     }
 
     let mut context = Context {
+        rti,
         attname_lookup,
         snippet_funcoid,
-        search_state,
+        search_reader,
         field,
         start,
         end,
-        max_num_chars,
         snippet_generator,
         doc_address,
     };

@@ -22,6 +22,7 @@ use pgrx::{node_to_string, pg_sys, FromDatum, JsonB, PgList};
 
 #[derive(Debug, Clone)]
 pub enum Qual {
+    Ignore,
     OperatorExpression {
         var: *mut pg_sys::Var,
         opno: pg_sys::Oid,
@@ -35,6 +36,11 @@ pub enum Qual {
 impl From<Qual> for SearchConfig {
     fn from(value: Qual) -> Self {
         match value {
+            Qual::Ignore => SearchConfig {
+                query: SearchQueryInput::All,
+                ..Default::default()
+            },
+
             Qual::OperatorExpression { val, .. } => unsafe {
                 let config_jsonb = JsonB::from_datum((*val).constvalue, (*val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null");
@@ -99,10 +105,14 @@ impl From<Qual> for SearchConfig {
     }
 }
 
-pub unsafe fn extract_quals(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> Option<Qual> {
+pub unsafe fn extract_quals(
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+) -> Option<Qual> {
     match (*node).type_ {
         pg_sys::NodeTag::T_List => {
-            let mut quals = list(node.cast(), pdbopoid)?;
+            let mut quals = list(rti, node.cast(), pdbopoid)?;
             if quals.len() == 1 {
                 quals.pop()
             } else {
@@ -112,15 +122,23 @@ pub unsafe fn extract_quals(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> O
 
         pg_sys::NodeTag::T_RestrictInfo => {
             let ri = nodecast!(RestrictInfo, T_RestrictInfo, node)?;
-            extract_quals((*ri).clause.cast(), pdbopoid)
+            // if (*ri).num_base_rels > 1 {
+            //     return None;
+            // }
+            let clause = if !(*ri).orclause.is_null() {
+                (*ri).orclause
+            } else {
+                (*ri).clause
+            };
+            extract_quals(rti, clause.cast(), pdbopoid)
         }
 
-        pg_sys::NodeTag::T_OpExpr => opexpr(node, pdbopoid),
+        pg_sys::NodeTag::T_OpExpr => opexpr(rti, node, pdbopoid),
 
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            let mut quals = list((*boolexpr).args, pdbopoid)?;
+            let mut quals = list(rti, (*boolexpr).args, pdbopoid)?;
 
             match (*boolexpr).boolop {
                 pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
@@ -138,16 +156,24 @@ pub unsafe fn extract_quals(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> O
     }
 }
 
-unsafe fn list(list: *mut pg_sys::List, pdbopoid: pg_sys::Oid) -> Option<Vec<Qual>> {
+unsafe fn list(
+    rti: pg_sys::Index,
+    list: *mut pg_sys::List,
+    pdbopoid: pg_sys::Oid,
+) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
     for child in args.iter_ptr() {
-        quals.push(extract_quals(child, pdbopoid)?)
+        quals.push(extract_quals(rti, child, pdbopoid)?)
     }
     Some(quals)
 }
 
-unsafe fn opexpr(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> Option<Qual> {
+unsafe fn opexpr(
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
     let (lhs, rhs) = (
@@ -164,9 +190,17 @@ unsafe fn opexpr(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> Option<Qual>
     }
     let (lhs, rhs) = (lhs?, rhs?);
 
-    ((*opexpr).opno == pdbopoid).then(|| Qual::OperatorExpression {
-        var: lhs,
-        opno: (*opexpr).opno,
-        val: rhs,
-    })
+    if (*opexpr).opno == pdbopoid {
+        if (*lhs).varno as i32 != rti as i32 {
+            Some(Qual::Ignore)
+        } else {
+            Some(Qual::OperatorExpression {
+                var: lhs,
+                opno: (*opexpr).opno,
+                val: rhs,
+            })
+        }
+    } else {
+        None
+    }
 }

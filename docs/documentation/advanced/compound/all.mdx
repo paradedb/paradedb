@@ -1,0 +1,17 @@
+---
+title: All
+---
+
+## Basic Usage
+
+`all` indiscriminately matches every document in the index, assigning a uniform score of `1.0` to each. `all` is typically used in conjunction with `paradedb.boolean` queries. If `paradedb.boolean` contains only `must_not`, then `all` needs to be provided
+to form a result set for `must_not` to filter over.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.boolean(
+    should => ARRAY[paradedb.all()],
+    must_not => ARRAY[paradedb.term('description', 'shoes')]
+);
+```

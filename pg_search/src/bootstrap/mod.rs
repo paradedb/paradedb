@@ -16,5 +16,4 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod create_bm25;
-mod format;
 mod test_table;

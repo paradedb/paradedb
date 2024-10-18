@@ -19,7 +19,7 @@ use crate::api::operator::{
     anyelement_text_opoid, anyelement_text_procoid, attname_from_var, estimate_selectivity,
     make_search_config_opexpr_node, ReturnedNodePointer,
 };
-use crate::postgres::utils::{locate_bm25_index, relfilenode_from_search_config};
+use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
@@ -30,7 +30,7 @@ use pgrx::{pg_extern, pg_sys, AnyElement, FromDatum, Internal, PgList};
 /// could be called if the rhs of the @@@ is some kind of volatile value.
 ///
 /// And in that case we just have to give up.
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_text(
     _element: AnyElement,
     query: &str,
@@ -95,10 +95,9 @@ pub fn text_restrict(
 
             let (heaprelid, query) = make_query_from_var_and_const(info, var, const_);
             let indexrel = locate_bm25_index(heaprelid)?;
-            let search_config = SearchConfig::from((query, indexrel));
-            let relfilenode = relfilenode_from_search_config(&search_config);
+            let search_config = SearchConfig::from((query, &indexrel));
 
-            estimate_selectivity(heaprelid, relfilenode, &search_config)
+            estimate_selectivity(&indexrel, &search_config)
         }
     }
 
@@ -128,11 +127,17 @@ unsafe fn make_query_from_var_and_const(
         Some(field) => SearchQueryInput::ParseWithField {
             field,
             query_string,
+            lenient: None,
+            conjunction_mode: None,
         },
 
         // the Var represents a table reference, and that means the Const value is to be used
         // as-is as a query
-        None => SearchQueryInput::Parse { query_string },
+        None => SearchQueryInput::Parse {
+            query_string,
+            lenient: None,
+            conjunction_mode: None,
+        },
     };
     (heaprelid, query)
 }

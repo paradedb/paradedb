@@ -21,7 +21,7 @@ concurrency:
 jobs:
   lint-rust:
     name: Lint Rust Files
-    runs-on: depot-ubuntu-latest-2
+    runs-on: ubicloud-standard-2
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
@@ -34,17 +34,19 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Extract pgrx version
+        working-directory: pg_search/
+        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv )" >> $GITHUB_ENV
+
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: ubicloud/rust-cache@v2
         with:
-          prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_analytics-${{ HashFiles('Cargo.lock') }}
+          prefix-key: "v1-lint-rust"
+          key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}
           cache-targets: true
-          cache-on-failure: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -52,12 +54,8 @@ jobs:
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
 
-      - name: Extract pgrx version
-        working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv )" >> $GITHUB_ENV
-
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }}
+        run: cargo install --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
 
       - name: Initialize pgrx for Current PostgreSQL Version
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
@@ -68,11 +66,14 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 
-      - name: Dependency Check
-        run: cargo install cargo-machete && cargo machete
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --debug
 
       - name: Install taplo
-        run: cargo +stable install taplo-cli --version ^0.9 --locked
+        run: cargo install taplo-cli --version ^0.9 --locked --debug
+
+      - name: Run cargo-machete
+        run: cargo machete
 
       # If you encounter an error, try running 'taplo format' to fix the formatting automatically.
       - name: Check Cargo.toml Formatting

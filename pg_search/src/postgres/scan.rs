@@ -100,13 +100,13 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let search_index = open_search_index(&indexrel).expect("should be able to open search index");
-    let state = search_index
+    let search_reader = search_index
         .get_reader()
         .expect("SearchState should construct cleanly");
 
     unsafe {
-        let query = search_index.query(&search_query_input, &state);
-        let results = state.search_minimal(
+        let query = search_index.query(&search_query_input, &search_reader);
+        let results = search_reader.search_minimal(
             (*scan).xs_want_itup,
             search_query_input.contains_more_like_this(),
             search_index.key_field_name(),

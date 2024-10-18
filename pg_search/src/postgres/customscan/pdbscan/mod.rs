@@ -537,12 +537,14 @@ impl CustomScan for PdbScan {
             };
             results
         } else {
-            let results = search_reader.search_minimal(
-                false,
-                state
+            let need_scores = state.custom_state().need_scores
+                || state
                     .custom_state()
                     .search_query_input
-                    .contains_more_like_this(),
+                    .contains_more_like_this();
+            let results = search_reader.search_minimal(
+                false,
+                need_scores,
                 search_index.key_field_name(),
                 SearchIndex::executor(),
                 state.custom_state().query.as_ref().unwrap(),

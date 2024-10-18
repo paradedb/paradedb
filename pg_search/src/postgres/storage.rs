@@ -198,6 +198,7 @@ impl TantivyMetaDirectory {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct SegmentWriter {
     relation_oid: u32,
     start_blockno: pg_sys::BlockNumber,
@@ -205,7 +206,6 @@ pub struct SegmentWriter {
 
 impl SegmentWriter {
     pub unsafe fn new(relation_oid: u32, path: &Path) -> Self {
-        pgrx::info!("new segmentwriter");
         // let base = BaseDirectory::new(relation_oid);
         // let segment_blockno = base
         //     .new_buffer(std::mem::size_of::<SegmentSpecialData>())
@@ -245,8 +245,6 @@ impl SegmentWriter {
         // };
 
         // meta_buffer.mark_dirty();
-
-        // pgrx::info!("done here");
 
         Self {
             relation_oid,
@@ -304,7 +302,7 @@ impl Write for SegmentWriter {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        pgrx::info!("flush");
+        pgrx::info!("Flushing");
         Ok(())
     }
 }

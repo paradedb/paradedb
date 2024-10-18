@@ -76,7 +76,9 @@ impl SearchIndex {
     /// can get an exclusive lock on the Tantivy writer. The return type needs to
     /// be entirely owned by the new process, with no references.
     pub fn get_writer(&self) -> Result<SearchIndexWriter> {
-        let underlying_writer = self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
+        let underlying_writer = self
+            .underlying_index
+            .writer_with_num_threads(1, INDEX_TANTIVY_MEMORY_BUDGET)?;
         Ok(SearchIndexWriter {
             underlying_writer: Some(underlying_writer),
         })

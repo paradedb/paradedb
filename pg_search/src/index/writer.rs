@@ -41,9 +41,19 @@ use tantivy::{
 use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, IndexWriter};
 use thiserror::Error;
 
+use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 use crate::postgres::storage::{SegmentWriter, TantivyMetaDirectory};
 
-use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
+/// Returns true if the file is "managed".
+/// Non-managed file are not subject to garbage collection.
+///
+/// Filenames that starts by a "." -typically locks-
+/// are not managed.
+fn is_managed(path: &Path) -> bool {
+    path.to_str()
+        .map(|p_str| !p_str.starts_with('.'))
+        .unwrap_or(true)
+}
 
 impl TerminatingWrite for SegmentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> io::Result<()> {
@@ -77,7 +87,7 @@ impl Directory for BlockingDirectory {
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        pgrx::info!("open_write");
+        pgrx::info!("open_write {:?}", path);
         Ok(io::BufWriter::new(Box::new(unsafe {
             SegmentWriter::new(self.relation_oid, path)
         })))
@@ -106,8 +116,6 @@ impl Directory for BlockingDirectory {
             return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
         }
 
-        pgrx::info!("read succeeded");
-        
         Ok(FileSlice::from(data)
             .read_bytes()
             .map_err(|io_error| OpenReadError::IoError {
@@ -130,17 +138,14 @@ impl Directory for BlockingDirectory {
         // self.0.exists(path)
     }
 
-    // fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
-    //     // pgrx::info!("acquire_lock: {:?}", lock.filepath);
-    //     // This is the only change we actually need to make to the Directory trait impl.
-    //     // We want the acquire_lock behavior to block and wait for a lock to be available,
-    //     // instead of panicking. Internally, Tantivy just polls for its availability.
-    //     let blocking_lock = Lock {
-    //         filepath: lock.filepath.clone(),
-    //         is_blocking: true,
-    //     };
-    //     self.0.acquire_lock(&blocking_lock)
-    // }
+    fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
+        pgrx::info!("acquire_lock: {:?}", lock.filepath);
+        // The lock itself doesn't seem to actually be used anywhere by Tantivy
+        Ok(DirectoryLock::from(Box::new(Lock {
+            filepath: lock.filepath.clone(),
+            is_blocking: false,
+        })))
+    }
 
     fn watch(&self, watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
         todo!("watch");
@@ -209,12 +214,13 @@ impl SearchIndexWriter {
     }
 
     pub fn commit(&mut self) -> Result<()> {
+        pgrx::info!("committing");
         self.underlying_writer
             .as_mut()
             .unwrap()
             .commit()
             .context("error committing to tantivy index")?;
-
+        pgrx::info!("committed");
         Ok(())
     }
 

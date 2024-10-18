@@ -20,6 +20,7 @@ use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
+use pgrx::pg_sys;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -70,10 +71,10 @@ impl Debug for SearchResults {
                 )
             }
             SearchResults::TopN(count, iter) => {
-                write!(f, "SearchResults::TopN({count}, {:?})", iter.size_hint())
+                write!(f, "SearchResults::TopN({count}, {:?})", iter.len())
             }
             SearchResults::FastPath(iter) => {
-                write!(f, "SearchResults::FastPath({:?})", iter.size_hint())
+                write!(f, "SearchResults::FastPath(~{:?})", iter.size_hint())
             }
         }
     }
@@ -261,6 +262,33 @@ impl SearchIndexReader {
                 SearchResults::AllFeatures(results.len(), results.into_iter())
             }
         }
+    }
+
+    pub fn search_segment(
+        &self,
+        config: &SearchConfig,
+        query: &dyn Query,
+        segment_ord: SegmentOrdinal,
+        include_key: bool,
+    ) -> SearchResults {
+        let collector = vec_collector::VecCollector::new(config.key_field.clone(), include_key);
+        let weight = query
+            .weight(tantivy::query::EnableScoring::Disabled {
+                schema: self.searcher.schema(),
+                searcher_opt: Some(&self.searcher),
+            })
+            .expect("weight should be constructable");
+        let segment_reader = self.searcher.segment_reader(segment_ord);
+        let start = std::time::Instant::now();
+        let results = collector
+            .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+            .expect("single segment collection should succeed");
+        pgrx::warning!(
+            "seg #{segment_ord}, worker #{}: {:?}",
+            unsafe { pg_sys::ParallelWorkerNumber },
+            start.elapsed()
+        );
+        SearchResults::AllFeatures(results.len(), results.into_iter())
     }
 
     pub fn search_top_n(
@@ -667,6 +695,99 @@ mod collector {
             // if send fails that likely means the receiver was dropped so we have nowhere
             // to send the result.  That's okay
             self.sender.send(self.fruit).ok();
+        }
+    }
+}
+
+mod vec_collector {
+    use crate::index::reader::FFType;
+    use crate::index::score::SearchIndexScore;
+    use pgrx::check_for_interrupts;
+    use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
+
+    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
+    /// each segment, in parallel, as tantivy find each doc.
+    pub struct VecCollector {
+        key_field_name: String,
+        include_key: bool,
+    }
+
+    impl VecCollector {
+        pub fn new(key_field_name: String, include_key: bool) -> Self {
+            Self {
+                key_field_name,
+                include_key,
+            }
+        }
+    }
+
+    impl Collector for VecCollector {
+        type Fruit = ();
+        type Child = VecSegmentCollector;
+
+        fn for_segment(
+            &self,
+            segment_local_id: SegmentOrdinal,
+            segment_reader: &SegmentReader,
+        ) -> tantivy::Result<Self::Child> {
+            let fast_fields = segment_reader.fast_fields();
+            let ctid_ff = FFType::new(fast_fields, "ctid");
+            let key_ff = self
+                .include_key
+                .then(|| FFType::new(fast_fields, &self.key_field_name));
+
+            Ok(VecSegmentCollector {
+                segment_ord: segment_local_id,
+                ctid_ff,
+                key_ff,
+                results: Default::default(),
+            })
+        }
+
+        fn requires_scoring(&self) -> bool {
+            false
+        }
+
+        fn merge_fruits(
+            &self,
+            _segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
+        ) -> tantivy::Result<Self::Fruit> {
+            // NB:  we never call this function
+            unimplemented!("VecCollector::merge_fruits is not implemented")
+        }
+    }
+
+    pub struct VecSegmentCollector {
+        segment_ord: SegmentOrdinal,
+        ctid_ff: FFType,
+        key_ff: Option<FFType>,
+        results: Vec<(SearchIndexScore, DocAddress)>,
+    }
+
+    impl SegmentCollector for VecSegmentCollector {
+        type Fruit = Vec<(SearchIndexScore, DocAddress)>;
+
+        fn collect(&mut self, doc: DocId, score: Score) {
+            check_for_interrupts!();
+            if let Some(ctid) = self.ctid_ff.as_u64(doc) {
+                let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
+
+                let doc_address = DocAddress::new(self.segment_ord, doc);
+                let scored = SearchIndexScore {
+                    bm25: score,
+                    key,
+                    ctid,
+                    order_by: None,
+                    sort_asc: false,
+                };
+
+                self.results.push((scored, doc_address));
+            }
+        }
+
+        fn harvest(self) -> Self::Fruit {
+            self.results
         }
     }
 }

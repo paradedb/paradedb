@@ -15,15 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::SearchResults;
+use crate::index::reader::{SearchIndexReader, SearchResults};
 use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
-use crate::postgres::ScanStrategy;
+use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchConfig;
+use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
+use tantivy::query::Query;
 
-struct PgSearchScanState {
+pub struct Bm25ScanState {
+    reader: SearchIndexReader,
+    search_config: SearchConfig,
+    query: Box<dyn Query>,
     results: SearchResults,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
     key_field_oid: PgOid,
@@ -122,21 +127,33 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let search_index = open_search_index(&indexrel).expect("should be able to open search index");
-    let state = search_index
+    let reader = search_index
         .get_reader()
         .expect("SearchState should construct cleanly");
 
     unsafe {
-        let query = search_index.query(&search_config, &state);
-        let results = state.search_minimal(
-            (*scan).xs_want_itup,
-            SearchIndex::executor(),
-            &search_config,
-            &query,
-        );
+        parallel::maybe_init_parallel_scan(scan, &reader.searcher);
+        let segment_number = parallel::maybe_claim_segment(scan);
+
+        let query = search_index.query(&search_config, &reader);
+
+        let results = if let Some(segment_number) = segment_number {
+            reader.search_segment(&search_config, &query, segment_number, (*scan).xs_want_itup)
+        } else {
+            reader.search_minimal(
+                (*scan).xs_want_itup,
+                SearchIndex::executor(),
+                &search_config,
+                &query,
+            )
+        };
+
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
         let scan_state = if (*scan).xs_want_itup {
-            PgSearchScanState {
+            Bm25ScanState {
+                reader,
+                search_config,
+                query,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
                 key_field_oid: PgOid::from(
@@ -144,7 +161,10 @@ pub extern "C" fn amrescan(
                 ),
             }
         } else {
-            PgSearchScanState {
+            Bm25ScanState {
+                reader,
+                search_config,
+                query,
                 results,
                 itup: (vec![], vec![]),
                 key_field_oid: PgOid::Invalid,
@@ -168,7 +188,7 @@ pub extern "C" fn amgettuple(
     let state = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
-        (*scan).opaque.cast::<PgSearchScanState>().as_mut()
+        (*scan).opaque.cast::<Bm25ScanState>().as_mut()
     }
     .expect("no scan.opaque state");
 
@@ -176,41 +196,51 @@ pub extern "C" fn amgettuple(
         (*scan).xs_recheck = false;
     }
 
-    match state.results.next() {
-        Some((scored, _)) => unsafe {
-            let tid = &mut (*scan).xs_heaptid;
-            crate::postgres::utils::u64_to_item_pointer(scored.ctid, tid);
+    loop {
+        match state.results.next() {
+            Some((scored, _)) => unsafe {
+                let tid = &mut (*scan).xs_heaptid;
+                crate::postgres::utils::u64_to_item_pointer(scored.ctid, tid);
 
-            if (*scan).xs_want_itup {
-                match scored
-                    .key
-                    .expect("should have retrieved the key_field")
-                    .try_into_datum(state.key_field_oid)
-                    .expect("key_field value should convert to a Datum")
-                {
-                    // got a valid Datum
-                    Some(key_field_datum) => {
-                        state.itup.0[0] = key_field_datum;
-                        state.itup.1[0] = false;
+                if (*scan).xs_want_itup {
+                    match scored
+                        .key
+                        .expect("should have retrieved the key_field")
+                        .try_into_datum(state.key_field_oid)
+                        .expect("key_field value should convert to a Datum")
+                    {
+                        // got a valid Datum
+                        Some(key_field_datum) => {
+                            state.itup.0[0] = key_field_datum;
+                            state.itup.1[0] = false;
+                        }
+
+                        // we got a NULL for the key_field.  Highly unlikely but definitely possible
+                        None => {
+                            state.itup.0[0] = pg_sys::Datum::null();
+                            state.itup.1[0] = true;
+                        }
                     }
 
-                    // we got a NULL for the key_field.  Highly unlikely but definitely possible
-                    None => {
-                        state.itup.0[0] = pg_sys::Datum::null();
-                        state.itup.1[0] = true;
-                    }
+                    (*scan).xs_hitup = pg_sys::heap_form_tuple(
+                        (*scan).xs_hitupdesc,
+                        state.itup.0.as_mut_ptr(),
+                        state.itup.1.as_mut_ptr(),
+                    );
                 }
 
-                (*scan).xs_hitup = pg_sys::heap_form_tuple(
-                    (*scan).xs_hitupdesc,
-                    state.itup.0.as_mut_ptr(),
-                    state.itup.1.as_mut_ptr(),
-                );
-            }
+                return true;
+            },
+            None => {
+                if maybe_claim_segment(scan, state) {
+                    // loop back around to start returning results from this segment
+                    continue;
+                }
 
-            true
-        },
-        None => false,
+                // we are done returning results
+                return false;
+            }
+        }
     }
 }
 
@@ -222,25 +252,52 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
     let state = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
-        (*scan).opaque.cast::<PgSearchScanState>().as_mut()
+        (*scan).opaque.cast::<Bm25ScanState>().as_mut()
     }
     .expect("no scan.opaque state");
 
     let mut cnt = 0i64;
-    for (scored, _) in &mut state.results {
-        let mut tid = pg_sys::ItemPointerData::default();
-        crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut tid);
+    loop {
+        for (scored, _) in &mut state.results {
+            let mut tid = pg_sys::ItemPointerData::default();
+            crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut tid);
 
-        unsafe {
-            // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
-            // initialized as a stack-allocated ItemPointerData
-            pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
+            unsafe {
+                // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
+                // initialized as a stack-allocated ItemPointerData
+                pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
+            }
+
+            cnt += 1;
         }
 
-        cnt += 1;
+        // check if the bitmap scan needs to claim another individual segment
+        if maybe_claim_segment(scan, state) {
+            continue;
+        }
+
+        break;
     }
 
     cnt
+}
+
+// if there's a segment to be claimed for parallel query execution, do that now
+fn maybe_claim_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
+    unsafe {
+        if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
+            state.results = state.reader.search_segment(
+                &state.search_config,
+                &state.query,
+                segment_number,
+                (*scan).xs_want_itup,
+            );
+
+            // loop back around to start returning results from this segment
+            return true;
+        }
+        false
+    }
 }
 
 #[pg_guard]

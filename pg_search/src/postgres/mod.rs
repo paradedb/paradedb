@@ -46,9 +46,9 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
     type Error = String;
 
     fn try_from(value: pg_sys::StrategyNumber) -> Result<Self, Self::Error> {
-        if value == 2 {
+        if value == 1 {
             Ok(ScanStrategy::TextQuery)
-        } else if value == 3 {
+        } else if value == 2 {
             Ok(ScanStrategy::SearchQueryInput)
         } else {
             Err(format!("`{value}` is an unknown `ScanStrategy` number"))
@@ -65,7 +65,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     let mut amroutine =
         unsafe { PgBox::<pg_sys::IndexAmRoutine>::alloc_node(pg_sys::NodeTag::T_IndexAmRoutine) };
 
-    amroutine.amstrategies = 3;
+    amroutine.amstrategies = 2;
     amroutine.amsupport = 0;
     amroutine.amcanmulticol = true;
     amroutine.amsearcharray = true;

@@ -65,7 +65,6 @@ pub extern "C" fn amrescan(
                     conjunction_mode: None,
                 }
             },
-
             ScanStrategy::SearchQueryInput => unsafe {
                 SearchQueryInput::from_datum(key.sk_argument, false)
                     .expect("ScanKey.sk_argument must not be null")

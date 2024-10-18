@@ -37,8 +37,8 @@ pub mod visibility_checker;
 
 #[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is
 pub enum ScanStrategy {
-    TextQuery = 2,
-    SearchQueryInput = 3,
+    TextQuery = 1,
+    SearchQueryInput = 2,
     // NB:  Any additions here **mut** update the `amroutine.amstrategies` down below in [`bm25_handler`]
 }
 

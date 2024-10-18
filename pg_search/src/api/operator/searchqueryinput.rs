@@ -22,7 +22,6 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
-use pgrx::pg_sys::Datum;
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
     PgList, PgOid, PgRelation,
@@ -105,18 +104,18 @@ pub unsafe fn query_input_support(arg: Internal) -> ReturnedNodePointer {
         None => return ReturnedNodePointer(None),
     };
 
-    if let Some(node) = query_input_support_request_simplify(&datum) {
+    if let Some(node) = query_input_support_request_simplify(datum) {
         return node;
     }
 
-    if let Some(node) = search_query_input_request_cost(&datum) {
+    if let Some(node) = search_query_input_request_cost(datum) {
         return node;
     }
 
     return ReturnedNodePointer(None);
 }
 
-fn query_input_support_request_simplify(arg: &Datum) -> Option<ReturnedNodePointer> {
+fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNodePointer> {
     unsafe {
         let srs = nodecast!(
             SupportRequestSimplify,
@@ -176,8 +175,15 @@ pub fn query_input_restrict(
             let (heaprelid, _, _) = find_var_relation(var, info);
             let indexrel = locate_bm25_index(heaprelid)?;
 
-            let search_query_input =
-                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+            // In case a sequential scan gets triggered, we need a way to pass the index oid
+            // to the scan function. It otherwise will not know which index to use.
+            let search_query_input = SearchQueryInput::WithIndex {
+                oid: indexrel.oid(),
+                query: Box::new(SearchQueryInput::from_datum(
+                    (*const_).constvalue,
+                    (*const_).constisnull,
+                )?),
+            };
 
             estimate_selectivity(&indexrel, &search_query_input)
         }
@@ -193,7 +199,7 @@ pub fn query_input_restrict(
     selectivity
 }
 
-fn search_query_input_request_cost(arg: &Datum) -> Option<ReturnedNodePointer> {
+fn search_query_input_request_cost(arg: pg_sys::Datum) -> Option<ReturnedNodePointer> {
     unsafe {
         let src = nodecast!(
             SupportRequestCost,

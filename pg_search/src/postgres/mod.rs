@@ -37,7 +37,6 @@ pub mod visibility_checker;
 
 #[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is
 pub enum ScanStrategy {
-    SearchConfigJson = 1,
     TextQuery = 2,
     SearchQueryInput = 3,
     // NB:  Any additions here **mut** update the `amroutine.amstrategies` down below in [`bm25_handler`]
@@ -47,9 +46,7 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
     type Error = String;
 
     fn try_from(value: pg_sys::StrategyNumber) -> Result<Self, Self::Error> {
-        if value == 1 {
-            Ok(ScanStrategy::SearchConfigJson)
-        } else if value == 2 {
+        if value == 2 {
             Ok(ScanStrategy::TextQuery)
         } else if value == 3 {
             Ok(ScanStrategy::SearchQueryInput)

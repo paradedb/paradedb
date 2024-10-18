@@ -56,11 +56,6 @@ pub extern "C" fn amrescan(
 ) {
     fn key_to_search_query_input(key: &pg_sys::ScanKeyData) -> SearchQueryInput {
         match ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized") {
-            ScanStrategy::SearchConfigJson => unsafe {
-                SearchQueryInput::from_datum(key.sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null")
-            },
-
             ScanStrategy::TextQuery => unsafe {
                 let query_string = String::from_datum(key.sk_argument, false)
                     .expect("ScanKey.sk_argument must not be null");

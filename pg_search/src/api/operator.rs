@@ -94,6 +94,20 @@ pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
     }
 }
 
+pub fn searchqueryinput_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"paradedb.SearchQueryInput".into_datum()],
+        )
+        .expect("type `paradedb.SearchQueryInput` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `paradedb.SearchQueryInput` should exist");
+        }
+        oid
+    }
+}
+
 pub(crate) fn estimate_selectivity(
     indexrel: &PgRelation,
     search_query_input: &SearchQueryInput,
@@ -199,7 +213,7 @@ unsafe fn make_search_query_input_opexpr_node(
 
         // create a new pg_sys::Const node
         let search_query_input_const = pg_sys::makeConst(
-            pgrx::pg_sys::Oid::from(16735), // SearchQueryInput::type_oid(),
+            searchqueryinput_typoid(),
             -1,
             pg_sys::DEFAULT_COLLATION_OID,
             -1,

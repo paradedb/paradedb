@@ -512,10 +512,8 @@ impl CustomScan for PdbScan {
             .get_reader()
             .expect("search index reader should have been constructed correctly");
 
-        let search_query_input = &state.custom_state().search_query_input.clone();
-
         state.custom_state_mut().query =
-            Some(search_index.query(&search_query_input, &search_reader));
+            Some(search_index.query(&state.custom_state().search_query_input, &search_reader));
         let search_results = if let (Some(limit), Some(sort_direction)) = (
             state.custom_state().limit,
             state.custom_state().sort_direction,
@@ -541,7 +539,10 @@ impl CustomScan for PdbScan {
         } else {
             let results = search_reader.search_minimal(
                 false,
-                search_query_input.contains_more_like_this(),
+                state
+                    .custom_state()
+                    .search_query_input
+                    .contains_more_like_this(),
                 search_index.key_field_name(),
                 SearchIndex::executor(),
                 state.custom_state().query.as_ref().unwrap(),

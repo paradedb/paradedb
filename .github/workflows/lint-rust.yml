@@ -34,9 +34,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Extract pgrx version
+      - name: Extract pgrx Version
+        id: pgrx
         working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv )" >> $GITHUB_ENV
+        run: echo "version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)"
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
@@ -44,7 +45,7 @@ jobs:
         uses: ubicloud/rust-cache@v2
         with:
           prefix-key: "v1-lint-rust"
-          key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}
+          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
 

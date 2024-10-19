@@ -20,7 +20,10 @@ on:
       - "!tests/README.md"
   push:
     branches:
-      - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
+      - dev # Also run on dev to fill the GitHub Actions Rust cache in a way that pull requests can see it
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
   workflow_dispatch:
     inputs:
       test_upgrade_version:
@@ -91,10 +94,11 @@ jobs:
           fi
           echo "Version check passed!"
 
-      - name: Extract pgrx version
+      - name: Extract pgrx Version
+        id: pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)" >> $GITHUB_ENV
+        run: echo "version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)"
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
@@ -213,11 +217,11 @@ jobs:
           fi
           echo "Version check passed!"
 
-      - name: Extract pgrx version
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      - name: Extract pgrx Version
+        id: pgrx
         working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(grep '^pgrx = ' Cargo.toml | sed -E 's/pgrx = "(.*)"/\1/')" >> $GITHUB_ENV
-
+        run: echo "version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)"
+  
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
@@ -225,7 +229,7 @@ jobs:
         uses: ubicloud/rust-cache@v2
         with:
           prefix-key: "v1-rust"
-          key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}
+          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
 

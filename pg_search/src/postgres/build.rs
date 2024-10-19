@@ -20,7 +20,7 @@ use crate::index::WriterDirectory;
 use crate::postgres::index::relfilenode_from_pg_relation;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::create_metadata;
+use crate::postgres::storage::metadata::create_metadata;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;

@@ -5,7 +5,8 @@ use std::path::Path;
 #[derive(Clone, Copy, Debug)]
 pub struct SegmentWriter {
     relation_oid: u32,
-    start_blockno: pg_sys::BlockNumber,
+    blockno: Option<pg_sys::BlockNumber>,
+    offsetno: Option<pg_sys::OffsetNumber>,
 }
 
 pub(crate) struct SegmentSpecialData {
@@ -14,57 +15,26 @@ pub(crate) struct SegmentSpecialData {
 
 impl SegmentWriter {
     pub unsafe fn new(relation_oid: u32, path: &Path) -> Self {
-        // let base = BaseDirectory::new(relation_oid);
-        // let segment_blockno = base
-        //     .new_buffer(std::mem::size_of::<SegmentSpecialData>())
-        //     .block_number();
-        // let meta_buffer = base.get_buffer(SEARCH_META_BLOCKNO, pg_sys::BUFFER_LOCK_SHARE);
-        // let page = meta_buffer.page();
-
-        // // Add segment to the metadata map
-        // match pg_sys::PageGetMaxOffsetNumber(page) == pg_sys::InvalidOffsetNumber {
-        //     true => {
-        //         let mut segments = HashMap::new();
-        //         segments.insert(segment_blockno, PathBuf::from(path));
-        //         pgrx::info!("segments is null {:?}", segments);
-        //         let serialized = serde_json::to_vec(&segments).unwrap();
-        //         let item = std::ffi::CString::new(serialized.clone()).unwrap().into_raw() as pg_sys::Item;
-
-        //         pgrx::info!("serialized");
-        //         base.add_item(
-        //             &meta_buffer,
-        //             pg_sys::InvalidOffsetNumber,
-        //             item,
-        //             serialized.len(),
-        //             0,
-        //         );
-        //         pgrx::info!("added item");
-        //     }
-        //     false => {
-        //         pgrx::info!("not null");
-        //         let item =
-        //             base.get_item(&meta_buffer, pg_sys::FirstOffsetNumber) as *mut SearchMetaMap;
-        //         pgrx::info!("got item");
-        //         let mut segments = (*item).segments.clone();
-        //         segments.insert(segment_blockno, PathBuf::from(path));
-        //         pgrx::info!("not null {:?}", segments);
-        //         (*item).segments = segments;
-        //     }
-        // };
-
-        // meta_buffer.mark_dirty();
-
-        Self {
-            relation_oid,
-            start_blockno: 3,
+        if path.to_str().unwrap().ends_with(".lock") {
+            return Self {
+                relation_oid,
+                blockno: None,
+                offsetno: None,
+            };
         }
+
+        return Self {
+            relation_oid,
+            blockno: None,
+            offsetno: None,
+        };
     }
 }
 
 impl Write for SegmentWriter {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         unsafe {
-            pgrx::info!("Writing");
+            pgrx::info!("Writing data");
             // let base = BaseDirectory::new(self.relation_oid);
             // let data_size = data.len();
             // let mut buffer = base.get_buffer(self.start_blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
@@ -107,6 +77,11 @@ impl Write for SegmentWriter {
 
             Ok(data.len())
         }
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        pgrx::info!("Writing all");
+        Ok(())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {

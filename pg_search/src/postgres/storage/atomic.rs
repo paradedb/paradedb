@@ -1,5 +1,5 @@
 use crate::postgres::storage::buffer::BufferCache;
-use crate::postgres::storage::metadata::{SEARCH_META_BLOCKNO, SearchMetaSpecialData};
+use crate::postgres::storage::metadata::{SearchMetaSpecialData, SEARCH_META_BLOCKNO};
 use pgrx::*;
 
 pub(crate) struct AtomicSpecialData {

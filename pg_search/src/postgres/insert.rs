@@ -25,7 +25,7 @@ use std::panic::{catch_unwind, resume_unwind};
 
 pub struct InsertState {
     pub index: SearchIndex,
-    pub writer: SearchIndexWriter,
+    pub writer: Option<SearchIndexWriter>,
     abort_on_drop: bool,
 }
 
@@ -36,10 +36,12 @@ impl Drop for InsertState {
         unsafe {
             pgrx_extern_c_guard(|| {
                 if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop {
-                    self.writer
-                        .commit()
-                        .expect("tantivy index commit should succeed");
-                } else if let Err(e) = self.writer.abort() {
+                    if let Some(writer) = self.writer.take() {
+                        writer
+                            .commit()
+                            .expect("tantivy index commit should succeed");
+                    }
+                } else if let Err(e) = self.writer.as_mut().expect("writer should not be null").abort() {
                     if pg_sys::IsAbortedTransactionBlockState() {
                         // we're in an aborted state, so the best we can do is warn that our
                         // attempt to abort the tantivy changes failed
@@ -60,7 +62,7 @@ impl InsertState {
         let writer = index.get_writer()?;
         Ok(Self {
             index,
-            writer,
+            writer: Some(writer),
             abort_on_drop: false,
         })
     }
@@ -133,7 +135,7 @@ unsafe fn aminsert_internal(
         let state = &mut *init_insert_state(index_relation, index_info);
         let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
         let search_index = &state.index;
-        let mut writer = &mut state.writer;
+        let mut writer = state.writer.as_mut().expect("writer should not be null");
         let search_document =
             row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
                 .unwrap_or_else(|err| {

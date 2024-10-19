@@ -47,19 +47,9 @@ use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 use crate::postgres::storage::atomic::AtomicDirectory;
 use crate::postgres::storage::segment_writer::SegmentWriter;
 
-/// Returns true if the file is "managed".
-/// Non-managed file are not subject to garbage collection.
-///
-/// Filenames that starts by a "." -typically locks-
-/// are not managed.
-fn is_managed(path: &Path) -> bool {
-    path.to_str()
-        .map(|p_str| !p_str.starts_with('.'))
-        .unwrap_or(true)
-}
-
 impl TerminatingWrite for SegmentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> io::Result<()> {
+        pgrx::info!("terminating");
         self.flush()
     }
 }
@@ -106,7 +96,6 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        pgrx::info!("atomic_read: {:?}", path);
         let directory = unsafe { AtomicDirectory::new(self.relation_oid) };
         let data = match path.to_str().unwrap().ends_with("meta.json") {
             true => unsafe { directory.read_meta() },
@@ -117,14 +106,7 @@ impl Directory for BlockingDirectory {
             return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
         }
 
-        Ok(FileSlice::from(data)
-            .read_bytes()
-            .map_err(|io_error| OpenReadError::IoError {
-                io_error: Arc::new(io_error),
-                filepath: path.to_path_buf(),
-            })?
-            .as_slice()
-            .to_owned())
+        Ok(data)
     }
 
     fn delete(&self, path: &Path) -> result::Result<(), DeleteError> {
@@ -144,7 +126,7 @@ impl Directory for BlockingDirectory {
         // The lock itself doesn't seem to actually be used anywhere by Tantivy
         Ok(DirectoryLock::from(Box::new(Lock {
             filepath: lock.filepath.clone(),
-            is_blocking: false,
+            is_blocking: true,
         })))
     }
 
@@ -177,20 +159,20 @@ pub struct SearchIndexWriter {
     pub underlying_writer: Option<SingleSegmentIndexWriter>,
 }
 
-impl Drop for SearchIndexWriter {
-    fn drop(&mut self) {
-        if let Some(writer) = self.underlying_writer.take() {
-            // wait for all merging threads to finish.  we do this in the background
-            // because we don't want to block the connection that created this SearchIndexWriter
-            // from being able to do more work.
-            // std::thread::spawn(move || {
-            //     if let Err(e) = writer.wait_merging_threads() {
-            //         pgrx::warning!("`wait_merging_threads` failed: {e}");
-            //     }
-            // });
-        }
-    }
-}
+// impl Drop for SearchIndexWriter {
+//     fn drop(&mut self) {
+//         // if let Some(writer) = self.underlying_writer.take() {
+//         //     // wait for all merging threads to finish.  we do this in the background
+//         //     // because we don't want to block the connection that created this SearchIndexWriter
+//         //     // from being able to do more work.
+//         //     // std::thread::spawn(move || {
+//         //     //     if let Err(e) = writer.wait_merging_threads() {
+//         //     //         pgrx::warning!("`wait_merging_threads` failed: {e}");
+//         //     //     }
+//         //     // });
+//         // }
+//     }
+// }
 
 impl SearchIndexWriter {
     pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
@@ -214,13 +196,12 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    pub fn commit(&mut self) -> Result<()> {
+    pub fn commit(self) -> Result<()> {
         pgrx::info!("committing");
-        // self.underlying_writer
-        //     .as_mut()
-        //     .unwrap()
-        //     .commit()
-        //     .context("error committing to tantivy index")?;
+        self.underlying_writer
+            .unwrap()
+            .finalize()
+            .context("error committing to tantivy index")?;
         pgrx::info!("committed");
         Ok(())
     }

@@ -2,43 +2,44 @@
 title: Kubernetes
 ---
 
-The ParadeDB Helm Chart is based on the official [CloudNativePG Helm Chart](https://cloudnative-pg.io/). CloudNativePG is a Kubernetes operator that manages the full lifecycle of a highly available
+The [ParadeDB Helm Chart](https://github.com/paradedb/charts) is based on the official [CloudNativePG Helm Chart](https://cloudnative-pg.io/). CloudNativePG is a Kubernetes operator that manages the full lifecycle of a highly available
 PostgreSQL database cluster with a primary/standby architecture using Postgres streaming replication.
 
-The chart is also available on [ArtifactHub](https://artifacthub.io/packages/helm/paradedb/paradedb).
+The chart is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
 ## Getting Started
 
 First, install [Helm](https://helm.sh/docs/intro/install/). The following steps assume you have a Kubernetes cluster running v1.25+. If you are testing locally, we recommend
 using [Minikube](https://minikube.sigs.k8s.io/docs/start/).
 
-### Install the CloudNativePG Operator
+### Installing the Prometheus Stack
 
-Skip this step if the CNPG operator is already installed in your cluster.
-
-```bash
-helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm upgrade --install cnpg \
---namespace cnpg-system \
---create-namespace \
-cnpg/cloudnative-pg
-```
-
-### Installing the Prometheus CRDs
-
-The ParadeDB Helm chart supports monitoring via Prometheus and Grafana. This is enabled by default, and therefore the Prometheus CRDs are required for
-the chart to launch. If you do not yet have the Prometheus CRDs installed on your Kubernetes cluster, you can install them via:
+The ParadeDB Helm chart supports monitoring via Prometheus and Grafana. To enable this, you need to have the Prometheus CRDs installed before installing the CloudNativePG operator. If you do not yet have the Prometheus CRDs installed on your Kubernetes cluster, you can install it with:
 
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm upgrade --install prometheus-community \
---namespace prometheus-community \
+helm upgrade --atomic --install prometheus-community \
 --create-namespace \
+--namespace prometheus-community \
 --values https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml \
 prometheus-community/kube-prometheus-stack
 ```
 
-### Set Up a ParadeDB CloudNativePG Cluster
+### Installing the CloudNativePG Operator
+
+Skip this step if the CloudNativePG operator is already installed in your cluster. If you do not wish to monitor your cluster, omit the `--set` commands.
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm upgrade --atomic --install cnpg \
+--create-namespace \
+--namespace cnpg-system \
+--set monitoring.podMonitorEnabled=true \
+--set monitoring.grafanaDashboard.create=true \
+cnpg/cloudnative-pg
+```
+
+### Setting up a ParadeDB CNPG Cluster
 
 Create a `values.yaml` and configure it to your requirements. Here is a basic example:
 
@@ -47,28 +48,25 @@ type: paradedb
 mode: standalone
 
 cluster:
-  instances: 2
+  instances: 3
   storage:
     size: 256Mi
-  monitoring:
-    enabled: true
-    podMonitor:
-      enabled: true
 ```
 
-Then, launch the ParadeDB cluster.
+Then, launch the ParadeDB cluster. If you do not wish to monitor your cluster, omit the `--set` command.
 
 ```bash
 helm repo add paradedb https://paradedb.github.io/charts
-helm upgrade --install paradedb \
+helm upgrade --atomic --install paradedb \
 --namespace paradedb \
 --create-namespace \
 --values values.yaml \
+--set cluster.monitoring.enabled=true \
 paradedb/paradedb
 ```
 
-If `--values values.yaml` is omitted, the default values will be used. For advanced cluster configuration options, including configuring backups and PgBouncer, please
-refer to the [ParadeDB Helm Chart documentation](https://artifacthub.io/packages/helm/paradedb/paradedb#values).
+If `--values values.yaml` is omitted, the default values will be used. For advanced cluster configuration options, including configuring
+backups and PgBouncer, please refer to the [ParadeDB Helm Chart documentation](https://artifacthub.io/packages/helm/paradedb/paradedb#values).
 
 ### Connecting to a ParadeDB CNPG Cluster
 
@@ -78,20 +76,23 @@ The command to connect to the primary instance of the cluster will be printed in
 kubectl --namespace paradedb exec --stdin --tty services/paradedb-rw -- bash
 ```
 
-This will launch a shell inside the instance. You can connect via `psql` with:
+This will launch a Bash shell inside the instance. You can connect to the ParadeDB database via `psql` with:
 
 ```bash
 psql -d paradedb
 ```
 
-### Connecting to the Prometheus Console
+### Connecting to the Grafana Dashboard
 
-To connect to the Prometheus console for your cluster, we suggest port forwarding the Kubernetes service running Prometheus to localhost:
+To connect to the Grafana dashboard for your cluster, we suggested port forwarding the Kubernetes service running Grafana to localhost:
 
 ```bash
-kubectl --namespace prometheus-community port-forward svc/prometheus-community-kube-prometheus 9090
+kubectl --namespace prometheus-community port-forward svc/prometheus-community-grafana 3000:80
 ```
 
-You can then access the Prometheus console at [http://localhost:9090/](http://localhost:9090/). A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/documentation/current/monitoring/).
+You can then access the Grafana dasbhoard at [http://localhost:3000/](http://localhost:3000/) using the credentials `admin` as username
+and `prom-operator` as password. These default credentials are defined in the [`kube-stack-config.yaml`](https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/samples/monitoring/kube-stack-config.yaml)
+file used as the `values.yaml` file in [Installing the Prometheus CRDs](#installing-the-prometheus-stack) and can be modified by providing
+your own `values.yaml` file. A more detailed guide on monitoring the cluster can be found in the [CloudNativePG documentation](https://cloudnative-pg.io/documentation/current/monitoring/).
 
 That's it! To get started, we suggest you follow the [quickstart guide](/documentation/getting-started/quickstart).

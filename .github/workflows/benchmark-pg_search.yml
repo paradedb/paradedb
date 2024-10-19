@@ -70,16 +70,10 @@ jobs:
           cache-targets: true
           cache-all-crates: true
 
-      - name: Restore prior criterion output
-        uses: actions/cache/restore@v4
-        with:
-          path: target/criterion
-          key: "pg_search-criterion-benchmark"
-
       - name: Install pgrx & pg_search
         working-directory: pg_search/
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
           cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
@@ -106,13 +100,6 @@ jobs:
       - name: Run benchmarks
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
-
-      - name: Save criterion output, if dev
-        if: github.ref == 'refs/heads/dev'
-        uses: actions/cache/save@v4
-        with:
-          path: target/criterion
-          key: "pg_search-criterion-benchmark"
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

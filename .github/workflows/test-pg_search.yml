@@ -98,7 +98,7 @@ jobs:
         id: pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: echo "version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)"
+        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
@@ -219,8 +219,9 @@ jobs:
 
       - name: Extract pgrx Version
         id: pgrx
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: echo "version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)"
+        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.

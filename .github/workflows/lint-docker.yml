@@ -11,7 +11,7 @@ on:
     paths:
       - ".github/workflows/lint-docker.yml"
       - "docker/**"
-  workflow_dispatch:
+    workflow_dispatch:
 
 concurrency:
   group: lint-docker-${{ github.head_ref || github.ref }}

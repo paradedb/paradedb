@@ -52,6 +52,7 @@ jobs:
           fi
           echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG Helm chart
       - name: Setup Docker Image tags
         id: meta
         uses: docker/metadata-action@v5
@@ -78,7 +79,6 @@ jobs:
           endpoint: ${{ secrets.DOCKERHUB_USERNAME }}/paradedb
           install: true
 
-      # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
         uses: docker/build-push-action@v6

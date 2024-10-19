@@ -38,7 +38,9 @@ use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
     IndexSettings,
 };
-use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, SingleSegmentIndexWriter};
+use tantivy::{
+    directory::MmapDirectory, schema::Field, Directory, Index, SingleSegmentIndexWriter,
+};
 use thiserror::Error;
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};

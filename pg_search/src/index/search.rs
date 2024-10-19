@@ -28,12 +28,12 @@ use crate::schema::{
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize};
+use tantivy::indexer::SingleSegmentIndexWriter;
 use tantivy::query::Query;
 use tantivy::{query::QueryParser, Executor, Index};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::trace;
-use tantivy::indexer::SingleSegmentIndexWriter;
 
 // Must be at least 15,000,000 or Tantivy will panic.
 pub const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
@@ -80,7 +80,10 @@ impl SearchIndex {
         // let underlying_writer = self
         //     .underlying_index
         //     .single_segment_index_writer(self.directory, INDEX_TANTIVY_MEMORY_BUDGET)?;
-        let underlying_writer = SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_TANTIVY_MEMORY_BUDGET)?;
+        let underlying_writer = SingleSegmentIndexWriter::new(
+            self.underlying_index.clone(),
+            INDEX_TANTIVY_MEMORY_BUDGET,
+        )?;
         Ok(SearchIndexWriter {
             underlying_writer: Some(underlying_writer),
         })

@@ -33,6 +33,7 @@ use tantivy::{query::QueryParser, Executor, Index};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::trace;
+use tantivy::indexer::SingleSegmentIndexWriter;
 
 // Must be at least 15,000,000 or Tantivy will panic.
 pub const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
@@ -76,9 +77,10 @@ impl SearchIndex {
     /// can get an exclusive lock on the Tantivy writer. The return type needs to
     /// be entirely owned by the new process, with no references.
     pub fn get_writer(&self) -> Result<SearchIndexWriter> {
-        let underlying_writer = self
-            .underlying_index
-            .writer_with_num_threads(1, INDEX_TANTIVY_MEMORY_BUDGET)?;
+        // let underlying_writer = self
+        //     .underlying_index
+        //     .single_segment_index_writer(self.directory, INDEX_TANTIVY_MEMORY_BUDGET)?;
+        let underlying_writer = SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_TANTIVY_MEMORY_BUDGET)?;
         Ok(SearchIndexWriter {
             underlying_writer: Some(underlying_writer),
         })
@@ -144,7 +146,7 @@ impl SearchIndex {
 
     pub fn insert(
         &self,
-        writer: &SearchIndexWriter,
+        writer: &mut SearchIndexWriter,
         document: SearchDocument,
     ) -> Result<(), SearchIndexError> {
         // the index is about to change, and that requires our transaction callbacks be registered

@@ -38,7 +38,7 @@ use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
     IndexSettings,
 };
-use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, IndexWriter};
+use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, SingleSegmentIndexWriter};
 use thiserror::Error;
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
@@ -173,7 +173,7 @@ static mut PENDING_INDEX_DROPS: Lazy<HashSet<WriterDirectory>> = Lazy::new(HashS
 pub struct SearchIndexWriter {
     // this is an Option<> because on drop we need to take ownership of the underlying
     // IndexWriter instance so we can, in the background, wait for all merging threads to finish
-    pub underlying_writer: Option<IndexWriter>,
+    pub underlying_writer: Option<SingleSegmentIndexWriter>,
 }
 
 impl Drop for SearchIndexWriter {
@@ -182,20 +182,20 @@ impl Drop for SearchIndexWriter {
             // wait for all merging threads to finish.  we do this in the background
             // because we don't want to block the connection that created this SearchIndexWriter
             // from being able to do more work.
-            std::thread::spawn(move || {
-                if let Err(e) = writer.wait_merging_threads() {
-                    pgrx::warning!("`wait_merging_threads` failed: {e}");
-                }
-            });
+            // std::thread::spawn(move || {
+            //     if let Err(e) = writer.wait_merging_threads() {
+            //         pgrx::warning!("`wait_merging_threads` failed: {e}");
+            //     }
+            // });
         }
     }
 }
 
 impl SearchIndexWriter {
-    pub fn insert(&self, document: SearchDocument) -> Result<(), IndexError> {
+    pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
         // Add the Tantivy document to the index.
         self.underlying_writer
-            .as_ref()
+            .as_mut()
             .unwrap()
             .add_document(document.into())?;
 
@@ -203,38 +203,38 @@ impl SearchIndexWriter {
     }
 
     pub fn delete(&self, ctid_field: &Field, ctid_values: &[u64]) -> Result<(), IndexError> {
-        for ctid in ctid_values {
-            let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
-            self.underlying_writer
-                .as_ref()
-                .unwrap()
-                .delete_term(ctid_term);
-        }
+        // for ctid in ctid_values {
+        //     let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
+        //     self.underlying_writer
+        //         .as_ref()
+        //         .unwrap()
+        //         .delete_term(ctid_term);
+        // }
         Ok(())
     }
 
     pub fn commit(&mut self) -> Result<()> {
         pgrx::info!("committing");
-        self.underlying_writer
-            .as_mut()
-            .unwrap()
-            .commit()
-            .context("error committing to tantivy index")?;
+        // self.underlying_writer
+        //     .as_mut()
+        //     .unwrap()
+        //     .commit()
+        //     .context("error committing to tantivy index")?;
         pgrx::info!("committed");
         Ok(())
     }
 
     pub fn abort(&mut self) -> Result<(), IndexError> {
-        self.underlying_writer.as_mut().unwrap().rollback()?;
+        // self.underlying_writer.as_mut().unwrap().rollback()?;
         Ok(())
     }
 
     pub fn vacuum(&self) -> Result<(), IndexError> {
-        self.underlying_writer
-            .as_ref()
-            .unwrap()
-            .garbage_collect_files()
-            .wait()?;
+        // self.underlying_writer
+        //     .as_ref()
+        //     .unwrap()
+        //     .garbage_collect_files()
+        //     .wait()?;
         Ok(())
     }
 

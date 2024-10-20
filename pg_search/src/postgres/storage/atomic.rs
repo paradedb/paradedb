@@ -29,7 +29,7 @@ impl AtomicDirectory {
         Self {
             cache,
             meta_blockno,
-            managed_blockno
+            managed_blockno,
         }
     }
 

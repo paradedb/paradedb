@@ -75,7 +75,7 @@ impl Directory for BlockingDirectory {
     }
 
     fn open_read(&self, path: &Path) -> result::Result<FileSlice, OpenReadError> {
-        todo!("open_read");
+        todo!("open_read {:?}", path);
         // self.0.open_read(path)
     }
 

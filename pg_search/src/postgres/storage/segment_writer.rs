@@ -32,11 +32,6 @@ impl SegmentWriter {
 impl Write for SegmentWriter {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         unsafe {
-            pgrx::info!(
-                "Writing {} bytes to segment for {:?}",
-                data.len(),
-                self.path
-            );
             let buffer_cache = BufferCache::open(self.relation_oid);
             let data_len = data.len();
             let max_data_chunk_size = max_heap_tuple_size()
@@ -45,10 +40,8 @@ impl Write for SegmentWriter {
 
             let mut data_offset = 0;
             let mut offsetno = pg_sys::InvalidOffsetNumber;
-            let mut old_buffer = pg_sys::InvalidBuffer;
-            let mut new_buffer = pg_sys::InvalidBuffer;
+            let mut ring_buffer = heapless::Deque::<_, 1>::new();
 
-            pgrx::info!("entering while loop");
             while data_offset < data_len {
                 let data_remaining = data_len - data_offset;
                 let space_needed = min(
@@ -58,11 +51,8 @@ impl Write for SegmentWriter {
                     max_heap_tuple_size(),
                 );
 
-                new_buffer = match buffer_cache.get_free_block_number(space_needed) {
-                    pg_sys::InvalidBlockNumber => {
-                        pgrx::info!("invalid");
-                        buffer_cache.new_buffer(0) as u32
-                    }
+                let new_buffer = match buffer_cache.get_free_block_number(space_needed) {
+                    pg_sys::InvalidBlockNumber => buffer_cache.new_buffer(0) as u32,
                     blockno => {
                         buffer_cache.get_buffer(blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE) as u32
                     }
@@ -82,12 +72,16 @@ impl Write for SegmentWriter {
                     self.has_written = true;
                 }
 
-                if data_offset != 0 {
+                if !ring_buffer.is_empty() {
+                    let old_buffer = ring_buffer
+                        .pop_front()
+                        .expect("ring buffer should not be empty");
                     let next_segment_address = NextSegmentAddress {
                         blockno: pg_sys::BufferGetBlockNumber(new_buffer as i32),
                         offsetno,
                     };
                     let item = &next_segment_address as *const NextSegmentAddress;
+
                     pg_sys::PageAddItemExtended(
                         pg_sys::BufferGetPage(old_buffer as i32),
                         item as pg_sys::Item,
@@ -95,24 +89,21 @@ impl Write for SegmentWriter {
                         pg_sys::InvalidOffsetNumber,
                         0,
                     );
+                    pg_sys::MarkBufferDirty(old_buffer as i32);
+                    pg_sys::UnlockReleaseBuffer(old_buffer as i32);
                 }
 
-                old_buffer = new_buffer;
+                ring_buffer
+                    .push_back(new_buffer as u32)
+                    .expect("ring buffer should not be full");
                 data_offset += data_slice.len();
             }
 
-            let next_segment_address = NextSegmentAddress {
-                blockno: pg_sys::InvalidBlockNumber,
-                offsetno: pg_sys::InvalidOffsetNumber,
-            };
-            let item = &next_segment_address as *const NextSegmentAddress;
-            pg_sys::PageAddItemExtended(
-                pg_sys::BufferGetPage(old_buffer as i32),
-                item as pg_sys::Item,
-                size_of::<NextSegmentAddress>(),
-                offsetno + 1,
-                0,
-            );
+            let old_buffer = ring_buffer
+                .pop_front()
+                .expect("ring buffer should not be empty");
+            pg_sys::MarkBufferDirty(old_buffer as i32);
+            pg_sys::UnlockReleaseBuffer(old_buffer as i32);
 
             Ok(data_len)
         }

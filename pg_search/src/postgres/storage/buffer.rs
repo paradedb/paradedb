@@ -15,7 +15,6 @@ impl BufferCache {
     }
 
     pub unsafe fn new_buffer(&self, special_size: usize) -> pg_sys::Buffer {
-        pgrx::info!("new buffer");
         // Providing an InvalidBlockNumber creates a new page
         let buffer = self.get_buffer(pg_sys::InvalidBlockNumber, pg_sys::BUFFER_LOCK_EXCLUSIVE);
         pg_sys::PageInit(

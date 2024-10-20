@@ -41,7 +41,12 @@ impl Drop for InsertState {
                             .commit()
                             .expect("tantivy index commit should succeed");
                     }
-                } else if let Err(e) = self.writer.as_mut().expect("writer should not be null").abort() {
+                } else if let Err(e) = self
+                    .writer
+                    .as_mut()
+                    .expect("writer should not be null")
+                    .abort()
+                {
                     if pg_sys::IsAbortedTransactionBlockState() {
                         // we're in an aborted state, so the best we can do is warn that our
                         // attempt to abort the tantivy changes failed

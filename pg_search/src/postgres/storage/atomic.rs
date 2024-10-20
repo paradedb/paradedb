@@ -19,13 +19,17 @@ impl AtomicDirectory {
     pub unsafe fn new(relation_oid: u32) -> Self {
         let cache = BufferCache::open(relation_oid);
         let buffer = cache.get_buffer(SEARCH_META_BLOCKNO, pg_sys::BUFFER_LOCK_SHARE);
-        let page = buffer.page();
+        let page = pg_sys::BufferGetPage(buffer);
         let special = pg_sys::PageGetSpecialPointer(page) as *mut SearchMetaSpecialData;
+        let meta_blockno = (*special).meta_blockno;
+        let managed_blockno = (*special).managed_blockno;
+
+        pg_sys::UnlockReleaseBuffer(buffer);
 
         Self {
             cache,
-            meta_blockno: (*special).meta_blockno,
-            managed_blockno: (*special).managed_blockno,
+            meta_blockno,
+            managed_blockno
         }
     }
 
@@ -48,14 +52,17 @@ impl AtomicDirectory {
     // TODO: Handle read_bytes and write_bytes where data is larger than a page
     unsafe fn read_bytes(&self, blockno: pg_sys::BlockNumber) -> Vec<u8> {
         let buffer = self.cache.get_buffer(blockno, pg_sys::BUFFER_LOCK_SHARE);
-        let page = buffer.page();
+        let page = pg_sys::BufferGetPage(buffer);
         let special = pg_sys::PageGetSpecialPointer(page) as *mut AtomicSpecialData;
-        let item = buffer.get_item(pg_sys::FirstOffsetNumber);
+        let item =
+            pg_sys::PageGetItem(page, pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber));
         let len = (*special).len as usize;
 
         let mut vec = Vec::with_capacity(len);
         std::ptr::copy(item as *mut u8, vec.as_mut_ptr(), len);
         vec.set_len(len);
+
+        pg_sys::UnlockReleaseBuffer(buffer);
         vec
     }
 
@@ -63,17 +70,18 @@ impl AtomicDirectory {
         let buffer = self
             .cache
             .get_buffer(blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
-        let page = buffer.page();
+        let page = pg_sys::BufferGetPage(buffer);
         let special = pg_sys::PageGetSpecialPointer(page) as *mut AtomicSpecialData;
         (*special).len = data.len() as u32;
 
-        buffer.add_item(
-            pg_sys::FirstOffsetNumber,
+        pg_sys::PageAddItemExtended(
+            page,
             data.as_ptr() as pg_sys::Item,
             data.len(),
-            pg_sys::PAI_OVERWRITE,
+            pg_sys::FirstOffsetNumber,
+            pg_sys::PAI_OVERWRITE as i32,
         );
-
-        buffer.mark_dirty();
+        pg_sys::MarkBufferDirty(buffer);
+        pg_sys::UnlockReleaseBuffer(buffer);
     }
 }

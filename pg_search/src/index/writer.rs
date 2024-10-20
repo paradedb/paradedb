@@ -80,12 +80,14 @@ impl Directory for BlockingDirectory {
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
+        pgrx::info!("open_write: {:?}", path);
         Ok(io::BufWriter::new(Box::new(unsafe {
             SegmentWriter::new(self.relation_oid, path)
         })))
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+        pgrx::info!("atomic_write: {:?}", path);
         let directory = unsafe { AtomicDirectory::new(self.relation_oid) };
         match path.to_str().unwrap().ends_with("meta.json") {
             true => unsafe { directory.write_meta(data) },
@@ -96,6 +98,7 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        pgrx::info!("atomic_read: {:?}", path);
         let directory = unsafe { AtomicDirectory::new(self.relation_oid) };
         let data = match path.to_str().unwrap().ends_with("meta.json") {
             true => unsafe { directory.read_meta() },

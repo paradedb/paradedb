@@ -99,7 +99,80 @@ jobs:
 
       - name: Run benchmarks
         working-directory: pg_search/
-        run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+        run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres -- --output-format bencher | tee output.txt
+
+      # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
+      - name: Store benchmarks result
+        if: github.ref == 'refs/heads/dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-pg_search-criterion-dev
+          path: output.txt
+
+      - name: Download benchmarks baseline
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-pg_search-criterion-dev
+          path: previous/
+
+      - name: Compare benchmarks results
+        if: github.event_name == 'pull_request'
+        id: compare
+        run: |
+          if [ -f ./previous/output.txt ]; then
+            cargo install critcmp
+            result=$(critcmp ./previous/output.txt output.txt)
+            echo "comparison_result<<EOF" >> $GITHUB_OUTPUT
+            echo "$result" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "No previous benchmark result found"
+          fi
+
+      - name: Generate Commit Message
+        run: |
+          echo "Generating GitHub comment message"
+          {
+            echo 'DIFF<<EOF'
+            echo 'Performance comparison (latest commit) with `dev`:'
+            echo
+            echo 'A suggested "upgrade.sql" script entry might be:'
+            echo
+            cat ${{ steps.compare.outputs.comparison_result }}
+            echo
+            echo EOF
+          } >> "$GITHUB_ENV"
+
+      - name: Attach Schema Diff to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            const botComment = comments.data.find(comment => comment.user.type === 'Bot' && comment.body.includes('A schema difference was detected.'));
+
+            if (botComment) {
+              // Update the existing comment
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: process.env.DIFF
+              });
+            } else {
+              // Create a new comment if none exists
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: process.env.DIFF
+              });
+            }
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

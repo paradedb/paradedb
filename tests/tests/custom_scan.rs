@@ -352,7 +352,7 @@ fn join_issue_1826(mut conn: PgConnection) {
         FROM orders o
         JOIN mock_items m ON o.product_id = m.id
         WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes' OR m.description @@@ 'Smith'
-        ORDER BY paradedb.score(m.id) desc
+        ORDER BY paradedb.score(m.id) desc, m.id asc
         LIMIT 1;
     "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
 

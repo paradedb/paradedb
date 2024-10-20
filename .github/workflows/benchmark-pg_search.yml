@@ -137,8 +137,6 @@ jobs:
             echo 'DIFF<<EOF'
             echo 'Performance comparison (latest commit) with `dev`:'
             echo
-            echo 'A suggested "upgrade.sql" script entry might be:'
-            echo
             cat ${{ steps.compare.outputs.comparison_result }}
             echo
             echo EOF

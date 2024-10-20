@@ -67,11 +67,8 @@ impl SegmentHandle {
             )
             .unwrap();
             if segment.path == path {
-                let internal = SegmentHandleInternal::new(
-                    segment.path.clone(),
-                    segment.blockno,
-                    segment.len,
-                );
+                let internal =
+                    SegmentHandleInternal::new(segment.path.clone(), segment.blockno, segment.len);
                 pg_sys::UnlockReleaseBuffer(buffer);
                 return Some(Self {
                     blockno,

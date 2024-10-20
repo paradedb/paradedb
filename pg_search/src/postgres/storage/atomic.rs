@@ -5,7 +5,6 @@ use pgrx::*;
 
 pub(crate) struct AtomicSpecialData {
     next_blockno: pg_sys::BlockNumber,
-    len: u32,
 }
 
 // Handles Tantivy's atomic_read and atomic_write over block storage
@@ -55,9 +54,9 @@ impl AtomicDirectory {
         let buffer = self.cache.get_buffer(blockno, pg_sys::BUFFER_LOCK_SHARE);
         let page = pg_sys::BufferGetPage(buffer);
         let special = pg_sys::PageGetSpecialPointer(page) as *mut AtomicSpecialData;
-        let item =
-            pg_sys::PageGetItem(page, pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber));
-        let len = (*special).len as usize;
+        let item_id = pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber);
+        let item = pg_sys::PageGetItem(page, item_id);
+        let len = (*item_id).lp_len() as usize;
 
         let mut vec = Vec::with_capacity(len);
         std::ptr::copy(item as *mut u8, vec.as_mut_ptr(), len);
@@ -72,8 +71,6 @@ impl AtomicDirectory {
             .cache
             .get_buffer(blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
         let page = pg_sys::BufferGetPage(buffer);
-        let special = pg_sys::PageGetSpecialPointer(page) as *mut AtomicSpecialData;
-        (*special).len = data.len() as u32;
 
         pg_sys::PageAddItemExtended(
             page,

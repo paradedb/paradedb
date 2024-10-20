@@ -23,7 +23,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image
-    runs-on: depot-ubuntu-latest-8
+    runs-on: ubicloud-standard-8
     if: github.event.pull_request.draft == false
 
     steps:

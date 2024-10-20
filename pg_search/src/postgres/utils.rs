@@ -136,3 +136,9 @@ pub unsafe fn row_to_search_document(
 
     Ok(document)
 }
+
+// access/htup_details.h
+pub unsafe fn max_heap_tuple_size() -> usize {
+    pg_sys::BLCKSZ as usize
+        - pg_sys::MAXALIGN(size_of::<pg_sys::PageHeaderData>() + size_of::<pg_sys::ItemIdData>())
+}

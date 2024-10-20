@@ -38,10 +38,6 @@ impl BufferCache {
         pg_sys::LockBuffer(buffer, lock as i32);
         buffer
     }
-
-    pub unsafe fn get_free_block_number(&self, space_needed: usize) -> pg_sys::BlockNumber {
-        pg_sys::GetPageWithFreeSpace(self.relation, space_needed)
-    }
 }
 
 impl Drop for BufferCache {

@@ -31,8 +31,8 @@ use std::sync::{Arc, RwLock};
 use std::{collections::HashSet, path::Path};
 use std::{fs, io, result};
 use tantivy::directory::{
-    AntiCallToken, DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, TerminatingWrite,
-    WatchCallback, WatchHandle, WritePtr,
+    AntiCallToken, DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback,
+    WatchHandle, WritePtr,
 };
 use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
@@ -45,14 +45,8 @@ use thiserror::Error;
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
 use crate::postgres::storage::atomic::AtomicDirectory;
+use crate::postgres::storage::segment_reader::SegmentReader;
 use crate::postgres::storage::segment_writer::SegmentWriter;
-
-impl TerminatingWrite for SegmentWriter {
-    fn terminate_ref(&mut self, _: AntiCallToken) -> io::Result<()> {
-        pgrx::info!("terminating");
-        self.flush()
-    }
-}
 
 /// We maintain our own tantivy::directory::Directory implementation for finer-grained
 /// control over the locking behavior, which enables us to manage Writer instances
@@ -70,13 +64,9 @@ impl BlockingDirectory {
 
 impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        todo!("get_file_handle");
-        // self.0.get_file_handle(path)
-    }
-
-    fn open_read(&self, path: &Path) -> result::Result<FileSlice, OpenReadError> {
-        todo!("open_read {:?}", path);
-        // self.0.open_read(path)
+        Ok(Arc::new(unsafe {
+            SegmentReader::new(self.relation_oid, path)
+        }))
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
@@ -161,21 +151,6 @@ pub struct SearchIndexWriter {
     // IndexWriter instance so we can, in the background, wait for all merging threads to finish
     pub underlying_writer: Option<SingleSegmentIndexWriter>,
 }
-
-// impl Drop for SearchIndexWriter {
-//     fn drop(&mut self) {
-//         // if let Some(writer) = self.underlying_writer.take() {
-//         //     // wait for all merging threads to finish.  we do this in the background
-//         //     // because we don't want to block the connection that created this SearchIndexWriter
-//         //     // from being able to do more work.
-//         //     // std::thread::spawn(move || {
-//         //     //     if let Err(e) = writer.wait_merging_threads() {
-//         //     //         pgrx::warning!("`wait_merging_threads` failed: {e}");
-//         //     //     }
-//         //     // });
-//         // }
-//     }
-// }
 
 impl SearchIndexWriter {
     pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {

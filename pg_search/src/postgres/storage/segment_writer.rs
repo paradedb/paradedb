@@ -1,23 +1,19 @@
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
-use std::io::Write;
+use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
+use tantivy::directory::{AntiCallToken, TerminatingWrite};
 
 use crate::postgres::storage::buffer::BufferCache;
-use crate::postgres::storage::metadata::{
-    get_max_blockno, insert_segment_location, SegmentLocation,
-};
-
-// The smallest size of a chunk of data that can be written to a page
-// before we need to create a new page
-const MIN_CHUNK_SIZE: usize = 10;
+use crate::postgres::storage::segment_handle::{SegmentHandle, SegmentHandleInternal};
 
 #[derive(Clone, Debug)]
 pub struct SegmentWriter {
     relation_oid: u32,
     path: PathBuf,
-    blockno: pg_sys::BlockNumber,
+    current_blockno: pg_sys::BlockNumber,
+    handle: Option<SegmentHandle>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,12 +23,13 @@ pub struct NextSegmentAddress {
 
 impl SegmentWriter {
     pub unsafe fn new(relation_oid: u32, path: &Path) -> Self {
-        // if path ends with .lock
+        // Ignore Tantivy lockfiles
         if path.to_str().unwrap().ends_with(".lock") {
             return Self {
                 relation_oid,
                 path: path.to_path_buf(),
-                blockno: pg_sys::InvalidBlockNumber,
+                current_blockno: pg_sys::InvalidBlockNumber,
+                handle: None,
             };
         } else {
             let cache = BufferCache::open(relation_oid);
@@ -42,86 +39,75 @@ impl SegmentWriter {
             pg_sys::MarkBufferDirty(buffer);
             pg_sys::UnlockReleaseBuffer(buffer);
 
-            insert_segment_location(
-                relation_oid,
-                SegmentLocation {
-                    path: path.to_path_buf(),
-                    blockno,
-                },
-            );
+            let internal = SegmentHandleInternal::new(path.to_path_buf(), blockno, 0);
+            let handle = SegmentHandle::create(relation_oid, internal);
 
             Self {
                 relation_oid,
                 path: path.to_path_buf(),
-                blockno,
+                current_blockno: blockno,
+                handle: Some(handle),
             }
         }
     }
 
-    pub fn set_blockno(&mut self, blockno: pg_sys::BlockNumber) {
-        self.blockno = blockno;
+    pub fn set_current_blockno(&mut self, blockno: pg_sys::BlockNumber) {
+        self.current_blockno = blockno;
     }
 }
 
 impl Write for SegmentWriter {
-    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+    // This function will attempt to write the entire contents of `buf`, but
+    // the entire write might not succeed, or the write may also generate an
+    // error. Typically, a call to `write` represents one attempt to write to
+    // any wrapped object.
+    fn write(&mut self, data: &[u8]) -> Result<usize> {
         unsafe {
             let cache = BufferCache::open(self.relation_oid);
-            let data_len = data.len();
-
-            let mut data_offset = 0;
-            let mut buffer = cache.get_buffer(self.blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
+            let mut buffer = cache.get_buffer(self.current_blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
             let mut page = pg_sys::BufferGetPage(buffer);
 
-            while data_offset < data_len {
-                let data_remaining = data_len - data_offset;
-                let space_needed =
-                    min(data_remaining, MIN_CHUNK_SIZE) + size_of::<pg_sys::ItemIdData>();
+            // If the page is full, allocate a new page
+            if pg_sys::PageGetFreeSpace(page) == 0 {
+                let new_buffer = cache.new_buffer(size_of::<NextSegmentAddress>());
+                let next_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
+                let special = pg_sys::PageGetSpecialPointer(page) as *mut NextSegmentAddress;
+                (*special).next_blockno = next_blockno;
 
-                if pg_sys::PageGetFreeSpace(page) < space_needed {
-                    let new_buffer = cache.new_buffer(size_of::<NextSegmentAddress>());
-                    let next_segment_address = NextSegmentAddress {
-                        next_blockno: pg_sys::BufferGetBlockNumber(new_buffer),
-                    };
-                    let special = pg_sys::PageGetSpecialPointer(page) as *mut NextSegmentAddress;
-                    (*special).next_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
+                pg_sys::MarkBufferDirty(buffer);
+                pg_sys::UnlockReleaseBuffer(buffer);
 
-                    pg_sys::MarkBufferDirty(buffer);
-                    pg_sys::UnlockReleaseBuffer(buffer);
-
-                    buffer = new_buffer;
-                    page = pg_sys::BufferGetPage(buffer);
-                }
-
-                let data_slice = &data[data_offset..min(data_len, max_item_size())];
-                let offsetno = pg_sys::PageAddItemExtended(
-                    page,
-                    data_slice.as_ptr() as pg_sys::Item,
-                    data_slice.len(),
-                    pg_sys::InvalidOffsetNumber,
-                    0,
-                );
-
-                data_offset += data_slice.len();
+                buffer = new_buffer;
+                page = pg_sys::BufferGetPage(buffer);
+                self.set_current_blockno(pg_sys::BufferGetBlockNumber(buffer));
             }
+
+            let bytes_to_write = min(data.len(), pg_sys::PageGetFreeSpace(page));
+            let data_slice = &data[0..bytes_to_write];
+
+            pg_sys::PageAddItemExtended(
+                page,
+                data_slice.as_ptr() as pg_sys::Item,
+                data_slice.len(),
+                pg_sys::InvalidOffsetNumber,
+                0,
+            );
 
             pg_sys::MarkBufferDirty(buffer as i32);
             pg_sys::UnlockReleaseBuffer(buffer as i32);
-            Ok(data_len)
+            pgrx::info!("total {}, wrote {}", data.len(), bytes_to_write);
+            // TODO: Update handle len
+            Ok(bytes_to_write)
         }
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> Result<()> {
         Ok(())
     }
 }
 
-// access/htup_details.h
-unsafe fn max_heap_tuple_size() -> usize {
-    pg_sys::BLCKSZ as usize
-        - pg_sys::MAXALIGN(size_of::<pg_sys::PageHeaderData>() + size_of::<pg_sys::ItemIdData>())
-}
-
-unsafe fn max_item_size() -> usize {
-    max_heap_tuple_size() - size_of::<pg_sys::ItemIdData>()
+impl TerminatingWrite for SegmentWriter {
+    fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
+        self.flush()
+    }
 }

@@ -20,7 +20,9 @@ use crate::index::WriterDirectory;
 use crate::postgres::index::relfilenode_from_pg_relation;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::metadata::create_metadata;
+use crate::postgres::storage::atomic::AtomicSpecialData;
+use crate::postgres::storage::buffer::BufferCache;
+use crate::postgres::storage::segment_handle::SearchMetaSpecialData;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
@@ -28,6 +30,10 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
+
+// The first block of the index is the metadata block, which is essentially a map for how the rest of the blocks are organized.
+// It is our responsibility to ensure that the metadata block is the first block by creating it immediately when the index is built.
+pub const SEARCH_META_BLOCKNO: pg_sys::BlockNumber = 0;
 
 // For now just pass the count on the build callback state
 struct BuildState {
@@ -341,4 +347,29 @@ fn is_bm25_index(indexrel: &PgRelation) -> bool {
         // SAFETY:  we ensure that `indexrel.rd_indam` is non null and can be dereferenced
         !indexrel.rd_indam.is_null() && (*indexrel.rd_indam).ambuild == Some(ambuild)
     }
+}
+
+unsafe fn create_metadata(relation_oid: u32) {
+    let cache = BufferCache::open(relation_oid);
+    let buffer = cache.new_buffer(std::mem::size_of::<SearchMetaSpecialData>());
+    assert!(
+        pg_sys::BufferGetBlockNumber(buffer) == SEARCH_META_BLOCKNO,
+        "expected metadata blockno to be 0 but got {SEARCH_META_BLOCKNO}"
+    );
+
+    let page = pg_sys::BufferGetPage(buffer);
+    let special = pg_sys::PageGetSpecialPointer(page) as *mut SearchMetaSpecialData;
+
+    let meta_buffer = cache.new_buffer(std::mem::size_of::<AtomicSpecialData>());
+    let managed_buffer = cache.new_buffer(std::mem::size_of::<AtomicSpecialData>());
+    (*special).meta_blockno = pg_sys::BufferGetBlockNumber(meta_buffer);
+    (*special).managed_blockno = pg_sys::BufferGetBlockNumber(managed_buffer);
+    (*special).next_blockno = pg_sys::InvalidBlockNumber;
+
+    pg_sys::MarkBufferDirty(buffer);
+    pg_sys::MarkBufferDirty(meta_buffer);
+    pg_sys::MarkBufferDirty(managed_buffer);
+    pg_sys::UnlockReleaseBuffer(buffer);
+    pg_sys::UnlockReleaseBuffer(meta_buffer);
+    pg_sys::UnlockReleaseBuffer(managed_buffer);
 }

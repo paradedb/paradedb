@@ -222,11 +222,46 @@ pub extern "C" fn amgettuple(
                         }
                     }
 
-                    (*scan).xs_hitup = pg_sys::heap_form_tuple(
-                        (*scan).xs_hitupdesc,
-                        state.itup.0.as_mut_ptr(),
-                        state.itup.1.as_mut_ptr(),
-                    );
+                    let values = state.itup.0.as_mut_ptr();
+                    let nulls = state.itup.1.as_mut_ptr();
+
+                    if (*scan).xs_hitup.is_null() {
+                        (*scan).xs_hitup =
+                            pg_sys::heap_form_tuple((*scan).xs_hitupdesc, values, nulls);
+                    } else {
+                        pg_sys::ffi::pg_guard_ffi_boundary(|| {
+                            extern "C" {
+                                fn heap_compute_data_size(
+                                    tupleDesc: pg_sys::TupleDesc,
+                                    values: *mut pg_sys::Datum,
+                                    isnull: *mut bool,
+                                ) -> pg_sys::Size;
+                                fn heap_fill_tuple(
+                                    tupleDesc: pg_sys::TupleDesc,
+                                    values: *mut pg_sys::Datum,
+                                    isnull: *mut bool,
+                                    data: *mut ::core::ffi::c_char,
+                                    data_size: pg_sys::Size,
+                                    infomask: *mut pg_sys::uint16,
+                                    bit: *mut pg_sys::bits8,
+                                );
+                            }
+                            let data_len =
+                                heap_compute_data_size((*scan).xs_hitupdesc, values, nulls);
+                            let td = (*(*scan).xs_hitup).t_data;
+
+                            // TODO:  seems like this could crash with a varlena "key_field" of varrying sizes per row
+                            heap_fill_tuple(
+                                (*scan).xs_hitupdesc,
+                                values,
+                                nulls,
+                                td.cast::<std::ffi::c_char>().add((*td).t_hoff as usize),
+                                data_len,
+                                &mut (*td).t_infomask,
+                                (*td).t_bits.as_mut_ptr(),
+                            );
+                        });
+                    }
                 }
 
                 return true;

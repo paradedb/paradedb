@@ -183,7 +183,14 @@
                 "documentation/similarity/search"
               ]
             },
-            "documentation/configuration"
+            {
+              "group": "Configuration",
+              "pages": [
+                "documentation/configuration/index",
+                "documentation/configuration/scan",
+                "documentation/configuration/telemetry"
+              ]
+            }
           ]
         },
         {

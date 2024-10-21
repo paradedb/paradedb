@@ -1,0 +1,13 @@
+---
+title: Custom Scans
+---
+
+ParadeDB uses [custom scans](https://www.postgresql.org/docs/current/custom-scan.html)
+to optimize query execution. By default, custom scans are enabled.
+
+```sql
+SET paradedb.enable_custom_scan = true;
+```
+
+Custom scans should only be disabled for debugging purposes. They must be enabled for scoring, highlighting,
+and various predicate pushdowns to work.

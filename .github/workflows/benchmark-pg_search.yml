@@ -103,14 +103,8 @@ jobs:
 
       - name: Export Criterion benchmark results
         run: |
-          cargo install critcmp
-
-      - name: Setup upterm session
-        uses: lhotari/action-upterm@v1
-
-      - name: Export Criterion benchmark results
-        run: |
-          critcmp --export target/criterion/new > output.txt
+          cargo install-j $(nproc) --locked critcmp --debug
+          critcmp --export new
 
       # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
       - name: Store benchmarks result

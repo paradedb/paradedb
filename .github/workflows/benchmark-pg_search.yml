@@ -104,7 +104,7 @@ jobs:
       - name: Export Criterion benchmark results
         run: |
           cargo install-j $(nproc) --locked critcmp --debug
-          critcmp --export new
+          critcmp --export new > output.json
 
       # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
       - name: Store benchmarks result
@@ -112,7 +112,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-pg_search-criterion-dev
-          path: output.txt
+          path: output.json
 
       - name: Download benchmarks baseline
         if: github.event_name == 'pull_request'
@@ -126,7 +126,7 @@ jobs:
         id: compare
         run: |
           if [ -f ./previous/output.txt ]; then
-            result=$(critcmp ./previous/output.txt output.txt)
+            result=$(critcmp ./previous/output.json output.json)
             echo "comparison_result<<EOF" >> $GITHUB_OUTPUT
             echo "$result" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT

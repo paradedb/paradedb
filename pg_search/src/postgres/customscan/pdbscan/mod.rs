@@ -98,8 +98,19 @@ impl CustomScan for PdbScan {
             };
 
             let pathkey = pullup_ordery_by_score_pathkey(&mut builder, rti);
-            let limit = if pathkey.is_some() && (*builder.args().root).limit_tuples > -1.0 {
-                // we can only use the limit if we have an orderby score pathkey
+            #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+            let baserels = (*builder.args().root).all_baserels;
+            #[cfg(any(feature = "pg16", feature = "pg17"))]
+            let baserels = (*builder.args().root).all_query_rels;
+
+            let limit = if
+            // we can only use the limit if we have an orderby score pathkey
+            pathkey.is_some()
+                && (*builder.args().root).limit_tuples > -1.0
+
+                // and if the path is for sole base relation
+                && pg_sys::bms_equal((*builder.args().rel).relids, baserels)
+            {
                 Some((*builder.args().root).limit_tuples)
             } else {
                 None

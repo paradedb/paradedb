@@ -307,3 +307,54 @@ fn join_issue_1776(mut conn: PgConnection) {
     assert_eq!(results[1], (6, "White jogging shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
     assert_eq!(results[2], (36,"White jogging shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
 }
+
+#[rustfmt::skip]
+#[rstest]
+fn join_issue_1826(mut conn: PgConnection) {
+    r#"CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name => 'mock_items'
+        );
+        
+        CALL paradedb.create_bm25(
+          index_name => 'search_idx',
+          table_name => 'mock_items',
+          key_field => 'id',
+          text_fields => paradedb.field('description') || paradedb.field('category'),
+          numeric_fields => paradedb.field('rating'),
+          boolean_fields => paradedb.field('in_stock'),
+          datetime_fields => paradedb.field('created_at'),
+          json_fields => paradedb.field('metadata')
+        );
+        
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name => 'orders',
+          table_type => 'Orders'
+        );
+        
+        ALTER TABLE orders
+        ADD CONSTRAINT foreign_key_product_id
+        FOREIGN KEY (product_id)
+        REFERENCES mock_items(id);
+        
+        CALL paradedb.create_bm25(
+          index_name => 'orders_idx',
+          table_name => 'orders',
+          key_field => 'order_id',
+          text_fields => paradedb.field('customer_name')
+        );
+    "#
+    .execute(&mut conn);
+
+    let results = r#"
+        SELECT o.order_id, m.description, o.customer_name, paradedb.score(o.order_id) as orders_score, paradedb.score(m.id) as items_score
+        FROM orders o
+        JOIN mock_items m ON o.product_id = m.id
+        WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes' OR m.description @@@ 'Smith'
+        ORDER BY paradedb.score(m.id) desc, m.id asc
+        LIMIT 1;
+    "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
+
+    assert_eq!(results[0], (3, "Sleek running shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
+}

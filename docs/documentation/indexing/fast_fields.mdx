@@ -16,7 +16,7 @@ CALL paradedb.create_bm25(
   index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
-  numeric_fields => paradedb.field('rating', fast => true | false)
+  numeric_fields => paradedb.field('rating', fast => true)
 );
 ```
 
@@ -26,7 +26,7 @@ The normalizer controls how text fast fields are stored. By default, the `raw` n
 queries that [sort by the text field](/documentation/full-text/sorting#fast-ordering).
 
 ```sql
-paradedb.field('category', fast => true, normalizer => 'raw' | 'lowercase')
+paradedb.field('category', fast => true, normalizer => 'raw')
 ```
 
 Setting the normalizer to `lowercase` is useful for queries that [sort by the lowercase text field](/documentation/full-text/sorting#ordering-by-text-field).

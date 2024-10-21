@@ -258,7 +258,7 @@ impl SearchIndexReader {
         query: &dyn Query,
     ) -> SearchResults {
         let (sender, receiver) = crossbeam::channel::unbounded();
-        let collector = collector::ChannelCollector::new(sender, key_field);
+        let collector = collector::ChannelCollector::new(need_scores, sender, key_field);
         let searcher = self.searcher.clone();
         let schema = self.schema.schema.clone();
 
@@ -300,7 +300,7 @@ impl SearchIndexReader {
         segment_ord: SegmentOrdinal,
         query: &dyn Query,
     ) -> SearchResults {
-        let collector = vec_collector::VecCollector::new(key_field);
+        let collector = vec_collector::VecCollector::new(need_scores, key_field);
         let weight = query
             .weight(if need_scores {
                 tantivy::query::EnableScoring::Enabled {
@@ -544,18 +544,24 @@ mod collector {
     /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
     /// each segment, in parallel, as tantivy find each doc.
     pub struct ChannelCollector {
+        need_scores: bool,
         sender: crossbeam::channel::Sender<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
         key_field: Option<String>,
     }
 
     impl ChannelCollector {
         pub fn new(
+            need_scores: bool,
             sender: crossbeam::channel::Sender<
                 Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>,
             >,
             key_field: Option<String>,
         ) -> Self {
-            Self { sender, key_field }
+            Self {
+                need_scores,
+                sender,
+                key_field,
+            }
         }
     }
 
@@ -585,7 +591,7 @@ mod collector {
         }
 
         fn requires_scoring(&self) -> bool {
-            true
+            self.need_scores
         }
 
         fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
@@ -643,20 +649,23 @@ mod vec_collector {
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
-    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
-    /// each segment, in parallel, as tantivy find each doc.
+    /// A [`Collector`] that collects all matching documents into a [`Vec`].  
     pub struct VecCollector {
+        need_scores: bool,
         key_field: Option<String>,
     }
 
     impl VecCollector {
-        pub fn new(key_field: Option<String>) -> Self {
-            Self { key_field }
+        pub fn new(need_scores: bool, key_field: Option<String>) -> Self {
+            Self {
+                need_scores,
+                key_field,
+            }
         }
     }
 
     impl Collector for VecCollector {
-        type Fruit = ();
+        type Fruit = Vec<Vec<(SearchIndexScore, DocAddress)>>;
         type Child = VecSegmentCollector;
 
         fn for_segment(
@@ -680,15 +689,15 @@ mod vec_collector {
         }
 
         fn requires_scoring(&self) -> bool {
-            false
+            self.need_scores
         }
 
         fn merge_fruits(
             &self,
-            _segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
+            segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
         ) -> tantivy::Result<Self::Fruit> {
-            // NB:  we never call this function
-            unimplemented!("VecCollector::merge_fruits is not implemented")
+            // NB:  we never call this function, but best to implement it anyways
+            Ok(segment_fruits)
         }
     }
 

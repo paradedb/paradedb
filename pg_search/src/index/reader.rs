@@ -323,7 +323,8 @@ impl SearchIndexReader {
 
     /// Search the Tantivy index for the "top N" matching documents.
     ///
-    /// The order of returned docs is unspecified.
+    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc]`,
+    /// or least relevant first if it's [`SortDirection::Asc`].
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.

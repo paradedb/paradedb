@@ -124,12 +124,12 @@ pub extern "C" fn amrescan(
         let results = if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
             search_reader.search_segment(
                 need_scores,
-                &query,
-                segment_number,
                 (*scan).xs_want_itup.then(|| key_field.clone()),
+                segment_number,
+                &query,
             )
         } else {
-            search_reader.search_minimal(
+            search_reader.search_via_channel(
                 need_scores,
                 (*scan).xs_want_itup.then(|| key_field.clone()),
                 SearchIndex::executor(),
@@ -311,12 +311,12 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
 // if there's a segment to be claimed for parallel query execution, do that now
 fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
     if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-        state.results =
-            state
-                .reader
-                .search_segment(state.need_scores, &state.query, segment_number, unsafe {
-                    (*scan).xs_want_itup.then(|| state.key_field.clone())
-                });
+        state.results = state.reader.search_segment(
+            state.need_scores,
+            unsafe { (*scan).xs_want_itup.then(|| state.key_field.clone()) },
+            segment_number,
+            &state.query,
+        );
         return true;
     }
     false

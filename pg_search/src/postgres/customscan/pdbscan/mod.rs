@@ -542,7 +542,7 @@ impl CustomScan for PdbScan {
                     .custom_state()
                     .search_query_input
                     .contains_more_like_this();
-            let results = search_reader.search_minimal(
+            let results = search_reader.search_via_channel(
                 need_scores,
                 None,
                 SearchIndex::executor(),

@@ -28,7 +28,7 @@ use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
 use tantivy::query::QueryParser;
-use tantivy::schema::{FieldType, Schema, Value};
+use tantivy::schema::{FieldType, Value};
 use tantivy::{
     query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyDocument, TantivyError,
 };
@@ -52,7 +52,7 @@ pub enum SearchResults {
     TopN(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
 
     #[allow(clippy::type_complexity)]
-    FastPath(
+    Channel(
         std::iter::Flatten<
             crossbeam::channel::IntoIter<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
         >,
@@ -68,7 +68,7 @@ impl Debug for SearchResults {
             SearchResults::TopN(count, iter) => {
                 write!(f, "SearchResults::TopN({count}, {:?})", iter.len())
             }
-            SearchResults::FastPath(iter) => {
+            SearchResults::Channel(iter) => {
                 write!(f, "SearchResults::FastPath(~{:?})", iter.size_hint())
             }
             SearchResults::SingleSegment(count, iter) => {
@@ -86,7 +86,7 @@ impl Iterator for SearchResults {
         match self {
             SearchResults::None => None,
             SearchResults::TopN(_, iter) => iter.next(),
-            SearchResults::FastPath(iter) => iter
+            SearchResults::Channel(iter) => iter
                 .next()
                 .map(|result| result.unwrap_or_else(|e| panic!("{e}"))),
             SearchResults::SingleSegment(_, iter) => iter.next(),
@@ -98,7 +98,7 @@ impl Iterator for SearchResults {
         match self {
             SearchResults::None => (0, Some(0)),
             SearchResults::TopN(_, iter) => iter.size_hint(),
-            SearchResults::FastPath(iter) => iter.size_hint(),
+            SearchResults::Channel(iter) => iter.size_hint(),
             SearchResults::SingleSegment(_, iter) => iter.size_hint(),
         }
     }
@@ -111,7 +111,7 @@ impl Iterator for SearchResults {
         match self {
             SearchResults::None => 0,
             SearchResults::TopN(count, _) => count,
-            SearchResults::FastPath(iter) => iter.count(),
+            SearchResults::Channel(iter) => iter.count(),
             SearchResults::SingleSegment(count, _) => count,
         }
     }
@@ -122,7 +122,7 @@ impl SearchResults {
         match self {
             SearchResults::None => Some(0),
             SearchResults::TopN(count, _) => Some(*count),
-            SearchResults::FastPath(_) => None,
+            SearchResults::Channel(_) => None,
             SearchResults::SingleSegment(count, _) => Some(*count),
         }
     }
@@ -219,38 +219,62 @@ impl SearchIndexReader {
         }
     }
 
-    /// Search the Tantivy index for matching documents.
+    /// Search the Tantivy index for matching documents, in the background, streaming the matching
+    /// documents back as they're found.
     ///
-    /// This method will do the minimal amount of work necessary to return [`SearchResults`].  If,
-    /// for example, it determines that scoring and sorting are not strictly necessary, it will
-    /// use a "fast path" for searching where the returned [`SearchIndexScore`] will be minimally
-    /// populated with only the "ctid" value for each matching document.
-    ///
-    /// The order of returned docs is unspecified here if there is no limit or orderby and stable_sort
-    /// is false.
+    /// The order of returned docs is unspecified.
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_minimal(
+    pub fn search_via_channel(
         &self,
         need_scores: bool,
         key_field: Option<String>,
         executor: &'static Executor,
         query: &dyn Query,
     ) -> SearchResults {
-        SearchResults::FastPath(
-            self.search_via_channel(need_scores, key_field, executor, query)
-                .into_iter()
-                .flatten(),
-        )
+        let (sender, receiver) = crossbeam::channel::unbounded();
+        let collector = collector::ChannelCollector::new(sender, key_field);
+        let searcher = self.searcher.clone();
+        let schema = self.schema.schema.clone();
+
+        let owned_query = query.box_clone();
+        std::thread::spawn(move || {
+            searcher
+                .search_with_executor(
+                    &owned_query,
+                    &collector,
+                    executor,
+                    if need_scores {
+                        tantivy::query::EnableScoring::Enabled {
+                            searcher: &searcher,
+                            statistics_provider: &searcher,
+                        }
+                    } else {
+                        tantivy::query::EnableScoring::Disabled {
+                            schema: &schema,
+                            searcher_opt: Some(&searcher),
+                        }
+                    },
+                )
+                .expect("failed to search")
+        });
+
+        SearchResults::Channel(receiver.into_iter().flatten())
     }
 
+    /// Search a specific index segment for matching documents.
+    ///
+    /// The order of returned docs is unspecified.
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
     pub fn search_segment(
         &self,
         need_scores: bool,
-        query: &dyn Query,
-        segment_ord: SegmentOrdinal,
         key_field: Option<String>,
+        segment_ord: SegmentOrdinal,
+        query: &dyn Query,
     ) -> SearchResults {
         let collector = vec_collector::VecCollector::new(key_field);
         let weight = query
@@ -273,6 +297,12 @@ impl SearchIndexReader {
         SearchResults::SingleSegment(results.len(), results.into_iter())
     }
 
+    /// Search the Tantivy index for the "top N" matching documents.
+    ///
+    /// The order of returned docs is unspecified.
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
     pub fn search_top_n(
         &self,
         executor: &'static Executor,
@@ -339,43 +369,6 @@ impl SearchIndexReader {
         }
 
         SearchResults::TopN(top_docs.len(), top_docs.into_iter())
-    }
-
-    fn search_via_channel(
-        &self,
-        need_scores: bool,
-        key_field: Option<String>,
-        executor: &'static Executor,
-        query: &dyn Query,
-    ) -> crossbeam::channel::Receiver<Vec<Result<(SearchIndexScore, DocAddress), TantivyError>>>
-    {
-        let (sender, receiver) = crossbeam::channel::unbounded();
-        let collector = collector::ChannelCollector::new(sender, key_field);
-        let searcher = self.searcher.clone();
-        let schema = self.schema.schema.clone();
-
-        let owned_query = query.box_clone();
-        std::thread::spawn(move || {
-            searcher
-                .search_with_executor(
-                    &owned_query,
-                    &collector,
-                    executor,
-                    if need_scores {
-                        tantivy::query::EnableScoring::Enabled {
-                            searcher: &searcher,
-                            statistics_provider: &searcher,
-                        }
-                    } else {
-                        tantivy::query::EnableScoring::Disabled {
-                            schema: &schema,
-                            searcher_opt: Some(&searcher),
-                        }
-                    },
-                )
-                .expect("failed to search")
-        });
-        receiver
     }
 
     pub fn estimate_docs(
@@ -557,7 +550,7 @@ mod collector {
             let key_ff = self
                 .key_field
                 .as_ref()
-                .map(|key_field| FFType::new(fast_fields, &key_field));
+                .map(|key_field| FFType::new(fast_fields, key_field));
 
             Ok(ChannelSegmentCollector {
                 segment_ord: segment_local_id,
@@ -655,7 +648,7 @@ mod vec_collector {
             let key_ff = self
                 .key_field
                 .as_ref()
-                .map(|key_field| FFType::new(fast_fields, &key_field));
+                .map(|key_field| FFType::new(fast_fields, key_field));
 
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,

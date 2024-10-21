@@ -95,7 +95,7 @@ jobs:
 
       - name: Index benchmark data
         working-directory: pg_search/
-        run: cargo paradedb bench eslogs build-search-index --url postgresql://localhost:28817/postgres
+        run: cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       - name: Run search benchmarks
         working-directory: pg_search/

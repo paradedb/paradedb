@@ -22,7 +22,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::schema::SearchConfig;
+use crate::query::SearchQueryInput;
 use pgrx::{name_data_to_str, pg_sys};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -93,11 +93,11 @@ pub struct PdbScanState {
     pub rti: pg_sys::Index,
 
     pub index_name: String,
-    pub index_uuid: String,
     pub key_field: String,
 
     pub query: Option<Box<dyn Query>>,
-    pub search_config: SearchConfig,
+
+    pub search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 
     pub search_results: SearchResults,

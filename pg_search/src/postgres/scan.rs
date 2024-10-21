@@ -18,19 +18,20 @@
 use crate::index::reader::{SearchIndexReader, SearchResults};
 use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
+use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
-use crate::schema::SearchConfig;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
 use tantivy::query::Query;
 
 pub struct Bm25ScanState {
+    need_scores: bool,
     reader: SearchIndexReader,
-    search_config: SearchConfig,
     query: Box<dyn Query>,
     results: SearchResults,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
+    key_field: String,
     key_field_oid: PgOid,
 }
 
@@ -60,42 +61,20 @@ pub extern "C" fn amrescan(
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
-    fn key_to_config(indexrel: pg_sys::Relation, key: &pg_sys::ScanKeyData) -> SearchConfig {
+    fn key_to_search_query_input(key: &pg_sys::ScanKeyData) -> SearchQueryInput {
         match ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized") {
-            ScanStrategy::SearchConfigJson => unsafe {
-                let search_config = SearchConfig::from_jsonb(
-                    JsonB::from_datum(key.sk_argument, false)
-                        .expect("ScanKey.sk_argument must not be null"),
-                )
-                .expect("`ScanKey.sk_argument` should be a valid `SearchConfig`");
-
-                // assert that the index from the `SearchConfig` is the **same** index as the one Postgres
-                // has decided to use for this IndexScan.  If it's not, we cannot continue.
-                //
-                // As we disallow creating multiple `USING bm25` indexes on a given table, this should never
-                // happen, but it's hard to know what the state of existing databases are out there in the wild
-                let postgres_index_oid = (*indexrel).rd_id;
-                let our_index_id = search_config.index_oid;
-                assert_eq!(
-                    postgres_index_oid,
-                    pg_sys::Oid::from(our_index_id),
-                    "SearchConfig jsonb index doesn't match the index in the current IndexScan"
-                );
-                search_config
-            },
-
             ScanStrategy::TextQuery => unsafe {
-                let query = String::from_datum(key.sk_argument, false)
+                let query_string = String::from_datum(key.sk_argument, false)
                     .expect("ScanKey.sk_argument must not be null");
-                let indexrel = PgRelation::from_pg(indexrel);
-                SearchConfig::from((query, &indexrel))
+                SearchQueryInput::Parse {
+                    query_string,
+                    lenient: None,
+                    conjunction_mode: None,
+                }
             },
-
             ScanStrategy::SearchQueryInput => unsafe {
-                let query = SearchQueryInput::from_datum(key.sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null");
-                let indexrel = PgRelation::from_pg(indexrel);
-                SearchConfig::from((query, &indexrel))
+                SearchQueryInput::from_datum(key.sk_argument, false)
+                    .expect("ScanKey.sk_argument must not be null")
             },
         }
     }
@@ -114,12 +93,12 @@ pub extern "C" fn amrescan(
     };
 
     // build a Boolean "must" clause of all the ScanKeys
-    let mut search_config = key_to_config(indexrel.as_ptr(), &keys[0]);
+    let mut search_query_input = key_to_search_query_input(&keys[0]);
     for key in &keys[1..] {
-        let key = key_to_config(indexrel.as_ptr(), key);
+        let key = key_to_search_query_input(key);
 
-        search_config.query = SearchQueryInput::Boolean {
-            must: vec![search_config.query, key.query],
+        search_query_input = SearchQueryInput::Boolean {
+            must: vec![search_query_input, key],
             should: vec![],
             must_not: vec![],
         };
@@ -127,23 +106,33 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let search_index = open_search_index(&indexrel).expect("should be able to open search index");
-    let reader = search_index
+    let search_reader = search_index
         .get_reader()
         .expect("SearchState should construct cleanly");
 
     unsafe {
-        parallel::maybe_init_parallel_scan(scan, &reader.searcher);
-        let segment_number = parallel::maybe_claim_segment(scan);
+        parallel::maybe_init_parallel_scan(scan, &search_reader.searcher);
 
-        let query = search_index.query(&search_config, &reader);
+        let options = (*(*scan).indexRelation).rd_options as *mut SearchIndexCreateOptions;
+        let key_field = (*options)
+            .get_key_field()
+            .expect("bm25 index should have a key_field")
+            .0;
 
-        let results = if let Some(segment_number) = segment_number {
-            reader.search_segment(&search_config, &query, segment_number, (*scan).xs_want_itup)
+        let need_scores = search_query_input.contains_more_like_this();
+        let query = search_index.query(&search_query_input, &search_reader);
+        let results = if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
+            search_reader.search_segment(
+                need_scores,
+                &query,
+                segment_number,
+                (*scan).xs_want_itup.then(|| key_field.clone()),
+            )
         } else {
-            reader.search_minimal(
-                (*scan).xs_want_itup,
+            search_reader.search_minimal(
+                need_scores,
+                (*scan).xs_want_itup.then(|| key_field.clone()),
                 SearchIndex::executor(),
-                &search_config,
                 &query,
             )
         };
@@ -151,22 +140,24 @@ pub extern "C" fn amrescan(
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
         let scan_state = if (*scan).xs_want_itup {
             Bm25ScanState {
-                reader,
-                search_config,
+                need_scores,
+                reader: search_reader,
                 query,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
+                key_field,
                 key_field_oid: PgOid::from(
                     (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid,
                 ),
             }
         } else {
             Bm25ScanState {
-                reader,
-                search_config,
+                need_scores,
+                reader: search_reader,
                 query,
                 results,
                 itup: (vec![], vec![]),
+                key_field,
                 key_field_oid: PgOid::Invalid,
             }
         };
@@ -320,12 +311,12 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
 // if there's a segment to be claimed for parallel query execution, do that now
 fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
     if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-        state.results = state.reader.search_segment(
-            &state.search_config,
-            &state.query,
-            segment_number,
-            unsafe { (*scan).xs_want_itup },
-        );
+        state.results =
+            state
+                .reader
+                .search_segment(state.need_scores, &state.query, segment_number, unsafe {
+                    (*scan).xs_want_itup.then(|| state.key_field.clone())
+                });
         return true;
     }
     false

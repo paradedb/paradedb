@@ -56,10 +56,9 @@ pub fn search_with_query_input(
         .expect("should be able to open search index");
 
         let scan_state = search_index.get_reader().unwrap();
-        let top_docs = scan_state.search_minimal(
-            true,
+        let top_docs = scan_state.search_via_channel(
             query.contains_more_like_this(),
-            search_index.key_field_name(),
+            Some(search_index.key_field_name()),
             SearchIndex::executor(),
             &search_index.query(&query, &scan_state),
         );

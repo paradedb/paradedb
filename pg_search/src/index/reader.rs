@@ -21,7 +21,6 @@ use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::pg_sys;
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -37,6 +36,30 @@ use tantivy::{snippet::SnippetGenerator, Executor};
 use tracing::debug;
 
 const CACHE_NUM_BLOCKS: usize = 10;
+
+/// Represents a matching document from a tantivy search.  Typically it is returned as an Iterator
+/// Item alongside the originating tantivy [`DocAddress`]
+#[derive(Clone)]
+pub struct SearchIndexScore {
+    pub bm25: f32,
+    pub key: Option<TantivyValue>,
+    pub ctid: u64,
+}
+
+impl Debug for SearchIndexScore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchIndexScore")
+            .field("bm25", &self.bm25)
+            .field("key", &self.key)
+            .field("ctid", &{
+                let mut ipd = pg_sys::ItemPointerData::default();
+                crate::postgres::utils::u64_to_item_pointer(self.ctid, &mut ipd);
+                let (blockno, offno) = pgrx::itemptr::item_pointer_get_both(ipd);
+                format!("({},{})", blockno, offno)
+            })
+            .finish()
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SortDirection {
@@ -697,29 +720,5 @@ mod vec_collector {
         fn harvest(self) -> Self::Fruit {
             self.results
         }
-    }
-}
-
-/// A custom score struct for ordering Tantivy results.
-/// For use with the `stable` sorting feature.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct SearchIndexScore {
-    pub bm25: f32,
-    pub key: Option<TantivyValue>,
-    pub ctid: u64,
-}
-
-impl Debug for SearchIndexScore {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SearchIndexScore")
-            .field("bm25", &self.bm25)
-            .field("key", &self.key)
-            .field("ctid", &{
-                let mut ipd = pg_sys::ItemPointerData::default();
-                crate::postgres::utils::u64_to_item_pointer(self.ctid, &mut ipd);
-                let (blockno, offno) = pgrx::itemptr::item_pointer_get_both(ipd);
-                format!("({},{})", blockno, offno)
-            })
-            .finish()
     }
 }

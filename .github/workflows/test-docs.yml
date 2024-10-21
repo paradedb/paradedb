@@ -37,8 +37,6 @@ jobs:
         working-directory: docs/
         run: |
           output=$(mintlify broken-links)
-
-          # Check if the output contains any broken links
           if [[ "$output" == *"No broken links found."* ]]; then
             echo "No broken links found."
           else

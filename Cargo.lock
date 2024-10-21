@@ -2988,7 +2988,6 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
- "serde_path_to_error",
  "strum",
  "tantivy",
  "tantivy-common",
@@ -3928,16 +3927,6 @@ dependencies = [
  "itoa",
  "memchr",
  "ryu",
- "serde",
-]
-
-[[package]]
-name = "serde_path_to_error"
-version = "0.1.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af99884400da37c88f5e9146b7f1fd0fbcae8f6eec4e9da38b67d05486f814a6"
-dependencies = [
- "itoa",
  "serde",
 ]
 

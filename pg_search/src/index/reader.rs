@@ -396,8 +396,6 @@ impl SearchIndexReader {
                 bm25: f32::NAN,
                 key: None,
                 ctid,
-                order_by: None,
-                sort_asc: false,
             };
 
             top_docs.push((scored, doc_address));

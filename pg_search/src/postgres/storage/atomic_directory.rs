@@ -1,6 +1,6 @@
 use crate::postgres::build::SEARCH_META_BLOCKNO;
 use crate::postgres::storage::buffer::BufferCache;
-use crate::postgres::storage::segment_handle::SearchMetaSpecialData;
+use crate::postgres::storage::segment_handle::SegmentHandleSpecialData;
 use pgrx::*;
 
 pub(crate) struct AtomicSpecialData {
@@ -20,7 +20,7 @@ impl AtomicDirectory {
         let cache = BufferCache::open(relation_oid);
         let buffer = cache.get_buffer(SEARCH_META_BLOCKNO, pg_sys::BUFFER_LOCK_SHARE);
         let page = pg_sys::BufferGetPage(buffer);
-        let special = pg_sys::PageGetSpecialPointer(page) as *mut SearchMetaSpecialData;
+        let special = pg_sys::PageGetSpecialPointer(page) as *mut SegmentHandleSpecialData;
         let meta_blockno = (*special).meta_blockno;
         let managed_blockno = (*special).managed_blockno;
 

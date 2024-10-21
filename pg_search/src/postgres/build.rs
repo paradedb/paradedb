@@ -22,7 +22,7 @@ use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::atomic_directory::AtomicSpecialData;
 use crate::postgres::storage::buffer::BufferCache;
-use crate::postgres::storage::segment_handle::SearchMetaSpecialData;
+use crate::postgres::storage::segment_handle::SegmentHandleSpecialData;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
@@ -351,14 +351,14 @@ fn is_bm25_index(indexrel: &PgRelation) -> bool {
 
 unsafe fn create_metadata(relation_oid: u32) {
     let cache = BufferCache::open(relation_oid);
-    let buffer = cache.new_buffer(std::mem::size_of::<SearchMetaSpecialData>());
+    let buffer = cache.new_buffer(std::mem::size_of::<SegmentHandleSpecialData>());
     assert!(
         pg_sys::BufferGetBlockNumber(buffer) == SEARCH_META_BLOCKNO,
         "expected metadata blockno to be 0 but got {SEARCH_META_BLOCKNO}"
     );
 
     let page = pg_sys::BufferGetPage(buffer);
-    let special = pg_sys::PageGetSpecialPointer(page) as *mut SearchMetaSpecialData;
+    let special = pg_sys::PageGetSpecialPointer(page) as *mut SegmentHandleSpecialData;
 
     let meta_buffer = cache.new_buffer(std::mem::size_of::<AtomicSpecialData>());
     let managed_buffer = cache.new_buffer(std::mem::size_of::<AtomicSpecialData>());

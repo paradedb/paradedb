@@ -213,8 +213,11 @@ impl SearchIndexWriter {
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
         let tantivy_dir = BlockingDirectory::new(directory.index_oid);
-        let mut underlying_index =
-            Index::create(tantivy_dir, schema.schema.clone(), IndexSettings::default())?;
+        let settings = IndexSettings {
+            docstore_compress_dedicated_thread: false,
+            ..IndexSettings::default()
+        };
+        let mut underlying_index = Index::create(tantivy_dir, schema.schema.clone(), settings)?;
 
         SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
 

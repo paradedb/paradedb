@@ -145,6 +145,7 @@ impl SearchIndexReader {
             .reload_policy(tantivy::ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
+        pgrx::info!("reader {:?}", searcher.index().searchable_segments()?);
         Ok(SearchIndexReader {
             searcher,
             schema: schema.clone(),
@@ -239,28 +240,30 @@ impl SearchIndexReader {
         config: &SearchConfig,
         query: &dyn Query,
     ) -> SearchResults {
-        match (
-            config.limit_rows,
-            config.stable_sort.unwrap_or(true),
-            config.order_by_field.clone(),
-        ) {
-            // no limit, no stable sorting, and no sort field
-            //
-            // this we can use a channel to stream the results and also elide doing key lookups.
-            // this is our "fast path"
-            (None, false, None) => SearchResults::FastPath(
-                self.search_via_channel(executor, include_key, config, query)
-                    .into_iter()
-                    .flatten(),
-            ),
+        // match (
+        //     config.limit_rows,
+        //     config.stable_sort.unwrap_or(true),
+        //     config.order_by_field.clone(),
+        // ) {
+        //     // no limit, no stable sorting, and no sort field
+        //     //
+        //     // this we can use a channel to stream the results and also elide doing key lookups.
+        //     // this is our "fast path"
+        //     (None, false, None) => SearchResults::FastPath(
+        //         self.search_via_channel(executor, include_key, config, query)
+        //             .into_iter()
+        //             .flatten(),
+        //     ),
 
-            // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
-            // including retrieving the key field
-            _ => {
-                let results = self.search_with_top_docs(executor, true, config, query);
-                SearchResults::AllFeatures(results.len(), results.into_iter())
-            }
-        }
+        //     // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
+        //     // including retrieving the key field
+        //     _ => {
+        //         let results = self.search_with_top_docs(executor, true, config, query);
+        //         SearchResults::AllFeatures(results.len(), results.into_iter())
+        //     }
+        // }
+        let results = self.search_with_top_docs(executor, true, config, query);
+        SearchResults::AllFeatures(results.len(), results.into_iter())
     }
 
     pub fn search_top_n(
@@ -293,6 +296,7 @@ impl SearchIndexReader {
             }
         });
 
+        pgrx::info!("top n");
         let results = self
             .searcher
             .search_with_executor(
@@ -348,6 +352,7 @@ impl SearchIndexReader {
             config.need_scores || SearchConfig::contains_more_like_this(&config.query);
 
         let owned_query = query.box_clone();
+        pgrx::info!("searching via channel");
         std::thread::spawn(move || {
             searcher
                 .search_with_executor(
@@ -418,6 +423,7 @@ impl SearchIndexReader {
             },
         );
 
+        pgrx::info!("searching with top docs");
         self.searcher
             .search_with_executor(
                 query,

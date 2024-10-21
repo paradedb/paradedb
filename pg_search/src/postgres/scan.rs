@@ -122,6 +122,7 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let search_index = open_search_index(&indexrel).expect("should be able to open search index");
+    pgrx::info!("getting reader");
     let state = search_index
         .get_reader()
         .expect("SearchState should construct cleanly");

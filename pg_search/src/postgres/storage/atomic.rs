@@ -77,7 +77,7 @@ impl AtomicDirectory {
             data.as_ptr() as pg_sys::Item,
             data.len(),
             pg_sys::FirstOffsetNumber,
-            pg_sys::PAI_OVERWRITE as i32,
+            0,
         );
         pg_sys::MarkBufferDirty(buffer);
         pg_sys::UnlockReleaseBuffer(buffer);

@@ -1,5 +1,5 @@
 # The default Postgres major version ParadeDB ships with. In CI, this gets updated to ship builds for all official PGDG versions.
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR=17
 
 ###############################################
 # First Stage: Builder
@@ -68,7 +68,6 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
 COPY pg_search/ /tmp/pg_search
-COPY shared/ /tmp/shared
 COPY tokenizers/ /tmp/tokenizers
 
 # Build the extension

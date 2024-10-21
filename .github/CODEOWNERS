@@ -7,5 +7,5 @@
 /docker/                                                       @philippemnoel @rebasedming
 /docs/                                                         @rebasedming @neilyio
 /pg_search/                                                    @rebasedming @neilyio
-/shared/                                                       @rebasedming @neilyio
+/tests/                                                        @rebasedming @neilyio
 /tokenizers/                                                   @rebasedming @neilyio

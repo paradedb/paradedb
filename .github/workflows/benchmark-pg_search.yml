@@ -36,7 +36,7 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
-    runs-on: ubuntu-latest # Temporarily, to be able to SSH
+    runs-on: ubicloud-standard-8
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
@@ -114,15 +114,23 @@ jobs:
           name: benchmark-pg_search-criterion-dev
           path: output.json
 
+      - name: Check if baseline exists
+        id: check_artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: benchmark-pg_search-criterion-dev
+          path: previous/
+
       - name: Download benchmarks baseline
-        if: github.event_name == 'pull_request'
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
         uses: actions/download-artifact@v4
         with:
           name: benchmark-pg_search-criterion-dev
           path: previous/
 
       - name: Compare benchmarks results
-        if: github.event_name == 'pull_request'
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
         id: compare
         run: |
           if [ -f ./previous/output.txt ]; then
@@ -135,6 +143,7 @@ jobs:
           fi
 
       - name: Generate Commit Message
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
         run: |
           echo "Generating GitHub comment message"
           {
@@ -147,6 +156,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Attach Performance Comparison to PR
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |

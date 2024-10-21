@@ -112,11 +112,14 @@ jobs:
           echo "duration_min=$min" >> $GITHUB_OUTPUT
           echo "duration_hours=$hours" >> $GITHUB_OUTPUT
 
-      # TODO: Modify `cargo paradedb bench` to output Criterion results to a file
       - name: Run search benchmarks
-        id: search_benchmark
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+
+      - name: Export Criterion benchmark results
+        run: |
+          cargo install critcmp
+          critcmp --export target/criterion/new > output.txt
 
       # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
       - name: Store benchmarks result
@@ -138,7 +141,6 @@ jobs:
         id: compare
         run: |
           if [ -f ./previous/output.txt ]; then
-            cargo install critcmp
             result=$(critcmp ./previous/output.txt output.txt)
             echo "comparison_result<<EOF" >> $GITHUB_OUTPUT
             echo "$result" >> $GITHUB_OUTPUT

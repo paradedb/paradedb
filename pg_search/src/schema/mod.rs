@@ -562,7 +562,7 @@ impl From<SearchFieldConfig> for DateOptions {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchField {
     /// The id of the field, stored in the index.
     pub id: SearchFieldId,
@@ -688,6 +688,33 @@ impl SearchIndexSchema {
         } else {
             let lookup = Self::build_lookup(&self.fields);
             lookup.get(name).and_then(|idx| self.fields.get(*idx))
+        }
+    }
+
+    pub fn is_field_raw_sortable(&self, name: &str) -> bool {
+        self.is_field_sortable(name, SearchNormalizer::Raw)
+            .is_some()
+    }
+
+    pub fn is_field_lower_sortable(&self, name: &str) -> bool {
+        self.is_field_sortable(name, SearchNormalizer::Lowercase)
+            .is_some()
+    }
+
+    fn is_field_sortable(&self, name: &str, desired_normalizer: SearchNormalizer) -> Option<()> {
+        let search_field = self.get_search_field(&SearchFieldName(name.to_string()))?;
+
+        match search_field.config {
+            SearchFieldConfig::Text {
+                fast: true,
+                normalizer,
+                ..
+            } if normalizer == desired_normalizer => Some(()),
+            SearchFieldConfig::Numeric { fast: true, .. } => Some(()),
+            SearchFieldConfig::Boolean { fast: true, .. } => Some(()),
+            SearchFieldConfig::Date { fast: true, .. } => Some(()),
+            SearchFieldConfig::Ctid => Some(()),
+            _ => None,
         }
     }
 }

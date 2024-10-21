@@ -5,10 +5,11 @@ title: Fast Fields
 ## Basic Usage
 
 A field that is indexed as `fast` is stored in a column-oriented fashion. Fast fields are necessary for
-[aggregations/faceting](/documentation/faceting/overview). They can also improve the query times of [filtering](/documentation/full-text/filtering)
-and BM25 scoring.
+[aggregations/faceting](/documentation/faceting/overview). They can also improve the query times of [filtering](/documentation/full-text/filtering) and
+[sorting](/documentation/full-text/sorting).
 
-The following code block demonstrates how to specify a fast field.
+By default, [numeric](/documentation/indexing/create_index#numeric-fields), [datetime](/documentation/indexing/create_index#datetime-fields), and [boolean](/documentation/indexing/create_index#boolean-fields)
+are indexed as fast. The following code block demonstrates how to specify a fast field.
 
 ```sql
 CALL paradedb.create_bm25(
@@ -21,9 +22,11 @@ CALL paradedb.create_bm25(
 
 ## Normalizers
 
-The normalizer controls how text and JSON fast fields are tokenized. By default, the `raw` normalizer is used. It treats the entire text as a single token and removes tokens
-larger than 255 bytes. The `lowercase` normalizer is like `raw` but also lowercases the token.
+The normalizer controls how text fast fields are stored. By default, the `raw` normalizer is used. The `raw` normalizer is useful for accelerating
+queries that [sort by the text field](/documentation/full-text/sorting#fast-ordering).
 
 ```sql
-paradedb.field('category', fast => true, normalizer => 'raw' | 'lowercase')
+paradedb.field('category', fast => true, normalizer => 'raw')
 ```
+
+Setting the normalizer to `lowercase` is useful for queries that [sort by the lowercase text field](/documentation/full-text/sorting#ordering-by-text-field).

@@ -39,3 +39,91 @@ WHERE category @@@ 'electronics'
 ORDER BY score DESC, rating DESC
 LIMIT 5;
 ```
+
+## Fast Ordering
+
+An `ORDER BY...LIMIT` over a single [text](/documentation/indexing/create_index#text-fields), [numeric](/documentation/indexing/create_index#numeric-fields),
+[datetime](/documentation/indexing/create_index#datetime-fields), or [boolean](/documentation/indexing/create_index#boolean-fields) field is automatically "pushed down"
+to the BM25 index if the `ORDER BY` field is indexed as [fast](/documentation/indexing/fast_fields). This makes these queries significantly faster.
+
+You can verify if an `ORDER BY...LIMIT` was pushed down by running `EXPLAIN` on the query. If pushdown occurred, a `Custom Scan` with a
+`Sort Field` will appear in the query plan.
+
+```sql
+-- Pushdown may not occur over very small tables
+-- This forces pushdown
+SET enable_indexscan = off;
+
+EXPLAIN SELECT description, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY rating DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+                                                           QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..34.03 rows=5 width=36)
+   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..34.03 rows=5 width=36)
+         Table: mock_items
+         Index: search_idx_bm25_index
+         Scores: false
+            Sort Field: rating
+            Sort Direction: desc
+            Top N Limit: 5
+         Tantivy Query: {"ParseWithField":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}
+(9 rows)
+```
+</Accordion>
+
+### Ordering by Text Field
+
+If a fast text field is indexed with the `raw` [normalizer](/documentation/indexing/fast_fields#normalizers), `ORDER BY <text_field> LIMIT` can be pushed down.
+
+If the `lowercase` [normalizer](/documentation/indexing/fast_fields#normalizers) is used, then `ORDER BY lower(<text_field>) LIMIT` (but not `ORDER BY <text_field> LIMIT`)
+can be pushed down.
+
+```sql
+CALL paradedb.create_bm25(
+    index_name => 'search_idx',
+    table_name => 'mock_items',
+    key_field => 'id',
+    text_fields =>
+        paradedb.field('description') ||
+        paradedb.field('category', fast => true, normalizer => 'lowercase')
+);
+
+-- category uses normalizer = lowercase, so lower(category) can be pushed down
+EXPLAIN SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY lower(category) DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+                                                           QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..34.05 rows=5 width=584)
+   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..34.05 rows=5 width=584)
+         Table: mock_items
+         Index: search_idx_bm25_index
+         Scores: false
+            Sort Field: category
+            Sort Direction: desc
+            Top N Limit: 5
+         Tantivy Query: {"ParseWithField":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}
+(9 rows)
+```
+</Accordion>
+
+<Note>
+Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
+
+1. `ORDER BY`s over multiple fields for tiebreaking.
+2. Using `paradedb.score` with an `ORDER BY` over another field.
+3. `ORDER BY` without a `LIMIT`.
+</Note>

@@ -17,8 +17,9 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::Cardinality;
+use crate::postgres::customscan::builders::custom_path::OrderByStyle;
+use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
-use crate::postgres::customscan::pdbscan::scan_state::SortDirection;
 use pgrx::{pg_sys, PgList};
 
 #[derive(Default, Debug)]
@@ -28,6 +29,7 @@ pub struct PrivateData {
     range_table_index: Option<pg_sys::Index>,
     restrict_info: Option<*mut pg_sys::List>,
     limit: Option<usize>,
+    sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
     var_attname_lookup: Option<*mut pg_sys::List>,
 }
@@ -67,6 +69,15 @@ impl PrivateData {
 
     pub fn set_limit(&mut self, limit: Option<Cardinality>) {
         self.limit = limit.map(|l| l.round() as usize);
+    }
+
+    pub fn set_sort_field(&mut self, pathkey: &Option<OrderByStyle>) {
+        if let Some(style) = pathkey {
+            match style {
+                OrderByStyle::Score(_) => {}
+                OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
+            }
+        }
     }
 
     pub fn set_sort_direction(&mut self, direction: Option<SortDirection>) {
@@ -110,6 +121,10 @@ impl PrivateData {
 
     pub fn limit(&self) -> Option<usize> {
         self.limit
+    }
+
+    pub fn sort_field(&self) -> Option<String> {
+        self.sort_field.clone()
     }
 
     pub fn sort_direction(&self) -> Option<SortDirection> {
@@ -175,6 +190,7 @@ mod serialize {
         ser.push(makeInteger(privdat.range_table_index));
         ser.push(unwrapOrNull(privdat.restrict_info.map(|l| l.cast())));
         ser.push(makeString(privdat.limit));
+        ser.push(makeString(privdat.sort_field));
         ser.push(makeInteger(privdat.sort_direction));
         ser.push(unwrapOrNull(
             privdat.var_attname_lookup.map(|v| v.cast::<pg_sys::Node>()),
@@ -215,9 +231,10 @@ mod deserialize {
             range_table_index: input.get_ptr(2).and_then(|n| decodeInteger(n)),
             restrict_info: input.get_ptr(3).and_then(|n| nodecast!(List, T_List, n)),
             limit: input.get_ptr(4).and_then(|n| decodeString(n)),
-            sort_direction: input.get_ptr(5).and_then(|n| decodeInteger(n)),
+            sort_field: input.get_ptr(5).and_then(|n| decodeString(n)),
+            sort_direction: input.get_ptr(6).and_then(|n| decodeInteger(n)),
             var_attname_lookup: input
-                .get_ptr(6)
+                .get_ptr(7)
                 .and_then(|n| nodecast!(List, T_List, n, true)),
         }
     }

@@ -97,9 +97,94 @@ jobs:
         working-directory: pg_search/
         run: cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Run benchmarks
+      - name: Run search benchmarks
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+
+      - name: Export Criterion benchmark results
+        run: |
+          cargo install -j $(nproc) --locked critcmp --debug
+          critcmp --export new > output.json
+
+      # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
+      - name: Store benchmarks result
+        if: github.ref == 'refs/heads/dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-pg_search-criterion-dev
+          path: output.json
+
+      - name: Check if baseline exists
+        id: check_artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: benchmark-pg_search-criterion-dev
+          path: previous/
+
+      - name: Download benchmarks baseline
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-pg_search-criterion-dev
+          path: previous/
+
+      - name: Compare benchmarks results
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        id: compare
+        run: |
+          if [ -f ./previous/output.txt ]; then
+            result=$(critcmp ./previous/output.json output.json)
+            echo "comparison_result<<EOF" >> $GITHUB_OUTPUT
+            echo "$result" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "No previous benchmark result found"
+          fi
+
+      - name: Generate Commit Message
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        run: |
+          echo "Generating GitHub comment message"
+          {
+            echo 'DIFF<<EOF'
+            echo 'Performance comparison (latest commit) with `dev`:'
+            echo
+            cat ${{ steps.compare.outputs.comparison_result }}
+            echo
+            echo EOF
+          } >> "$GITHUB_ENV"
+
+      - name: Attach Performance Comparison to PR
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            const botComment = comments.data.find(comment => comment.user.type === 'Bot' && comment.body.includes('Performance comparison (latest commit) with `dev`:'));
+
+            if (botComment) {
+              // Update the existing comment
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: process.env.DIFF
+              });
+            } else {
+              // Create a new comment if none exists
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: process.env.DIFF
+              });
+            }
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

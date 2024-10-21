@@ -30,25 +30,29 @@ pub(crate) struct SegmentHandle {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct SegmentHandleInternal {
     path: PathBuf,
-    blockno: pg_sys::BlockNumber,
-    len: usize,
+    blocks: Vec<pg_sys::BlockNumber>,
+    total_bytes: usize,
 }
 
 impl SegmentHandleInternal {
-    pub fn new(path: PathBuf, blockno: pg_sys::BlockNumber, len: usize) -> Self {
-        Self { path, blockno, len }
+    pub fn new(path: PathBuf, blocks: Vec<pg_sys::BlockNumber>, total_bytes: usize) -> Self {
+        Self {
+            path,
+            blocks,
+            total_bytes,
+        }
     }
 
     pub fn path(&self) -> PathBuf {
         self.path.clone()
     }
 
-    pub fn blockno(&self) -> pg_sys::BlockNumber {
-        self.blockno
+    pub fn blocks(&self) -> Vec<pg_sys::BlockNumber> {
+        self.blocks.clone()
     }
 
-    pub fn len(&self) -> usize {
-        self.len
+    pub fn total_bytes(&self) -> usize {
+        self.total_bytes
     }
 }
 
@@ -70,8 +74,11 @@ impl SegmentHandle {
                 (*item_id).lp_len() as usize,
             ))?;
             if segment.path == path {
-                let internal =
-                    SegmentHandleInternal::new(segment.path.clone(), segment.blockno, segment.len);
+                let internal = SegmentHandleInternal::new(
+                    segment.path.clone(),
+                    segment.blocks,
+                    segment.total_bytes,
+                );
                 pg_sys::UnlockReleaseBuffer(buffer);
                 return Ok(Some(Self {
                     blockno,

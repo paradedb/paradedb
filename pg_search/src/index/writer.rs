@@ -64,6 +64,7 @@ impl BlockingDirectory {
 
 impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
+        pgrx::info!("get_file_handle: {:?}", path);
         Ok(Arc::new(unsafe {
             SegmentReader::new(self.relation_oid, path).map_err(|e| {
                 OpenReadError::wrap_io_error(

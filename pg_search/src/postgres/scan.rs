@@ -20,7 +20,6 @@ use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
 use crate::postgres::ScanStrategy;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchConfig;
 use pgrx::*;
 
 struct PgSearchScanState {
@@ -55,42 +54,20 @@ pub extern "C" fn amrescan(
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
-    fn key_to_config(indexrel: pg_sys::Relation, key: &pg_sys::ScanKeyData) -> SearchConfig {
+    fn key_to_search_query_input(key: &pg_sys::ScanKeyData) -> SearchQueryInput {
         match ScanStrategy::try_from(key.sk_strategy).expect("`key.sk_strategy` is unrecognized") {
-            ScanStrategy::SearchConfigJson => unsafe {
-                let search_config = SearchConfig::from_jsonb(
-                    JsonB::from_datum(key.sk_argument, false)
-                        .expect("ScanKey.sk_argument must not be null"),
-                )
-                .expect("`ScanKey.sk_argument` should be a valid `SearchConfig`");
-
-                // assert that the index from the `SearchConfig` is the **same** index as the one Postgres
-                // has decided to use for this IndexScan.  If it's not, we cannot continue.
-                //
-                // As we disallow creating multiple `USING bm25` indexes on a given table, this should never
-                // happen, but it's hard to know what the state of existing databases are out there in the wild
-                let postgres_index_oid = (*indexrel).rd_id;
-                let our_index_id = search_config.index_oid;
-                assert_eq!(
-                    postgres_index_oid,
-                    pg_sys::Oid::from(our_index_id),
-                    "SearchConfig jsonb index doesn't match the index in the current IndexScan"
-                );
-                search_config
-            },
-
             ScanStrategy::TextQuery => unsafe {
-                let query = String::from_datum(key.sk_argument, false)
+                let query_string = String::from_datum(key.sk_argument, false)
                     .expect("ScanKey.sk_argument must not be null");
-                let indexrel = PgRelation::from_pg(indexrel);
-                SearchConfig::from((query, &indexrel))
+                SearchQueryInput::Parse {
+                    query_string,
+                    lenient: None,
+                    conjunction_mode: None,
+                }
             },
-
             ScanStrategy::SearchQueryInput => unsafe {
-                let query = SearchQueryInput::from_datum(key.sk_argument, false)
-                    .expect("ScanKey.sk_argument must not be null");
-                let indexrel = PgRelation::from_pg(indexrel);
-                SearchConfig::from((query, &indexrel))
+                SearchQueryInput::from_datum(key.sk_argument, false)
+                    .expect("ScanKey.sk_argument must not be null")
             },
         }
     }
@@ -109,12 +86,12 @@ pub extern "C" fn amrescan(
     };
 
     // build a Boolean "must" clause of all the ScanKeys
-    let mut search_config = key_to_config(indexrel.as_ptr(), &keys[0]);
+    let mut search_query_input = key_to_search_query_input(&keys[0]);
     for key in &keys[1..] {
-        let key = key_to_config(indexrel.as_ptr(), key);
+        let key = key_to_search_query_input(key);
 
-        search_config.query = SearchQueryInput::Boolean {
-            must: vec![search_config.query, key.query],
+        search_query_input = SearchQueryInput::Boolean {
+            must: vec![search_query_input, key],
             should: vec![],
             must_not: vec![],
         };
@@ -122,16 +99,17 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let search_index = open_search_index(&indexrel).expect("should be able to open search index");
-    let state = search_index
+    let search_reader = search_index
         .get_reader()
         .expect("SearchState should construct cleanly");
 
     unsafe {
-        let query = search_index.query(&search_config, &state);
-        let results = state.search_minimal(
+        let query = search_index.query(&search_query_input, &search_reader);
+        let results = search_reader.search_minimal(
             (*scan).xs_want_itup,
+            search_query_input.contains_more_like_this(),
+            search_index.key_field_name(),
             SearchIndex::executor(),
-            &search_config,
             &query,
         );
         let natts = (*(*scan).xs_hitupdesc).natts as usize;

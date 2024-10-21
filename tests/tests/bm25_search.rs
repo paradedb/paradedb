@@ -121,38 +121,13 @@ fn real_time_search(mut conn: PgConnection) {
 fn sequential_scan_syntax(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let index_oid =
-        "SELECT oid::int4 FROM pg_class WHERE relname = 'bm25_search_bm25_index' AND relkind = 'i'"
-            .fetch_one::<(i32,)>(&mut conn)
-            .0;
-
-    let table_oid =
-        "SELECT oid::int4 FROM pg_class WHERE relname = 'bm25_search' AND relkind = 'r'"
-            .fetch_one::<(i32,)>(&mut conn)
-            .0;
-
-    let database_oid = "SELECT oid::int4 FROM pg_database WHERE datname = current_database();"
-        .fetch_one::<(i32,)>(&mut conn)
-        .0;
-
-    let columns: SimpleProductsTableVec = format!(
-        "SELECT * FROM paradedb.bm25_search
-        WHERE paradedb.search_with_search_config(
+    let columns: SimpleProductsTableVec = "SELECT * FROM paradedb.bm25_search
+        WHERE paradedb.search_with_query_input(
             id,
-            jsonb_build_object(
-                'index_name', 'bm25_search_bm25_index',
-                'index_oid', {index_oid},
-                'table_oid', {table_oid},
-                'database_oid', {database_oid},
-                'table_name', 'bm25_search',
-                'schema_name', 'paradedb',
-                'key_field', 'id',
-                'query', paradedb.parse('category:electronics')::text::jsonb,
-                'uuid', '6817e8d2-0076-4b62-8b50-62869cc033fe'
-            )
+            paradedb.parse('category:electronics')
         ) ORDER BY id"
-    )
-    .fetch_collect(&mut conn);
+        .to_string()
+        .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32]);
 }

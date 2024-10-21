@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_jsonb_opoid;
+use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::Cardinality;
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
 use crate::postgres::customscan::pdbscan::scan_state::SortDirection;
@@ -102,7 +102,7 @@ impl PrivateData {
                     self.range_table_index()
                         .expect("rti should be set to get a Qual"),
                     ri.cast(),
-                    anyelement_jsonb_opoid(),
+                    anyelement_query_input_opoid(),
                 )
             })
         }

@@ -26,7 +26,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::{AsCStr, AsInt, Cardinality};
-use crate::index::score::SearchIndexScore;
+use crate::index::reader::SearchIndexScore;
 use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, OrderByStyle};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -560,10 +560,9 @@ impl CustomScan for PdbScan {
                     .custom_state()
                     .search_query_input
                     .contains_more_like_this();
-            let results = search_reader.search_minimal(
-                false,
+            let results = search_reader.search_via_channel(
                 need_scores,
-                search_index.key_field_name(),
+                None,
                 SearchIndex::executor(),
                 state.custom_state().query.as_ref().unwrap(),
             );

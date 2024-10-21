@@ -17,7 +17,6 @@
 
 pub mod directory;
 pub mod reader;
-pub mod score;
 pub mod search;
 pub mod writer;
 

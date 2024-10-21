@@ -58,14 +58,20 @@ pub fn search_with_query_input(
         let scan_state = search_index.get_reader().unwrap();
         let top_docs = scan_state.search_via_channel(
             query.contains_more_like_this(),
-            Some(search_index.key_field_name()),
+            vec![search_index.key_field_name()],
             SearchIndex::executor(),
             &search_index.query(&query, &scan_state),
         );
         let mut hs = FxHashSet::default();
-        for (scored, _) in top_docs {
+        for (mut scored, _) in top_docs {
             check_for_interrupts!();
-            hs.insert(scored.key.expect("key should have been retrieved"));
+            hs.insert(
+                scored
+                    .fast_fields
+                    .pop()
+                    .expect("key should have been retrieved")
+                    .1,
+            );
         }
 
         (search_index.key_field(), hs)

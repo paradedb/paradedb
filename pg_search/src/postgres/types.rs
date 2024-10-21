@@ -38,6 +38,12 @@ use thiserror::Error;
 #[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
 pub struct TantivyValue(pub tantivy::schema::OwnedValue);
 
+impl Default for TantivyValue {
+    fn default() -> Self {
+        TantivyValue(tantivy::schema::OwnedValue::Null)
+    }
+}
+
 impl TantivyValue {
     pub fn tantivy_schema_value(&self) -> tantivy::schema::OwnedValue {
         self.0.clone()

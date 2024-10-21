@@ -675,6 +675,10 @@ impl SearchIndexSchema {
             .clone()
     }
 
+    pub fn is_key_field(&self, name: &str) -> bool {
+        self.key_field().name.0 == name
+    }
+
     #[inline(always)]
     pub fn new_document(&self) -> SearchDocument {
         SearchDocument {
@@ -699,6 +703,10 @@ impl SearchIndexSchema {
     pub fn is_field_lower_sortable(&self, name: &str) -> bool {
         self.is_field_sortable(name, SearchNormalizer::Lowercase)
             .is_some()
+    }
+
+    pub fn is_fast_field(&self, name: &str) -> bool {
+        self.is_field_raw_sortable(name)
     }
 
     fn is_field_sortable(&self, name: &str, desired_normalizer: SearchNormalizer) -> Option<()> {

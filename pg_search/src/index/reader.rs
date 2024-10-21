@@ -43,7 +43,7 @@ const CACHE_NUM_BLOCKS: usize = 10;
 #[derive(Clone)]
 pub struct SearchIndexScore {
     pub bm25: f32,
-    pub key: Option<TantivyValue>,
+    pub fast_fields: Vec<(String, TantivyValue)>,
     pub ctid: u64,
 }
 
@@ -51,7 +51,7 @@ impl Debug for SearchIndexScore {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SearchIndexScore")
             .field("bm25", &self.bm25)
-            .field("key", &self.key)
+            .field("fast_fields", &self.fast_fields)
             .field("ctid", &{
                 let mut ipd = pg_sys::ItemPointerData::default();
                 crate::postgres::utils::u64_to_item_pointer(self.ctid, &mut ipd);
@@ -254,12 +254,12 @@ impl SearchIndexReader {
     pub fn search_via_channel(
         &self,
         need_scores: bool,
-        key_field: Option<String>,
+        fast_fields: Vec<String>,
         executor: &'static Executor,
         query: &dyn Query,
     ) -> SearchResults {
         let (sender, receiver) = crossbeam::channel::unbounded();
-        let collector = collector::ChannelCollector::new(need_scores, sender, key_field);
+        let collector = collector::ChannelCollector::new(need_scores, sender, fast_fields);
         let searcher = self.searcher.clone();
         let schema = self.schema.schema.clone();
 
@@ -301,7 +301,12 @@ impl SearchIndexReader {
         segment_ord: SegmentOrdinal,
         query: &dyn Query,
     ) -> SearchResults {
-        let collector = vec_collector::VecCollector::new(need_scores, key_field);
+        let collector = vec_collector::VecCollector::new(
+            need_scores,
+            key_field
+                .map(|key_field| vec![key_field])
+                .unwrap_or_default(),
+        );
         let weight = query
             .weight(if need_scores {
                 tantivy::query::EnableScoring::Enabled {
@@ -394,7 +399,7 @@ impl SearchIndexReader {
 
             let scored = SearchIndexScore {
                 bm25: f32::NAN,
-                key: None,
+                fast_fields: Default::default(),
                 ctid,
             };
 
@@ -459,7 +464,7 @@ impl SearchIndexReader {
 
             let scored = SearchIndexScore {
                 bm25: score,
-                key: None,
+                fast_fields: Default::default(),
                 ctid,
             };
 
@@ -621,7 +626,7 @@ mod collector {
     pub struct ChannelCollector {
         need_scores: bool,
         sender: crossbeam::channel::Sender<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
-        key_field: Option<String>,
+        fast_fields: Vec<String>,
     }
 
     impl ChannelCollector {
@@ -630,12 +635,12 @@ mod collector {
             sender: crossbeam::channel::Sender<
                 Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>,
             >,
-            key_field: Option<String>,
+            fast_fields: Vec<String>,
         ) -> Self {
             Self {
                 need_scores,
                 sender,
-                key_field,
+                fast_fields,
             }
         }
     }
@@ -651,15 +656,16 @@ mod collector {
         ) -> tantivy::Result<Self::Child> {
             let fast_fields = segment_reader.fast_fields();
             let ctid_ff = FFType::new(fast_fields, "ctid");
-            let key_ff = self
-                .key_field
-                .as_ref()
-                .map(|key_field| FFType::new(fast_fields, key_field));
+            let fast_fields = self
+                .fast_fields
+                .iter()
+                .map(|field| (field.clone(), FFType::new(fast_fields, field)))
+                .collect();
 
             Ok(ChannelSegmentCollector {
                 segment_ord: segment_local_id,
                 ctid_ff,
-                key_ff,
+                fast_fields,
                 sender: self.sender.clone(),
                 fruit: Vec::new(),
             })
@@ -677,7 +683,7 @@ mod collector {
     pub struct ChannelSegmentCollector {
         segment_ord: SegmentOrdinal,
         ctid_ff: FFType,
-        key_ff: Option<FFType>,
+        fast_fields: Vec<(String, FFType)>,
         sender: crossbeam::channel::Sender<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
         fruit: Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>,
     }
@@ -687,12 +693,16 @@ mod collector {
 
         fn collect(&mut self, doc: DocId, score: Score) {
             if let Some(ctid) = self.ctid_ff.as_u64(doc) {
-                let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
+                let fast_fields = self
+                    .fast_fields
+                    .iter()
+                    .map(|(field, ff)| (field.clone(), ff.value(doc)))
+                    .collect();
 
                 let doc_address = DocAddress::new(self.segment_ord, doc);
                 let scored = SearchIndexScore {
                     bm25: score,
-                    key,
+                    fast_fields,
                     ctid,
                 };
 
@@ -704,7 +714,7 @@ mod collector {
             // ordering by ctid helps to avoid random heap access, at least for the docs that
             // were found in this segment.  But we don't need to do it if we're also retrieving
             // the "key_field".
-            if self.key_ff.is_none() {
+            if self.fast_fields.is_empty() {
                 self.fruit.sort_by_key(|result| {
                     result.as_ref().map(|(scored, _)| scored.ctid).unwrap_or(0)
                 });
@@ -727,14 +737,14 @@ mod vec_collector {
     /// A [`Collector`] that collects all matching documents into a [`Vec`].  
     pub struct VecCollector {
         need_scores: bool,
-        key_field: Option<String>,
+        fast_fields: Vec<String>,
     }
 
     impl VecCollector {
-        pub fn new(need_scores: bool, key_field: Option<String>) -> Self {
+        pub fn new(need_scores: bool, fast_fields: Vec<String>) -> Self {
             Self {
                 need_scores,
-                key_field,
+                fast_fields,
             }
         }
     }
@@ -750,15 +760,16 @@ mod vec_collector {
         ) -> tantivy::Result<Self::Child> {
             let fast_fields = segment_reader.fast_fields();
             let ctid_ff = FFType::new(fast_fields, "ctid");
-            let key_ff = self
-                .key_field
-                .as_ref()
-                .map(|key_field| FFType::new(fast_fields, key_field));
+            let fast_fields = self
+                .fast_fields
+                .iter()
+                .map(|field| (field.clone(), FFType::new(fast_fields, field)))
+                .collect();
 
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,
                 ctid_ff,
-                key_ff,
+                fast_fields,
                 results: Default::default(),
             })
         }
@@ -779,7 +790,7 @@ mod vec_collector {
     pub struct VecSegmentCollector {
         segment_ord: SegmentOrdinal,
         ctid_ff: FFType,
-        key_ff: Option<FFType>,
+        fast_fields: Vec<(String, FFType)>,
         results: Vec<(SearchIndexScore, DocAddress)>,
     }
 
@@ -789,12 +800,16 @@ mod vec_collector {
         fn collect(&mut self, doc: DocId, score: Score) {
             check_for_interrupts!();
             if let Some(ctid) = self.ctid_ff.as_u64(doc) {
-                let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
+                let fast_fields = self
+                    .fast_fields
+                    .iter()
+                    .map(|(field, ff)| (field.clone(), ff.value(doc)))
+                    .collect();
 
                 let doc_address = DocAddress::new(self.segment_ord, doc);
                 let scored = SearchIndexScore {
                     bm25: score,
-                    key,
+                    fast_fields,
                     ctid,
                 };
 

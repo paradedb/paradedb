@@ -18,11 +18,13 @@
 pub mod score;
 pub mod snippet;
 
+use crate::api::operator::find_var_relation;
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::projections::snippet::snippet_funcoid;
+use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{pg_guard, pg_sys, PgList};
+use pgrx::{pg_guard, pg_sys, PgList, PgRelation};
 use std::ptr::addr_of_mut;
 
 pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
@@ -56,6 +58,66 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
 
     let data = addr_of_mut!(data).cast();
     walker(node, data)
+}
+
+pub unsafe fn only_fast_fields(
+    node: *mut pg_sys::Node,
+    schema: &SearchIndexSchema,
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<String> {
+    #[pg_guard]
+    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            let mut is_fast_field = false;
+            let data = &mut *data.cast::<Data>();
+            let (heaprelid, attno, _) = find_var_relation(var, data.root);
+            if heaprelid != pg_sys::InvalidOid {
+                let heaprel = PgRelation::open(heaprelid);
+                let tupdesc = heaprel.tuple_desc();
+                if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                    let name = att.name();
+                    if data.schema.is_fast_field(name) {
+                        is_fast_field = true;
+                        let name = name.to_string();
+                        if !data.matches.contains(&name) {
+                            data.matches.push(name);
+                        }
+                    }
+                }
+            }
+
+            if !is_fast_field {
+                data.matches.clear();
+                return false;
+            }
+        }
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Data<'a> {
+        schema: &'a SearchIndexSchema,
+        root: *mut pg_sys::PlannerInfo,
+        matches: Vec<String>,
+    }
+
+    let mut data = Data {
+        schema,
+        root,
+        matches: Default::default(),
+    };
+    walker(node, addr_of_mut!(data).cast());
+
+    if data.matches.len() == 1 && schema.is_key_field(data.matches.first().unwrap()) {
+        // if we only found one field and it's the key_field, just say we didn't find any
+        return Default::default();
+    }
+
+    data.matches
 }
 
 /// find all [`pg_sys::FuncExpr`] nodes matching a set of known function Oids that also contain

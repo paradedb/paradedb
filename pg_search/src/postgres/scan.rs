@@ -131,7 +131,10 @@ pub extern "C" fn amrescan(
         } else {
             search_reader.search_via_channel(
                 need_scores,
-                (*scan).xs_want_itup.then(|| key_field.clone()),
+                (*scan)
+                    .xs_want_itup
+                    .then(|| vec![key_field.clone()])
+                    .unwrap_or_default(),
                 SearchIndex::executor(),
                 &query,
             )
@@ -189,14 +192,16 @@ pub extern "C" fn amgettuple(
 
     loop {
         match state.results.next() {
-            Some((scored, _)) => unsafe {
+            Some((mut scored, _)) => unsafe {
                 let tid = &mut (*scan).xs_heaptid;
                 crate::postgres::utils::u64_to_item_pointer(scored.ctid, tid);
 
                 if (*scan).xs_want_itup {
                     match scored
-                        .key
+                        .fast_fields
+                        .pop()
                         .expect("should have retrieved the key_field")
+                        .1
                         .try_into_datum(state.key_field_oid)
                         .expect("key_field value should convert to a Datum")
                     {

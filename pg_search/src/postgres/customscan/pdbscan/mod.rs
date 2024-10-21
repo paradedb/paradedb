@@ -45,7 +45,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
     inject_snippet, snippet_funcoid, uses_snippets, SnippetInfo,
 };
 use crate::postgres::customscan::pdbscan::projections::{
-    maybe_needs_const_projections, pullout_funcexprs,
+    maybe_needs_const_projections, only_fast_fields, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
@@ -109,10 +109,12 @@ impl CustomScan for PdbScan {
                 None
             };
 
-            // quick look at the PathTarget list to see if we might need to do our const projections
-            let path_target = builder.path_target();
-            let maybe_needs_const_projections =
-                maybe_needs_const_projections((*(*builder.args().root).parse).targetList.cast());
+            // quick look at the target list to see if we might need to do our const projections
+            let target_list = (*(*builder.args().root).parse).targetList.cast();
+            let maybe_needs_const_projections = maybe_needs_const_projections(target_list);
+            let fast_fields =
+                only_fast_fields(target_list, &search_index.schema, builder.args().root);
+            let ff_cnt = fast_fields.len() as f64;
 
             //
             // look for quals we can support
@@ -139,6 +141,7 @@ impl CustomScan for PdbScan {
                 builder.custom_private().set_indexrelid(bm25_index.oid());
                 builder.custom_private().set_range_table_index(rti);
                 builder.custom_private().set_quals(restrict_info);
+                builder.custom_private().set_fast_fields(fast_fields);
 
                 if limit.is_some() && pathkey.is_some() {
                     // sorting by a field only works if we're not doing const projections
@@ -167,7 +170,7 @@ impl CustomScan for PdbScan {
                     // if we think we need scores, we need a much cheaper plan so that Postgres will
                     // prefer it over all the others.
                     // TODO:  these are curious values that I picked out of thin air and probably need attention
-                    let per_tuple = 4.0;
+                    let per_tuple = if ff_cnt > 0.0 { ff_cnt } else { 4.0 };
                     let cpu_run_cost = pg_sys::cpu_tuple_cost + per_tuple;
 
                     cpu_run_cost + rows * per_tuple
@@ -339,6 +342,8 @@ impl CustomScan for PdbScan {
                 builder.target_list().as_ptr().cast(),
                 builder.custom_state().score_funcoid,
             );
+            builder.custom_state().fast_fields = builder.custom_private().fast_fields();
+
             let node = builder.target_list().as_ptr().cast();
             let snippet_funcoid = builder.custom_state().snippet_funcoid;
             let rti = builder.custom_state().rti;
@@ -366,6 +371,10 @@ impl CustomScan for PdbScan {
                 state.custom_state().invisible_tuple_count as u64,
                 None,
             );
+        }
+
+        if let Some(fast_fields) = state.custom_state().fast_fields.as_ref() {
+            explainer.add_text("Fast Fields", fast_fields.join(", "))
         }
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
@@ -562,7 +571,7 @@ impl CustomScan for PdbScan {
                     .contains_more_like_this();
             let results = search_reader.search_via_channel(
                 need_scores,
-                None,
+                state.custom_state().fast_fields.clone().unwrap_or_default(),
                 SearchIndex::executor(),
                 state.custom_state().query.as_ref().unwrap(),
             );

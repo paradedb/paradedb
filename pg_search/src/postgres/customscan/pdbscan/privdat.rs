@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::Cardinality;
+use crate::api::{AsCStr, Cardinality};
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
@@ -32,6 +32,7 @@ pub struct PrivateData {
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
     var_attname_lookup: Option<*mut pg_sys::List>,
+    fast_fields: Option<*mut pg_sys::List>,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {
@@ -87,6 +88,14 @@ impl PrivateData {
     pub fn set_var_attname_lookup(&mut self, var_attname_lookup: *mut pg_sys::List) {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
+
+    pub fn set_fast_fields(&mut self, fast_fields: Vec<String>) {
+        let mut names = PgList::<pg_sys::Node>::new();
+        for fname in fast_fields {
+            names.push(unsafe { serialize::makeString(Some(fname)) })
+        }
+        self.fast_fields = Some(names.into_pg());
+    }
 }
 
 //
@@ -135,6 +144,15 @@ impl PrivateData {
         self.var_attname_lookup
             .map(|list| unsafe { PgList::from_pg(list) })
     }
+
+    pub fn fast_fields(&self) -> Option<Vec<String>> {
+        self.fast_fields.map(|list| unsafe {
+            let list = PgList::<pg_sys::Node>::from_pg(list);
+            list.iter_ptr()
+                .map(|node| node.as_c_str().unwrap().to_string_lossy().to_string())
+                .collect()
+        })
+    }
 }
 
 #[allow(non_snake_case)]
@@ -148,7 +166,7 @@ mod serialize {
         unwrapOrNull(input.map(|i| pg_sys::makeInteger(i.into() as _).cast::<pg_sys::Node>()))
     }
 
-    unsafe fn makeString<T: Display>(input: Option<T>) -> *mut pg_sys::Node {
+    pub(super) unsafe fn makeString<T: Display>(input: Option<T>) -> *mut pg_sys::Node {
         unwrapOrNull(
             input.map(|s| pg_sys::makeString(s.to_string().as_pg_cstr()).cast::<pg_sys::Node>()),
         )
@@ -195,6 +213,9 @@ mod serialize {
         ser.push(unwrapOrNull(
             privdat.var_attname_lookup.map(|v| v.cast::<pg_sys::Node>()),
         ));
+        ser.push(unwrapOrNull(
+            privdat.fast_fields.map(|v| v.cast::<pg_sys::Node>()),
+        ));
 
         ser
     }
@@ -235,6 +256,9 @@ mod deserialize {
             sort_direction: input.get_ptr(6).and_then(|n| decodeInteger(n)),
             var_attname_lookup: input
                 .get_ptr(7)
+                .and_then(|n| nodecast!(List, T_List, n, true)),
+            fast_fields: input
+                .get_ptr(8)
                 .and_then(|n| nodecast!(List, T_List, n, true)),
         }
     }

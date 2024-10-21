@@ -64,6 +64,8 @@ pub struct PdbScanState {
     pub snippet_funcoid: pg_sys::Oid,
     pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
 
+    pub fast_fields: Option<Vec<String>>,
+
     pub scan_func:
         Option<fn(&mut CustomScanStateWrapper<PdbScan>, *mut std::ffi::c_void) -> ExecState>,
     pub inner_scan_state: Option<*mut std::ffi::c_void>,

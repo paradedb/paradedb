@@ -45,19 +45,7 @@ fn sort_by_lower(mut conn: PgConnection) {
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY lower(category) LIMIT 5".fetch_one::<(Value,)>(&mut conn);
     let plan = plan
-        .get(0)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plan")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plans")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .first()
+        .pointer("/0/Plan/Plans/0")
         .unwrap()
         .as_object()
         .unwrap();
@@ -90,19 +78,7 @@ fn sort_by_raw(mut conn: PgConnection) {
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
     let plan = plan
-        .get(0)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plan")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plans")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .first()
+        .pointer("/0/Plan/Plans/0")
         .unwrap()
         .as_object()
         .unwrap();
@@ -135,27 +111,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT paradedb.score(id), * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
     let plan = plan
-        .get(0)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plan")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plans")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .first()
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plans")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .first()
+        .pointer("/0/Plan/Plans/0/Plans/0")
         .unwrap()
         .as_object()
         .unwrap();

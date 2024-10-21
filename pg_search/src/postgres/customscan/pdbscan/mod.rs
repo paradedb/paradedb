@@ -24,7 +24,7 @@ mod scan_state;
 
 use crate::api::operator::{anyelement_query_input_opoid, attname_from_var, estimate_selectivity};
 use crate::api::{AsCStr, AsInt, Cardinality};
-use crate::index::score::SearchIndexScore;
+use crate::index::reader::SearchIndexScore;
 use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;

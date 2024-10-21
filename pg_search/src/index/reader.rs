@@ -15,12 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
+use pgrx::pg_sys;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -361,8 +362,6 @@ impl SearchIndexReader {
                 bm25: score,
                 key: None,
                 ctid,
-                order_by: None,
-                sort_asc: false,
             };
 
             top_docs.push((scored, doc_address));
@@ -514,7 +513,7 @@ impl FFType {
 
 mod collector {
     use crate::index::reader::FFType;
-    use crate::index::score::SearchIndexScore;
+    use crate::index::reader::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
@@ -590,8 +589,6 @@ mod collector {
                     bm25: score,
                     key,
                     ctid,
-                    order_by: None,
-                    sort_asc: false,
                 };
 
                 self.fruit.push(Ok((scored, doc_address)))
@@ -617,7 +614,7 @@ mod collector {
 
 mod vec_collector {
     use crate::index::reader::FFType;
-    use crate::index::score::SearchIndexScore;
+    use crate::index::reader::SearchIndexScore;
     use pgrx::check_for_interrupts;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
@@ -691,8 +688,6 @@ mod vec_collector {
                     bm25: score,
                     key,
                     ctid,
-                    order_by: None,
-                    sort_asc: false,
                 };
 
                 self.results.push((scored, doc_address));
@@ -702,5 +697,29 @@ mod vec_collector {
         fn harvest(self) -> Self::Fruit {
             self.results
         }
+    }
+}
+
+/// A custom score struct for ordering Tantivy results.
+/// For use with the `stable` sorting feature.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SearchIndexScore {
+    pub bm25: f32,
+    pub key: Option<TantivyValue>,
+    pub ctid: u64,
+}
+
+impl Debug for SearchIndexScore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchIndexScore")
+            .field("bm25", &self.bm25)
+            .field("key", &self.key)
+            .field("ctid", &{
+                let mut ipd = pg_sys::ItemPointerData::default();
+                crate::postgres::utils::u64_to_item_pointer(self.ctid, &mut ipd);
+                let (blockno, offno) = pgrx::itemptr::item_pointer_get_both(ipd);
+                format!("({},{})", blockno, offno)
+            })
+            .finish()
     }
 }

@@ -36,7 +36,7 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
-    runs-on: ubicloud-standard-8
+    runs-on: ubuntu-latest # Temporarily, to be able to SSH
     if: github.event.pull_request.draft == false
     strategy:
       matrix:

@@ -29,17 +29,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::HashSet, path::Path};
 use std::{io, result};
-use tantivy::directory::{
-    DirectoryLock, FileHandle, Lock, WatchCallback,
-    WatchHandle, WritePtr,
-};
+use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
 use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
     IndexSettings,
 };
-use tantivy::{
-    schema::Field, Directory, Index, SingleSegmentIndexWriter,
-};
+use tantivy::{schema::Field, Directory, Index, SingleSegmentIndexWriter};
 use thiserror::Error;
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};

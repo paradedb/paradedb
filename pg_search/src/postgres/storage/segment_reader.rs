@@ -42,20 +42,21 @@ impl FileHandle for SegmentReader {
             let blocks = self.handle.internal().blocks();
             let mut data: Vec<u8> = vec![];
 
-            for blockno in blocks
-                .iter()
-                .skip(start_block)
-                .take(end_block - start_block + 1)
-            {
-                let buffer = cache.get_buffer(*blockno, pg_sys::BUFFER_LOCK_SHARE);
+            for i in start_block..=end_block {
+                let buffer = cache.get_buffer(blocks[i], pg_sys::BUFFER_LOCK_SHARE);
                 let page = pg_sys::BufferGetPage(buffer);
                 let item_id = pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber);
                 let item = pg_sys::PageGetItem(page, item_id);
                 let len = (*item_id).lp_len() as usize;
 
-                // TODO: Handle case where start_block and end_block are not the same
-                let slice_start = start % MAX_HEAP_TUPLE_SIZE;
-                let slice_end = end % MAX_HEAP_TUPLE_SIZE;
+                let slice_start = match i {
+                    start_block => start % MAX_HEAP_TUPLE_SIZE,
+                    _ => 0,
+                };
+                let slice_end = match i {
+                    end_block => end % MAX_HEAP_TUPLE_SIZE,
+                    _ => MAX_HEAP_TUPLE_SIZE,
+                };
                 let slice_len = slice_end - slice_start;
                 let vec: Vec<u8> = Vec::with_capacity(slice_len);
                 let slice = from_raw_parts(item.add(slice_start) as *const u8, slice_len);

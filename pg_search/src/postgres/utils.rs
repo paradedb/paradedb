@@ -21,7 +21,6 @@ use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use std::mem::size_of;
-use std::ptr::null_mut;
 
 /// Finds and returns the first `USING bm25` index on the specified relation, or [`None`] if there
 /// aren't any

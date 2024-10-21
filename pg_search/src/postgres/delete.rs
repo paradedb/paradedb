@@ -34,7 +34,7 @@ pub extern "C" fn ambulkdelete(
     let reader = search_index
         .get_reader()
         .unwrap_or_else(|err| panic!("error loading index reader in bulkdelete: {err}"));
-    let mut writer = search_index
+    let writer = search_index
         .get_writer()
         .unwrap_or_else(|err| panic!("error loading index writer in bulkdelete: {err}"));
 

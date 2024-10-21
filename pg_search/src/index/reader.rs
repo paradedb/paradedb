@@ -145,7 +145,6 @@ impl SearchIndexReader {
             .reload_policy(tantivy::ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-        pgrx::info!("reader {:?}", searcher.index().searchable_segments()?);
         Ok(SearchIndexReader {
             searcher,
             schema: schema.clone(),
@@ -296,7 +295,6 @@ impl SearchIndexReader {
             }
         });
 
-        pgrx::info!("top n");
         let results = self
             .searcher
             .search_with_executor(
@@ -352,7 +350,6 @@ impl SearchIndexReader {
             config.need_scores || SearchConfig::contains_more_like_this(&config.query);
 
         let owned_query = query.box_clone();
-        pgrx::info!("searching via channel");
         std::thread::spawn(move || {
             searcher
                 .search_with_executor(
@@ -423,7 +420,6 @@ impl SearchIndexReader {
             },
         );
 
-        pgrx::info!("searching with top docs");
         self.searcher
             .search_with_executor(
                 query,

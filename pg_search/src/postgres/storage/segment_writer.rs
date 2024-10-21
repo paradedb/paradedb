@@ -1,6 +1,5 @@
 use pgrx::*;
 use serde::{Deserialize, Serialize};
-use std::cmp::min;
 use std::io::{Cursor, Read, Result, Seek, Write};
 use std::path::{Path, PathBuf};
 use tantivy::directory::{AntiCallToken, TerminatingWrite};
@@ -43,7 +42,6 @@ impl Write for SegmentWriter {
     // any wrapped object.
     fn write(&mut self, data: &[u8]) -> Result<usize> {
         self.data.write_all(data)?;
-        pgrx::info!("pushing data: {:?}", data.len());
         Ok(data.len())
     }
 
@@ -64,7 +62,6 @@ impl TerminatingWrite for SegmentWriter {
             let mut blocks: Vec<pg_sys::BlockNumber> = vec![];
 
             while let Ok(bytes_read) = self.data.read(&mut sink) {
-                pgrx::info!("bytes_read: {}", bytes_read);
                 if bytes_read == 0 {
                     break;
                 }
@@ -86,7 +83,6 @@ impl TerminatingWrite for SegmentWriter {
                 pg_sys::UnlockReleaseBuffer(buffer as i32);
             }
 
-            pgrx::info!("writing blocks: {:?}", blocks);
             let internal = SegmentHandleInternal::new(self.path.clone(), blocks, total_bytes);
             SegmentHandle::create(self.relation_oid, internal);
 

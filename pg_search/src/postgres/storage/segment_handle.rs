@@ -1,5 +1,4 @@
 use crate::postgres::build::SEARCH_META_BLOCKNO;
-use crate::postgres::storage::atomic::AtomicSpecialData;
 use crate::postgres::storage::buffer::BufferCache;
 use anyhow::Result;
 use pgrx::*;

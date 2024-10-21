@@ -22,7 +22,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::index::{SearchFs, SearchIndex, WriterDirectory};
+use crate::index::{SearchFs, WriterDirectory};
 use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
 
 // The maximum length of an index name in Postgres is 63 characters,

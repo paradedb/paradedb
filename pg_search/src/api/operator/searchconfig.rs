@@ -43,7 +43,6 @@ pub fn search_with_search_config(
         let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
             .expect("could not parse search config");
 
-        pgrx::info!("opening in cnofig");
         let search_index = open_search_index(unsafe {
             &PgRelation::with_lock(
                 pg_sys::Oid::from(search_config.index_oid),

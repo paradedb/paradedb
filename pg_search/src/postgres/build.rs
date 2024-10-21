@@ -20,7 +20,7 @@ use crate::index::WriterDirectory;
 use crate::postgres::index::relfilenode_from_pg_relation;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::atomic::AtomicSpecialData;
+use crate::postgres::storage::atomic_directory::AtomicSpecialData;
 use crate::postgres::storage::buffer::BufferCache;
 use crate::postgres::storage::segment_handle::SearchMetaSpecialData;
 use crate::postgres::utils::row_to_search_document;
@@ -302,7 +302,7 @@ unsafe fn build_callback_internal(
     let tupdesc = &build_state.tupdesc;
     let insert_state = init_insert_state(indexrel, build_state.index_info);
     let search_index = &(*insert_state).index;
-    let mut writer = (*insert_state)
+    let writer = (*insert_state)
         .writer
         .as_mut()
         .expect("writer should not be null");

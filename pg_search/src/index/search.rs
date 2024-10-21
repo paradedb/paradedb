@@ -85,7 +85,7 @@ impl SearchIndex {
             INDEX_TANTIVY_MEMORY_BUDGET,
         )?;
         Ok(SearchIndexWriter {
-            underlying_writer: Some(underlying_writer).into(),
+            underlying_writer: Some(underlying_writer),
         })
     }
 

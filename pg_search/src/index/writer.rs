@@ -24,14 +24,13 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::{collections::HashSet, path::Path};
-use std::{fs, io, result};
+use std::{io, result};
 use tantivy::directory::{
-    AntiCallToken, DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback,
+    DirectoryLock, FileHandle, Lock, WatchCallback,
     WatchHandle, WritePtr,
 };
 use tantivy::{
@@ -39,12 +38,12 @@ use tantivy::{
     IndexSettings,
 };
 use tantivy::{
-    directory::MmapDirectory, schema::Field, Directory, Index, SingleSegmentIndexWriter,
+    schema::Field, Directory, Index, SingleSegmentIndexWriter,
 };
 use thiserror::Error;
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
-use crate::postgres::storage::atomic::AtomicDirectory;
+use crate::postgres::storage::atomic_directory::AtomicDirectory;
 use crate::postgres::storage::segment_reader::SegmentReader;
 use crate::postgres::storage::segment_writer::SegmentWriter;
 
@@ -64,7 +63,6 @@ impl BlockingDirectory {
 
 impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        pgrx::info!("get_file_handle: {:?}", path);
         Ok(Arc::new(unsafe {
             SegmentReader::new(self.relation_oid, path).map_err(|e| {
                 OpenReadError::wrap_io_error(
@@ -76,14 +74,12 @@ impl Directory for BlockingDirectory {
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        pgrx::info!("open_write: {:?}", path);
         Ok(io::BufWriter::new(Box::new(unsafe {
             SegmentWriter::new(self.relation_oid, path)
         })))
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        pgrx::info!("atomic_write: {:?}", path);
         let directory = unsafe { AtomicDirectory::new(self.relation_oid) };
         match path.to_str().unwrap().ends_with("meta.json") {
             true => unsafe { directory.write_meta(data) },
@@ -94,7 +90,6 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        pgrx::info!("atomic_read: {:?}", path);
         let directory = unsafe { AtomicDirectory::new(self.relation_oid) };
         let data = match path.to_str().unwrap().ends_with("meta.json") {
             true => unsafe { directory.read_meta() },
@@ -109,20 +104,17 @@ impl Directory for BlockingDirectory {
     }
 
     fn delete(&self, path: &Path) -> result::Result<(), DeleteError> {
-        todo!("delete");
-        // pgrx::info!("delete: {:?}", path);
-        // self.0.delete(path)
+        todo!("directory delete");
     }
 
     fn exists(&self, path: &Path) -> Result<bool, OpenReadError> {
-        todo!("exists");
-        // pgrx::info!("exists: {:?}", path);
-        // self.0.exists(path)
+        todo!("directory exists");
     }
 
     fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
-        pgrx::info!("acquire_lock: {:?}", lock.filepath);
         // The lock itself doesn't seem to actually be used anywhere by Tantivy
+        // acquire_lock seems to be a place for us to implement our own locking behavior
+        // which we don't need since pg_sys::ReadBuffer is already handling this
         Ok(DirectoryLock::from(Box::new(Lock {
             filepath: lock.filepath.clone(),
             is_blocking: true,
@@ -130,16 +122,11 @@ impl Directory for BlockingDirectory {
     }
 
     fn watch(&self, watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
-        todo!("watch");
-        // pgrx::info!("watch");
-        // self.0.watch(watch_callback)
+        todo!("directory watch");
     }
 
     fn sync_directory(&self) -> io::Result<()> {
-        pgrx::info!("sync_directory");
         Ok(())
-        // pgrx::info!("sync_directory");
-        // self.0.sync_directory()
     }
 }
 
@@ -181,12 +168,10 @@ impl SearchIndexWriter {
     }
 
     pub fn commit(self) -> Result<()> {
-        pgrx::info!("committing");
         self.underlying_writer
             .unwrap()
             .finalize()
             .context("error committing to tantivy index")?;
-        pgrx::info!("committed");
         Ok(())
     }
 

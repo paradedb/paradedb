@@ -94,23 +94,8 @@ jobs:
         run: cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       - name: Index benchmark data
-        id: index_benchmark
         working-directory: pg_search/
-        run: |
-          output=$(cargo paradedb bench eslogs build-search-index --url postgresql://localhost:28817/postgres)
-          echo "$output"
-
-          # Extract the duration values using grep and sed
-          ms=$(echo "$output" | grep "Duration:" | grep "milliseconds" | sed 's/.*: \([0-9]*\) .*/\1/')
-          sec=$(echo "$output" | grep "Duration:" | grep "seconds" | sed 's/.*: \([0-9.]*\) .*/\1/')
-          min=$(echo "$output" | grep "Duration:" | grep "minutes" | sed 's/.*: \([0-9.]*\) .*/\1/')
-          hours=$(echo "$output" | grep "Duration:" | grep "hours" | sed 's/.*: \([0-9.]*\) .*/\1/')
-
-          # Save to GitHub output
-          echo "duration_ms=$ms" >> $GITHUB_OUTPUT
-          echo "duration_sec=$sec" >> $GITHUB_OUTPUT
-          echo "duration_min=$min" >> $GITHUB_OUTPUT
-          echo "duration_hours=$hours" >> $GITHUB_OUTPUT
+        run: cargo paradedb bench eslogs build-search-index --url postgresql://localhost:28817/postgres
 
       - name: Run search benchmarks
         working-directory: pg_search/

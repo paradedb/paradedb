@@ -12,8 +12,9 @@ use crate::postgres::storage::segment_handle::{SegmentHandle, SegmentHandleInter
 pub struct SegmentWriter {
     relation_oid: u32,
     path: PathBuf,
+    start_blockno: pg_sys::BlockNumber,
     current_blockno: pg_sys::BlockNumber,
-    handle: Option<SegmentHandle>,
+    bytes_written: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,31 +24,24 @@ pub struct NextSegmentAddress {
 
 impl SegmentWriter {
     pub unsafe fn new(relation_oid: u32, path: &Path) -> Self {
-        // Ignore Tantivy lockfiles
-        if path.to_str().unwrap().ends_with(".lock") {
-            return Self {
-                relation_oid,
-                path: path.to_path_buf(),
-                current_blockno: pg_sys::InvalidBlockNumber,
-                handle: None,
-            };
-        } else {
-            let cache = BufferCache::open(relation_oid);
-            let buffer = cache.new_buffer(size_of::<NextSegmentAddress>());
-            let blockno = pg_sys::BufferGetBlockNumber(buffer);
+        assert!(
+            !path.to_str().unwrap().ends_with(".lock"),
+            ".lock files should not be written"
+        );
 
-            pg_sys::MarkBufferDirty(buffer);
-            pg_sys::UnlockReleaseBuffer(buffer);
+        let cache = BufferCache::open(relation_oid);
+        let buffer = cache.new_buffer(size_of::<NextSegmentAddress>());
+        let blockno = pg_sys::BufferGetBlockNumber(buffer);
 
-            let internal = SegmentHandleInternal::new(path.to_path_buf(), blockno, 0);
-            let handle = SegmentHandle::create(relation_oid, internal);
+        pg_sys::MarkBufferDirty(buffer);
+        pg_sys::UnlockReleaseBuffer(buffer);
 
-            Self {
-                relation_oid,
-                path: path.to_path_buf(),
-                current_blockno: blockno,
-                handle: Some(handle),
-            }
+        Self {
+            relation_oid,
+            path: path.to_path_buf(),
+            start_blockno: blockno,
+            current_blockno: blockno,
+            bytes_written: 0,
         }
     }
 
@@ -62,6 +56,7 @@ impl Write for SegmentWriter {
     // error. Typically, a call to `write` represents one attempt to write to
     // any wrapped object.
     fn write(&mut self, data: &[u8]) -> Result<usize> {
+        pgrx::info!("writing {} bytes to {:?}", data.len(), self.path);
         unsafe {
             let cache = BufferCache::open(self.relation_oid);
             let mut buffer = cache.get_buffer(self.current_blockno, pg_sys::BUFFER_LOCK_EXCLUSIVE);
@@ -95,8 +90,8 @@ impl Write for SegmentWriter {
 
             pg_sys::MarkBufferDirty(buffer as i32);
             pg_sys::UnlockReleaseBuffer(buffer as i32);
-            pgrx::info!("total {}, wrote {}", data.len(), bytes_to_write);
-            // TODO: Update handle len
+            self.bytes_written += bytes_to_write;
+
             Ok(bytes_to_write)
         }
     }
@@ -108,6 +103,9 @@ impl Write for SegmentWriter {
 
 impl TerminatingWrite for SegmentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
-        self.flush()
+        let internal =
+            SegmentHandleInternal::new(self.path.clone(), self.start_blockno, self.bytes_written);
+        unsafe { SegmentHandle::create(self.relation_oid, internal) };
+        Ok(())
     }
 }

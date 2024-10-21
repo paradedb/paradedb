@@ -1,10 +1,13 @@
 use crate::postgres::build::SEARCH_META_BLOCKNO;
 use crate::postgres::storage::atomic::AtomicSpecialData;
 use crate::postgres::storage::buffer::BufferCache;
+use anyhow::Result;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
+use serde_json::from_slice;
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
+use std::slice::from_raw_parts;
 
 pub(crate) struct SearchMetaSpecialData {
     // If the metadata block overflows, the next block to write to
@@ -50,7 +53,7 @@ impl SegmentHandleInternal {
 }
 
 impl SegmentHandle {
-    pub unsafe fn open(relation_oid: u32, path: &Path) -> Option<Self> {
+    pub unsafe fn open(relation_oid: u32, path: &Path) -> Result<Option<Self>> {
         let cache = BufferCache::open(relation_oid);
         let buffer = cache.get_buffer(SEARCH_META_BLOCKNO, pg_sys::BUFFER_LOCK_SHARE);
         let blockno = pg_sys::BufferGetBlockNumber(buffer);
@@ -62,26 +65,26 @@ impl SegmentHandle {
         while offsetno <= pg_sys::PageGetMaxOffsetNumber(page) {
             let item_id = pg_sys::PageGetItemId(page, offsetno);
             let item = pg_sys::PageGetItem(page, item_id);
-            let segment: SegmentHandleInternal = serde_json::from_slice(
-                std::slice::from_raw_parts(item as *const u8, (*item_id).lp_len() as usize),
-            )
-            .unwrap();
+            let segment: SegmentHandleInternal = from_slice(from_raw_parts(
+                item as *const u8,
+                (*item_id).lp_len() as usize,
+            ))?;
             if segment.path == path {
                 let internal =
                     SegmentHandleInternal::new(segment.path.clone(), segment.blockno, segment.len);
                 pg_sys::UnlockReleaseBuffer(buffer);
-                return Some(Self {
+                return Ok(Some(Self {
                     blockno,
                     offsetno,
                     relation_oid,
                     internal,
-                });
+                }));
             }
             offsetno += 1;
         }
 
         pg_sys::UnlockReleaseBuffer(buffer);
-        None
+        Ok(None)
     }
 
     pub unsafe fn create(relation_oid: u32, internal: SegmentHandleInternal) -> Self {

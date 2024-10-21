@@ -1,3 +1,4 @@
+use anyhow::Result;
 use pgrx::*;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -19,15 +20,15 @@ pub struct SegmentReader {
 }
 
 impl SegmentReader {
-    pub unsafe fn new(relation_oid: u32, path: &Path) -> Self {
-        let handle = SegmentHandle::open(relation_oid, path)
+    pub unsafe fn new(relation_oid: u32, path: &Path) -> Result<Self> {
+        let handle = SegmentHandle::open(relation_oid, path)?
             .expect(&format!("SegmentHandle should exist for {:?}", path));
-        Self {
+        Ok(Self {
             path: path.to_path_buf(),
             blockno: handle.internal().blockno(),
             block_offset: 0,
             handle,
-        }
+        })
     }
 }
 
@@ -49,6 +50,6 @@ impl FileHandle for SegmentReader {
 
 impl HasLen for SegmentReader {
     fn len(&self) -> usize {
-        todo!("len");
+        self.handle.internal().len()
     }
 }

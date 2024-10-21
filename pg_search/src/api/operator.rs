@@ -253,7 +253,7 @@ unsafe fn make_search_query_input_opexpr_node(
 ///
 /// The returned [`pg_sys::AttrNumber`] is the physical attribute number in the relation the Var
 /// is from.
-unsafe fn find_var_relation(
+pub unsafe fn find_var_relation(
     var: *mut pg_sys::Var,
     root: *mut pg_sys::PlannerInfo,
 ) -> (

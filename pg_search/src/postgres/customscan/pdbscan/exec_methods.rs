@@ -149,6 +149,7 @@ pub fn top_n_scan_exec(
                 .search_top_n(
                     SearchIndex::executor(),
                     state.custom_state().query.as_ref().unwrap(),
+                    state.custom_state().sort_field.clone(),
                     state
                         .custom_state()
                         .sort_direction

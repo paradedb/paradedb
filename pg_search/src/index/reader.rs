@@ -30,7 +30,8 @@ use tantivy::fastfield::FastFieldReaders;
 use tantivy::query::QueryParser;
 use tantivy::schema::{FieldType, Value};
 use tantivy::{
-    query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyDocument, TantivyError,
+    query::Query, DocAddress, DocId, Order, Score, Searcher, SegmentOrdinal, TantivyDocument,
+    TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 use tracing::debug;
@@ -332,6 +333,83 @@ impl SearchIndexReader {
         &self,
         executor: &'static Executor,
         query: &dyn Query,
+        sort_field: Option<String>,
+        sortdir: SortDirection,
+        n: usize,
+    ) -> SearchResults {
+        if let Some(sort_field) = sort_field {
+            self.top_by_field(executor, query, sort_field, sortdir, n)
+        } else {
+            self.top_by_score(executor, query, sortdir, n)
+        }
+    }
+
+    fn top_by_field(
+        &self,
+        executor: &Executor,
+        query: &dyn Query,
+        sort_field: String,
+        sortdir: SortDirection,
+        n: usize,
+    ) -> SearchResults {
+        impl From<SortDirection> for tantivy::Order {
+            fn from(value: SortDirection) -> Self {
+                match value {
+                    SortDirection::Asc => Order::Asc,
+                    SortDirection::Desc => Order::Desc,
+                }
+            }
+        }
+
+        let sort_field = self
+            .schema
+            .get_search_field(&SearchFieldName(sort_field.clone()))
+            .expect("sort field should exist in index schema");
+
+        let collector =
+            TopDocs::with_limit(n).order_by_u64_field(&sort_field.name.0, sortdir.into());
+        let results = self
+            .searcher
+            .search_with_executor(
+                query,
+                &collector,
+                executor,
+                tantivy::query::EnableScoring::Enabled {
+                    searcher: &self.searcher,
+                    statistics_provider: &self.searcher,
+                },
+            )
+            .expect("failed to search")
+            .into_iter();
+
+        let mut top_docs = Vec::with_capacity(results.len());
+        for (_ff_u64_value, doc_address) in results {
+            let segment_reader = self.searcher.segment_reader(doc_address.segment_ord);
+            let fast_fields = segment_reader.fast_fields();
+            let ctid_ff = FFType::new(fast_fields, "ctid");
+
+            let ctid = ctid_ff
+                .as_u64(doc_address.doc_id)
+                .expect("DocId should have a ctid");
+
+            let scored = SearchIndexScore {
+                bm25: f32::NAN,
+                key: None,
+                ctid,
+                order_by: None,
+                sort_asc: false,
+            };
+
+            top_docs.push((scored, doc_address));
+        }
+
+        SearchResults::TopN(top_docs.len(), top_docs.into_iter())
+    }
+
+    fn top_by_score(
+        &self,
+        executor: &Executor,
+        query: &dyn Query,
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
@@ -350,7 +428,6 @@ impl SearchIndexReader {
                 }
             }
         }
-
         let collector = TopDocs::with_limit(n).tweak_score(move |_: &tantivy::SegmentReader| {
             move |_: DocId, original_score: Score| OrderedScore {
                 dir: sortdir,

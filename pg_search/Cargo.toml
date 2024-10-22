@@ -47,6 +47,7 @@ ordered-float = "4.2.2"
 uuid = "1.10.0"
 url = "2.5.2"
 strum = { version = "0.26.3" }
+serde_path_to_error = "0.1.16"
 
 [dev-dependencies]
 fixture = "0.3.1"

@@ -30,3 +30,10 @@ DROP FUNCTION IF EXISTS search_config_restrict(planner_info internal, operator_o
 DROP FUNCTION IF EXISTS search_with_search_config(element anyelement, config_json jsonb);
 DROP FUNCTION IF EXISTS search_config_support(arg internal);
 
+-- pg_search::api::index::jsonb_to_searchqueryinput
+CREATE CAST (
+    jsonb /* pgrx::datum::JsonB */
+    AS
+    paradedb.searchqueryinput /* pg_search::src::query::SearchQueryInput */
+    )
+    WITH FUNCTION jsonb_to_searchqueryinput AS IMPLICIT;

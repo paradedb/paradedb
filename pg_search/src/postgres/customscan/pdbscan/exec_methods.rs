@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::score::SearchIndexScore;
+use crate::index::reader::SearchIndexScore;
 use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::pdbscan::{make_tuple_table_slot, PdbScan};
@@ -149,6 +149,7 @@ pub fn top_n_scan_exec(
                 .search_top_n(
                     SearchIndex::executor(),
                     state.custom_state().query.as_ref().unwrap(),
+                    state.custom_state().sort_field.clone(),
                     state
                         .custom_state()
                         .sort_direction

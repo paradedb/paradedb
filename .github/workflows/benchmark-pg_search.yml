@@ -23,7 +23,10 @@ on:
       - "tokenizers/Cargo.toml"
   push:
     branches:
-      - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
+      - dev # Also run on dev to fill the GitHub Actions Rust cache in a way that pull requests can see it
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
   workflow_dispatch:
 
 concurrency:
@@ -54,30 +57,23 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Extract pgrx version
+      - name: Extract pgrx Version
+        id: pgrx
         working-directory: pg_search/
-        run: echo "PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)" >> $GITHUB_ENV
+        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
 
       - name: Install Rust Cache
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: ubicloud/rust-cache@v2
         with:
           prefix-key: "v1-rust"
-          key: ${{ matrix.pg_version }}-${{ env.PGRX_VERSION }}
+          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-
-      - name: Restore prior criterion output
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: target/criterion
-          key: "pg_search-criterion-benchmark"
 
       - name: Install pgrx & pg_search
         working-directory: pg_search/
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ env.PGRX_VERSION }} --debug
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
           cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
@@ -101,16 +97,94 @@ jobs:
         working-directory: pg_search/
         run: cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Run benchmarks
+      - name: Run search benchmarks
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Save criterion output, if dev
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.ref == 'refs/heads/dev'
-        uses: actions/cache/save@v4
+      - name: Export Criterion benchmark results
+        run: |
+          cargo install -j $(nproc) --locked critcmp --debug
+          critcmp --export new > output.json
+
+      # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
+      - name: Store benchmarks result
+        if: github.ref == 'refs/heads/dev'
+        uses: actions/upload-artifact@v4
         with:
-          path: target/criterion
-          key: "pg_search-criterion-benchmark"
+          name: benchmark-pg_search-criterion-dev
+          path: output.json
+
+      - name: Check if baseline exists
+        id: check_artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: benchmark-pg_search-criterion-dev
+          path: previous/
+
+      - name: Download benchmarks baseline
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-pg_search-criterion-dev
+          path: previous/
+
+      - name: Compare benchmarks results
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        id: compare
+        run: |
+          if [ -f ./previous/output.txt ]; then
+            result=$(critcmp ./previous/output.json output.json)
+            echo "comparison_result<<EOF" >> $GITHUB_OUTPUT
+            echo "$result" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "No previous benchmark result found"
+          fi
+
+      - name: Generate Commit Message
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        run: |
+          echo "Generating GitHub comment message"
+          {
+            echo 'DIFF<<EOF'
+            echo 'Performance comparison (latest commit) with `dev`:'
+            echo
+            cat ${{ steps.compare.outputs.comparison_result }}
+            echo
+            echo EOF
+          } >> "$GITHUB_ENV"
+
+      - name: Attach Performance Comparison to PR
+        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            const botComment = comments.data.find(comment => comment.user.type === 'Bot' && comment.body.includes('Performance comparison (latest commit) with `dev`:'));
+
+            if (botComment) {
+              // Update the existing comment
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: process.env.DIFF
+              });
+            } else {
+              // Create a new comment if none exists
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: process.env.DIFF
+              });
+            }
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

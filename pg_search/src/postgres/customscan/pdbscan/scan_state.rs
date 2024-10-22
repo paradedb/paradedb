@@ -16,75 +16,18 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::reader::{SearchIndexReader, SearchResults};
+use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecState;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
 use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::schema::SearchConfig;
+use crate::query::SearchQueryInput;
 use pgrx::{name_data_to_str, pg_sys};
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
 use tantivy::query::Query;
 use tantivy::snippet::SnippetGenerator;
-
-const SORT_ASCENDING: u32 = pg_sys::BTLessStrategyNumber;
-const SORT_DESCENDING: u32 = pg_sys::BTGreaterStrategyNumber;
-
-#[derive(Debug, Default, Copy, Clone)]
-#[repr(u32)]
-pub enum SortDirection {
-    #[default]
-    Asc = pg_sys::BTLessStrategyNumber,
-    Desc = pg_sys::BTGreaterStrategyNumber,
-}
-
-impl AsRef<str> for SortDirection {
-    fn as_ref(&self) -> &str {
-        match self {
-            SortDirection::Asc => "asc",
-            SortDirection::Desc => "desc",
-        }
-    }
-}
-
-impl Display for SortDirection {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_ref())
-    }
-}
-
-impl From<SortDirection> for crate::index::reader::SortDirection {
-    fn from(value: SortDirection) -> Self {
-        match value {
-            SortDirection::Asc => crate::index::reader::SortDirection::Asc,
-            SortDirection::Desc => crate::index::reader::SortDirection::Desc,
-        }
-    }
-}
-
-impl From<i32> for SortDirection {
-    fn from(value: i32) -> Self {
-        SortDirection::from(value as u32)
-    }
-}
-
-impl From<u32> for SortDirection {
-    fn from(value: u32) -> Self {
-        match value {
-            pg_sys::BTLessStrategyNumber => SortDirection::Asc,
-            pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
-            _ => panic!("unrecognized sort strategy number: {value}"),
-        }
-    }
-}
-
-impl From<SortDirection> for u32 {
-    fn from(value: SortDirection) -> Self {
-        value as _
-    }
-}
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -93,16 +36,17 @@ pub struct PdbScanState {
     pub rti: pg_sys::Index,
 
     pub index_name: String,
-    pub index_uuid: String,
     pub key_field: String,
 
     pub query: Option<Box<dyn Query>>,
-    pub search_config: SearchConfig,
+
+    pub search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 
     pub search_results: SearchResults,
 
     pub limit: Option<usize>,
+    pub sort_field: Option<String>,
     pub sort_direction: Option<SortDirection>,
     pub retry_count: usize,
     pub invisible_tuple_count: usize,

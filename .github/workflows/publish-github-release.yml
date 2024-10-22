@@ -100,7 +100,6 @@ jobs:
             echo "Error: Invalid branch" && false
           fi
 
-      # We create the GitHub release last in case of failure in previous steps
       - name: Create GitHub Release (prod only)
         if: steps.env.outputs.environment == 'prod'
         uses: softprops/action-gh-release@v2

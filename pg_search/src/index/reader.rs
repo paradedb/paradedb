@@ -15,25 +15,52 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::postgres::types::TantivyValue;
-use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
+use crate::query::SearchQueryInput;
+use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
+use pgrx::pg_sys;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::columnar::{ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
+use tantivy::query::QueryParser;
 use tantivy::schema::{FieldType, Value};
 use tantivy::{
-    query::Query, DocAddress, DocId, Score, Searcher, SegmentOrdinal, TantivyDocument, TantivyError,
+    query::Query, DocAddress, DocId, Order, Score, Searcher, SegmentOrdinal, TantivyDocument,
+    TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 use tracing::debug;
 
 const CACHE_NUM_BLOCKS: usize = 10;
+
+/// Represents a matching document from a tantivy search.  Typically it is returned as an Iterator
+/// Item alongside the originating tantivy [`DocAddress`]
+#[derive(Clone)]
+pub struct SearchIndexScore {
+    pub bm25: f32,
+    pub key: Option<TantivyValue>,
+    pub ctid: u64,
+}
+
+impl Debug for SearchIndexScore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchIndexScore")
+            .field("bm25", &self.bm25)
+            .field("key", &self.key)
+            .field("ctid", &{
+                let mut ipd = pg_sys::ItemPointerData::default();
+                crate::postgres::utils::u64_to_item_pointer(self.ctid, &mut ipd);
+                let (blockno, offno) = pgrx::itemptr::item_pointer_get_both(ipd);
+                format!("({},{})", blockno, offno)
+            })
+            .finish()
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SortDirection {
@@ -46,34 +73,31 @@ pub enum SortDirection {
 pub enum SearchResults {
     #[default]
     None,
-    AllFeatures(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
 
     TopN(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
 
     #[allow(clippy::type_complexity)]
-    FastPath(
+    Channel(
         std::iter::Flatten<
             crossbeam::channel::IntoIter<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
         >,
     ),
+
+    SingleSegment(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
 }
 
 impl Debug for SearchResults {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SearchResults::None => write!(f, "SearchResults::None"),
-            SearchResults::AllFeatures(count, iter) => {
-                write!(
-                    f,
-                    "SearchResults::AllFeatures({count}, {:?})",
-                    iter.size_hint()
-                )
-            }
             SearchResults::TopN(count, iter) => {
-                write!(f, "SearchResults::TopN({count}, {:?})", iter.size_hint())
+                write!(f, "SearchResults::TopN({count}, {:?})", iter.len())
             }
-            SearchResults::FastPath(iter) => {
-                write!(f, "SearchResults::FastPath({:?})", iter.size_hint())
+            SearchResults::Channel(iter) => {
+                write!(f, "SearchResults::FastPath(~{:?})", iter.size_hint())
+            }
+            SearchResults::SingleSegment(count, iter) => {
+                write!(f, "SearchResults::SingleSegment({count}, {:?})", iter.len())
             }
         }
     }
@@ -86,11 +110,11 @@ impl Iterator for SearchResults {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             SearchResults::None => None,
-            SearchResults::AllFeatures(_, iter) => iter.next(),
             SearchResults::TopN(_, iter) => iter.next(),
-            SearchResults::FastPath(iter) => iter
+            SearchResults::Channel(iter) => iter
                 .next()
                 .map(|result| result.unwrap_or_else(|e| panic!("{e}"))),
+            SearchResults::SingleSegment(_, iter) => iter.next(),
         }
     }
 
@@ -98,9 +122,9 @@ impl Iterator for SearchResults {
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
             SearchResults::None => (0, Some(0)),
-            SearchResults::AllFeatures(_, iter) => iter.size_hint(),
             SearchResults::TopN(_, iter) => iter.size_hint(),
-            SearchResults::FastPath(iter) => iter.size_hint(),
+            SearchResults::Channel(iter) => iter.size_hint(),
+            SearchResults::SingleSegment(_, iter) => iter.size_hint(),
         }
     }
 
@@ -111,9 +135,9 @@ impl Iterator for SearchResults {
     {
         match self {
             SearchResults::None => 0,
-            SearchResults::AllFeatures(count, _) => count,
             SearchResults::TopN(count, _) => count,
-            SearchResults::FastPath(iter) => iter.count(),
+            SearchResults::Channel(iter) => iter.count(),
+            SearchResults::SingleSegment(count, _) => count,
         }
     }
 }
@@ -122,9 +146,9 @@ impl SearchResults {
     pub fn len(&self) -> Option<usize> {
         match self {
             SearchResults::None => Some(0),
-            SearchResults::AllFeatures(count, _) => Some(*count),
             SearchResults::TopN(count, _) => Some(*count),
-            SearchResults::FastPath(_) => None,
+            SearchResults::Channel(_) => None,
+            SearchResults::SingleSegment(count, _) => Some(*count),
         }
     }
 }
@@ -220,52 +244,169 @@ impl SearchIndexReader {
         }
     }
 
-    /// Search the Tantivy index for matching documents.
+    /// Search the Tantivy index for matching documents, in the background, streaming the matching
+    /// documents back as they're found.
     ///
-    /// This method will do the minimal amount of work necessary to return [`SearchResults`].  If,
-    /// for example, it determines that scoring and sorting are not strictly necessary, it will
-    /// use a "fast path" for searching where the returned [`SearchIndexScore`] will be minimally
-    /// populated with only the "ctid" value for each matching document.
-    ///
-    /// The order of returned docs is unspecified here if there is no limit or orderby and stable_sort
-    /// is false.
+    /// The order of returned docs is unspecified.
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_minimal(
+    pub fn search_via_channel(
         &self,
-        include_key: bool,
+        need_scores: bool,
+        key_field: Option<String>,
         executor: &'static Executor,
-        config: &SearchConfig,
         query: &dyn Query,
     ) -> SearchResults {
-        match (
-            config.limit_rows,
-            config.stable_sort.unwrap_or(true),
-            config.order_by_field.clone(),
-        ) {
-            // no limit, no stable sorting, and no sort field
-            //
-            // this we can use a channel to stream the results and also elide doing key lookups.
-            // this is our "fast path"
-            (None, false, None) => SearchResults::FastPath(
-                self.search_via_channel(executor, include_key, config, query)
-                    .into_iter()
-                    .flatten(),
-            ),
+        let (sender, receiver) = crossbeam::channel::unbounded();
+        let collector = collector::ChannelCollector::new(need_scores, sender, key_field);
+        let searcher = self.searcher.clone();
+        let schema = self.schema.schema.clone();
 
-            // at least one of limit, stable sorting, or a sort field, so we gotta do it all,
-            // including retrieving the key field
-            _ => {
-                let results = self.search_with_top_docs(executor, true, config, query);
-                SearchResults::AllFeatures(results.len(), results.into_iter())
-            }
-        }
+        let owned_query = query.box_clone();
+        std::thread::spawn(move || {
+            searcher
+                .search_with_executor(
+                    &owned_query,
+                    &collector,
+                    executor,
+                    if need_scores {
+                        tantivy::query::EnableScoring::Enabled {
+                            searcher: &searcher,
+                            statistics_provider: &searcher,
+                        }
+                    } else {
+                        tantivy::query::EnableScoring::Disabled {
+                            schema: &schema,
+                            searcher_opt: Some(&searcher),
+                        }
+                    },
+                )
+                .expect("failed to search")
+        });
+
+        SearchResults::Channel(receiver.into_iter().flatten())
     }
 
+    /// Search a specific index segment for matching documents.
+    ///
+    /// The order of returned docs is unspecified.
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    pub fn search_segment(
+        &self,
+        need_scores: bool,
+        key_field: Option<String>,
+        segment_ord: SegmentOrdinal,
+        query: &dyn Query,
+    ) -> SearchResults {
+        let collector = vec_collector::VecCollector::new(need_scores, key_field);
+        let weight = query
+            .weight(if need_scores {
+                tantivy::query::EnableScoring::Enabled {
+                    searcher: &self.searcher,
+                    statistics_provider: &self.searcher,
+                }
+            } else {
+                tantivy::query::EnableScoring::Disabled {
+                    schema: &self.schema.schema,
+                    searcher_opt: Some(&self.searcher),
+                }
+            })
+            .expect("weight should be constructable");
+        let segment_reader = self.searcher.segment_reader(segment_ord);
+        let results = collector
+            .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+            .expect("single segment collection should succeed");
+        SearchResults::SingleSegment(results.len(), results.into_iter())
+    }
+
+    /// Search the Tantivy index for the "top N" matching documents.
+    ///
+    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
+    /// or least relevant first if it's [`SortDirection::Asc`].
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
     pub fn search_top_n(
         &self,
         executor: &'static Executor,
+        query: &dyn Query,
+        sort_field: Option<String>,
+        sortdir: SortDirection,
+        n: usize,
+    ) -> SearchResults {
+        if let Some(sort_field) = sort_field {
+            self.top_by_field(executor, query, sort_field, sortdir, n)
+        } else {
+            self.top_by_score(executor, query, sortdir, n)
+        }
+    }
+
+    fn top_by_field(
+        &self,
+        executor: &Executor,
+        query: &dyn Query,
+        sort_field: String,
+        sortdir: SortDirection,
+        n: usize,
+    ) -> SearchResults {
+        impl From<SortDirection> for tantivy::Order {
+            fn from(value: SortDirection) -> Self {
+                match value {
+                    SortDirection::Asc => Order::Asc,
+                    SortDirection::Desc => Order::Desc,
+                }
+            }
+        }
+
+        let sort_field = self
+            .schema
+            .get_search_field(&SearchFieldName(sort_field.clone()))
+            .expect("sort field should exist in index schema");
+
+        let collector =
+            TopDocs::with_limit(n).order_by_u64_field(&sort_field.name.0, sortdir.into());
+        let results = self
+            .searcher
+            .search_with_executor(
+                query,
+                &collector,
+                executor,
+                tantivy::query::EnableScoring::Enabled {
+                    searcher: &self.searcher,
+                    statistics_provider: &self.searcher,
+                },
+            )
+            .expect("failed to search")
+            .into_iter();
+
+        let mut top_docs = Vec::with_capacity(results.len());
+        for (_ff_u64_value, doc_address) in results {
+            let segment_reader = self.searcher.segment_reader(doc_address.segment_ord);
+            let fast_fields = segment_reader.fast_fields();
+            let ctid_ff = FFType::new(fast_fields, "ctid");
+
+            let ctid = ctid_ff
+                .as_u64(doc_address.doc_id)
+                .expect("DocId should have a ctid");
+
+            let scored = SearchIndexScore {
+                bm25: f32::NAN,
+                key: None,
+                ctid,
+            };
+
+            top_docs.push((scored, doc_address));
+        }
+
+        SearchResults::TopN(top_docs.len(), top_docs.into_iter())
+    }
+
+    fn top_by_score(
+        &self,
+        executor: &Executor,
         query: &dyn Query,
         sortdir: SortDirection,
         n: usize,
@@ -285,7 +426,6 @@ impl SearchIndexReader {
                 }
             }
         }
-
         let collector = TopDocs::with_limit(n).tweak_score(move |_: &tantivy::SegmentReader| {
             move |_: DocId, original_score: Score| OrderedScore {
                 dir: sortdir,
@@ -321,8 +461,6 @@ impl SearchIndexReader {
                 bm25: score,
                 key: None,
                 ctid,
-                order_by: None,
-                sort_asc: false,
             };
 
             top_docs.push((scored, doc_address));
@@ -331,107 +469,11 @@ impl SearchIndexReader {
         SearchResults::TopN(top_docs.len(), top_docs.into_iter())
     }
 
-    fn search_via_channel(
+    pub fn estimate_docs(
         &self,
-        executor: &'static Executor,
-        include_key: bool,
-        config: &SearchConfig,
-        query: &dyn Query,
-    ) -> crossbeam::channel::Receiver<Vec<Result<(SearchIndexScore, DocAddress), TantivyError>>>
-    {
-        let (sender, receiver) = crossbeam::channel::unbounded();
-        let collector =
-            collector::ChannelCollector::new(sender, config.key_field.clone(), include_key);
-        let searcher = self.searcher.clone();
-        let schema = self.schema.schema.clone();
-        let need_scores =
-            config.need_scores || SearchConfig::contains_more_like_this(&config.query);
-
-        let owned_query = query.box_clone();
-        std::thread::spawn(move || {
-            searcher
-                .search_with_executor(
-                    &owned_query,
-                    &collector,
-                    executor,
-                    if need_scores {
-                        tantivy::query::EnableScoring::Enabled {
-                            searcher: &searcher,
-                            statistics_provider: &searcher,
-                        }
-                    } else {
-                        tantivy::query::EnableScoring::Disabled {
-                            schema: &schema,
-                            searcher_opt: Some(&searcher),
-                        }
-                    },
-                )
-                .expect("failed to search")
-        });
-        receiver
-    }
-
-    fn search_with_top_docs(
-        &self,
-        executor: &'static Executor,
-        include_key: bool,
-        config: &SearchConfig,
-        query: &dyn Query,
-    ) -> Vec<(SearchIndexScore, DocAddress)> {
-        // Extract limit and offset from the query config or set defaults.
-        let limit = config.limit_rows.unwrap_or_else(|| {
-            // We use unwrap_or_else here so this block doesn't run unless
-            // we actually need the default value. This is important, because there can
-            // be some cost to Tantivy API calls.
-            let num_docs = self.searcher.num_docs() as usize;
-            if num_docs > 0 {
-                num_docs // The collector will panic if it's passed a limit of 0.
-            } else {
-                1 // Since there's no docs to return anyways, just use 1.
-            }
-        });
-
-        let offset = config.offset_rows.unwrap_or(0);
-        let key_field_name = config.key_field.clone();
-        let orderby_field = config.order_by_field.clone();
-        let sort_asc = config.is_sort_ascending();
-
-        let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
-            move |segment_reader: &tantivy::SegmentReader| {
-                let fast_fields = segment_reader.fast_fields();
-                let ctid_ff = FFType::new(fast_fields, "ctid");
-                let key_ff = include_key.then(|| FFType::new(fast_fields, key_field_name.as_str()));
-                let orderby_ff = orderby_field
-                    .as_ref()
-                    .map(|name| FFType::new(fast_fields, name));
-
-                move |doc: DocId, original_score: Score| SearchIndexScore {
-                    bm25: original_score,
-                    key: key_ff.as_ref().map(|key_ff| key_ff.value(doc)),
-                    ctid: ctid_ff
-                        .as_u64(doc)
-                        .expect("expected the `ctid` field to be a u64"),
-
-                    order_by: orderby_ff.as_ref().map(|fftype| fftype.value(doc)),
-                    sort_asc,
-                }
-            },
-        );
-
-        self.searcher
-            .search_with_executor(
-                query,
-                &collector,
-                executor,
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: &self.searcher,
-                    statistics_provider: &self.searcher,
-                },
-            )
-            .expect("failed to search")
-    }
-
-    pub fn estimate_docs(&self, query: &dyn Query) -> Option<usize> {
+        mut query_parser: QueryParser,
+        search_query_input: SearchQueryInput,
+    ) -> Option<usize> {
         let readers = self.searcher.segment_readers();
         let (ordinal, largest_reader) = readers
             .iter()
@@ -440,6 +482,10 @@ impl SearchIndexReader {
 
         let collector = tantivy::collector::Count;
         let schema = self.schema.schema.clone();
+        let query = &search_query_input
+            .clone()
+            .into_tantivy_query(&self.schema, &mut query_parser, &self.searcher)
+            .expect("must be able to parse query");
         let weight = match query.weight(tantivy::query::EnableScoring::Disabled {
             schema: &schema,
             searcher_opt: Some(&self.searcher),
@@ -566,30 +612,30 @@ impl FFType {
 
 mod collector {
     use crate::index::reader::FFType;
-    use crate::index::score::SearchIndexScore;
+    use crate::index::reader::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
     /// each segment, in parallel, as tantivy find each doc.
     pub struct ChannelCollector {
+        need_scores: bool,
         sender: crossbeam::channel::Sender<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
-        key_field_name: String,
-        include_key: bool,
+        key_field: Option<String>,
     }
 
     impl ChannelCollector {
         pub fn new(
+            need_scores: bool,
             sender: crossbeam::channel::Sender<
                 Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>,
             >,
-            key_field_name: String,
-            include_key: bool,
+            key_field: Option<String>,
         ) -> Self {
             Self {
+                need_scores,
                 sender,
-                key_field_name,
-                include_key,
+                key_field,
             }
         }
     }
@@ -606,8 +652,10 @@ mod collector {
             let fast_fields = segment_reader.fast_fields();
             let ctid_ff = FFType::new(fast_fields, "ctid");
             let key_ff = self
-                .include_key
-                .then(|| FFType::new(fast_fields, &self.key_field_name));
+                .key_field
+                .as_ref()
+                .map(|key_field| FFType::new(fast_fields, key_field));
+
             Ok(ChannelSegmentCollector {
                 segment_ord: segment_local_id,
                 ctid_ff,
@@ -618,7 +666,7 @@ mod collector {
         }
 
         fn requires_scoring(&self) -> bool {
-            true
+            self.need_scores
         }
 
         fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
@@ -646,8 +694,6 @@ mod collector {
                     bm25: score,
                     key,
                     ctid,
-                    order_by: None,
-                    sort_asc: false,
                 };
 
                 self.fruit.push(Ok((scored, doc_address)))
@@ -667,6 +713,97 @@ mod collector {
             // if send fails that likely means the receiver was dropped so we have nowhere
             // to send the result.  That's okay
             self.sender.send(self.fruit).ok();
+        }
+    }
+}
+
+mod vec_collector {
+    use crate::index::reader::FFType;
+    use crate::index::reader::SearchIndexScore;
+    use pgrx::check_for_interrupts;
+    use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
+
+    /// A [`Collector`] that collects all matching documents into a [`Vec`].  
+    pub struct VecCollector {
+        need_scores: bool,
+        key_field: Option<String>,
+    }
+
+    impl VecCollector {
+        pub fn new(need_scores: bool, key_field: Option<String>) -> Self {
+            Self {
+                need_scores,
+                key_field,
+            }
+        }
+    }
+
+    impl Collector for VecCollector {
+        type Fruit = Vec<Vec<(SearchIndexScore, DocAddress)>>;
+        type Child = VecSegmentCollector;
+
+        fn for_segment(
+            &self,
+            segment_local_id: SegmentOrdinal,
+            segment_reader: &SegmentReader,
+        ) -> tantivy::Result<Self::Child> {
+            let fast_fields = segment_reader.fast_fields();
+            let ctid_ff = FFType::new(fast_fields, "ctid");
+            let key_ff = self
+                .key_field
+                .as_ref()
+                .map(|key_field| FFType::new(fast_fields, key_field));
+
+            Ok(VecSegmentCollector {
+                segment_ord: segment_local_id,
+                ctid_ff,
+                key_ff,
+                results: Default::default(),
+            })
+        }
+
+        fn requires_scoring(&self) -> bool {
+            self.need_scores
+        }
+
+        fn merge_fruits(
+            &self,
+            segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
+        ) -> tantivy::Result<Self::Fruit> {
+            // NB:  we never call this function, but best to implement it anyways
+            Ok(segment_fruits)
+        }
+    }
+
+    pub struct VecSegmentCollector {
+        segment_ord: SegmentOrdinal,
+        ctid_ff: FFType,
+        key_ff: Option<FFType>,
+        results: Vec<(SearchIndexScore, DocAddress)>,
+    }
+
+    impl SegmentCollector for VecSegmentCollector {
+        type Fruit = Vec<(SearchIndexScore, DocAddress)>;
+
+        fn collect(&mut self, doc: DocId, score: Score) {
+            check_for_interrupts!();
+            if let Some(ctid) = self.ctid_ff.as_u64(doc) {
+                let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
+
+                let doc_address = DocAddress::new(self.segment_ord, doc);
+                let scored = SearchIndexScore {
+                    bm25: score,
+                    key,
+                    ctid,
+                };
+
+                self.results.push((scored, doc_address));
+            }
+        }
+
+        fn harvest(self) -> Self::Fruit {
+            self.results
         }
     }
 }

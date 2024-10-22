@@ -30,6 +30,7 @@ mod validate;
 pub mod customscan;
 pub mod datetime;
 pub mod index;
+mod parallel;
 pub mod transaction;
 pub mod types;
 pub mod utils;
@@ -37,9 +38,8 @@ pub mod visibility_checker;
 
 #[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is
 pub enum ScanStrategy {
-    SearchConfigJson = 1,
-    TextQuery = 2,
-    SearchQueryInput = 3,
+    TextQuery = 1,
+    SearchQueryInput = 2,
     // NB:  Any additions here **mut** update the `amroutine.amstrategies` down below in [`bm25_handler`]
 }
 
@@ -48,10 +48,8 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
 
     fn try_from(value: pg_sys::StrategyNumber) -> Result<Self, Self::Error> {
         if value == 1 {
-            Ok(ScanStrategy::SearchConfigJson)
-        } else if value == 2 {
             Ok(ScanStrategy::TextQuery)
-        } else if value == 3 {
+        } else if value == 2 {
             Ok(ScanStrategy::SearchQueryInput)
         } else {
             Err(format!("`{value}` is an unknown `ScanStrategy` number"))
@@ -68,7 +66,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     let mut amroutine =
         unsafe { PgBox::<pg_sys::IndexAmRoutine>::alloc_node(pg_sys::NodeTag::T_IndexAmRoutine) };
 
-    amroutine.amstrategies = 3;
+    amroutine.amstrategies = 2;
     amroutine.amsupport = 0;
     amroutine.amcanmulticol = true;
     amroutine.amsearcharray = true;
@@ -89,6 +87,11 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.amgetbitmap = Some(scan::amgetbitmap);
     amroutine.amendscan = Some(scan::amendscan);
     amroutine.amcanreturn = Some(scan::amcanreturn);
+
+    amroutine.amcanparallel = true;
+    amroutine.aminitparallelscan = Some(parallel::aminitparallelscan);
+    amroutine.amestimateparallelscan = Some(parallel::amestimateparallelscan);
+    amroutine.amparallelrescan = Some(parallel::amparallelrescan);
 
     amroutine.into_pg_boxed()
 }

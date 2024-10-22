@@ -79,6 +79,95 @@ fn integer_range(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn unbounded_integer_range(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        value_int4 INTEGER,
+        value_int8 BIGINT
+    );
+    INSERT INTO test_table (value_int4, value_int8) VALUES 
+        (-1111, -11111111),
+        (2222, 22222222), 
+        (3333, 33333333), 
+        (4444, 44444444);
+    "#
+    .execute(&mut conn);
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_table',
+        index_name => 'test_index',
+        key_field => 'id',
+        numeric_fields => paradedb.field('value_int4') || paradedb.field('value_int8')
+    );
+    "#
+    .execute(&mut conn);
+
+    // Test unbounded upper range for INT4
+    let rows: Vec<(i32, i32)> = r#"
+    SELECT id, value_int4 FROM test_table
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int4",
+            "lower_bound": {"included": 2222},
+            "upper_bound": null
+        }
+    }'::jsonb
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0].1, 2222);
+    assert_eq!(rows[2].1, 4444);
+
+    // Test unbounded lower range for INT4
+    let rows: Vec<(i32, i32)> = r#"
+    SELECT id, value_int4 FROM test_table
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int4",
+            "lower_bound": null,
+            "upper_bound": {"included": 2222}
+        }
+    }'::jsonb
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1, -1111);
+    assert_eq!(rows[1].1, 2222);
+
+    // Test unbounded upper range for INT8
+    let rows: Vec<(i32, i64)> = r#"
+    SELECT id, value_int8 FROM test_table
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int8",
+            "lower_bound": {"included": 0},
+            "upper_bound": null
+        }
+    }'::jsonb
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0].1, 22222222);
+    assert_eq!(rows[2].1, 44444444);
+
+    // Test unbounded lower range for INT8
+    let rows: Vec<(i32, i64)> = r#"
+    SELECT id, value_int8 FROM test_table
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int8",
+            "lower_bound": null,
+            "upper_bound": {"included": -5000000}
+        }
+    }'::jsonb
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, -11111111);
+}
+
+#[rstest]
 fn float_range(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (

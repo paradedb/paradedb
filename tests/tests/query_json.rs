@@ -248,8 +248,8 @@ fn single_queries(mut conn: PgConnection) {
     WHERE bm25_search @@@ '{
         "term_set": {
             "terms": [
-                ["description", "shoes", null, false],
-                ["description", "novel", null, false]
+                ["description", "shoes", false],
+                ["description", "novel", false]
             ]
         }
     }'::jsonb ORDER BY id"#
@@ -396,8 +396,8 @@ fn single_queries_jsonb_build_object(mut conn: PgConnection) {
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
     jsonb_build_object('term_set', jsonb_build_object(
         'terms', jsonb_build_array(
-            jsonb_build_array('description', 'shoes', null, false),
-            jsonb_build_array('description', 'novel', null, false)))) ORDER BY id"#
+            jsonb_build_array('description', 'shoes', false),
+            jsonb_build_array('description', 'novel', false)))) ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);
 }

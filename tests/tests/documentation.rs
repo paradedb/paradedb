@@ -1025,7 +1025,7 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear')
+    WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -1034,9 +1034,45 @@ fn compound_queries(mut conn: PgConnection) {
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.boolean(should => ARRAY[
-        paradedb.phrase('description', ARRAY['running', 'shoes']),
-        paradedb.term('category', 'footwear')
-    ])"#
+      paradedb.phrase('description', ARRAY['running', 'shoes']),
+      paradedb.term('category', 'footwear')
+    ]);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 6);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ '{
+      "parse": {"query_string": "description:\"running shoes\" OR category:footwear"}
+    }'::jsonb
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 6);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ '{
+      "boolean": {
+        "should": [
+          {
+            "phrase": {
+              "field": "description",
+              "phrases": ["running", "shoes"]
+            }
+          },
+          {
+            "term": {
+              "field": "category",
+              "value": "footwear"
+            }
+          }
+        ]
+      }
+    }'::jsonb;
+    "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
 
@@ -1044,31 +1080,72 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('speaker electronics', lenient => true)"#
-        .fetch(&mut conn);
+    WHERE id @@@ paradedb.parse('speaker electronics', lenient => true);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "parse": {
+            "query_string": "speaker electronics",
+            "lenient": true
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
 
     // Conjunction mode
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('description:speaker category:electronics')"#
-        .fetch(&mut conn);
+    WHERE id @@@ paradedb.parse('description:speaker category:electronics');
+    "#
+    .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse('description:speaker OR category:electronics')"#
-        .fetch(&mut conn);
+    WHERE id @@@ paradedb.parse('description:speaker OR category:electronics');
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "parse": {
+            "query_string": "description:speaker category:electronics"
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.parse(
-    'description:speaker category:electronics',
-    conjunction_mode => true
+      'description:speaker category:electronics',
+      conjunction_mode => true
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse(
+    'description:speaker AND category:electronics'
+    );
     )"#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -1076,9 +1153,27 @@ fn compound_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.parse(
-    'description:speaker AND category:electronics'
-    )"#
+    WHERE id @@@
+    '{
+        "parse": {
+            "query_string": "description:speaker category:electronics",
+            "conjunction_mode": true
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "parse": {
+            "query_string": "description:speaker AND category:electronics"
+        }
+    }'::jsonb;
+    "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
@@ -1087,10 +1182,26 @@ fn compound_queries(mut conn: PgConnection) {
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.parse_with_field(
-    'description',
-    'speaker bluetooth',
-    conjunction_mode => true
-    )"#
+      'description',
+      'speaker bluetooth',
+      conjunction_mode => true
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "parse_with_field": {
+            "field": "description",
+            "query_string": "speaker bluetooth",
+            "conjunction_mode": true
+        }
+    }'::jsonb;
+    "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 }

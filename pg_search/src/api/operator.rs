@@ -164,6 +164,7 @@ unsafe fn make_search_query_input_opexpr_node(
     if relid == pg_sys::Oid::INVALID {
         panic!("could not determine relation for var");
     }
+    let (_, attname) = attname_from_var((*srs).root, var);
 
     // we need to use what should be the only `USING bm25` index on the table
     let heaprel = PgRelation::open(relid);
@@ -218,6 +219,24 @@ unsafe fn make_search_query_input_opexpr_node(
     let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
 
     if let Some(query) = query {
+        let query = match query {
+            SearchQueryInput::Match {
+                value,
+                distance,
+                transposition_cost_one,
+                prefix,
+                match_all_terms,
+                ..
+            } => SearchQueryInput::Match {
+                field: attname,
+                value,
+                distance,
+                transposition_cost_one,
+                prefix,
+                match_all_terms,
+            },
+            other => other,
+        };
         // In case a sequential scan gets triggered, we need a way to pass the index oid
         // to the scan function. It otherwise will not know which index to use.
         let wrapped_query = SearchQueryInput::WithIndex {

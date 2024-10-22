@@ -247,24 +247,21 @@ pub fn fuzzy_term(
     }
 }
 
-#[pg_extern(immutable, parallel_safe)]
-pub fn fuzzy_phrase(
-    field: FieldName,
-    value: default!(Option<String>, "NULL"),
+#[pg_extern(name = "match", immutable, parallel_safe)]
+pub fn match_query(
+    value: String,
     distance: default!(Option<i32>, "NULL"),
     transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
     match_all_terms: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
-    let (field, path) = split_field_and_path(&field);
-    SearchQueryInput::FuzzyPhrase {
-        field,
-        value: value.expect("`value` argument is required"),
+    SearchQueryInput::Match {
+        field: None,
+        value,
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
         match_all_terms,
-        path,
     }
 }
 

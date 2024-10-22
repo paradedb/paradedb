@@ -872,6 +872,31 @@ fn text_to_fieldname(field: String) -> FieldName {
     FieldName(field)
 }
 
+#[pg_cast(implicit)]
+fn jsonb_to_searchqueryinput(query: JsonB) -> SearchQueryInput {
+    serde_path_to_error::deserialize(query.0).unwrap_or_else(|err| {
+        panic!(
+            r#"error parsing search query input json at "{}": {}"#,
+            err.path(),
+            match err.inner().to_string() {
+                msg if msg.contains("expected unit") => {
+                    format!(
+                        r#"invalid type: map, pass null as value for "{}""#,
+                        err.path()
+                    )
+                }
+                msg => msg,
+            }
+        )
+    })
+}
+
+extension_sql!(
+    "ALTER FUNCTION jsonb_to_searchqueryinput IMMUTABLE;",
+    name = "jsonb_to_searchqueryinput",
+    requires = [jsonb_to_searchqueryinput]
+);
+
 #[allow(unused)]
 pub fn fieldname_typoid() -> pg_sys::Oid {
     unsafe {

@@ -11,14 +11,28 @@ title: Range
 
 The following code block executes a range query over a JSON field:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, metadata
 FROM mock_items
-WHERE mock_items @@@ paradedb.range(
+WHERE id @@@ paradedb.range(
     'metadata.attributes.quantity',
     int4range(2, 5, '()')
 );
 ```
+```sql JSON Syntax
+SELECT description, metadata
+FROM mock_items
+WHERE id @@@
+'{
+    "range": {
+        "field": "metadata.attributes.quantity",
+        "lower_bound": {"excluded": 2},
+        "upper_bound": {"excluded": 5}
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 The [range query](/documentation/advanced/term/range) documentation provides details on the range function.
 

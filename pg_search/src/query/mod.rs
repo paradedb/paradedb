@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
 use tantivy::{
     collector::DocSetCollector,
+    json_utils::split_json_path,
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
         ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
@@ -91,7 +92,6 @@ pub enum SearchQueryInput {
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
-        path: Option<String>,
     },
     FuzzyPhrase {
         field: String,
@@ -100,7 +100,6 @@ pub enum SearchQueryInput {
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
         match_all_terms: Option<bool>,
-        path: Option<String>,
     },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
@@ -129,13 +128,11 @@ pub enum SearchQueryInput {
         field: String,
         phrases: Vec<String>,
         slop: Option<u32>,
-        path: Option<String>,
     },
     PhrasePrefix {
         field: String,
         phrases: Vec<String>,
         max_expansions: Option<u32>,
-        path: Option<String>,
     },
     Range {
         field: String,
@@ -149,7 +146,6 @@ pub enum SearchQueryInput {
             deserialize_with = "deserialize_bound"
         )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        path: Option<String>,
         #[serde(default)]
         is_datetime: bool,
     },
@@ -211,12 +207,11 @@ pub enum SearchQueryInput {
     Term {
         field: Option<String>,
         value: tantivy::schema::OwnedValue,
-        path: Option<String>,
         #[serde(default)]
         is_datetime: bool,
     },
     TermSet {
-        terms: Vec<(String, tantivy::schema::OwnedValue, Option<String>, bool)>,
+        terms: Vec<(String, tantivy::schema::OwnedValue, bool)>,
     },
     WithIndex {
         oid: pg_sys::Oid,
@@ -429,8 +424,8 @@ impl SearchQueryInput {
                 distance,
                 transposition_cost_one,
                 prefix,
-                path,
             } => {
+                let (field, path) = split_field_and_path(&field);
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
@@ -464,8 +459,8 @@ impl SearchQueryInput {
                 transposition_cost_one,
                 prefix,
                 match_all_terms,
-                path,
             } => {
+                let (field, path) = split_field_and_path(&field);
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 let match_all_terms = match_all_terms.unwrap_or(false);
@@ -594,8 +589,8 @@ impl SearchQueryInput {
                 field,
                 phrases,
                 max_expansions,
-                path,
             } => {
+                let (field, path) = split_field_and_path(&field);
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
@@ -654,8 +649,8 @@ impl SearchQueryInput {
                 field,
                 phrases,
                 slop,
-                path,
             } => {
+                let (field, path) = split_field_and_path(&field);
                 let (field_type, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
@@ -679,9 +674,9 @@ impl SearchQueryInput {
                 field,
                 lower_bound,
                 upper_bound,
-                path,
                 is_datetime,
             } => {
+                let (field, path) = split_field_and_path(&field);
                 let field_name = field;
                 let (field_type, field) = field_lookup
                     .as_field_type(&field_name)
@@ -1320,11 +1315,11 @@ impl SearchQueryInput {
             Self::Term {
                 field,
                 value,
-                path,
                 is_datetime,
             } => {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
+                    let (field, path) = split_field_and_path(&field);
                     let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
@@ -1349,7 +1344,8 @@ impl SearchQueryInput {
             }
             Self::TermSet { terms: fields } => {
                 let mut terms = vec![];
-                for (field_name, field_value, path, is_datetime) in fields {
+                for (field_name, field_value, is_datetime) in fields {
+                    let (_, path) = split_field_and_path(&field_name);
                     let (field_type, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
@@ -1491,6 +1487,15 @@ impl TryFrom<&str> for TantivyDateTime {
         Ok(TantivyDateTime(tantivy::DateTime::from_timestamp_micros(
             datetime.and_utc().timestamp_micros(),
         )))
+    }
+}
+
+pub fn split_field_and_path(field: &str) -> (String, Option<String>) {
+    let json_path = split_json_path(field);
+    if json_path.len() == 1 {
+        (field.to_string(), None)
+    } else {
+        (json_path[0].clone(), Some(json_path[1..].join(".")))
     }
 }
 

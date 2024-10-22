@@ -27,7 +27,6 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
 use std::ops::Bound;
-use tantivy::json_utils::split_json_path;
 use tantivy::schema::{FieldType, OwnedValue, Value};
 
 #[allow(clippy::type_complexity)]
@@ -236,14 +235,12 @@ pub fn fuzzy_term(
     transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
-    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::FuzzyTerm {
-        field,
+        field: field.into_inner(),
         value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
-        path,
     }
 }
 
@@ -256,15 +253,13 @@ pub fn fuzzy_phrase(
     prefix: default!(Option<bool>, "NULL"),
     match_all_terms: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
-    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::FuzzyPhrase {
-        field,
+        field: field.into_inner(),
         value: value.expect("`value` argument is required"),
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
         match_all_terms,
-        path,
     }
 }
 
@@ -392,12 +387,10 @@ pub fn phrase(
     phrases: Vec<String>,
     slop: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
-    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::Phrase {
-        field,
+        field: field.into_inner(),
         phrases,
         slop: slop.map(|n| n as u32),
-        path,
     }
 }
 
@@ -407,28 +400,24 @@ pub fn phrase_prefix(
     phrases: Vec<String>,
     max_expansion: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
-    let (field, path) = split_field_and_path(&field);
     SearchQueryInput::PhrasePrefix {
-        field,
+        field: field.into_inner(),
         phrases,
         max_expansions: max_expansion.map(|n| n as u32),
-        path,
     }
 }
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
-    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field,
+            field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
-            path,
             is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field,
+            field: field.into_inner(),
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
@@ -439,7 +428,6 @@ pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
                 RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
             },
-            path,
             is_datetime: false,
         },
     }
@@ -447,17 +435,15 @@ pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
-    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field,
+            field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::I64(0)),
             upper_bound: Bound::Excluded(OwnedValue::I64(0)),
-            path,
             is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field,
+            field: field.into_inner(),
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
@@ -468,7 +454,6 @@ pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
                 RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
             },
-            path,
             is_datetime: false,
         },
     }
@@ -476,17 +461,15 @@ pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryInput {
-    let (field, path) = split_field_and_path(&field);
     match range.into_inner() {
         None => SearchQueryInput::Range {
-            field,
+            field: field.into_inner(),
             lower_bound: Bound::Included(OwnedValue::F64(0.0)),
             upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
-            path,
             is_datetime: false,
         },
         Some((lower, upper)) => SearchQueryInput::Range {
-            field,
+            field: field.into_inner(),
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
@@ -505,7 +488,6 @@ pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryI
                     n.try_into().expect("numeric should be a valid f64"),
                 )),
             },
-            path,
             is_datetime: false,
         },
     }
@@ -515,21 +497,19 @@ macro_rules! datetime_range_fn {
     ($func_name:ident, $value_type:ty) => {
         #[pg_extern(name = "range", immutable, parallel_safe)]
         pub fn $func_name(field: FieldName, range: Range<$value_type>) -> SearchQueryInput {
-            let (field, path) = split_field_and_path(&field);
             match range.into_inner() {
                 None => SearchQueryInput::Range {
-                    field,
+                    field: field.into_inner(),
                     lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
                         tantivy::DateTime::from_timestamp_micros(0),
                     )),
                     upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
                         tantivy::DateTime::from_timestamp_micros(0),
                     )),
-                    path,
                     is_datetime: true,
                 },
                 Some((lower, upper)) => SearchQueryInput::Range {
-                    field,
+                    field: field.into_inner(),
                     lower_bound: match lower {
                         RangeBound::Infinite => Bound::Unbounded,
                         RangeBound::Inclusive(n) => Bound::Included(
@@ -568,7 +548,6 @@ macro_rules! datetime_range_fn {
                                 .into(),
                         ),
                     },
-                    path,
                     is_datetime: true,
                 },
             }
@@ -596,13 +575,6 @@ macro_rules! term_fn {
             value: default!(Option<$value_type>, "NULL"),
         ) -> SearchQueryInput {
             if let Some(value) = value {
-                let (field, path) = if let Some(field) = field {
-                    let (field, path) = split_field_and_path(&field);
-                    (Some(field), path)
-                } else {
-                    (None, None)
-                };
-
                 let tantivy_value = TantivyValue::try_from(value)
                     .expect("value should be a valid TantivyValue representation")
                     .tantivy_schema_value();
@@ -612,9 +584,8 @@ macro_rules! term_fn {
                 };
 
                 SearchQueryInput::Term {
-                    field,
+                    field: field.map(|f| f.into_inner()),
                     value: tantivy_value,
-                    path,
                     is_datetime,
                 }
             } else {
@@ -841,10 +812,9 @@ pub fn term_set(
             SearchQueryInput::Term {
                 field,
                 value,
-                path,
                 is_datetime,
                 ..
-            } => field.map(|field| (field, value, path, is_datetime)),
+            } => field.map(|field| (field, value, is_datetime)),
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();
@@ -902,31 +872,6 @@ fn text_to_fieldname(field: String) -> FieldName {
     FieldName(field)
 }
 
-#[pg_cast(implicit)]
-fn jsonb_to_searchqueryinput(query: JsonB) -> SearchQueryInput {
-    serde_path_to_error::deserialize(query.0).unwrap_or_else(|err| {
-        panic!(
-            r#"error parsing search query input json at "{}": {}"#,
-            err.path(),
-            match err.inner().to_string() {
-                msg if msg.contains("expected unit") => {
-                    format!(
-                        r#"invalid type: map, pass null as value for "{}""#,
-                        err.path()
-                    )
-                }
-                msg => msg,
-            }
-        )
-    })
-}
-
-extension_sql!(
-    "ALTER FUNCTION jsonb_to_searchqueryinput IMMUTABLE;",
-    name = "jsonb_to_searchqueryinput",
-    requires = [jsonb_to_searchqueryinput]
-);
-
 #[allow(unused)]
 pub fn fieldname_typoid() -> pg_sys::Oid {
     unsafe {
@@ -939,15 +884,5 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
             panic!("type `paradedb.FieldName` should exist");
         }
         oid
-    }
-}
-
-#[inline]
-pub fn split_field_and_path(field: &FieldName) -> (String, Option<String>) {
-    let json_path = split_json_path(&field.clone().into_inner());
-    if json_path.len() == 1 {
-        (field.clone().into_inner(), None)
-    } else {
-        (json_path[0].clone(), Some(json_path[1..].join(".")))
     }
 }

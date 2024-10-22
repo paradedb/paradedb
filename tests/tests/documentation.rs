@@ -819,6 +819,36 @@ fn compound_queries(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // Overview
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.boolean(
+        should => ARRAY[
+            paradedb.boost(query => paradedb.term('description', 'shoes'), boost => 2.0),
+            paradedb.term('description', 'running')
+        ]
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "boolean": {
+            "should": [
+                {"boost": {"query": {"term": {"field": "description", "value": "shoes"}}, "boost": 2.0}},
+                {"term": {"field": "description", "value": "running"}}
+            ]
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
     // All
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
@@ -831,22 +861,55 @@ fn compound_queries(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows.len(), 38);
 
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "boolean": {
+            "should": [{"all": null}],
+            "must_not": [{"term": {"field": "description", "value": "shoes"}}]
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 38);
+
     // Boolean
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.boolean(
         should => ARRAY[
-        paradedb.term('description', 'headphones')
+          paradedb.term('description', 'headphones')
         ],
         must => ARRAY[
-        paradedb.term('category', 'electronics'),
-        paradedb.fuzzy_term('description', 'bluetooht')
+          paradedb.term('category', 'electronics'),
+          paradedb.fuzzy_term('description', 'bluetooht')
         ],
         must_not => ARRAY[
-        paradedb.range('rating', int4range(NULL, 2, '()'))
+          paradedb.range('rating', int4range(NULL, 2, '()'))
         ]
-    )
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.boolean(
+        should => ARRAY[
+          paradedb.term('description', 'headphones')
+        ],
+        must => ARRAY[
+          paradedb.term('category', 'electronics'),
+          paradedb.fuzzy_term('description', 'bluetooht')
+        ],
+        must_not => ARRAY[
+          paradedb.range('rating', int4range(NULL, 2, '()'))
+        ]
+    );
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -856,10 +919,27 @@ fn compound_queries(mut conn: PgConnection) {
     SELECT description, rating, category, paradedb.score(id)
     FROM mock_items
     WHERE id @@@ paradedb.boolean(
-    should => ARRAY[
+      should => ARRAY[
         paradedb.term('description', 'shoes'),
         paradedb.boost(2.0, paradedb.term('description', 'running'))
-    ])
+      ]
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String, f32)> = r#"
+    SELECT description, rating, category, paradedb.score(id)
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "boolean": {
+            "should": [
+                {"term": {"field": "description", "value": "shoes"}},
+                {"boost": {"boost": 2.0, "query": {"term": {"field": "description", "value": "running"}}}}
+            ]
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -869,10 +949,27 @@ fn compound_queries(mut conn: PgConnection) {
     SELECT description, rating, category, paradedb.score(id)
     FROM mock_items
     WHERE id @@@ paradedb.boolean(
-    should => ARRAY[
+      should => ARRAY[
         paradedb.const_score(1.0, paradedb.term('description', 'shoes')),
         paradedb.term('description', 'running')
-    ])
+      ]
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String, f32)> = r#"
+    SELECT description, rating, category, paradedb.score(id)
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "boolean": {
+            "should": [
+                {"const_score": {"score": 1.0, "query": {"term": {"field": "description", "value": "shoes"}}}},
+                {"term": {"field": "description", "value": "running"}}
+            ]
+        }
+    }'::jsonb;    
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -882,18 +979,44 @@ fn compound_queries(mut conn: PgConnection) {
     SELECT description, rating, category, paradedb.score(id)
     FROM mock_items
     WHERE id @@@ paradedb.disjunction_max(ARRAY[
-        paradedb.term('description', 'shoes'),
-        paradedb.term('description', 'running')
-    ])
+      paradedb.term('description', 'shoes'),
+      paradedb.term('description', 'running')
+    ]);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String, f32)> = r#"
+    SELECT description, rating, category, paradedb.score(id)
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "disjunction_max": {
+            "disjuncts": [
+                {"term": {"field": "description", "value": "shoes"}},
+                {"term": {"field": "description", "value": "running"}}
+            ]
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
 
     // Empty
     let rows: Vec<(String, i32, String, f32)> = r#"
+    -- Returns no rows
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.empty()
+    WHERE id @@@ paradedb.empty();
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+
+    let rows: Vec<(String, i32, String, f32)> = r#"
+    -- Returns no rows
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ '{"empty": null}'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 0);

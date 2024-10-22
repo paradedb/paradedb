@@ -12,7 +12,10 @@ Boolean queries filter documents based on the logical relationships defined by t
 
 Boolean queries are a powerful way to combine the results of several different queries.
 
-```sql
+Here's the code wrapped in a CodeGroup with both SQL function and JSON syntax:
+
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
@@ -28,6 +31,40 @@ WHERE id @@@ paradedb.boolean(
     ]
 );
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "boolean": {
+      "should": [
+          {"term": {"field": "description", "value": "headphones"}}
+      ],
+      "must": [
+          {
+            "term": {
+             "field": "category",
+             "value": "electronics"
+            }
+          },
+          {"fuzzy_term": {"field": "description", "value": "bluetooht"}}
+      ],
+      "must_not": [
+        {
+          "range": {
+            "field": "rating",
+            "from": null,
+            "to": 2,
+            "bounds": "()"
+          }
+        }
+      ]
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8"/>
 
 <ParamField body="must">
   A query object or an `ARRAY` of query objects as conditions which must be

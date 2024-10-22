@@ -7,11 +7,24 @@ title: Phrase
 Searches for documents containing a [phrase](/documentation/concepts/phrase).
 The field must be indexed with a [record](/documentation/indexing/record) of `position`.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.phrase('description', ARRAY['running', 'shoes']);
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "phrase": {
+        "field": "description",
+        "values": ["running", "shoes"]
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 <ParamField body="field" required>
   Specifies the field within the document to search for the term.
@@ -29,8 +42,22 @@ WHERE id @@@ paradedb.phrase('description', ARRAY['running', 'shoes']);
 
 Setting slop equal to `n` allows `n` terms to come in between the terms in the phrase.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.phrase('description', ARRAY['sleek', 'shoes'], slop => 1);
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "phrase": {
+        "field": "description",
+        "values": ["sleek", "shoes"],
+        "slop": 1
+    }
+}'::jsonb;
+```
+</CodeGroup>

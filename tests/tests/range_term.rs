@@ -473,6 +473,21 @@ fn execute_range_test<T>(
                         }
                     };
 
+                    let expected_json: Vec<(i32,)> = match relation {
+                        RangeRelation::Contains => {
+                            pg_search_contains_json_query(&range, table, field, range_type)
+                                .fetch(conn)
+                        }
+                        RangeRelation::Within => {
+                            pg_search_within_json_query(&range, table, field, range_type)
+                                .fetch(conn)
+                        }
+                        RangeRelation::Intersects => {
+                            pg_search_intersects_json_query(&range, table, field, range_type)
+                                .fetch(conn)
+                        }
+                    };
+
                     let result: Vec<(i32,)> = match relation {
                         RangeRelation::Contains => {
                             pg_search_contains_query(&range, table, field, range_type).fetch(conn)
@@ -486,6 +501,11 @@ fn execute_range_test<T>(
                     };
 
                     assert_eq!(expected, result, "query failed for range: {:?}", range);
+                    assert_eq!(
+                        expected_json, result,
+                        "json query failed for range: {:?}",
+                        range
+                    );
                 }
             }
         }
@@ -561,6 +581,201 @@ where
         WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Contains')
         ORDER BY delivery_id",
         table, field, range, range_type
+    )
+}
+
+fn pg_search_contains_json_query<T>(
+    range: &PgRange<T>,
+    table: &str,
+    field: &str,
+    range_type: &str,
+) -> String
+where
+    T: Debug + Display + Clone + PartialEq,
+{
+    let needs_quotes = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let lower_bound = match range.start {
+        Bound::Included(ref val) => format!(
+            r#"{{"included": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Excluded(ref val) => format!(
+            r#"{{"excluded": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Unbounded => "null".to_string(),
+    };
+
+    let upper_bound = match range.end {
+        Bound::Included(ref val) => format!(
+            r#"{{"included": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Excluded(ref val) => format!(
+            r#"{{"excluded": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Unbounded => "null".to_string(),
+    };
+
+    format!(
+        r#"
+        SELECT delivery_id FROM {}
+        WHERE delivery_id @@@ '{{
+            "range_contains": {{
+                "field": "{}",
+                "lower_bound": {},
+                "upper_bound": {}
+            }}
+        }}'::jsonb
+        ORDER BY delivery_id"#,
+        table, field, lower_bound, upper_bound
+    )
+}
+
+fn pg_search_within_json_query<T>(
+    range: &PgRange<T>,
+    table: &str,
+    field: &str,
+    range_type: &str,
+) -> String
+where
+    T: Debug + Display + Clone + PartialEq,
+{
+    let needs_quotes = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let lower_bound = match range.start {
+        Bound::Included(ref val) => format!(
+            r#"{{"included": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Excluded(ref val) => format!(
+            r#"{{"excluded": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Unbounded => "null".to_string(),
+    };
+
+    let upper_bound = match range.end {
+        Bound::Included(ref val) => format!(
+            r#"{{"included": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Excluded(ref val) => format!(
+            r#"{{"excluded": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Unbounded => "null".to_string(),
+    };
+
+    format!(
+        r#"
+        SELECT delivery_id FROM {}
+        WHERE delivery_id @@@ '{{
+            "range_within": {{
+                "field": "{}",
+                "lower_bound": {},
+                "upper_bound": {}
+            }}
+        }}'::jsonb
+        ORDER BY delivery_id"#,
+        table, field, lower_bound, upper_bound
+    )
+}
+
+fn pg_search_intersects_json_query<T>(
+    range: &PgRange<T>,
+    table: &str,
+    field: &str,
+    range_type: &str,
+) -> String
+where
+    T: Debug + Display + Clone + PartialEq,
+{
+    let needs_quotes = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let lower_bound = match range.start {
+        Bound::Included(ref val) => format!(
+            r#"{{"included": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Excluded(ref val) => format!(
+            r#"{{"excluded": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Unbounded => "null".to_string(),
+    };
+
+    let upper_bound = match range.end {
+        Bound::Included(ref val) => format!(
+            r#"{{"included": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Excluded(ref val) => format!(
+            r#"{{"excluded": {}}}"#,
+            if needs_quotes {
+                format!(r#""{}""#, val)
+            } else {
+                val.to_string()
+            }
+        ),
+        Bound::Unbounded => "null".to_string(),
+    };
+
+    format!(
+        r#"
+        SELECT delivery_id FROM {}
+        WHERE delivery_id @@@ '{{
+            "range_intersects": {{
+                "field": "{}",
+                "lower_bound": {},
+                "upper_bound": {}
+            }}
+        }}'::jsonb
+        ORDER BY delivery_id"#,
+        table, field, lower_bound, upper_bound
     )
 }
 

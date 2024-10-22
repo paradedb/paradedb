@@ -258,6 +258,151 @@ fn single_queries(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn single_queries_jsonb_build_object(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // All
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('all', null) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 41);
+
+    // Boost
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('boost', jsonb_build_object(
+        'query', jsonb_build_object('all', null),
+        'boost', 1.5)) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 41);
+
+    // ConstScore
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('const_score', jsonb_build_object(
+        'query', jsonb_build_object('all', null),
+        'score', 3.9)) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 41);
+
+    // DisjunctionMax
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('disjunction_max', jsonb_build_object(
+        'disjuncts', jsonb_build_array(
+            jsonb_build_object('parse', jsonb_build_object(
+                'query_string', 'description:shoes'))))) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 3);
+
+    // Empty
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('empty', null) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 0);
+
+    // FuzzyTerm
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('fuzzy_term', jsonb_build_object(
+        'field', 'description',
+        'value', 'wolo',
+        'transposition_cost_one', false,
+        'distance', 1,
+        'prefix', true)) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 4);
+
+    // Parse
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('parse', jsonb_build_object(
+        'query_string', 'description:teddy')) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
+
+    // PhrasePrefix
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('phrase_prefix', jsonb_build_object(
+        'field', 'description',
+        'phrases', jsonb_build_array('har'))) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
+
+    // Phrase with invalid term list
+    match r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('phrase', jsonb_build_object(
+        'field', 'description',
+        'phrases', jsonb_build_array('robot'))) ORDER BY id"#
+        .fetch_result::<SimpleProductsTable>(&mut conn)
+    {
+        Err(err) => assert!(err
+            .to_string()
+            .contains("required to have strictly more than one term")),
+        _ => panic!("phrase prefix query should require multiple terms"),
+    }
+
+    // Phrase
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('phrase', jsonb_build_object(
+        'field', 'description',
+        'phrases', jsonb_build_array('robot', 'building', 'kit'))) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
+
+    // Range
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('range', jsonb_build_object(
+        'field', 'last_updated_date',
+        'lower_bound', jsonb_build_object('included', '2023-05-01T00:00:00.000000Z'),
+        'upper_bound', jsonb_build_object('included', '2023-05-03T00:00:00.000000Z'),
+        'is_datetime', true)) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 7);
+
+    // Regex
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('regex', jsonb_build_object(
+        'field', 'description',
+        'pattern', '(hardcover|plush|leather|running|wireless)')) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 5);
+
+    // Term
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('term', jsonb_build_object(
+        'field', 'description',
+        'value', 'shoes')) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 3);
+
+    // Term with no field (should search all columns)
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('term', jsonb_build_object('value', 'shoes')) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 3);
+
+    // TermSet
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
+    jsonb_build_object('term_set', jsonb_build_object(
+        'terms', jsonb_build_array(
+            jsonb_build_array('description', 'shoes', null, false),
+            jsonb_build_array('description', 'novel', null, false)))) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 5);
+}
+
+#[rstest]
 fn exists_query(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

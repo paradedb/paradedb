@@ -7,7 +7,8 @@ title: All
 `all` indiscriminately matches every document in the index, assigning a uniform score of `1.0` to each. `all` is typically used in conjunction with `paradedb.boolean` queries. If `paradedb.boolean` contains only `must_not`, then `all` needs to be provided
 to form a result set for `must_not` to filter over.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
@@ -15,3 +16,19 @@ WHERE id @@@ paradedb.boolean(
     must_not => ARRAY[paradedb.term('description', 'shoes')]
 );
 ```
+
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "boolean": {
+        "should": [{"all": null}],
+        "must_not": [{"term": {"field": "description", "value": "shoes"}}]
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8"/>
+

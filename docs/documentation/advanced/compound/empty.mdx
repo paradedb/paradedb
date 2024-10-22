@@ -6,9 +6,17 @@ title: Empty
 
 Serves as a placeholder, matching no documents. It's useful for testing scenarios or specific edge cases.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 -- Returns no rows
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.empty();
 ```
+```sql JSON Syntax
+-- Returns no rows
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ '{"empty": null}'::jsonb;
+```
+</CodeGroup>

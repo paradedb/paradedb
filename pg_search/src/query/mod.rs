@@ -83,14 +83,13 @@ pub enum SearchQueryInput {
         prefix: Option<bool>,
         path: Option<String>,
     },
-    FuzzyPhrase {
-        field: String,
+    Match {
+        field: Option<String>,
         value: String,
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
         match_all_terms: Option<bool>,
-        path: Option<String>,
     },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
@@ -409,16 +408,16 @@ impl SearchQueryInput {
                     )))
                 }
             }
-            Self::FuzzyPhrase {
+            Self::Match {
                 field,
                 value,
                 distance,
                 transposition_cost_one,
                 prefix,
                 match_all_terms,
-                path,
             } => {
-                let distance = distance.unwrap_or(2);
+                let field = field.expect("field is required");
+                let distance = distance.unwrap_or(0);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 let match_all_terms = match_all_terms.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
@@ -433,22 +432,23 @@ impl SearchQueryInput {
 
                 while stream.advance() {
                     let token = stream.token().text.clone();
-                    let term = value_to_term(
-                        field,
-                        &OwnedValue::Str(token),
-                        &field_type,
-                        path.as_deref(),
-                        false,
-                    )?;
-                    let term_query: Box<dyn Query> = if prefix {
-                        Box::new(FuzzyTermQuery::new_prefix(
+                    let term =
+                        value_to_term(field, &OwnedValue::Str(token), &field_type, None, false)?;
+                    let term_query: Box<dyn Query> = match (distance, prefix) {
+                        (0, _) => Box::new(TermQuery::new(
+                            term,
+                            IndexRecordOption::WithFreqsAndPositions.into(),
+                        )),
+                        (distance, true) => Box::new(FuzzyTermQuery::new_prefix(
                             term,
                             distance,
                             transposition_cost_one,
-                        ))
-                    } else {
-                        Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
+                        )),
+                        (distance, false) => {
+                            Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
+                        }
                     };
+
                     let occur = if match_all_terms {
                         Occur::Must
                     } else {

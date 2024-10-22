@@ -27,7 +27,7 @@ fn boolean_tree(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    paradedb.parse_json('{
+   '{
         "boolean": {
             "should": [
                 {"parse": {"query_string": "description:shoes"}},
@@ -36,7 +36,7 @@ fn boolean_tree(mut conn: PgConnection) {
                 {"fuzzy_term": {"field": "description", "value": "wolo", "transposition_cost_one": false, "distance": 1, "prefix": true}}
             ]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3, 4, 5, 7, 10, 32, 33, 34, 37, 39, 41]);
@@ -47,21 +47,21 @@ fn fuzzy_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.parse_json('{"fuzzy_term": {"field": "category", "value": "elector", "prefix": true}}')
+    WHERE bm25_search @@@ '{"fuzzy_term": {"field": "category", "value": "elector", "prefix": true}}'::jsonb
     ORDER BY id"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32], "wrong results");
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    paradedb.parse_json('{"term": {"field": "category", "value": "electornics"}}')
+    '{"term": {"field": "category", "value": "electornics"}}'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert!(columns.is_empty(), "without fuzzy field should be empty");
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{
+        '{
             "fuzzy_term": {
                 "field": "description",
                 "value": "keybaord",
@@ -69,7 +69,7 @@ fn fuzzy_term(mut conn: PgConnection) {
                 "distance": 1,
                 "prefix": true
             }
-        }') ORDER BY id"#
+        }'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert!(
         columns.is_empty(),
@@ -78,7 +78,7 @@ fn fuzzy_term(mut conn: PgConnection) {
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{
+        '{
             "fuzzy_term": {
                 "field": "description",
                 "value": "keybaord",
@@ -86,7 +86,7 @@ fn fuzzy_term(mut conn: PgConnection) {
                 "distance": 1,
                 "prefix": true
             }
-        }') ORDER BY id"#
+        }'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(
         columns.id,
@@ -96,13 +96,13 @@ fn fuzzy_term(mut conn: PgConnection) {
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{
+        '{
             "fuzzy_term": {
                 "field": "description",
                 "value": "keybaord",
                 "prefix": true
             }
-        }') ORDER BY id"#
+        }'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2], "incorrect defaults");
 }
@@ -114,14 +114,14 @@ fn single_queries(mut conn: PgConnection) {
     // All
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    paradedb.parse_json('{"all": null}') ORDER BY id"#
+    '{"all": null}'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 
     // Boost
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    paradedb.parse_json('{"boost": {"query": {"all": null}, "boost": 1.5}}')
+    '{"boost": {"query": {"all": null}, "boost": 1.5}}'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
@@ -129,7 +129,7 @@ fn single_queries(mut conn: PgConnection) {
     // ConstScore
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.parse_json('{"const_score": {"query": {"all": null}, "score": 3.9}}')
+    WHERE bm25_search @@@ '{"const_score": {"query": {"all": null}, "score": 3.9}}'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
@@ -137,20 +137,20 @@ fn single_queries(mut conn: PgConnection) {
     // DisjunctionMax
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    paradedb.parse_json('{"disjunction_max": {"disjuncts": [{"parse": {"query_string": "description:shoes"}}]}}')
+    '{"disjunction_max": {"disjuncts": [{"parse": {"query_string": "description:shoes"}}]}}'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
     // Empty
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.parse_json('{"empty": null}') ORDER BY id"#
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ '{"empty": null}'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 0);
 
     // FuzzyTerm
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.parse_json('{
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ '{
         "fuzzy_term": {
             "field": "description",
             "value": "wolo",
@@ -158,21 +158,21 @@ fn single_queries(mut conn: PgConnection) {
             "distance": 1,
             "prefix": true
         }
-    }') ORDER BY ID"#
+    }'::jsonb ORDER BY ID"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 4);
 
     // Parse
     let columns: SimpleProductsTableVec = r#"
         SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{"parse": {"query_string": "description:teddy"}}') ORDER BY id"#
+        '{"parse": {"query_string": "description:teddy"}}'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
 
     // PhrasePrefix
     let columns: SimpleProductsTableVec = r#"
         SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{"phrase_prefix": {"field": "description", "phrases": ["har"]}}')
+        '{"phrase_prefix": {"field": "description", "phrases": ["har"]}}'::jsonb
         ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
@@ -180,7 +180,7 @@ fn single_queries(mut conn: PgConnection) {
     // Phrase with invalid term list
     match r#"
         SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{"phrase": {"field": "description", "phrases": ["robot"]}}')
+        '{"phrase": {"field": "description", "phrases": ["robot"]}}'::jsonb
         ORDER BY id"#
         .fetch_result::<SimpleProductsTable>(&mut conn)
     {
@@ -192,45 +192,45 @@ fn single_queries(mut conn: PgConnection) {
 
     // Phrase
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.parse_json('{
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ '{
         "phrase": {
             "field": "description",
             "phrases": ["robot", "building", "kit"]
         }
-    }') ORDER BY id"#
+    }'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
 
     // Range
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{
+        '{
             "range": {
                 "field": "last_updated_date",
                 "lower_bound": {"included": "2023-05-01T00:00:00.000000Z"},
                 "upper_bound": {"included": "2023-05-03T00:00:00.000000Z"},
                 "is_datetime": true
             }
-        }')
+        }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 7);
 
     // Regex
     let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.parse_json('{
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ '{
         "regex": {
             "field": "description",
             "pattern": "(hardcover|plush|leather|running|wireless)"
         }
-    }') ORDER BY id"#
+    }'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);
 
     // Term
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.parse_json('{"term": {"field": "description", "value": "shoes"}}')
+    WHERE bm25_search @@@ '{"term": {"field": "description", "value": "shoes"}}'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
@@ -238,21 +238,21 @@ fn single_queries(mut conn: PgConnection) {
     // Term with no field (should search all columns)
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.parse_json('{"term": {"value": "shoes"}}') ORDER BY id"#
+    WHERE bm25_search @@@ '{"term": {"value": "shoes"}}'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
     // TermSet
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.parse_json('{
+    WHERE bm25_search @@@ '{
         "term_set": {
             "terms": [
                 ["description", "shoes", null, false],
                 ["description", "novel", null, false]
             ]
         }
-    }') ORDER BY id"#
+    }'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);
 }
@@ -264,7 +264,7 @@ fn exists_query(mut conn: PgConnection) {
     // Simple exists query
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{"exists": {"field": "rating"}}')
+        '{"exists": {"field": "rating"}}'::jsonb
     "#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
@@ -272,7 +272,7 @@ fn exists_query(mut conn: PgConnection) {
     // Non fast field should fail
     match r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{"exists": {"field": "description"}}')
+        '{"exists": {"field": "description"}}'::jsonb
     "#
     .execute_result(&mut conn)
     {
@@ -286,14 +286,14 @@ fn exists_query(mut conn: PgConnection) {
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-        paradedb.parse_json('{
+        '{
             "boolean": {
                 "must": [
                     {"exists": {"field": "rating"}},
                     {"parse": {"query_string": "description:shoes"}}
                 ]
             }
-        }')
+        }'::jsonb
     "#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
@@ -328,7 +328,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     // Missing keys should fail.
     match r#"
     SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@ 
-        paradedb.parse_json('{"more_like_this": {}}');
+        '{"more_like_this": {}}'::jsonb;
     "#
     .fetch_result::<()>(&mut conn)
     {
@@ -343,10 +343,10 @@ fn more_like_this_raw(mut conn: PgConnection) {
     // Conflicting keys should fail.
     match r#"
     SELECT id, flavour FROM test_more_like_this_table WHERE test_more_like_this_table @@@ 
-        paradedb.parse_json('{"more_like_this": {
+        '{"more_like_this": {
             "document_id": 0,
             "document_fields": [["flavour", "banana"]]            
-        }}');
+        }}'::jsonb;
     "#
     .fetch_result::<()>(&mut conn)
     {
@@ -360,26 +360,26 @@ fn more_like_this_raw(mut conn: PgConnection) {
 
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_id": 2
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -413,7 +413,7 @@ fn more_like_this_empty(mut conn: PgConnection) {
 
     match r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{"more_like_this": {}}')
+    WHERE test_more_like_this_table @@@ '{"more_like_this": {}}'::jsonb
     ORDER BY id;
     "#
     .fetch_result::<()>(&mut conn)
@@ -455,13 +455,13 @@ fn more_like_this_text(mut conn: PgConnection) {
 
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -493,13 +493,13 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
 
     let rows: Vec<(bool, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -533,13 +533,13 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
 
     let rows: Vec<(uuid::Uuid, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -573,13 +573,13 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
 
     let rows: Vec<(i64, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -613,13 +613,13 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
 
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -653,13 +653,13 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
 
     let rows: Vec<(i16, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -693,13 +693,13 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
 
     let rows: Vec<(f32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -732,13 +732,13 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
 
     let rows: Vec<(f64, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -772,13 +772,13 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
 
     let rows: Vec<(f64, String)> = r#"
     SELECT CAST(id AS FLOAT8), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -811,13 +811,13 @@ fn more_like_this_date_key(mut conn: PgConnection) {
 
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -851,13 +851,13 @@ fn more_like_this_time_key(mut conn: PgConnection) {
 
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -891,13 +891,13 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
 
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -931,13 +931,13 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
 
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -969,13 +969,13 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
 
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
-    WHERE test_more_like_this_table @@@ paradedb.parse_json('{
+    WHERE test_more_like_this_table @@@ '{
         "more_like_this": {
             "min_doc_frequency": 0,
             "min_term_frequency": 0,
             "document_fields": [["flavour", "banana"]]
         }
-    }') ORDER BY id;
+    }'::jsonb ORDER BY id;
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -987,37 +987,37 @@ fn fuzzy_phrase(mut conn: PgConnection) {
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.parse_json('{
+    WHERE bm25_search @@@ '{
         "fuzzy_phrase": {
             "field": "description",
             "value": "ruling shoeez"
         }
-    }')
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3, 4, 5]);
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.parse_json('{
+    WHERE bm25_search @@@ '{
         "fuzzy_phrase": {
             "field": "description",
             "value": "ruling shoeez",
             "match_all_terms": true
         }
-    }') ORDER BY id"#
+    }'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3]);
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.parse_json('{
+    WHERE bm25_search @@@ '{
         "fuzzy_phrase": {
             "field": "description",
             "value": "ruling shoeez",
             "distance": 1
         }
-    }')
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.id.len(), 0);
@@ -1051,54 +1051,54 @@ fn range_term(mut conn: PgConnection) {
     let expected: Vec<(i32,)> =
         "SELECT delivery_id FROM deliveries WHERE weights @> 1 ORDER BY delivery_id"
             .fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "weights", "value": 1}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "weights", "value": 1}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     let expected: Vec<(i32,)> =
         "SELECT delivery_id FROM deliveries WHERE weights @> 13 ORDER BY delivery_id"
             .fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "weights", "value": 13}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "weights", "value": 13}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     // int8range
     let expected: Vec<(i32,)> =
         "SELECT delivery_id FROM deliveries WHERE quantities @> 17000::int8 ORDER BY delivery_id"
             .fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "quantities", "value": 17000}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "quantities", "value": 17000}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     // numrange
     let expected: Vec<(i32,)> =
         "SELECT delivery_id FROM deliveries WHERE prices @> 3.5 ORDER BY delivery_id"
             .fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "prices", "value": 3.5}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "prices", "value": 3.5}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     // daterange
     let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE ship_dates @> '2023-03-07'::date ORDER BY delivery_id".fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "ship_dates", "value": "2023-03-07T00:00:00.000000Z", "is_datetime": true}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "ship_dates", "value": "2023-03-07T00:00:00.000000Z", "is_datetime": true}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE ship_dates @> '2023-03-06'::date ORDER BY delivery_id".fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "ship_dates", "value": "2023-03-06T00:00:00.000000Z", "is_datetime": true}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "ship_dates", "value": "2023-03-06T00:00:00.000000Z", "is_datetime": true}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     // tsrange
     let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE facility_arrival_times @> '2024-05-01 14:00:00'::timestamp ORDER BY delivery_id".fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "facility_arrival_times", "value": "2024-05-01T14:00:00.000000Z", "is_datetime": true}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "facility_arrival_times", "value": "2024-05-01T14:00:00.000000Z", "is_datetime": true}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE facility_arrival_times @> '2024-05-01 15:00:00'::timestamp ORDER BY delivery_id".fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "facility_arrival_times", "value": "2024-05-01T15:00:00.000000Z", "is_datetime": true}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "facility_arrival_times", "value": "2024-05-01T15:00:00.000000Z", "is_datetime": true}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     // tstzrange
     let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_times @> '2024-05-01 06:31:00-04'::timestamptz ORDER BY delivery_id".fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "delivery_times", "value": "2024-05-01T10:31:00.000000Z", "is_datetime": true}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "delivery_times", "value": "2024-05-01T10:31:00.000000Z", "is_datetime": true}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 
     let expected: Vec<(i32,)> = "SELECT delivery_id FROM deliveries WHERE delivery_times @> '2024-05-01T11:30:00Z'::timestamptz ORDER BY delivery_id".fetch(&mut conn);
-    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ paradedb.parse_json('{"range_term": {"field": "delivery_times", "value": "2024-05-01T11:30:00.000000Z", "is_datetime": true}}') ORDER BY delivery_id"#.fetch(&mut conn);
+    let result: Vec<(i32,)> = r#"SELECT delivery_id FROM deliveries WHERE delivery_id @@@ '{"range_term": {"field": "delivery_times", "value": "2024-05-01T11:30:00.000000Z", "is_datetime": true}}'::jsonb ORDER BY delivery_id"#.fetch(&mut conn);
     assert_eq!(result, expected);
 }
 
@@ -1107,7 +1107,7 @@ fn parse_error(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let result = r#"
     SELECT id FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    paradedb.parse_json('{"all": {}}') ORDER BY id"#
+    '{"all": {}}'::jsonb ORDER BY id"#
         .fetch_result::<(i32,)>(&mut conn);
 
     match result {

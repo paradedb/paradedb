@@ -547,26 +547,20 @@ impl SearchQueryInput {
                     builder = builder.with_stop_words(stop_words);
                 }
 
-                if let Some(key_value) = document_id {
-                    let (field_type, field) = field_lookup.key_field();
-                    let term = value_to_term(field, &key_value, &field_type, None, false)?;
-                    let query: Box<dyn Query> =
-                        Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
-                    let addresses = searcher.search(&query, &DocSetCollector)?;
-                    let disjuncts: Vec<Box<dyn Query>> = addresses
-                        .into_iter()
-                        .map(|address| builder.clone().with_document(address))
-                        .map(|query| Box::new(query) as Box<dyn Query>)
-                        .collect();
-                    return Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)));
-                }
-
-                let mut fields_map = HashMap::new();
-                for (field_name, value) in document_fields {
-                    if !field_lookup.is_field_type(&field_name, &value) {
-                        return Err(Box::new(QueryError::WrongFieldType(field_name)));
+                match (document_id, document_fields) {
+                    (Some(key_value), None) => {
+                        let (field_type, field) = field_lookup.key_field();
+                        let term = value_to_term(field, &key_value, &field_type, None, false)?;
+                        let query: Box<dyn Query> =
+                            Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
+                        let addresses = searcher.search(&query, &DocSetCollector)?;
+                        let disjuncts: Vec<Box<dyn Query>> = addresses
+                            .into_iter()
+                            .map(|address| builder.clone().with_document(address))
+                            .map(|query| Box::new(query) as Box<dyn Query>)
+                            .collect();
+                        Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
                     }
-
                     (None, Some(doc_fields)) => {
                         let mut fields_map = HashMap::new();
                         for (field_name, value) in doc_fields {

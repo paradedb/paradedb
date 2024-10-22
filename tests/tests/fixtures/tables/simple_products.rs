@@ -49,7 +49,7 @@ BEGIN;
     	index_name => 'bm25_search',
         table_name => 'bm25_search',
     	schema_name => 'paradedb',
-        key_field => '%s',
+        key_field => 'id',
         text_fields => paradedb.field('description') || paradedb.field('category'),
     	numeric_fields => paradedb.field('rating'),
     	boolean_fields => paradedb.field('in_stock'),

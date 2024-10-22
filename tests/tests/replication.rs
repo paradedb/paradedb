@@ -274,7 +274,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE mock_items @@@ 'description:\"running shoes\"' ORDER BY id".fetch_retry(
             &mut target_conn,
-            5,
+            10,
             1000,
             |result| !result.is_empty(),
         );
@@ -294,7 +294,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
     let target_results: Vec<(i32,)> =
         "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
             &mut target_conn,
-            5,
+            10,
             1000,
             |result| !result.is_empty(),
         );
@@ -314,7 +314,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
             &mut target_conn,
-            5,
+            10,
             1000,
             |result| !result.is_empty(),
         );

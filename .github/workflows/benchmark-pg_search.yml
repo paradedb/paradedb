@@ -124,10 +124,12 @@ jobs:
           LATEST_RUN_ID=$(gh api \
             repos/paradedb/paradedb/actions/runs \
             --jq '.workflow_runs | map(select(.head_branch == "dev" and .conclusion == "success")) | .[0].id')
+          echo "Latest `dev` benchmark-pg_search run ID: $LATEST_RUN_ID"
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Check if baseline exists
-        id: check_artifact
+      - name: Download benchmarks baseline
+        if: github.event_name == 'pull_request'
+        id: download_baseline
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -136,15 +138,8 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ steps.get_latest_dev_run.outputs.run_id }}
 
-      - name: Download benchmarks baseline
-        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
-        uses: actions/download-artifact@v4
-        with:
-          name: benchmark-pg_search-criterion-dev
-          path: previous/
-
       - name: Compare benchmarks results
-        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
         id: compare
         run: |
           if [ -f ./previous/output.txt ]; then
@@ -157,7 +152,7 @@ jobs:
           fi
 
       - name: Generate Commit Message
-        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
         run: |
           echo "Generating GitHub comment message"
           {
@@ -170,7 +165,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Attach Performance Comparison to PR
-        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+        if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |

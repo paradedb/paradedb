@@ -195,10 +195,10 @@ where
     // First, deserialize into a `serde_json::Value`.
     let value: Value = Value::deserialize(deserializer)?;
     if value.as_str() == Some("Unbounded") {
-        pgrx::log!("GOT UNBOUNDED");
         return Ok(Bound::Unbounded);
     }
 
+    pgrx::log!("bound: {value:?}");
     // Try to deserialize using lowercase keys.
     if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
         return match bound {

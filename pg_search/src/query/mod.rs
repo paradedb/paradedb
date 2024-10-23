@@ -22,7 +22,10 @@ use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use core::panic;
 use pgrx::{pg_sys, PostgresType};
-use range::{deserialize_bound, serialize_bound};
+use range::{
+    deserialize_tantivy_lower_bound, deserialize_tantivy_upper_bound, deserialize_u64_lower_bound,
+    deserialize_u64_upper_bound, serialize_bound,
+};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
 use tantivy::{
@@ -77,12 +80,12 @@ pub enum SearchQueryInput {
         field: String,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_u64_lower_bound"
         )]
         lower_bound: std::ops::Bound<u64>,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_u64_upper_bound"
         )]
         upper_bound: std::ops::Bound<u64>,
     },
@@ -138,12 +141,12 @@ pub enum SearchQueryInput {
         field: String,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_tantivy_lower_bound"
         )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_tantivy_upper_bound"
         )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
@@ -153,12 +156,12 @@ pub enum SearchQueryInput {
         field: String,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_tantivy_lower_bound"
         )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_tantivy_upper_bound"
         )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
@@ -168,12 +171,12 @@ pub enum SearchQueryInput {
         field: String,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_tantivy_lower_bound"
         )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_tantivy_upper_bound"
         )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
@@ -189,12 +192,12 @@ pub enum SearchQueryInput {
         field: String,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_tantivy_lower_bound"
         )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
+            deserialize_with = "deserialize_tantivy_upper_bound"
         )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]

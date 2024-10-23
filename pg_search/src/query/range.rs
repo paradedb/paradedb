@@ -185,10 +185,39 @@ where
 /// Custom deserialization function for `Bound<T>`.
 /// This function attempts to deserialize `Bound<T>` with lowercase keys (e.g., "included", "excluded"),
 /// and if that fails, it falls back to deserializing with capitalized keys ("Included", "Excluded").
-pub fn deserialize_bound<'de, D, T>(deserializer: D) -> Result<Bound<T>, D::Error>
+// pub fn deserialize_bound<'de, D, T>(deserializer: D) -> Result<Bound<T>, D::Error>
+// where
+//     D: Deserializer<'de>,
+//     T: Deserialize<'de>,
+// {
+//     // First, deserialize into a `serde_json::Value`.
+//     let value: Value = Value::deserialize(deserializer)?;
+
+//     // Try to deserialize using lowercase keys.
+//     if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
+//         return match bound {
+//             LowercaseBoundDef::Included { included } => Ok(Bound::Included(included)),
+//             LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Excluded(excluded)),
+//             LowercaseBoundDef::Unbounded => Ok(Bound::Unbounded),
+//         };
+//     }
+
+//     // If lowercase deserialization fails, try with capitalized keys.
+//     let bound = CapitalizedBoundDef::deserialize(value)
+//         .map_err(|e| D::Error::custom(format!("Failed to deserialize: {}", e)))?; // Convert serde_json error to D::Error
+
+//     match bound {
+//         CapitalizedBoundDef::Included { Included } => Ok(Bound::Included(Included)),
+//         CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Excluded(Excluded)),
+//         CapitalizedBoundDef::Unbounded => Ok(Bound::Unbounded),
+//     }
+// }
+
+pub fn deserialize_tantivy_lower_bound<'de, D>(
+    deserializer: D,
+) -> Result<Bound<OwnedValue>, D::Error>
 where
     D: Deserializer<'de>,
-    T: Deserialize<'de>,
 {
     // First, deserialize into a `serde_json::Value`.
     let value: Value = Value::deserialize(deserializer)?;
@@ -197,7 +226,11 @@ where
     if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
         return match bound {
             LowercaseBoundDef::Included { included } => Ok(Bound::Included(included)),
-            LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Excluded(excluded)),
+            LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Included(match excluded {
+                OwnedValue::U64(i) => OwnedValue::U64(i + 1),
+                OwnedValue::I64(i) => OwnedValue::I64(i + 1),
+                _ => excluded,
+            })),
             LowercaseBoundDef::Unbounded => Ok(Bound::Unbounded),
         };
     }
@@ -208,6 +241,101 @@ where
 
     match bound {
         CapitalizedBoundDef::Included { Included } => Ok(Bound::Included(Included)),
+        CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Included(match Excluded {
+            OwnedValue::U64(i) => OwnedValue::U64(i + 1),
+            OwnedValue::I64(i) => OwnedValue::I64(i + 1),
+            _ => Excluded,
+        })),
+        CapitalizedBoundDef::Unbounded => Ok(Bound::Unbounded),
+    }
+}
+
+pub fn deserialize_u64_lower_bound<'de, D>(deserializer: D) -> Result<Bound<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // First, deserialize into a `serde_json::Value`.
+    let value: Value = Value::deserialize(deserializer)?;
+
+    // Try to deserialize using lowercase keys.
+    if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
+        return match bound {
+            LowercaseBoundDef::Included { included } => Ok(Bound::Included(included)),
+            LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Included(excluded + 1)),
+            LowercaseBoundDef::Unbounded => Ok(Bound::Unbounded),
+        };
+    }
+
+    // If lowercase deserialization fails, try with capitalized keys.
+    let bound = CapitalizedBoundDef::deserialize(value)
+        .map_err(|e| D::Error::custom(format!("Failed to deserialize: {}", e)))?; // Convert serde_json error to D::Error
+
+    match bound {
+        CapitalizedBoundDef::Included { Included } => Ok(Bound::Included(Included)),
+        CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Included(Excluded + 1)),
+        CapitalizedBoundDef::Unbounded => Ok(Bound::Unbounded),
+    }
+}
+
+pub fn deserialize_tantivy_upper_bound<'de, D>(
+    deserializer: D,
+) -> Result<Bound<OwnedValue>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // First, deserialize into a `serde_json::Value`.
+    let value: Value = Value::deserialize(deserializer)?;
+
+    // Try to deserialize using lowercase keys.
+    if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
+        return match bound {
+            LowercaseBoundDef::Included { included } => Ok(Bound::Excluded(match included {
+                OwnedValue::U64(i) => OwnedValue::U64(i + 1),
+                OwnedValue::I64(i) => OwnedValue::I64(i + 1),
+                _ => included,
+            })),
+            LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Excluded(excluded)),
+            LowercaseBoundDef::Unbounded => Ok(Bound::Unbounded),
+        };
+    }
+
+    // If lowercase deserialization fails, try with capitalized keys.
+    let bound = CapitalizedBoundDef::deserialize(value)
+        .map_err(|e| D::Error::custom(format!("Failed to deserialize: {}", e)))?; // Convert serde_json error to D::Error
+
+    match bound {
+        CapitalizedBoundDef::Included { Included } => Ok(Bound::Excluded(match Included {
+            OwnedValue::U64(i) => OwnedValue::U64(i + 1),
+            OwnedValue::I64(i) => OwnedValue::I64(i + 1),
+            _ => Included,
+        })),
+        CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Excluded(Excluded)),
+        CapitalizedBoundDef::Unbounded => Ok(Bound::Unbounded),
+    }
+}
+
+pub fn deserialize_u64_upper_bound<'de, D>(deserializer: D) -> Result<Bound<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // First, deserialize into a `serde_json::Value`.
+    let value: Value = Value::deserialize(deserializer)?;
+
+    // Try to deserialize using lowercase keys.
+    if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
+        return match bound {
+            LowercaseBoundDef::Included { included } => Ok(Bound::Excluded(included + 1)),
+            LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Excluded(excluded)),
+            LowercaseBoundDef::Unbounded => Ok(Bound::Unbounded),
+        };
+    }
+
+    // If lowercase deserialization fails, try with capitalized keys.
+    let bound = CapitalizedBoundDef::deserialize(value)
+        .map_err(|e| D::Error::custom(format!("Failed to deserialize: {}", e)))?; // Convert serde_json error to D::Error
+
+    match bound {
+        CapitalizedBoundDef::Included { Included } => Ok(Bound::Excluded(Included + 1)),
         CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Excluded(Excluded)),
         CapitalizedBoundDef::Unbounded => Ok(Bound::Unbounded),
     }

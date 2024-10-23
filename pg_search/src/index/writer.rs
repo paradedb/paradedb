@@ -29,7 +29,7 @@ use std::{collections::HashSet, path::Path};
 use std::{fs, io, result};
 use tantivy::directory::{
     DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback, WatchHandle,
-    WritePtr, INDEX_WRITER_LOCK,
+    WritePtr,
 };
 use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
@@ -75,16 +75,10 @@ impl Directory for BlockingDirectory {
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        self.0
-            .acquire_lock(&INDEX_WRITER_LOCK)
-            .expect("must be able to acquire lock");
         self.0.atomic_write(path, data)
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        self.0
-            .acquire_lock(&INDEX_WRITER_LOCK)
-            .expect("must be able to acquire lock");
         self.0.atomic_read(path)
     }
 
@@ -100,10 +94,11 @@ impl Directory for BlockingDirectory {
         // This is the only change we actually need to make to the Directory trait impl.
         // We want the acquire_lock behavior to block and wait for a lock to be available,
         // instead of panicking. Internally, Tantivy just polls for its availability.
-        Ok(DirectoryLock::from(Box::new(Lock {
+        let blocking_lock = Lock {
             filepath: lock.filepath.clone(),
             is_blocking: true,
-        })))
+        };
+        self.0.acquire_lock(&blocking_lock)
     }
 
     fn watch(&self, watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {

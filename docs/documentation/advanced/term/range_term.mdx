@@ -8,14 +8,27 @@ title: Range Term
 
 The following query finds all ranges that contain a specific value:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT id, weight_range FROM mock_items
 WHERE id @@@ paradedb.range_term('weight_range', 1);
 ```
+```sql JSON Syntax
+SELECT id, weight_range FROM mock_items
+WHERE id @@@
+'{
+    "range_term": {
+        "field": "weight_range",
+        "value": 1
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 `range_term` can be used with `boolean` queries to "push down" the range filter into the full text search query.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT id, description, category, weight_range FROM mock_items
 WHERE id @@@ paradedb.boolean(
     must => ARRAY[
@@ -24,6 +37,29 @@ WHERE id @@@ paradedb.boolean(
     ]
 );
 ```
+```sql JSON Syntax
+SELECT id, description, category, weight_range FROM mock_items
+WHERE id @@@
+'{
+    "boolean": {
+        "must": [
+            {
+                "range_term": {
+                    "field": "weight_range",
+                    "value": 1
+                }
+            },
+            {
+                "term": {
+                    "field": "category",
+                    "value": "footwear"
+                }
+            }
+        ]
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 ## Range Comparison
 
@@ -35,19 +71,47 @@ range field.
 The following query finds all ranges that share at least one common
 point with the query range:
 
-```sql
+Based on the SearchQueryInput enum showing `RangeIntersects` as an option, here's how we would write it:
+
+<CodeGroup>
+```sql Function Syntax
 SELECT id, weight_range FROM mock_items
 WHERE id @@@ paradedb.range_term('weight_range', '(10, 12]'::int4range, 'Intersects');
 ```
+```sql JSON Syntax
+SELECT id, weight_range FROM mock_items
+WHERE id @@@
+'{
+    "range_intersects": {
+        "field": "weight_range",
+        "lower_bound": {"excluded": 10},
+        "upper_bound": {"included": 12}
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 ### Contains
 
 The following query finds all ranges that are contained by the query range:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT id, weight_range FROM mock_items
 WHERE id @@@ paradedb.range_term('weight_range', '(3, 9]'::int4range, 'Contains');
 ```
+```sql JSON Syntax
+SELECT id, weight_range FROM mock_items
+WHERE id @@@
+'{
+    "range_contains": {
+        "field": "weight_range",
+        "lower_bound": {"excluded": 3},
+        "upper_bound": {"included": 9}
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 ### Within
 

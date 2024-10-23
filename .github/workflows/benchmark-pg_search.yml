@@ -102,14 +102,14 @@ jobs:
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       # On dev, we store the benchmark results as artifacts to serve as a comparison point for PRs
-      - name: Store benchmarks result
+      - name: Store benchmarks result (dev only)
         if: github.ref == 'refs/heads/dev'
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-pg_search-criterion-dev
           path: target/criterion/
 
-      - name: Download benchmarks baseline
+      - name: Download benchmarks baseline (PRs only)
         if: github.event_name == 'pull_request'
         id: download_baseline
         env:
@@ -129,11 +129,11 @@ jobs:
             --dir ./previous/
           ls -l ./previous/
 
-      - name: Compare benchmarks results
+      - name: Compare benchmarks results (PRs only)
         if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
         run: |
           cargo install -j $(nproc) --locked critcmp --debug
-          result=$(critcmp ./previous/ target/criterion)
+          result=$(critcmp ./previous/ target/criterion/)
           echo "Generating GitHub comment message"
           {
             echo 'DIFF<<EOF'
@@ -144,7 +144,7 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_ENV"
 
-      - name: Attach Performance Comparison to PR
+      - name: Attach Performance Comparison to PR (PRs only)
         uses: actions/github-script@v7
         with:
           script: |

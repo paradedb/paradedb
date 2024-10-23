@@ -117,7 +117,20 @@ WHERE id @@@
 
 The following query finds all ranges that contain the query range:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT id, weight_range FROM mock_items
 WHERE id @@@ paradedb.range_term('weight_range', '(2, 11]'::int4range, 'Within');
 ```
+```sql JSON Syntax
+SELECT id, weight_range FROM mock_items
+WHERE id @@@
+'{
+    "range_within": {
+        "field": "weight_range", 
+        "lower_bound": {"excluded": 2},
+        "upper_bound": {"included": 11}
+    }
+}'::jsonb;
+```
+</CodeGroup>

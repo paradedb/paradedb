@@ -825,8 +825,22 @@ fn term_level_queries(mut conn: PgConnection) {
     assert_eq!(rows.len(), 7);
 
     let rows: Vec<(i32,)> = r#"
-    SELECT id FROM mock_items
-    WHERE id @@@ paradedb.range_term('weight_range', '(2, 11]'::int4range, 'Within')
+    SELECT id, weight_range FROM mock_items
+    WHERE id @@@ paradedb.range_term('weight_range', '(2, 11]'::int4range, 'Within');
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 6);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id, weight_range FROM mock_items
+    WHERE id @@@
+    '{
+        "range_within": {
+            "field": "weight_range", 
+            "lower_bound": {"excluded": 2},
+            "upper_bound": {"included": 11}
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -835,7 +849,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.regex('description', '(plush|leather)')
+    WHERE id @@@ paradedb.regex('description', '(plush|leather)');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -843,7 +857,35 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.regex('description', 'key.*rd')
+    WHERE id @@@
+    '{
+        "regex": {
+            "field": "description",
+            "pattern": "(plush|leather)"
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.regex('description', 'key.*rd');
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "regex": {
+            "field": "description",
+            "pattern": "key.*rd"
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -852,7 +894,7 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.term('description', 'shoes')
+    WHERE id @@@ paradedb.term('description', 'shoes');
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -860,7 +902,35 @@ fn term_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.term('rating', 4)
+    WHERE id @@@
+    '{
+        "term": {
+            "field": "description",
+            "value": "shoes"
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.term('rating', 4);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 16);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "term": {
+            "field": "rating",
+            "value": 4
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 16);
@@ -870,11 +940,27 @@ fn term_level_queries(mut conn: PgConnection) {
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.term_set(
-        terms => ARRAY[
-            paradedb.term('description', 'shoes'),
-            paradedb.term('description', 'novel')
-        ]
-    )
+    	terms => ARRAY[
+    		paradedb.term('description', 'shoes'),
+    		paradedb.term('description', 'novel')
+    	]
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "term_set": {
+            "terms": [
+                ["description", "shoes", false],
+                ["description", "novel", false]
+            ]
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -929,9 +1015,7 @@ fn phrase_level_queries(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn json_queries(mut conn: PgConnection) {
-    // TODO: Unignore when JSON query builder support is merged in
     r#"
     CALL paradedb.create_bm25_test_table(
       schema_name => 'public',
@@ -956,6 +1040,20 @@ fn json_queries(mut conn: PgConnection) {
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.term('metadata.color', 'white')
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+        FROM mock_items
+        WHERE id @@@
+    '{
+        "term": {
+            "field": "metadata.color",
+            "value": "white"
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -1369,9 +1467,7 @@ fn compound_queries(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn specialized_queries(mut conn: PgConnection) {
-    // TODO: Unignore once scoring is enabled for more_like_this
     r#"
     CALL paradedb.create_bm25_test_table(
       schema_name => 'public',
@@ -1395,17 +1491,56 @@ fn specialized_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@  paradedb.more_like_this(
-        with_document_id => 2,
-        with_min_term_frequency => 1,
-        with_min_word_length => 2,
-        with_max_word_length => 5,
-        with_boost_factor => 1.0,
-        with_stop_words => ARRAY['and', 'the', 'for']
-    )
+    WHERE id @@@ paradedb.more_like_this(
+      with_document_id => 3,
+      with_min_term_frequency => 1
+    );
     "#
     .fetch(&mut conn);
-    assert_eq!(rows.len(), 0);
+    assert_eq!(rows.len(), 16);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.more_like_this(
+      with_document_fields => '{"description": "shoes"}',
+      with_min_doc_frequency => 0,
+      with_max_doc_frequency => 100,
+      with_min_term_frequency => 1
+    );
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "more_like_this": {
+            "document_id": 3,
+            "min_term_frequency": 1
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 16);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "more_like_this": {
+            "document_fields": [["description", "shoes"]],
+            "min_doc_frequency": 0,
+            "max_doc_frequency": 100,
+            "min_term_frequency": 1
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
 }
 
 #[rstest]

@@ -13,29 +13,54 @@ You must pass either:
 
 All other parameters are compatible with both `with_document_id` and `with_document_fields`.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 -- with_document_id
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@  paradedb.more_like_this(
-  with_document_id => 2,
-  with_min_term_frequency => 1,
-  with_min_word_length => 2,
-  with_max_word_length => 5,
-  with_boost_factor => 1.0,
-  with_stop_words => ARRAY['and', 'the', 'for']
+WHERE id @@@ paradedb.more_like_this(
+  with_document_id => 3,
+  with_min_term_frequency => 1
 );
 
 -- with_document_fields
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@  paradedb.more_like_this(
+WHERE id @@@ paradedb.more_like_this(
   with_document_fields => '{"description": "shoes"}',
   with_min_doc_frequency => 0,
   with_max_doc_frequency => 100,
   with_min_term_frequency => 1
 );
 ```
+```sql JSON Syntax
+-- with_document_id
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "more_like_this": {
+        "document_id": 3,
+        "min_term_frequency": 1
+    }
+}'::jsonb;
+
+-- with_document_fields
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "more_like_this": {
+        "document_fields": [["description", "shoes"]],
+        "min_doc_frequency": 0,
+        "max_doc_frequency": 100,
+        "min_term_frequency": 1
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8"/>
 
 <ParamField body="with_document_id">
   The ID of the document to find similar documents to.

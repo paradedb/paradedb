@@ -131,6 +131,8 @@ jobs:
 
       - name: Compare benchmarks results (PRs only)
         if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
+        id: compare_benchmarks
+        continue-on-error: true # TODO: Remove this line once we have baseline data
         run: |
           cargo install -j $(nproc) --locked critcmp --debug
           result=$(critcmp ./previous/ target/criterion/)
@@ -145,6 +147,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Attach Performance Comparison to PR (PRs only)
+        if: steps.compare_benchmarks.outcome == 'success' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |

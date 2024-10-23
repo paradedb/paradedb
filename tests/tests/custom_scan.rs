@@ -364,9 +364,8 @@ fn join_issue_1826(mut conn: PgConnection) {
 /// tantivy file handles
 #[rstest]
 fn leaky_file_handles(mut conn: PgConnection) {
-    let (pid,) = "SELECT pg_backend_pid()".fetch_one::<(i32,)>(&mut conn);
     r#"
-        CREATE FUNCTION raise_exception(int, int) RETURNS bool LANGUAGE plpgsql AS $$
+        CREATE OR REPLACE FUNCTION raise_exception(int, int) RETURNS bool LANGUAGE plpgsql AS $$
         DECLARE
         BEGIN
             IF $1 = $2 THEN
@@ -378,6 +377,7 @@ fn leaky_file_handles(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    let (pid,) = "SELECT pg_backend_pid()".fetch_one::<(i32,)>(&mut conn);
     SimpleProductsTable::setup().execute(&mut conn);
 
     // this will raise an error when it hits id #12

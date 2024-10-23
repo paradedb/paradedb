@@ -5,6 +5,7 @@ use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::ops::Bound;
+use tantivy::DateTime;
 use tantivy::{
     query::{RangeQuery, RegexQuery, TermQuery},
     schema::{Field, OwnedValue},
@@ -221,6 +222,7 @@ where
 {
     // First, deserialize into a `serde_json::Value`.
     let value: Value = Value::deserialize(deserializer)?;
+    let one_day_nanos: i64 = 86_400_000_000_000;
 
     // Try to deserialize using lowercase keys.
     if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
@@ -229,6 +231,9 @@ where
             LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Included(match excluded {
                 OwnedValue::U64(i) => OwnedValue::U64(i + 1),
                 OwnedValue::I64(i) => OwnedValue::I64(i + 1),
+                OwnedValue::Date(date) => OwnedValue::Date(DateTime::from_timestamp_nanos(
+                    date.into_timestamp_nanos() + one_day_nanos,
+                )),
                 _ => excluded,
             })),
             LowercaseBoundDef::Unbounded => Ok(Bound::Unbounded),
@@ -244,6 +249,9 @@ where
         CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Included(match Excluded {
             OwnedValue::U64(i) => OwnedValue::U64(i + 1),
             OwnedValue::I64(i) => OwnedValue::I64(i + 1),
+            OwnedValue::Date(date) => OwnedValue::Date(DateTime::from_timestamp_nanos(
+                date.into_timestamp_nanos() + one_day_nanos,
+            )),
             _ => Excluded,
         })),
         CapitalizedBoundDef::Unbounded => Ok(Bound::Unbounded),
@@ -285,6 +293,7 @@ where
 {
     // First, deserialize into a `serde_json::Value`.
     let value: Value = Value::deserialize(deserializer)?;
+    let one_day_nanos: i64 = 86_400_000_000_000;
 
     // Try to deserialize using lowercase keys.
     if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
@@ -292,6 +301,9 @@ where
             LowercaseBoundDef::Included { included } => Ok(Bound::Excluded(match included {
                 OwnedValue::U64(i) => OwnedValue::U64(i + 1),
                 OwnedValue::I64(i) => OwnedValue::I64(i + 1),
+                OwnedValue::Date(date) => OwnedValue::Date(DateTime::from_timestamp_nanos(
+                    date.into_timestamp_nanos() + one_day_nanos,
+                )),
                 _ => included,
             })),
             LowercaseBoundDef::Excluded { excluded } => Ok(Bound::Excluded(excluded)),
@@ -307,6 +319,9 @@ where
         CapitalizedBoundDef::Included { Included } => Ok(Bound::Excluded(match Included {
             OwnedValue::U64(i) => OwnedValue::U64(i + 1),
             OwnedValue::I64(i) => OwnedValue::I64(i + 1),
+            OwnedValue::Date(date) => OwnedValue::Date(DateTime::from_timestamp_nanos(
+                date.into_timestamp_nanos() + one_day_nanos,
+            )),
             _ => Included,
         })),
         CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Excluded(Excluded)),

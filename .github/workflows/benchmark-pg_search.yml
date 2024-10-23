@@ -112,8 +112,6 @@ jobs:
       - name: Download benchmarks baseline (PRs only)
         if: github.event_name == 'pull_request'
         id: download_baseline
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           # We retrieve the latest successful benchmark run ID on `dev` to know which GitHub Artifact to download
           LATEST_RUN_ID=$(gh api \

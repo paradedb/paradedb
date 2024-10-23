@@ -122,9 +122,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           LATEST_RUN_ID=$(gh api \
-            repos/${{ github.repository }}/actions/runs \
-            --jq '.workflow_runs[] | select(.head_branch == "dev" and .conclusion == "success") | .id' \
-            --limit 1)
+            repos/paradedb/paradedb/actions/runs \
+            --jq '.workflow_runs | map(select(.head_branch == "dev" and .conclusion == "success")) | .[0].id')
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Check if baseline exists

@@ -23,8 +23,8 @@ use anyhow::Result;
 use core::panic;
 use pgrx::{pg_sys, PostgresType};
 use range::{
-    deserialize_tantivy_lower_bound, deserialize_tantivy_upper_bound, deserialize_u64_lower_bound,
-    deserialize_u64_upper_bound, serialize_bound,
+    deserialize_fast_field_range_weight, deserialize_range, deserialize_range_contains,
+    deserialize_range_intersects, deserialize_range_within,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
@@ -76,17 +76,10 @@ pub enum SearchQueryInput {
     Exists {
         field: String,
     },
+    #[serde(deserialize_with = "deserialize_fast_field_range_weight")]
     FastFieldRangeWeight {
         field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_u64_lower_bound"
-        )]
         lower_bound: std::ops::Bound<u64>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_u64_upper_bound"
-        )]
         upper_bound: std::ops::Bound<u64>,
     },
     FuzzyTerm {
@@ -137,47 +130,26 @@ pub enum SearchQueryInput {
         phrases: Vec<String>,
         max_expansions: Option<u32>,
     },
+    #[serde(deserialize_with = "deserialize_range")]
     Range {
         field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_tantivy_lower_bound"
-        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_tantivy_upper_bound"
-        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
     },
+    #[serde(deserialize_with = "deserialize_range_contains")]
     RangeContains {
         field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_tantivy_lower_bound"
-        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_tantivy_upper_bound"
-        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
     },
+    #[serde(deserialize_with = "deserialize_range_intersects")]
     RangeIntersects {
         field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_tantivy_lower_bound"
-        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_tantivy_upper_bound"
-        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
@@ -188,17 +160,10 @@ pub enum SearchQueryInput {
         #[serde(default)]
         is_datetime: bool,
     },
+    #[serde(deserialize_with = "deserialize_range_within")]
     RangeWithin {
         field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_tantivy_lower_bound"
-        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_tantivy_upper_bound"
-        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,

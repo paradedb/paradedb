@@ -198,7 +198,6 @@ where
         return Ok(Bound::Unbounded);
     }
 
-    pgrx::log!("bound: {value:?}");
     // Try to deserialize using lowercase keys.
     if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
         return match bound {
@@ -251,43 +250,38 @@ pub fn deserialize_date_bound(bound: &Bound<OwnedValue>) -> Result<Bound<OwnedVa
 pub fn canonicalize_tantivy_lower_bound(bound: &Bound<OwnedValue>) -> Bound<OwnedValue> {
     let one_day_nanos: i64 = 86_400_000_000_000;
     match bound {
-        std::ops::Bound::Excluded(excluded) => std::ops::Bound::Included(match excluded {
-            OwnedValue::U64(i) => OwnedValue::U64(i + 1),
-            OwnedValue::I64(i) => OwnedValue::I64(i + 1),
-            OwnedValue::Date(date) => OwnedValue::Date(DateTime::from_timestamp_nanos(
-                date.into_timestamp_nanos() + one_day_nanos,
-            )),
-            _ => excluded.clone(),
-        }),
+        Bound::Excluded(OwnedValue::U64(i)) => Bound::Included(OwnedValue::U64(i + 1)),
+        Bound::Excluded(OwnedValue::I64(i)) => Bound::Included(OwnedValue::I64(i + 1)),
+        Bound::Excluded(OwnedValue::Date(date)) => Bound::Included(OwnedValue::Date(
+            DateTime::from_timestamp_nanos(date.into_timestamp_nanos() + one_day_nanos),
+        )),
         other => other.clone(),
     }
 }
 
 pub fn canonicalize_tantivy_upper_bound(bound: &Bound<OwnedValue>) -> Bound<OwnedValue> {
     let one_day_nanos: i64 = 86_400_000_000_000;
+    pgrx::log!("UPPER BOUND: {bound:?}");
     match bound {
-        std::ops::Bound::Included(included) => std::ops::Bound::Excluded(match included {
-            OwnedValue::U64(i) => OwnedValue::U64(i + 1),
-            OwnedValue::I64(i) => OwnedValue::I64(i + 1),
-            OwnedValue::Date(date) => OwnedValue::Date(DateTime::from_timestamp_nanos(
-                date.into_timestamp_nanos() + one_day_nanos,
-            )),
-            _ => included.clone(),
-        }),
+        Bound::Included(OwnedValue::U64(i)) => Bound::Excluded(OwnedValue::U64(i + 1)),
+        Bound::Included(OwnedValue::I64(i)) => Bound::Excluded(OwnedValue::I64(i + 1)),
+        Bound::Included(OwnedValue::Date(date)) => Bound::Excluded(OwnedValue::Date(
+            DateTime::from_timestamp_nanos(date.into_timestamp_nanos() + one_day_nanos),
+        )),
         other => other.clone(),
     }
 }
 
 pub fn canonicalize_lower_bound_u64(bound: &Bound<u64>) -> Bound<u64> {
     match bound {
-        std::ops::Bound::Excluded(excluded) => std::ops::Bound::Included(excluded + 1),
+        Bound::Excluded(excluded) => Bound::Included(excluded + 1),
         other => other.clone(),
     }
 }
 
 pub fn canonicalize_upper_bound_u64(bound: &Bound<u64>) -> Bound<u64> {
     match bound {
-        std::ops::Bound::Included(included) => std::ops::Bound::Excluded(included + 1),
+        Bound::Included(included) => Bound::Excluded(included + 1),
         other => other.clone(),
     }
 }
@@ -297,8 +291,8 @@ pub fn deserialize_range<'de, D>(
 ) -> Result<
     (
         String,
-        std::ops::Bound<tantivy::schema::OwnedValue>,
-        std::ops::Bound<tantivy::schema::OwnedValue>,
+        Bound<tantivy::schema::OwnedValue>,
+        Bound<tantivy::schema::OwnedValue>,
         bool,
     ),
     D::Error,
@@ -313,12 +307,12 @@ where
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        lower_bound: Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        upper_bound: Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
     }
@@ -347,8 +341,8 @@ pub fn deserialize_range_contains<'de, D>(
 ) -> Result<
     (
         String,
-        std::ops::Bound<tantivy::schema::OwnedValue>,
-        std::ops::Bound<tantivy::schema::OwnedValue>,
+        Bound<tantivy::schema::OwnedValue>,
+        Bound<tantivy::schema::OwnedValue>,
         bool,
     ),
     D::Error,
@@ -363,12 +357,12 @@ where
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        lower_bound: Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        upper_bound: Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
     }
@@ -398,8 +392,8 @@ pub fn deserialize_range_intersects<'de, D>(
 ) -> Result<
     (
         String,
-        std::ops::Bound<tantivy::schema::OwnedValue>,
-        std::ops::Bound<tantivy::schema::OwnedValue>,
+        Bound<tantivy::schema::OwnedValue>,
+        Bound<tantivy::schema::OwnedValue>,
         bool,
     ),
     D::Error,
@@ -414,12 +408,12 @@ where
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        lower_bound: Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        upper_bound: Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
     }
@@ -449,8 +443,8 @@ pub fn deserialize_range_within<'de, D>(
 ) -> Result<
     (
         String,
-        std::ops::Bound<tantivy::schema::OwnedValue>,
-        std::ops::Bound<tantivy::schema::OwnedValue>,
+        Bound<tantivy::schema::OwnedValue>,
+        Bound<tantivy::schema::OwnedValue>,
         bool,
     ),
     D::Error,
@@ -465,12 +459,12 @@ where
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        lower_bound: Bound<tantivy::schema::OwnedValue>,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        upper_bound: Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
     }
@@ -497,7 +491,7 @@ where
 
 pub fn deserialize_fast_field_range_weight<'de, D>(
     deserializer: D,
-) -> Result<(String, std::ops::Bound<u64>, std::ops::Bound<u64>), D::Error>
+) -> Result<(String, Bound<u64>, Bound<u64>), D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -508,12 +502,12 @@ where
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        lower_bound: std::ops::Bound<u64>,
+        lower_bound: Bound<u64>,
         #[serde(
             serialize_with = "serialize_bound",
             deserialize_with = "deserialize_bound"
         )]
-        upper_bound: std::ops::Bound<u64>,
+        upper_bound: Bound<u64>,
     }
 
     let helper = FastFieldRangeHelper::deserialize(deserializer)?;

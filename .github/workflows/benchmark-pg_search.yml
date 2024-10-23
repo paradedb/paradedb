@@ -101,62 +101,53 @@ jobs:
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Export Criterion benchmark results
-        run: |
-          cargo install -j $(nproc) --locked critcmp --debug
-          critcmp --export new > output.json
-
-      # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
-      - name: Store benchmarks result
+      # On dev, we store the benchmark results as artifacts to serve as a comparison point for PRs
+      - name: Store benchmarks result (dev only)
         if: github.ref == 'refs/heads/dev'
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-pg_search-criterion-dev
-          path: output.json
+          path: target/criterion/
 
-      - name: Check if baseline exists
-        id: check_artifact
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: benchmark-pg_search-criterion-dev
-          path: previous/
-
-      - name: Download benchmarks baseline
-        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
-        uses: actions/download-artifact@v4
-        with:
-          name: benchmark-pg_search-criterion-dev
-          path: previous/
-
-      - name: Compare benchmarks results
-        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
-        id: compare
+      - name: Download benchmarks baseline (PRs only)
+        if: github.event_name == 'pull_request'
+        id: download_baseline
+        env:
+          GH_TOKEN: ${{ github.token }} # Required by `gh`
         run: |
-          if [ -f ./previous/output.txt ]; then
-            result=$(critcmp ./previous/output.json output.json)
-            echo "comparison_result<<EOF" >> $GITHUB_OUTPUT
-            echo "$result" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "No previous benchmark result found"
-          fi
+          # We retrieve the latest successful benchmark run ID on `dev` to know which GitHub Artifact to download
+          LATEST_RUN_ID=$(gh api \
+            repos/paradedb/paradedb/actions/workflows/benchmark-pg_search.yml/runs \
+            --jq '.workflow_runs[] | select(.head_branch == "dev" and .conclusion == "success") | .id' \
+            | head -n 1)
+          echo "Latest \`dev\` benchmark-pg_search run ID: $LATEST_RUN_ID"
 
-      - name: Generate Commit Message
-        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+          # This automatically unzips the downloaded artifact, which extracts the output.json file
+          gh run download $LATEST_RUN_ID \
+            --repo paradedb/paradedb \
+            --name benchmark-pg_search-criterion-dev \
+            --dir ./previous/
+          ls -l ./previous/
+
+      - name: Compare benchmarks results (PRs only)
+        if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
+        id: compare_benchmarks
+        continue-on-error: true # TODO: Remove this line once we have baseline data
         run: |
+          cargo install -j $(nproc) --locked critcmp --debug
+          result=$(critcmp ./previous/ target/criterion/)
           echo "Generating GitHub comment message"
           {
             echo 'DIFF<<EOF'
             echo 'Performance comparison (latest commit) with `dev`:'
             echo
-            cat ${{ steps.compare.outputs.comparison_result }}
+            echo "$result"
             echo
-            echo EOF
+            echo 'EOF'
           } >> "$GITHUB_ENV"
 
-      - name: Attach Performance Comparison to PR
-        if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'
+      - name: Attach Performance Comparison to PR (PRs only)
+        if: steps.compare_benchmarks.outcome == 'success' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |

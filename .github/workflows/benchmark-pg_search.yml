@@ -118,6 +118,7 @@ jobs:
       # We need to retrieve the latest successful benchmark run ID on `dev`
       # to know which GitHub Artifact to download
       - name: Get latest successful benchmark run ID from `dev`
+        if: github.event_name == 'pull_request'
         id: get_latest_dev_run
         env:
           GH_TOKEN: ${{ github.token }}
@@ -129,16 +130,28 @@ jobs:
           echo "Latest \`dev\` benchmark-pg_search run ID: $LATEST_RUN_ID"
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Echo Run ID
+        run: |
+          echo "Run ID: ${{ steps.get_latest_dev_run.outputs.run_id }}"
+
+      # TODO: Fails here
       - name: Download benchmarks baseline
         if: github.event_name == 'pull_request'
         id: download_baseline
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           name: benchmark-pg_search-criterion-dev
           path: previous/
-          repository: ${{ github.repository }}
           run-id: ${{ steps.get_latest_dev_run.outputs.run_id }}
+
+      # TODO: remove
+      - name: Download benchmarks baseline using GitHub CLI
+        working-directory: pg_search/
+        run: |
+          gh run download ${{ steps.get_latest_dev_run.outputs.run_id }} \
+            --repo paradedb/paradedb \
+            --name benchmark-pg_search-criterion-dev \
+            --dir ./previous
 
       - name: Compare benchmarks results
         if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'

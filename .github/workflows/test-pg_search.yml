@@ -111,6 +111,10 @@ jobs:
           cache-targets: true
           cache-all-crates: true
 
+      - name: Install required system tools
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: sudo apt-get update && sudo apt-get install -y lsof
+
       - name: Install & Configure Supported PostgreSQL Version
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
@@ -233,6 +237,10 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
+
+      - name: Install required system tools
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: sudo apt-get update && sudo apt-get install -y lsof
 
       - name: Install llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

@@ -114,6 +114,19 @@ jobs:
           name: benchmark-pg_search-criterion-dev
           path: output.json
 
+      # We need to retrieve the latest successful benchmark run ID on `dev`
+      # to know which GitHub Artifact to download
+      - name: Get latest successful benchmark run ID from `dev`
+        id: get_latest_dev_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST_RUN_ID=$(gh api \
+            repos/${{ github.repository }}/actions/runs \
+            --jq '.workflow_runs[] | select(.head_branch == "dev" and .conclusion == "success") | .id' \
+            --limit 1)
+          echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
+
       - name: Check if baseline exists
         id: check_artifact
         uses: actions/download-artifact@v4
@@ -121,6 +134,8 @@ jobs:
         with:
           name: benchmark-pg_search-criterion-dev
           path: previous/
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.get_latest_dev_run.outputs.run_id }}
 
       - name: Download benchmarks baseline
         if: steps.check_artifact.outcome == 'success' && github.event_name == 'pull_request'

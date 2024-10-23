@@ -6,11 +6,26 @@ title: Term
 
 Matches documents containing a specified [term](/documentation/concepts/term).
 
-```sql
+<CodeGroup>
+```sql Function Syntax 
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.term('description', 'shoes');
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "term": {
+        "field": "description",
+        "value": "shoes"
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8"/>
 
 <ParamField body="field" required>
   Specifies the field within the document to search for the term. If omitted,
@@ -22,8 +37,21 @@ WHERE id @@@ paradedb.term('description', 'shoes');
 
 Numeric, boolean, or datetime fields can also be passed into the `term` query.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.term('rating', 4);
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "term": {
+        "field": "rating",
+        "value": 4
+    }
+}'::jsonb;
+```
+</CodeGroup>

@@ -57,7 +57,7 @@ impl BlockingDirectory {
 
 impl DirectoryClone for BlockingDirectory {
     fn box_clone(&self) -> Box<dyn Directory> {
-        self.0.box_clone()
+        Box::new(BlockingDirectory(self.0.clone()))
     }
 }
 

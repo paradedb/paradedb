@@ -37,8 +37,8 @@ reqwest = { version = "0.11.27", features = ["blocking"] }
 rustc-hash = "1.1.0"
 serde = "1.0.210"
 serde_json = "1.0.128"
-tantivy = { path = "../../tantivy" }
-tantivy-common = { path = "../../tantivy/common" }
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "84c4b58" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "84c4b58" }
 thiserror = "1.0.63"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

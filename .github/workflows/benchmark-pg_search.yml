@@ -101,20 +101,13 @@ jobs:
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Export Criterion benchmark results
-        run: |
-          cargo install -j $(nproc) --locked critcmp --debug
-          critcmp --export new > output.json
-          echo "Current benchmarks results:"
-          cat output.json
-
-      # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
+      # On dev, we store the benchmark results as artifacts to serve as a comparison point for PRs
       - name: Store benchmarks result
         if: github.ref == 'refs/heads/dev'
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-pg_search-criterion-dev
-          path: output.json
+          path: target/criterion/
 
       - name: Download benchmarks baseline
         if: github.event_name == 'pull_request'
@@ -133,33 +126,25 @@ jobs:
           gh run download $LATEST_RUN_ID \
             --repo paradedb/paradedb \
             --name benchmark-pg_search-criterion-dev \
-            --dir ./previous
-          echo "Previous benchmarks results:"
-          cat ./previous/output.json
+            --dir ./previous/
+          ls -l ./previous/
 
-      - name: Compare benchmarks results and generate commit message
+      - name: Compare benchmarks results
         if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
-        id: compare_and_generate_commit_message
         run: |
-          if [ -f ./previous/output.json ]; then
-            result=$(critcmp ./previous/output.json output.json)
-            echo "comparison_found=true" >> $GITHUB_OUTPUT
-            echo "Generating GitHub comment message"
-            {
-              echo 'DIFF<<EOF'
-              echo 'Performance comparison (latest commit) with `dev`:'
-              echo
-              echo "$result"
-              echo
-              echo 'EOF'
-            } >> "$GITHUB_ENV"
-          else
-            echo "No previous benchmark result found"
-            echo "comparison_found=false" >> $GITHUB_OUTPUT
-          fi
+          cargo install -j $(nproc) --locked critcmp --debug
+          result=$(critcmp ./previous/ target/criterion)
+          echo "Generating GitHub comment message"
+          {
+            echo 'DIFF<<EOF'
+            echo 'Performance comparison (latest commit) with `dev`:'
+            echo
+            echo "$result"
+            echo
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
 
       - name: Attach Performance Comparison to PR
-        if: steps.compare_and_generate_commit_message.outputs.comparison_found == 'true'
         uses: actions/github-script@v7
         with:
           script: |

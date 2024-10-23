@@ -1492,8 +1492,8 @@ fn specialized_queries(mut conn: PgConnection) {
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.more_like_this(
-      with_document_id => 3,
-      with_min_term_frequency => 1
+      document_id => 3,
+      min_term_frequency => 1
     );
     "#
     .fetch(&mut conn);
@@ -1503,10 +1503,10 @@ fn specialized_queries(mut conn: PgConnection) {
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.more_like_this(
-      with_document_fields => '{"description": "shoes"}',
-      with_min_doc_frequency => 0,
-      with_max_doc_frequency => 100,
-      with_min_term_frequency => 1
+      document_fields => '{"description": "shoes"}',
+      min_doc_frequency => 0,
+      max_doc_frequency => 100,
+      min_term_frequency => 1
     );
     "#
     .fetch(&mut conn);

@@ -480,9 +480,9 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either with_document_id or with_document_fields")
+            , "error returned from database: more_like_this must be called with either document_id or document_fields")
         }
-        _ => panic!("with_document_id or with_document_fields validation failed"),
+        _ => panic!("document_id or document_fields validation failed"),
     }
 
     // Conflicting keys should fail.
@@ -498,9 +498,9 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with only one of with_document_id or with_document_fields")
+            , "error returned from database: more_like_this must be called with only one of document_id or document_fields")
         }
-        _ => panic!("with_document_id or with_document_fields validation failed"),
+        _ => panic!("document_id or document_fields validation failed"),
     }
 
     let rows: Vec<(i32, String)> = r#"
@@ -566,9 +566,9 @@ fn more_like_this_empty(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either with_document_id or with_document_fields")
+            , "error returned from database: more_like_this must be called with either document_id or document_fields")
         }
-        _ => panic!("with_document_id or with_document_fields validation failed"),
+        _ => panic!("document_id or document_fields validation failed"),
     }
 }
 

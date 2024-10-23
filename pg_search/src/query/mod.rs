@@ -546,10 +546,10 @@ impl SearchQueryInput {
                         ))
                     }
                     (Some(_), Some(_)) => {
-                        panic!("more_like_this must be called with only one of with_document_id or with_document_fields")
+                        panic!("more_like_this must be called with only one of document_id or document_fields")
                     }
                     (None, None) => {
-                        panic!("more_like_this must be called with either with_document_id or with_document_fields");
+                        panic!("more_like_this must be called with either document_id or document_fields");
                     }
                 }
             }

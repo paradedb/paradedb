@@ -327,17 +327,17 @@ fn more_like_this_raw(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either with_document_id or with_document_fields")
+            , "error returned from database: more_like_this must be called with either document_id or document_fields")
         }
-        _ => panic!("with_document_id or with_document_fields validation failed"),
+        _ => panic!("document_id or document_fields validation failed"),
     }
 
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -346,9 +346,9 @@ fn more_like_this_raw(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_id => 2
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_id => 2
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -391,9 +391,9 @@ fn more_like_this_empty(mut conn: PgConnection) {
         Err(err) => {
             assert_eq!(err
             .to_string()
-            , "error returned from database: more_like_this must be called with either with_document_id or with_document_fields")
+            , "error returned from database: more_like_this must be called with either document_id or document_fields")
         }
-        _ => panic!("with_document_id or with_document_fields validation failed"),
+        _ => panic!("document_id or document_fields validation failed"),
     }
 }
 
@@ -426,9 +426,9 @@ fn more_like_this_text(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -463,9 +463,9 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ 
     paradedb.more_like_this(
-       with_min_doc_frequency => 0,
-       with_min_term_frequency => 0,
-       with_document_fields => '{"flavour": "banana"}'
+       min_doc_frequency => 0,
+       min_term_frequency => 0,
+       document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -501,9 +501,9 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
     let rows: Vec<(uuid::Uuid, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -540,9 +540,9 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ 
     paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -578,9 +578,9 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -616,9 +616,9 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
     let rows: Vec<(i16, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -654,9 +654,9 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
     let rows: Vec<(f32, String)> = r#"
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -692,9 +692,9 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
     SELECT id, flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ 
     paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -730,9 +730,9 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
     let rows: Vec<(f64, String)> = r#"
     SELECT CAST(id AS FLOAT8), flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -767,9 +767,9 @@ fn more_like_this_date_key(mut conn: PgConnection) {
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@  paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -806,9 +806,9 @@ fn more_like_this_time_key(mut conn: PgConnection) {
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ 
     paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -845,9 +845,9 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ 
     paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -884,9 +884,9 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ 
     paradedb.more_like_this(
-        with_min_doc_frequency => 0,
-        with_min_term_frequency => 0,
-        with_document_fields => '{"flavour": "banana"}'
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);
@@ -921,9 +921,9 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     let rows: Vec<(String, String)> = r#"
     SELECT CAST(id AS TEXT), flavour FROM test_more_like_this_table
     WHERE test_more_like_this_table @@@ paradedb.more_like_this(
-            with_min_doc_frequency => 0,
-            with_min_term_frequency => 0,
-            with_document_fields => '{"flavour": "banana"}'
+            min_doc_frequency => 0,
+            min_term_frequency => 0,
+            document_fields => '{"flavour": "banana"}'
     ) ORDER BY id;
     "#
     .fetch_collect(&mut conn);

@@ -8,33 +8,33 @@ Finds documents similar to a given document or set of field values. This is usef
 
 You must pass either:
 
-- `with_document_id`, which takes a [`key_field`](/documentation/indexing/create_index#choosing-a-key-field) value to match against the corresponding document.
-- `with_document_fields`, which takes a JSON object string to match against.
+- `document_id`, which takes a [`key_field`](/documentation/indexing/create_index#choosing-a-key-field) value to match against the corresponding document.
+- `document_fields`, which takes a JSON object string to match against.
 
-All other parameters are compatible with both `with_document_id` and `with_document_fields`.
+All other parameters are compatible with both `document_id` and `document_fields`.
 
 <CodeGroup>
 ```sql Function Syntax
--- with_document_id
+-- document_id
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.more_like_this(
-  with_document_id => 3,
-  with_min_term_frequency => 1
+  document_id => 3,
+  min_term_frequency => 1
 );
 
--- with_document_fields
+-- document_fields
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.more_like_this(
-  with_document_fields => '{"description": "shoes"}',
-  with_min_doc_frequency => 0,
-  with_max_doc_frequency => 100,
-  with_min_term_frequency => 1
+  document_fields => '{"description": "shoes"}',
+  min_doc_frequency => 0,
+  max_doc_frequency => 100,
+  min_term_frequency => 1
 );
 ```
 ```sql JSON Syntax
--- with_document_id
+-- document_id
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@
@@ -45,7 +45,7 @@ WHERE id @@@
     }
 }'::jsonb;
 
--- with_document_fields
+-- document_fields
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@
@@ -62,33 +62,33 @@ WHERE id @@@
 
 <div className="mt-8"/>
 
-<ParamField body="with_document_id">
+<ParamField body="document_id">
   The ID of the document to find similar documents to.
 </ParamField>
-<ParamField body="with_document_fields">
+<ParamField body="document_fields">
   A JSON object representing the field values to use for similarity matching.
 </ParamField>
-<ParamField body="with_min_doc_frequency">
+<ParamField body="min_doc_frequency">
   Minimum document frequency of terms to be considered.
 </ParamField>
-<ParamField body="with_max_doc_frequency">
+<ParamField body="max_doc_frequency">
   Maximum document frequency of terms to be considered.
 </ParamField>
-<ParamField body="with_min_term_frequency">
+<ParamField body="min_term_frequency">
   Minimum term frequency of terms to be considered.
 </ParamField>
-<ParamField body="with_max_query_terms">
+<ParamField body="max_query_terms">
   Maximum number of query terms to be used.
 </ParamField>
-<ParamField body="with_min_word_length">
+<ParamField body="min_word_length">
   Minimum word length of terms to be considered.
 </ParamField>
-<ParamField body="with_max_word_length">
+<ParamField body="max_word_length">
   Maximum word length of terms to be considered.
 </ParamField>
-<ParamField body="with_boost_factor">
+<ParamField body="boost_factor">
   Boost factor to amplify the impact of matching terms.
 </ParamField>
-<ParamField body="with_stop_words">
+<ParamField body="stop_words">
   A JSON array of stop words to be ignored in the query.
 </ParamField>

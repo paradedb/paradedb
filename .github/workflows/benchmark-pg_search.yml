@@ -105,6 +105,7 @@ jobs:
         run: |
           cargo install -j $(nproc) --locked critcmp --debug
           critcmp --export new > output.json
+          cat output.json
 
       # On dev, we store the benchmark results as artifacts to serve as a comparison point for feature branches
       - name: Store benchmarks result
@@ -123,8 +124,9 @@ jobs:
         run: |
           LATEST_RUN_ID=$(gh api \
             repos/paradedb/paradedb/actions/workflows/benchmark-pg_search.yml/runs \
-            --jq '.workflow_runs[] | select(.head_branch == "dev" and .conclusion == "success") | .id' | head -n 1
-          echo "Latest `dev` benchmark-pg_search run ID: $LATEST_RUN_ID"
+            --jq '.workflow_runs[] | select(.head_branch == "dev" and .conclusion == "success") | .id' \
+            | head -n 1)
+          echo "Latest \`dev\` benchmark-pg_search run ID: $LATEST_RUN_ID"
           echo "run_id=$LATEST_RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Download benchmarks baseline

@@ -62,6 +62,6 @@ pub extern "C" fn amvacuumcleanup(
         .unwrap()
         .wait_merging_threads()
         .expect("wait_merging_threads() should succeed");
-    pgrx::warning!("HERE");
+
     stats
 }

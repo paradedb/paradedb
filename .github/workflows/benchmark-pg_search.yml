@@ -89,27 +89,27 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx start pg${{ matrix.pg_version }}
 
-      - name: Generate benchmark data
+      - name: Generate Benchmark Data
         working-directory: pg_search/
         run: cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Index benchmark data
+      - name: Index Benchmark Data
         working-directory: pg_search/
         run: cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Run search benchmarks
+      - name: Run Search Benchmark
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       # On dev, we store the benchmark results as artifacts to serve as a comparison point for PRs
-      - name: Store benchmarks result (dev only)
+      - name: Store Benchmark Results (dev only)
         if: github.ref == 'refs/heads/dev'
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-pg_search-criterion-dev
           path: target/criterion/
 
-      - name: Download benchmarks baseline (PRs only)
+      - name: Download Benchmark Baseline (PRs only)
         if: github.event_name == 'pull_request'
         id: download_baseline
         env:
@@ -129,10 +129,10 @@ jobs:
             --dir ./previous/
           ls -l ./previous/
 
-      - name: Compare benchmarks results (PRs only)
+      - name: Compare Benchmark Results (PRs only)
         if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
         id: compare_benchmarks
-        continue-on-error: true # TODO: Remove this line once we have baseline data
+        continue-on-error: true # This is necessary as critcmp will error if there are no changes
         run: |
           cargo install -j $(nproc) --locked critcmp --debug
           result=$(critcmp ./previous/ target/criterion/)

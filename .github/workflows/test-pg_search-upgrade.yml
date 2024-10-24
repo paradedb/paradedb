@@ -105,7 +105,7 @@ jobs:
 
       - name: Create pg_search extension
         working-directory: pg_search/
-        run: psql -d postgres -c 'CREATE EXTENSION pg_search;'
+        run: psql -d postgres -p 288${{ matrix.pg_version }} -c 'CREATE EXTENSION pg_search;'
 
       - name: Stop Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -136,7 +136,7 @@ jobs:
         working-directory: pg_search/
         run: |
           PARADEDB_LATEST_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          psql -d postgres -c 'ALTER EXTENSION pg_search UPDATE TO "$PARADEDB_LATEST_VERSION";'
+          psql -d postgres -p 288${{ matrix.pg_version }} -c 'ALTER EXTENSION pg_search UPDATE TO "$PARADEDB_LATEST_VERSION";'
 
       - name: Run pg_search test suite
         working-directory: pg_search/

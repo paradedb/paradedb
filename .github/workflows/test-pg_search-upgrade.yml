@@ -10,7 +10,6 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main # We only run the extension upgrade test on PRs to `main`, since it's when we do the release
-      - dev # TODO: Remove once done testing
     paths:
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
@@ -77,11 +76,11 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      # This is the pgrx version compatible with ParadeDB v0.10.0
-      - name: Install cargo-pgrx for ParadeDB v0.10.0
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.12.4 --debug
+      # This is the pgrx version compatible with ParadeDB v0.11.0
+      - name: Install cargo-pgrx for ParadeDB v0.11.0
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.12.6 --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB v0.10.0
+      - name: Initialize cargo-pgrx environment for ParadeDB v0.11.0
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Add pg_search to shared_preload_libraries
@@ -89,10 +88,10 @@ jobs:
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       # This is the first version at which we started supporting upgrading via ALTER EXTENSION
-      - name: Checkout ParadeDB v0.10.0
-        run: git checkout v0.10.0
+      - name: Checkout ParadeDB v0.11.0
+        run: git checkout v0.11.0
 
-      - name: Compile & install pg_search v0.10.0
+      - name: Compile & install pg_search v0.11.0
         working-directory: pg_search/
         run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

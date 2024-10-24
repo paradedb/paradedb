@@ -120,7 +120,7 @@ pub extern "C" fn amrescan(
             .0;
 
         let need_scores = search_query_input.contains_more_like_this();
-        let query = search_index.query(&search_query_input, &search_reader);
+        let query = search_index.query(&indexrel, &search_query_input, &search_reader);
         let results = if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
             search_reader.search_segment(
                 need_scores,

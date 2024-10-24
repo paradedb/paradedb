@@ -21,7 +21,7 @@ use crate::query::range::{Comparison, RangeField};
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, PostgresType};
+use pgrx::{pg_sys, PgRelation, PostgresType};
 use range::{
     deserialize_fast_field_range_weight, deserialize_range, deserialize_range_contains,
     deserialize_range_intersects, deserialize_range_within,
@@ -213,93 +213,107 @@ impl SearchQueryInput {
 
 #[allow(dead_code)]
 pub trait AsFieldType<T> {
-    fn fields(&self) -> Vec<(FieldType, Field)>;
+    fn fields(&self) -> Vec<(FieldType, pg_sys::Oid, Field)>;
 
-    fn key_field(&self) -> (FieldType, Field);
+    fn key_field(&self) -> (FieldType, pg_sys::Oid, Field);
 
-    fn as_field_type(&self, from: &T) -> Option<(FieldType, Field)>;
+    fn as_field_type(&self, from: &T) -> Option<(FieldType, pg_sys::Oid, Field)>;
 
     fn is_field_type(&self, from: &T, value: &OwnedValue) -> bool {
         matches!(
             (self.as_field_type(from), value),
-            (Some((FieldType::Str(_), _)), OwnedValue::Str(_))
-                | (Some((FieldType::U64(_), _)), OwnedValue::U64(_))
-                | (Some((FieldType::I64(_), _)), OwnedValue::I64(_))
-                | (Some((FieldType::F64(_), _)), OwnedValue::F64(_))
-                | (Some((FieldType::Bool(_), _)), OwnedValue::Bool(_))
-                | (Some((FieldType::Date(_), _)), OwnedValue::Date(_))
-                | (Some((FieldType::Facet(_), _)), OwnedValue::Facet(_))
-                | (Some((FieldType::Bytes(_), _)), OwnedValue::Bytes(_))
-                | (Some((FieldType::JsonObject(_), _)), OwnedValue::Object(_))
-                | (Some((FieldType::IpAddr(_), _)), OwnedValue::IpAddr(_))
+            (Some((FieldType::Str(_), _, _)), OwnedValue::Str(_))
+                | (Some((FieldType::U64(_), _, _)), OwnedValue::U64(_))
+                | (Some((FieldType::I64(_), _, _)), OwnedValue::I64(_))
+                | (Some((FieldType::F64(_), _, _)), OwnedValue::F64(_))
+                | (Some((FieldType::Bool(_), _, _)), OwnedValue::Bool(_))
+                | (Some((FieldType::Date(_), _, _)), OwnedValue::Date(_))
+                | (Some((FieldType::Facet(_), _, _)), OwnedValue::Facet(_))
+                | (Some((FieldType::Bytes(_), _, _)), OwnedValue::Bytes(_))
+                | (
+                    Some((FieldType::JsonObject(_), _, _)),
+                    OwnedValue::Object(_)
+                )
+                | (Some((FieldType::IpAddr(_), _, _)), OwnedValue::IpAddr(_))
         )
     }
 
     fn as_str(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Str(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Str(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_u64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::U64(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::U64(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_i64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::I64(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::I64(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_f64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::F64(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::F64(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_bool(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Bool(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Bool(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_date(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Date(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Date(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_facet(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Facet(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Facet(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_bytes(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Bytes(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Bytes(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_json_object(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::JsonObject(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::JsonObject(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_ip_addr(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::IpAddr(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::IpAddr(_) => Some(field),
+                _ => None,
+            })
     }
 }
 
 impl SearchQueryInput {
     pub fn into_tantivy_query(
         self,
+        indexrel: &PgRelation,
         field_lookup: &impl AsFieldType<String>,
         parser: &mut QueryParser,
         searcher: &Searcher,
@@ -315,29 +329,29 @@ impl SearchQueryInput {
                 for input in must {
                     subqueries.push((
                         Occur::Must,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
                     ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher)?,
+                query.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
                 boost,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(field_lookup, parser, searcher)?,
+                query.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
                 score,
             ))),
             Self::DisjunctionMax {
@@ -346,7 +360,7 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher))
+                    .map(|query| query.into_tantivy_query(indexrel, field_lookup, parser, searcher))
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -394,13 +408,14 @@ impl SearchQueryInput {
                 prefix,
             } => {
                 let (field, path) = split_field_and_path(&field);
-                let (field_type, field) = field_lookup
+                let (field_type, field_oid, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let term = value_to_term(
                     field,
                     &OwnedValue::Str(value),
                     &field_type,
+                    &field_oid,
                     path.as_deref(),
                     false,
                 )?;
@@ -434,7 +449,7 @@ impl SearchQueryInput {
                 let match_all_terms = match_all_terms.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
 
-                let (field_type, field) = field_lookup
+                let (field_type, field_oid, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
 
@@ -448,6 +463,7 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(token),
                         &field_type,
+                        &field_oid,
                         path.as_deref(),
                         false,
                     )?;
@@ -512,8 +528,9 @@ impl SearchQueryInput {
 
                 match (document_id, document_fields) {
                     (Some(key_value), None) => {
-                        let (field_type, field) = field_lookup.key_field();
-                        let term = value_to_term(field, &key_value, &field_type, None, false)?;
+                        let (field_type, field_oid, field) = field_lookup.key_field();
+                        let term =
+                            value_to_term(field, &key_value, &field_type, &field_oid, None, false)?;
                         let query: Box<dyn Query> =
                             Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
                         let addresses = searcher.search(&query, &DocSetCollector)?;
@@ -531,7 +548,7 @@ impl SearchQueryInput {
                                 return Err(Box::new(QueryError::WrongFieldType(field_name)));
                             }
 
-                            let (_, field) = field_lookup
+                            let (_, _, field) = field_lookup
                                 .as_field_type(&field_name)
                                 .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
@@ -559,7 +576,7 @@ impl SearchQueryInput {
                 max_expansions,
             } => {
                 let (field, path) = split_field_and_path(&field);
-                let (field_type, field) = field_lookup
+                let (field_type, field_oid, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
@@ -567,6 +584,7 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(phrase),
                         &field_type,
+                        &field_oid,
                         path.as_deref(),
                         false,
                     )
@@ -611,7 +629,7 @@ impl SearchQueryInput {
                     lenient,
                     conjunction_mode,
                 }
-                .into_tantivy_query(field_lookup, parser, searcher)
+                .into_tantivy_query(indexrel, field_lookup, parser, searcher)
             }
             Self::Phrase {
                 field,
@@ -619,7 +637,7 @@ impl SearchQueryInput {
                 slop,
             } => {
                 let (field, path) = split_field_and_path(&field);
-                let (field_type, field) = field_lookup
+                let (field_type, field_oid, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
@@ -627,6 +645,7 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(phrase),
                         &field_type,
+                        &field_oid,
                         path.as_deref(),
                         false,
                     )
@@ -646,7 +665,7 @@ impl SearchQueryInput {
             } => {
                 let (field, path) = split_field_and_path(&field);
                 let field_name = field;
-                let (field_type, field) = field_lookup
+                let (field_type, field_oid, field) = field_lookup
                     .as_field_type(&field_name)
                     .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
@@ -655,6 +674,7 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
+                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?),
@@ -662,6 +682,7 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
+                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?),
@@ -673,6 +694,7 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
+                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?),
@@ -680,6 +702,7 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
+                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?),
@@ -1288,20 +1311,26 @@ impl SearchQueryInput {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
                     let (field, path) = split_field_and_path(&field);
-                    let (field_type, field) = field_lookup
+                    let (field_type, field_oid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term =
-                        value_to_term(field, &value, &field_type, path.as_deref(), is_datetime)?;
+                    let term = value_to_term(
+                        field,
+                        &value,
+                        &field_type,
+                        &field_oid,
+                        path.as_deref(),
+                        is_datetime,
+                    )?;
 
                     Ok(Box::new(TermQuery::new(term, record_option.into())))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
-                    for (field_type, field) in all_fields {
+                    for (field_type, field_oid, field) in all_fields {
                         if let Ok(term) =
-                            value_to_term(field, &value, &field_type, None, is_datetime)
+                            value_to_term(field, &value, &field_type, &field_oid, None, is_datetime)
                         {
                             terms.push(term);
                         }
@@ -1314,13 +1343,14 @@ impl SearchQueryInput {
                 let mut terms = vec![];
                 for (field_name, field_value, is_datetime) in fields {
                     let (_, path) = split_field_and_path(&field_name);
-                    let (field_type, field) = field_lookup
+                    let (field_type, field_oid, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
                     terms.push(value_to_term(
                         field,
                         &field_value,
                         &field_type,
+                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?);
@@ -1329,7 +1359,7 @@ impl SearchQueryInput {
                 Ok(Box::new(TermSetQuery::new(terms)))
             }
             Self::WithIndex { query, .. } => {
-                query.into_tantivy_query(field_lookup, parser, searcher)
+                query.into_tantivy_query(indexrel, field_lookup, parser, searcher)
             }
         }
     }
@@ -1386,6 +1416,7 @@ pub fn value_to_term(
     field: Field,
     value: &OwnedValue,
     field_type: &FieldType,
+    _field_oid: &pg_sys::Oid,
     path: Option<&str>,
     is_datetime: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {

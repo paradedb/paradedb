@@ -55,12 +55,13 @@ pub fn search_with_query_input(
         })
         .expect("should be able to open search index");
 
+        let indexrel = locate_bm25_index(index_oid).expect("should be able to open index relation");
         let scan_state = search_index.get_reader().unwrap();
         let top_docs = scan_state.search_via_channel(
             query.contains_more_like_this(),
             Some(search_index.key_field_name()),
             SearchIndex::executor(),
-            &search_index.query(&query, &scan_state),
+            &search_index.query(&indexrel, &query, &scan_state),
         );
         let mut hs = FxHashSet::default();
         for (scored, _) in top_docs {

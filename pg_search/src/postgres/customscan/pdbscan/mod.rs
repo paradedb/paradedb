@@ -541,8 +541,11 @@ impl CustomScan for PdbScan {
             .get_reader()
             .expect("search index reader should have been constructed correctly");
 
-        state.custom_state_mut().query =
-            Some(search_index.query(&state.custom_state().search_query_input, &search_reader));
+        state.custom_state_mut().query = Some(search_index.query(
+            &indexrel,
+            &state.custom_state().search_query_input,
+            &search_reader,
+        ));
         let search_results = if let (Some(limit), Some(sort_direction)) = (
             state.custom_state().limit,
             state.custom_state().sort_direction,

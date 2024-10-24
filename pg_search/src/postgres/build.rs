@@ -22,6 +22,7 @@ use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
+use pg_sys::BuiltinOid;
 use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -84,7 +85,7 @@ pub extern "C" fn ambuild(
 
     // Create a map from column name to column type. We'll use this to verify that index
     // configurations passed by the user reference the correct types for each column.
-    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heap_relation
+    let name_type_map: HashMap<SearchFieldName, (SearchFieldType, PgOid)> = heap_relation
         .tuple_desc()
         .into_iter()
         .filter_map(|attribute| {
@@ -97,7 +98,7 @@ pub extern "C" fn ambuild(
                 attribute_type_oid
             };
             if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
-                Some((attname.into(), search_field_type))
+                Some((attname.into(), (search_field_type, base_oid)))
             } else {
                 None
             }
@@ -110,7 +111,9 @@ pub extern "C" fn ambuild(
             .get_text_fields()
             .into_iter()
             .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Text) => (name, config, *field_type),
+                Some((field_type @ SearchFieldType::Text, base_oid)) => {
+                    (name, config, *field_type, *base_oid)
+                }
                 _ => panic!("'{name}' cannot be indexed as a text field"),
             });
 
@@ -118,9 +121,11 @@ pub extern "C" fn ambuild(
         .get_numeric_fields()
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::U64)
-            | Some(field_type @ SearchFieldType::I64)
-            | Some(field_type @ SearchFieldType::F64) => (name, config, *field_type),
+            Some((field_type @ SearchFieldType::U64, base_oid))
+            | Some((field_type @ SearchFieldType::I64, base_oid))
+            | Some((field_type @ SearchFieldType::F64, base_oid)) => {
+                (name, config, *field_type, *base_oid)
+            }
             _ => panic!("'{name}' cannot be indexed as a numeric field"),
         });
 
@@ -128,7 +133,9 @@ pub extern "C" fn ambuild(
         .get_boolean_fields()
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Bool) => (name, config, *field_type),
+            Some((field_type @ SearchFieldType::Bool, base_oid)) => {
+                (name, config, *field_type, *base_oid)
+            }
             _ => panic!("'{name}' cannot be indexed as a boolean field"),
         });
 
@@ -137,13 +144,17 @@ pub extern "C" fn ambuild(
             .get_json_fields()
             .into_iter()
             .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Json) => (name, config, *field_type),
+                Some((field_type @ SearchFieldType::Json, base_oid)) => {
+                    (name, config, *field_type, *base_oid)
+                }
                 _ => panic!("'{name}' cannot be indexed as a JSON field"),
             });
 
     let range_fields = rdopts.get_range_fields().into_iter().map(|(name, config)| {
         match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Range) => (name, config, *field_type),
+            Some((field_type @ SearchFieldType::Range, base_oid)) => {
+                (name, config, *field_type, *base_oid)
+            }
             _ => panic!("'{name}' cannot be indexed as a range field"),
         }
     });
@@ -152,12 +163,14 @@ pub extern "C" fn ambuild(
         .get_datetime_fields()
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Date) => (name, config, *field_type),
+            Some((field_type @ SearchFieldType::Date, base_oid)) => {
+                (name, config, *field_type, *base_oid)
+            }
             _ => panic!("'{name}' cannot be indexed as a datetime field"),
         });
 
     let key_field = rdopts.get_key_field().expect("must specify key field");
-    let key_field_type = match name_type_map.get(&key_field) {
+    let (key_field_type, key_field_oid) = match name_type_map.get(&key_field) {
         Some(field_type) => field_type,
         None => panic!("key field does not exist"),
     };
@@ -211,6 +224,7 @@ pub extern "C" fn ambuild(
             key_field.clone(),
             key_config,
             *key_field_type,
+            *key_field_oid,
         )))
         // "ctid" is a reserved column name in Postgres, so we don't need to worry about
         // creating a name conflict with a user-named column.
@@ -218,12 +232,13 @@ pub extern "C" fn ambuild(
             "ctid".into(),
             SearchFieldConfig::Ctid,
             SearchFieldType::U64,
+            PgOid::BuiltIn(BuiltinOid::TIDOID),
         )))
         .collect();
 
     let key_field_index = fields
         .iter()
-        .position(|(name, _, _)| name == &key_field)
+        .position(|(name, _, _, _)| name == &key_field)
         .expect("key field not found in columns"); // key field is already validated by now.
 
     // If there's only two fields in the vector, then those are just the Key and Ctid fields,

@@ -21,7 +21,7 @@ pub mod range;
 use anyhow::{Context, Result};
 use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
-use pgrx::{PgBuiltInOids, PgOid};
+use pgrx::{pg_sys, PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -572,6 +572,8 @@ pub struct SearchField {
     pub config: SearchFieldConfig,
     /// Field type
     pub type_: SearchFieldType,
+    /// The oid of the original Postgres type.
+    pub typeoid: pg_sys::Oid,
 }
 
 impl From<&SearchField> for Field {
@@ -598,14 +600,14 @@ pub struct SearchIndexSchema {
 
 impl SearchIndexSchema {
     pub fn new(
-        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType, PgOid)>,
         key_index: usize,
     ) -> Result<Self, SearchIndexSchemaError> {
         let mut builder = Schema::builder();
         let mut search_fields = vec![];
 
         let mut ctid_index = 0;
-        for (index, (name, config, field_type)) in fields.into_iter().enumerate() {
+        for (index, (name, config, field_type, typeoid)) in fields.into_iter().enumerate() {
             if config == SearchFieldConfig::Ctid {
                 ctid_index = index
             }
@@ -635,6 +637,7 @@ impl SearchIndexSchema {
                 name,
                 config,
                 type_: field_type,
+                typeoid: typeoid.value(),
             });
         }
 
@@ -807,35 +810,39 @@ fn default_as_freqs_and_positions() -> IndexRecordOption {
 }
 
 impl AsFieldType<String> for SearchIndexSchema {
-    fn key_field(&self) -> (tantivy::schema::FieldType, Field) {
+    fn key_field(&self) -> (tantivy::schema::FieldType, pg_sys::Oid, Field) {
         let search_field = self.key_field();
         let field = search_field.id.0;
         let field_type = self.schema.get_field_entry(field).field_type().clone();
-        (field_type, field)
+        (field_type, search_field.typeoid.clone(), field)
     }
 
-    fn fields(&self) -> Vec<(tantivy::schema::FieldType, Field)> {
+    fn fields(&self) -> Vec<(tantivy::schema::FieldType, pg_sys::Oid, Field)> {
         self.fields
             .iter()
             .map(|search_field| {
                 let field = search_field.id.0;
                 let field_type = self.schema.get_field_entry(field).field_type().clone();
-                (field_type, field)
+                (field_type, search_field.typeoid.clone(), field)
             })
             .collect()
     }
-    fn as_field_type(&self, from: &String) -> Option<(tantivy::schema::FieldType, Field)> {
+    fn as_field_type(
+        &self,
+        from: &String,
+    ) -> Option<(tantivy::schema::FieldType, pg_sys::Oid, Field)> {
         self.get_search_field(&SearchFieldName(from.into()))
             .map(|search_field| {
                 let field = search_field.id.0;
                 let field_type = self.schema.get_field_entry(field).field_type().clone();
-                (field_type, field)
+                (field_type, search_field.typeoid.clone(), field)
             })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use pgrx::{pg_sys::BuiltinOid, PgOid};
     use rstest::rstest;
     use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
 
@@ -851,6 +858,7 @@ mod tests {
                 stored: true,
             },
             SearchFieldType::U64,
+            PgOid::BuiltIn(BuiltinOid::INT8OID),
         )];
         let schema = SearchIndexSchema::new(fields, 0).expect("schema should be valid");
 

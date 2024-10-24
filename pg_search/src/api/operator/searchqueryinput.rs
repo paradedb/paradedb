@@ -54,7 +54,8 @@ pub fn search_with_query_input(
             &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         })
         .expect("should be able to open search index");
-
+    
+        let indexrel = locate_bm25_index(index_oid).expect("should be able to open index relation");
         let key_field = search_index.key_field_name();
         let key_field_type = search_index.key_field().type_.into();
         let search_reader = search_index.get_reader().unwrap();

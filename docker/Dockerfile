@@ -55,13 +55,13 @@ RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
 
 FROM builder AS builder-pg_search
 
-ARG PUBLIC_POSTHOG_KEY
+ARG POSTHOG_API_KEU
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
-ENV PUBLIC_POSTHOG_KEY=${PUBLIC_POSTHOG_KEY} \
+ENV POSTHOG_API_KEU=${POSTHOG_API_KEU} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
@@ -79,13 +79,13 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 
 FROM builder AS builder-pg_analytics
 
-ARG PUBLIC_POSTHOG_KEY
+ARG POSTHOG_API_KEU
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
-ENV PUBLIC_POSTHOG_KEY=${PUBLIC_POSTHOG_KEY} \
+ENV POSTHOG_API_KEU=${POSTHOG_API_KEU} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}

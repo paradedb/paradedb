@@ -85,13 +85,6 @@ jobs:
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
-      - name: Start Postgres via cargo-pgrx
-        working-directory: pg_search/
-        run: |
-          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-          # Necessary for the ephemeral Postgres test to have proper permissions
-          sudo chown -R $(whoami) /var/run/postgresql/
-
       # This is the first version at which we started supporting upgrading via ALTER EXTENSION
       - name: Checkout ParadeDB v0.10.0
         run: git checkout v0.10.0
@@ -100,17 +93,35 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
+      - name: Start Postgres via cargo-pgrx
+        working-directory: pg_search/
+        run: |
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
+          # Necessary for the ephemeral Postgres test to have proper permissions
+          sudo chown -R $(whoami) /var/run/postgresql/
+
       - name: Create pg_search extension
         working-directory: pg_search/
         run: psql -d postgres -c 'CREATE EXTENSION pg_search;'
 
-      # This is the current version at which we want to test upgrading to
+      - name: Stop Postgres via cargo-pgrx
+        working-directory: pg_search/
+        run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ matrix.pg_version }}
+
+      # This is the current version which we want to test upgrading to
       - name: Checkout ParadeDB `dev`
         run: git checkout ${{ github.head_ref }}
 
       - name: Compile & install pg_search `dev`
         working-directory: pg_search/
         run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+      - name: Start Postgres via cargo-pgrx
+        working-directory: pg_search/
+        run: |
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
+          # Necessary for the ephemeral Postgres test to have proper permissions
+          sudo chown -R $(whoami) /var/run/postgresql/
 
       - name: Alter pg_search extension to the latest version
         working-directory: pg_search/

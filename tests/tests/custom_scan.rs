@@ -23,7 +23,6 @@ use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
-use std::process::Command;
 
 #[rstest]
 fn attribute_1_of_table_has_wrong_type(mut conn: PgConnection) {
@@ -389,13 +388,27 @@ fn leaky_file_handles(mut conn: PgConnection) {
         &format!("{}", result.err().unwrap())
     );
 
-    let output = Command::new("lsof")
-        .arg("-p")
-        .arg(pid.to_string())
-        .output()
-        .expect("`lsof` command should not fail`");
+    fn tantivy_files_still_open(pid: i32) -> bool {
+        let output = std::process::Command::new("lsof")
+            .arg("-p")
+            .arg(pid.to_string())
+            .output()
+            .expect("`lsof` command should not fail`");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    eprintln!("stdout: {}", stdout);
-    assert!(!stdout.contains("/tantivy/"));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        eprintln!("stdout: {}", stdout);
+        stdout.contains("/tantivy/")
+    }
+
+    // see if there's still some open tantivy files
+    if tantivy_files_still_open(pid) {
+        // if there are, they're probably (hopefully!) from where we the postgres connection
+        // is waiting on merge threads in the background.  So we'll give it 5 seconds and try again
+
+        eprintln!("sleeping for 5s and checking open files again");
+        std::thread::sleep(std::time::Duration::from_secs(5));
+
+        // this time asserting for real
+        assert!(!tantivy_files_still_open(pid));
+    }
 }

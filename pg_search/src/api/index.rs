@@ -291,8 +291,8 @@ pub fn more_like_this_fields(
         max_query_terms: max_query_terms.map(|n| n as usize),
         min_word_length: min_word_length.map(|n| n as usize),
         max_word_length: max_word_length.map(|n| n as usize),
-        boost_factor: boost_factor,
-        stop_words: stop_words,
+        boost_factor,
+        stop_words,
         document_fields: Some(document_fields.into_iter().collect()),
         document_id: None,
     }

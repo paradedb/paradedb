@@ -14,10 +14,8 @@ on:
     paths:
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
-      - "!pg_search/README.md"
-      - "tokenizers/**"
       - "tests/**"
-      - "!tests/README.md"
+      - "tokenizers/**"
   push:
     branches:
       - dev # Also run on dev to fill the GitHub Actions Rust cache in a way that pull requests can see it

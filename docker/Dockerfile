@@ -13,8 +13,7 @@ ARG RUST_VERSION=1.80.0
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
-    RUST_VERSION=${RUST_VERSION} \
-    PGRX_VERSION_PG_VECTOR_SCALE=${PGRX_VERSION_PG_VECTOR_SCALE}
+    RUST_VERSION=${RUST_VERSION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
@@ -56,13 +55,13 @@ RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
 
 FROM builder AS builder-pg_search
 
-ARG POSTHOG_API_KEY
+ARG PUBLIC_POSTHOG_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
-ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+ENV PUBLIC_POSTHOG_KEY=${PUBLIC_POSTHOG_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
@@ -80,13 +79,13 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 
 FROM builder AS builder-pg_analytics
 
-ARG POSTHOG_API_KEY
+ARG PUBLIC_POSTHOG_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG PARADEDB_TELEMETRY
 
 # Declare compile-time environment variables
-ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+ENV PUBLIC_POSTHOG_KEY=${PUBLIC_POSTHOG_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
@@ -211,7 +210,7 @@ RUN apt-get update && \
 
 # Install Postgis and ca-certificates
 # ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
-ENV POSTGIS_VERSION_MAJOR 3
+ENV POSTGIS_VERSION_MAJOR=3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_VERSION_MAJOR \

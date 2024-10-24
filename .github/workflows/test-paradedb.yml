@@ -68,7 +68,7 @@ jobs:
         with:
           context: .
           build-args: |
-            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+            PUBLIC_POSTHOG_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=testcommitsha
             PARADEDB_TELEMETRY=true

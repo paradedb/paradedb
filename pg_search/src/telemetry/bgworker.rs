@@ -168,7 +168,7 @@ pub struct BgWorkerTelemetryConfig {
 impl BgWorkerTelemetryConfig {
     pub fn new(extension_name: &str) -> Result<Self> {
         Ok(Self {
-            posthog_api_key: option_env!("POSTHOG_API_KEY")
+            posthog_api_key: option_env!("PUBLIC_POSTHOG_KEY")
                 .map(|s| s.to_string())
                 .ok_or_else(|| anyhow!("posthog api key missing"))?,
             posthog_host_url: option_env!("POSTHOG_HOST")

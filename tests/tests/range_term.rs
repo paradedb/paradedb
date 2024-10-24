@@ -473,7 +473,7 @@ fn execute_range_test<T>(
                         }
                     };
 
-                    let expected_json: Vec<(i32,)> = match relation {
+                    let result_json: Vec<(i32,)> = match relation {
                         RangeRelation::Contains => {
                             pg_search_contains_json_query(&range, table, field, range_type)
                                 .fetch(conn)
@@ -502,7 +502,7 @@ fn execute_range_test<T>(
 
                     assert_eq!(expected, result, "query failed for range: {:?}", range);
                     assert_eq!(
-                        expected_json, result,
+                        expected, result_json,
                         "json query failed for range: {:?}",
                         range
                     );
@@ -593,11 +593,11 @@ fn pg_search_contains_json_query<T>(
 where
     T: Debug + Display + Clone + PartialEq,
 {
-    let needs_quotes = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let is_datetime = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
     let lower_bound = match range.start {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -605,7 +605,7 @@ where
         ),
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -617,7 +617,7 @@ where
     let upper_bound = match range.end {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -625,7 +625,7 @@ where
         ),
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -641,7 +641,8 @@ where
             "range_contains": {{
                 "field": "{}",
                 "lower_bound": {},
-                "upper_bound": {}
+                "upper_bound": {},
+                "is_datetime": {is_datetime}
             }}
         }}'::jsonb
         ORDER BY delivery_id"#,
@@ -658,11 +659,11 @@ fn pg_search_within_json_query<T>(
 where
     T: Debug + Display + Clone + PartialEq,
 {
-    let needs_quotes = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let is_datetime = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
     let lower_bound = match range.start {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -670,7 +671,7 @@ where
         ),
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -682,7 +683,7 @@ where
     let upper_bound = match range.end {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -690,7 +691,7 @@ where
         ),
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -706,7 +707,8 @@ where
             "range_within": {{
                 "field": "{}",
                 "lower_bound": {},
-                "upper_bound": {}
+                "upper_bound": {},
+                "is_datetime": {is_datetime}
             }}
         }}'::jsonb
         ORDER BY delivery_id"#,
@@ -723,11 +725,11 @@ fn pg_search_intersects_json_query<T>(
 where
     T: Debug + Display + Clone + PartialEq,
 {
-    let needs_quotes = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let is_datetime = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
     let lower_bound = match range.start {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -735,7 +737,7 @@ where
         ),
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -747,7 +749,7 @@ where
     let upper_bound = match range.end {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -755,7 +757,7 @@ where
         ),
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
-            if needs_quotes {
+            if is_datetime {
                 format!(r#""{}""#, val)
             } else {
                 val.to_string()
@@ -771,7 +773,8 @@ where
             "range_intersects": {{
                 "field": "{}",
                 "lower_bound": {},
-                "upper_bound": {}
+                "upper_bound": {},
+                "is_datetime": {is_datetime}
             }}
         }}'::jsonb
         ORDER BY delivery_id"#,

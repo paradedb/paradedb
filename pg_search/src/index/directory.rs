@@ -64,10 +64,11 @@ pub trait SearchFs {
         let path = self.tantivy_dir_path(false)?;
         let mut total_size = 0;
 
-        for entry_result in WalkDir::new(path) {
-            let entry = entry_result?;
+        for entry in WalkDir::new(path).into_iter().flatten() {
             if entry.path().is_file() {
-                total_size += entry.metadata()?.len();
+                if let Ok(metadata) = entry.metadata() {
+                    total_size += metadata.len();
+                }
             }
         }
 

@@ -52,22 +52,40 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
         )?;
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
 
-        let var = nodecast!(Var, T_Var, input_args.get_ptr(0)?)?;
-        let query = nodecast!(Const, T_Const, input_args.get_ptr(1)?).map(|const_| {
+        let lhs = input_args.get_ptr(0)?;
+        let rhs = input_args.get_ptr(1)?;
+
+        let var = nodecast!(Var, T_Var, lhs)?;
+        let (query, param) = if let Some(const_) = nodecast!(Const, T_Const, rhs) {
             // the field name comes from the lhs of the @@@ operator
             let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
-            query
-        });
-
-        if query.is_none() {
+            (Some(query), None)
+        } else if let Some(param) = nodecast!(Param, T_Param, rhs) {
+            (
+                None,
+                Some((
+                    param.cast(),
+                    attname_from_var((*srs).root, var)
+                        .1
+                        .expect("should be able to determine Var name"),
+                )),
+            )
+        } else {
+            // This would happen in situations where the rhs of @@@ is ::TEXT, but not text that can
+            // be evaluated during planning, either as a Const node or a Param node.
+            //
+            // An example of this would be using some kind of volatile function/expression on the rhs:
+            //
+            //    SELECT * FROM t WHERE f @@@ random()::text;
             panic!("when the left side of the `@@@` operator is a column name the right side must be a text literal");
-        }
+        };
 
         Some(make_search_query_input_opexpr_node(
             srs,
             &mut input_args,
             var,
             query,
+            param,
             anyelement_text_opoid(),
             anyelement_text_procoid(),
         ))

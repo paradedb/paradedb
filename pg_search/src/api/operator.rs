@@ -18,6 +18,7 @@
 mod searchqueryinput;
 mod text;
 
+use crate::api::index::{fieldname_typoid, FieldName};
 use crate::postgres::index::open_search_index;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -55,6 +56,17 @@ unsafe impl SqlTranslatable for ReturnedNodePointer {
     }
 }
 
+fn parse_with_field_procoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            // NB:  the SQL signature here needs to match our Rust implementation
+            &[c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)".into_datum()],
+        )
+        .expect("the `paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` function should exist")
+    }
+}
+
 fn anyelement_query_input_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -64,6 +76,7 @@ fn anyelement_query_input_procoid() -> pg_sys::Oid {
         .expect("the `paradedb.search_with_query_input(anyelement, paradedb.searchqueryinput) function should exist")
     }
 }
+
 fn anyelement_text_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -143,6 +156,7 @@ unsafe fn make_search_query_input_opexpr_node(
     input_args: &mut PgList<pg_sys::Node>,
     var: *mut pg_sys::Var,
     query: Option<SearchQueryInput>,
+    parse_with_field: Option<(*mut pg_sys::Node, String)>,
     opoid: pg_sys::Oid,
     procoid: pg_sys::Oid,
 ) -> ReturnedNodePointer {
@@ -225,6 +239,60 @@ unsafe fn make_search_query_input_opexpr_node(
         // and assign it to the original argument list
         input_args.replace_ptr(1, search_query_input_const.cast());
 
+        newopexpr.opno = anyelement_query_input_opoid();
+        newopexpr.opfuncid = anyelement_query_input_procoid();
+    } else if let Some((param, attname)) = parse_with_field {
+        // rewrite the rhs to be a function call to our `paradedb.parse_with_field(...)` function
+        let mut parse_with_field_args = PgList::<pg_sys::Node>::new();
+
+        parse_with_field_args.push(
+            pg_sys::makeConst(
+                fieldname_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                FieldName::from(attname).into_datum().unwrap(),
+                false,
+                false,
+            )
+            .cast(),
+        );
+        parse_with_field_args.push(param.cast());
+        parse_with_field_args.push(
+            pg_sys::makeConst(
+                pg_sys::BOOLOID,
+                -1,
+                pg_sys::Oid::INVALID,
+                size_of::<bool>() as _,
+                pg_sys::Datum::from(false),
+                false,
+                true,
+            )
+            .cast(),
+        );
+        parse_with_field_args.push(
+            pg_sys::makeConst(
+                pg_sys::BOOLOID,
+                -1,
+                pg_sys::Oid::INVALID,
+                size_of::<bool>() as _,
+                pg_sys::Datum::from(false),
+                false,
+                true,
+            )
+            .cast(),
+        );
+
+        let funcexpr = pg_sys::makeFuncExpr(
+            parse_with_field_procoid(),
+            searchqueryinput_typoid(),
+            parse_with_field_args.into_pg(),
+            pg_sys::DEFAULT_COLLATION_OID,
+            pg_sys::DEFAULT_COLLATION_OID,
+            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        );
+
+        input_args.replace_ptr(1, funcexpr.cast());
         newopexpr.opno = anyelement_query_input_opoid();
         newopexpr.opfuncid = anyelement_query_input_procoid();
     } else {

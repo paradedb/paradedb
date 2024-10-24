@@ -101,12 +101,12 @@ jobs:
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      # On dev, we store the benchmark results as artifacts to serve as a comparison point for PRs
-      - name: Store Benchmark Results (dev only)
-        if: github.ref == 'refs/heads/dev'
+      # On `dev` and `main`, we store the benchmark results as artifact to serve as a comparison point for PRs
+      - name: Store Benchmark Results (dev or main, push only)
+        if: (github.ref == 'refs/heads/dev' && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-pg_search-criterion-dev
+          name: benchmark-pg_search-criterion-${{ github.ref_name }}
           path: target/criterion/
 
       - name: Download Benchmark Baseline (PRs only)
@@ -114,18 +114,20 @@ jobs:
         id: download_baseline
         env:
           GH_TOKEN: ${{ github.token }} # Required by `gh`
+        continue-on-error: true # TODO: Remove this once we have a baseline to compare against in `main`
         run: |
-          # We retrieve the latest successful benchmark run ID on `dev` to know which GitHub Artifact to download
+          # We retrieve the latest successful benchmark run ID on `dev` or `main` that is a push event, since we only store artifacts on push,
+          # to know which GitHub Artifact to download
           LATEST_RUN_ID=$(gh api \
             repos/paradedb/paradedb/actions/workflows/benchmark-pg_search.yml/runs \
-            --jq '.workflow_runs[] | select(.head_branch == "dev" and .conclusion == "success") | .id' \
+            --jq '.workflow_runs[] | select(.head_branch == "${{ github.ref_name }}" and .conclusion == "success" and .event == "push") | .id' \
             | head -n 1)
           echo "Latest \`dev\` benchmark-pg_search run ID: $LATEST_RUN_ID"
 
           # This automatically unzips the downloaded artifact, which extracts the output.json file
           gh run download $LATEST_RUN_ID \
             --repo paradedb/paradedb \
-            --name benchmark-pg_search-criterion-dev \
+            --name benchmark-pg_search-criterion-${{ github.ref_name }} \
             --dir ./previous/
           ls -l ./previous/
 

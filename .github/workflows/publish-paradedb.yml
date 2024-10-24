@@ -85,7 +85,7 @@ jobs:
           context: .
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            POSTHOG_API_KEU=${{ secrets.POSTHOG_API_KEY }}
+            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
             PARADEDB_TELEMETRY=true

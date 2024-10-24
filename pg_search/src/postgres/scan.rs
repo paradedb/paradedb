@@ -128,6 +128,8 @@ pub extern "C" fn amrescan(
                 segment_number,
                 &query,
             )
+        } else if pg_sys::ParallelWorkerNumber > -1 {
+            SearchResults::None
         } else {
             search_reader.search_via_channel(
                 need_scores,

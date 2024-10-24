@@ -137,6 +137,7 @@ fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNo
             &mut input_args,
             var,
             query,
+            None,
             anyelement_query_input_opoid(),
             anyelement_query_input_procoid(),
         ))

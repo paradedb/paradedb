@@ -1101,3 +1101,30 @@ async fn prepared_statement_replanning(mut conn: PgConnection) {
             .collect();
     }
 }
+
+#[rstest]
+async fn direct_prepared_statement_replanning(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "PREPARE stmt(text) AS SELECT id FROM paradedb.bm25_search WHERE description @@@ $1"
+        .execute(&mut conn);
+
+    // ensure our plan doesn't change into a sequential scan after the 5th execution
+    for _ in 0..10 {
+        "EXECUTE stmt('keyboard')".fetch_one::<(i32,)>(&mut conn);
+    }
+}
+
+#[rstest]
+async fn direct_prepared_statement_replanning_custom_scan(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "PREPARE stmt(text) AS SELECT paradedb.score(id), id FROM paradedb.bm25_search WHERE description @@@ $1 ORDER BY score desc LIMIT 10"
+        .execute(&mut conn);
+
+    // ensure our plan doesn't change into a sequential scan after the 5th execution
+    for _ in 0..10 {
+        let (score, id) = "EXECUTE stmt('keyboard')".fetch_one::<(f32, i32)>(&mut conn);
+        assert_eq!((score, id), (3.2668595, 2))
+    }
+}

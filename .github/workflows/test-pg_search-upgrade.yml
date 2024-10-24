@@ -135,8 +135,8 @@ jobs:
       - name: Alter pg_search extension to the latest version
         working-directory: pg_search/
         run: |
-          PARADEDB_LATEST_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'ALTER EXTENSION pg_search UPDATE TO "$PARADEDB_LATEST_VERSION";'
+          VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO $VERSION;"
 
       - name: Run pg_search test suite
         working-directory: pg_search/

@@ -34,6 +34,8 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch the entire history
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

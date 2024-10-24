@@ -68,7 +68,6 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
 COPY pg_search/ /tmp/pg_search
-COPY shared/ /tmp/shared
 COPY tokenizers/ /tmp/tokenizers
 
 # Build the extension

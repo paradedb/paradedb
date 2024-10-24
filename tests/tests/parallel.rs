@@ -156,7 +156,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     // Run both tasks concurrently
     join!(task_a, task_b);
 
-    // Stop the timer and ssert that the duration is close to 3 seconds
+    // Stop the timer and assert that the duration is close to 5 seconds
     let duration = start_time.elapsed();
     assert!(
         duration.as_secs() >= 3 && duration.as_secs() < 5,

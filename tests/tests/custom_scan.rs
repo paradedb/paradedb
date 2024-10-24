@@ -28,7 +28,7 @@ use sqlx::PgConnection;
 fn attribute_1_of_table_has_wrong_type(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (id,) = "SELECT id, description FROM paradedb.bm25_search WHERE description @@@ 'keyboard' OR id = 1 ORDER BY id LIMIT 1"
+    let (id, ) = "SELECT id, description FROM paradedb.bm25_search WHERE description @@@ 'keyboard' OR id = 1 ORDER BY id LIMIT 1"
         .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 1);
 }
@@ -95,7 +95,7 @@ fn field_on_left(mut conn: PgConnection) {
 fn table_on_left(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (id,) =
+    let (id, ) =
         "SELECT id FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id ASC"
             .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 1);
@@ -357,4 +357,58 @@ fn join_issue_1826(mut conn: PgConnection) {
     "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
 
     assert_eq!(results[0], (3, "Sleek running shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
+}
+
+/// tests that an ERROR raised in the middle of executing a our custom scan doesn't leave open
+/// tantivy file handles
+#[rstest]
+fn leaky_file_handles(mut conn: PgConnection) {
+    r#"
+        CREATE OR REPLACE FUNCTION raise_exception(int, int) RETURNS bool LANGUAGE plpgsql AS $$
+        DECLARE
+        BEGIN
+            IF $1 = $2 THEN
+                RAISE EXCEPTION 'error! % = %', $1, $2;
+            END IF;
+            RETURN false;
+        END;
+        $$;
+    "#
+    .execute(&mut conn);
+
+    let (pid,) = "SELECT pg_backend_pid()".fetch_one::<(i32,)>(&mut conn);
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // this will raise an error when it hits id #12
+    let result = "SELECT id, paradedb.score(id), raise_exception(id, 12) FROM paradedb.bm25_search WHERE category @@@ 'electronics' ORDER BY paradedb.score(id) DESC, id LIMIT 10"
+        .execute_result(&mut conn);
+    assert!(result.is_err());
+    assert_eq!(
+        "error returned from database: error! 12 = 12",
+        &format!("{}", result.err().unwrap())
+    );
+
+    fn tantivy_files_still_open(pid: i32) -> bool {
+        let output = std::process::Command::new("lsof")
+            .arg("-p")
+            .arg(pid.to_string())
+            .output()
+            .expect("`lsof` command should not fail`");
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        eprintln!("stdout: {}", stdout);
+        stdout.contains("/tantivy/")
+    }
+
+    // see if there's still some open tantivy files
+    if tantivy_files_still_open(pid) {
+        // if there are, they're probably (hopefully!) from where we the postgres connection
+        // is waiting on merge threads in the background.  So we'll give it 5 seconds and try again
+
+        eprintln!("sleeping for 5s and checking open files again");
+        std::thread::sleep(std::time::Duration::from_secs(5));
+
+        // this time asserting for real
+        assert!(!tantivy_files_still_open(pid));
+    }
 }

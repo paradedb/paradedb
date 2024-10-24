@@ -60,6 +60,11 @@ pub struct VisibilityChecker {
 impl Drop for VisibilityChecker {
     fn drop(&mut self) {
         unsafe {
+            if !pg_sys::IsTransactionState() {
+                // we are not in a transaction, so we can't do things like release buffers and close relations
+                return;
+            }
+
             if self.last_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 pg_sys::ReleaseBuffer(self.last_buffer);
             }

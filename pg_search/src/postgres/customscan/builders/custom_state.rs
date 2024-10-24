@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::CustomScan;
-use pgrx::{pg_sys, PgList};
+use pgrx::{pg_sys, PgList, PgMemoryContexts};
 use std::fmt::{Debug, Formatter};
 use std::ptr::addr_of_mut;
 
@@ -122,30 +122,25 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
     }
 
     pub fn build(self) -> *mut CustomScanStateWrapper<CS> {
-        let scan_state = pg_sys::ScanState {
-            ps: pg_sys::PlanState {
-                type_: pg_sys::NodeTag::T_CustomScanState,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
         unsafe {
-            let cssw = pg_sys::palloc(size_of::<CustomScanStateWrapper<CS>>())
-                .cast::<CustomScanStateWrapper<CS>>();
-            (*cssw).csstate = pg_sys::CustomScanState {
-                ss: scan_state,
-                flags: (*self.args.cscan).flags,
-                custom_ps: std::ptr::null_mut(),
-                pscan_len: 0,
-                methods: CS::exec_methods(),
-                #[cfg(any(feature = "pg16", feature = "pg17"))]
-                slotOps: std::ptr::null_mut(),
-            };
-
-            addr_of_mut!((*cssw).custom_state).write(self.custom_state);
-
-            cssw
+            PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(CustomScanStateWrapper {
+                csstate: pg_sys::CustomScanState {
+                    ss: pg_sys::ScanState {
+                        ps: pg_sys::PlanState {
+                            type_: pg_sys::NodeTag::T_CustomScanState,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    flags: (*self.args.cscan).flags,
+                    custom_ps: std::ptr::null_mut(),
+                    pscan_len: 0,
+                    methods: CS::exec_methods(),
+                    #[cfg(any(feature = "pg16", feature = "pg17"))]
+                    slotOps: std::ptr::null_mut(),
+                },
+                custom_state: self.custom_state,
+            })
         }
     }
 }

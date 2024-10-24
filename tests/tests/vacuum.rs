@@ -65,12 +65,3 @@ fn manual_vacuum(mut conn: PgConnection) {
     "update sadvac set id = id;".execute(&mut conn);
     assert_eq!(count_func(&mut conn), ROW_COUNT, "post update after vacuum");
 }
-
-#[rstest]
-fn vacuum_cleans_files(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    "DELETE FROM paradedb.bm25_search".execute(&mut conn);
-    let rows = "SELECT COUNT(*) FROM paradedb.bm25_search".fetch_one::<(i64,)>(&mut conn).0;
-
-}

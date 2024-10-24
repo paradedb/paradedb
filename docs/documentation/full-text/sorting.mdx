@@ -54,7 +54,7 @@ You can verify if an `ORDER BY...LIMIT` was pushed down by running `EXPLAIN` on 
 -- This forces pushdown
 SET enable_indexscan = off;
 
-EXPLAIN SELECT description, paradedb.score(id)
+EXPLAIN SELECT description
 FROM mock_items
 WHERE description @@@ 'shoes'
 ORDER BY rating DESC
@@ -63,8 +63,8 @@ LIMIT 5;
 
 <Accordion title="Expected Response">
 ```csv
-                                                           QUERY PLAN
----------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..34.03 rows=5 width=36)
    ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..34.03 rows=5 width=36)
          Table: mock_items
@@ -73,7 +73,7 @@ LIMIT 5;
             Sort Field: rating
             Sort Direction: desc
             Top N Limit: 5
-         Tantivy Query: {"ParseWithField":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}
+         Tantivy Query: {"WithIndex":{"oid":2073854,"query":{"ParseWithField":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 ```
 </Accordion>

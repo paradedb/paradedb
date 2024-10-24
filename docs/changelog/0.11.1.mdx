@@ -1,0 +1,34 @@
+---
+title: 0.11.1
+---
+
+## Performance Improvements 🚀
+
+### Incredibly Fast Top N by Field
+
+[#1820](https://github.com/paradedb/paradedb/pull/1820) introduced efficient handling of `ORDER BY <field> LIMIT` queries,
+where `<field>` is indexed as a fast field. This optimization is automatically applied by the query planner when these queries are executed.
+
+### `CREATE INDEX` Speedup
+
+Introduced settings to tune the resource usage of `CREATE INDEX`, which can significantly improve index creation times by allowing
+Postgres to use all of the hardware on the host machine.
+
+### Parallel Index Scans
+
+[#1824](https://github.com/paradedb/paradedb/pull/1824) introduced parallel index scans, which improves certain `COUNT(*)` queries
+by 23x in local testing.
+
+## Stability Improvements 💪
+
+### Index Cleanup
+
+`0.11.0` introduced a regression where dead index files were not getting cleaned up, which caused index sizes to balloon. This has been fixed.
+
+### Prepared Statements
+
+Fixed a bug where prepared statements in the form of `field @@@ $1::text` were getting incorrectly parameterized.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.11.1).

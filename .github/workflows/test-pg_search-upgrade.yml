@@ -136,7 +136,7 @@ jobs:
         working-directory: pg_search/
         run: |
           VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO $VERSION;"
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
 
       - name: Run pg_search test suite
         working-directory: pg_search/

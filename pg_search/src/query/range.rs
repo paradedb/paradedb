@@ -12,6 +12,8 @@ use tantivy::{
     Term,
 };
 
+use super::TantivyDateTime;
+
 const EMPTY_KEY: &str = "empty";
 const LOWER_KEY: &str = "lower";
 const UPPER_KEY: &str = "upper";
@@ -221,26 +223,12 @@ where
 pub fn deserialize_date_bound(bound: &Bound<OwnedValue>) -> Result<Bound<OwnedValue>> {
     match bound {
         Bound::Included(OwnedValue::Str(date_string)) => {
-            let date: chrono::DateTime<chrono::Utc> = date_string
-                .parse()
-                .expect("included date string must parse to date");
-            let nanos = date
-                .timestamp_nanos_opt()
-                .expect("included date string must not overflow");
-            Ok(Bound::Included(OwnedValue::Date(
-                DateTime::from_timestamp_nanos(nanos),
-            )))
+            Ok(TantivyDateTime::try_from(date_string.as_str()).map(|dt| OwnedValue::Date(dt.0))?)
+                .map(|v| Bound::Included(v))
         }
         Bound::Excluded(OwnedValue::Str(date_string)) => {
-            let date: chrono::DateTime<chrono::Utc> = date_string
-                .parse()
-                .expect("excluded date string must parse to date");
-            let nanos = date
-                .timestamp_nanos_opt()
-                .expect("excluded date string must not overflow");
-            Ok(Bound::Excluded(OwnedValue::Date(
-                DateTime::from_timestamp_nanos(nanos),
-            )))
+            Ok(TantivyDateTime::try_from(date_string.as_str()).map(|dt| OwnedValue::Date(dt.0))?)
+                .map(|v| Bound::Excluded(v))
         }
         Bound::Unbounded => Ok(Bound::Unbounded),
         other => Err(anyhow!("value must be a string, received: {other:?}")),

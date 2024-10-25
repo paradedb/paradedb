@@ -33,6 +33,9 @@ jobs:
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [13, 14, 15, 16, 17]
 
     steps:
       - name: Checkout Git Repository

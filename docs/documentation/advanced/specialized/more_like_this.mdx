@@ -27,12 +27,13 @@ WHERE id @@@ paradedb.more_like_this(
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.more_like_this(
-  document_fields => '{"description": "shoes"}',
-  min_doc_frequency => 0,
-  max_doc_frequency => 100,
-  min_term_frequency => 1
+document_fields => '{"description": "shoes"}',
+min_doc_frequency => 0,
+max_doc_frequency => 100,
+min_term_frequency => 1
 );
-```
+
+````
 ```sql JSON Syntax
 -- document_id
 SELECT description, rating, category
@@ -57,10 +58,11 @@ WHERE id @@@
         "min_term_frequency": 1
     }
 }'::jsonb;
-```
+````
+
 </CodeGroup>
 
-<div className="mt-8"/>
+<div className="mt-8" />
 
 <ParamField body="document_id">
   The ID of the document to find similar documents to.

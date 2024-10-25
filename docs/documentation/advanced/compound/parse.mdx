@@ -18,10 +18,11 @@ WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear');
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.boolean(should => ARRAY[
-  paradedb.phrase('description', ARRAY['running', 'shoes']),
-  paradedb.term('category', 'footwear')
+paradedb.phrase('description', ARRAY['running', 'shoes']),
+paradedb.term('category', 'footwear')
 ]);
-```
+
+````
 ```sql JSON Syntax
 SELECT description, rating, category
 FROM mock_items
@@ -49,10 +50,11 @@ WHERE id @@@ '{
     ]
   }
 }'::jsonb;
-```
+````
+
 </CodeGroup>
 
-<div className="mt-8"/>
+<div className="mt-8" />
 
 ## Lenient Query Parsing
 
@@ -93,7 +95,8 @@ WHERE id @@@ paradedb.parse('description:speaker category:electronics');
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.parse('description:speaker OR category:electronics');
-```
+
+````
 ```sql JSON Syntax
 SELECT description, rating, category
 FROM mock_items
@@ -112,7 +115,8 @@ WHERE id @@@
         "query_string": "description:speaker OR category:electronics"
     }
 }'::jsonb;
-```
+````
+
 </CodeGroup>
 
 With conjunction_mode set to true, queries are `AND`ed together. This means that the following two queries are equivalent:
@@ -131,7 +135,8 @@ FROM mock_items
 WHERE id @@@ paradedb.parse(
 'description:speaker AND category:electronics'
 );
-```
+
+````
 ```sql JSON Syntax
 SELECT description, rating, category
 FROM mock_items
@@ -151,7 +156,8 @@ WHERE id @@@
         "query_string": "description:speaker AND category:electronics"
     }
 }'::jsonb;
-```
+````
+
 </CodeGroup>
 
 ## Parse with Field

@@ -814,7 +814,7 @@ impl AsFieldType<String> for SearchIndexSchema {
         let search_field = self.key_field();
         let field = search_field.id.0;
         let field_type = self.schema.get_field_entry(field).field_type().clone();
-        (field_type, search_field.typeoid.clone(), field)
+        (field_type, search_field.typeoid, field)
     }
 
     fn fields(&self) -> Vec<(tantivy::schema::FieldType, pg_sys::Oid, Field)> {
@@ -823,7 +823,7 @@ impl AsFieldType<String> for SearchIndexSchema {
             .map(|search_field| {
                 let field = search_field.id.0;
                 let field_type = self.schema.get_field_entry(field).field_type().clone();
-                (field_type, search_field.typeoid.clone(), field)
+                (field_type, search_field.typeoid, field)
             })
             .collect()
     }
@@ -835,7 +835,7 @@ impl AsFieldType<String> for SearchIndexSchema {
             .map(|search_field| {
                 let field = search_field.id.0;
                 let field_type = self.schema.get_field_entry(field).field_type().clone();
-                (field_type, search_field.typeoid.clone(), field)
+                (field_type, search_field.typeoid, field)
             })
     }
 }

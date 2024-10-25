@@ -122,7 +122,7 @@ pub extern "C" fn amrescan(
         let key_field_type = search_index.key_field().type_.into();
 
         let need_scores = search_query_input.contains_more_like_this();
-        let query = search_index.query(&indexrel, &search_query_input, &search_reader);
+        let query = search_index.query(&search_query_input, &search_reader);
         let results = if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
             search_reader.search_segment(need_scores, segment_number, &query)
         } else if pg_sys::ParallelWorkerNumber > -1 {

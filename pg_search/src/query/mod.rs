@@ -22,7 +22,7 @@ use crate::query::range::{Comparison, RangeField};
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, PgBuiltInOids, PgOid, PgRelation, PostgresType};
+use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
 use range::{deserialize_bound, serialize_bound};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
@@ -411,7 +411,7 @@ fn check_range_bounds(
         _ => lower_bound,
     };
 
-    let upper_bound = match (PgOid::from(typeoid), upper_bound.clone()) {
+    let upper_bound = match (typeoid, upper_bound.clone()) {
         // Included U64 needs to be canonicalized
         (_, Bound::Included(OwnedValue::U64(n))) => Bound::Excluded(OwnedValue::U64(n + 1)),
         // Included I64 needs to be canonicalized
@@ -461,7 +461,6 @@ fn check_range_bounds(
 impl SearchQueryInput {
     pub fn into_tantivy_query(
         self,
-        indexrel: &PgRelation,
         field_lookup: &impl AsFieldType<String>,
         parser: &mut QueryParser,
         searcher: &Searcher,
@@ -477,29 +476,29 @@ impl SearchQueryInput {
                 for input in must {
                     subqueries.push((
                         Occur::Must,
-                        input.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
                     ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
+                        input.into_tantivy_query(field_lookup, parser, searcher)?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
+                query.into_tantivy_query(field_lookup, parser, searcher)?,
                 boost,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(indexrel, field_lookup, parser, searcher)?,
+                query.into_tantivy_query(field_lookup, parser, searcher)?,
                 score,
             ))),
             Self::DisjunctionMax {
@@ -508,7 +507,7 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(indexrel, field_lookup, parser, searcher))
+                    .map(|query| query.into_tantivy_query(field_lookup, parser, searcher))
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -773,7 +772,7 @@ impl SearchQueryInput {
                     lenient,
                     conjunction_mode,
                 }
-                .into_tantivy_query(indexrel, field_lookup, parser, searcher)
+                .into_tantivy_query(field_lookup, parser, searcher)
             }
             Self::Phrase {
                 field,
@@ -1524,7 +1523,7 @@ impl SearchQueryInput {
                 Ok(Box::new(TermSetQuery::new(terms)))
             }
             Self::WithIndex { query, .. } => {
-                query.into_tantivy_query(indexrel, field_lookup, parser, searcher)
+                query.into_tantivy_query(field_lookup, parser, searcher)
             }
         }
     }

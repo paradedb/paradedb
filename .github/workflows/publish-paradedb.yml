@@ -29,41 +29,11 @@ permissions:
 
 jobs:
   publish-paradedb-docker-image:
-    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - runner: ubicloud-standard-8
-            pg_version: 13
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 13
-            arch: arm64
-          - runner: ubicloud-standard-8
-            pg_version: 14
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 14
-            arch: arm64
-          - runner: ubicloud-standard-8
-            pg_version: 15
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 15
-            arch: arm64
-          - runner: ubicloud-standard-8
-            pg_version: 16
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 16
-            arch: arm64
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 17
-            arch: arm64
+        pg_version: [13, 14, 15, 16, 17]
 
     steps:
       - name: Checkout Git Repository
@@ -81,6 +51,9 @@ jobs:
             echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           fi
           echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
 
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
       - name: Setup Docker Image tags
@@ -102,7 +75,7 @@ jobs:
 
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
-        uses: docker/build-push-action@v6
+        uses: depot/build-push-action@v1
         with:
           context: .
           build-args: |
@@ -111,9 +84,11 @@ jobs:
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
             PARADEDB_TELEMETRY=true
-          platforms: linux/${{ matrix.arch }}
+          platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance
@@ -125,7 +100,7 @@ jobs:
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         pg_version: [16]

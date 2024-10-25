@@ -32,22 +32,7 @@ permissions:
 jobs:
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          # We have 5 GitHub Actions Large Runners and use a different one for each Docker image build
-          # to avoid timeouts due to excessive load on a single runner.
-          - runner: ubuntu-latest-16-core-1
-            pg_version: 13
-          - runner: ubuntu-latest-16-core-2
-            pg_version: 14
-          - runner: ubuntu-latest-16-core-3
-            pg_version: 15
-          - runner: ubuntu-latest-16-core-4
-            pg_version: 16
-          - runner: ubuntu-latest-16-core-5
-            pg_version: 17
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Git Repository
@@ -66,6 +51,9 @@ jobs:
           fi
           echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
+
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
       - name: Setup Docker Image tags
         id: meta
@@ -78,12 +66,6 @@ jobs:
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == 16 }}
             type=raw,value=latest,enable=${{ matrix.pg_version == 16 }}
 
-      - name: Set up Docker Buildx for Multi-Arch Builds
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container
-          platforms: linux/amd64,linux/arm64
-
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -92,7 +74,7 @@ jobs:
 
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
-        uses: docker/build-push-action@v6
+        uses: depot/build-push-action@v1
         with:
           context: .
           build-args: |
@@ -104,6 +86,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: false # TODO: Reactivate
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
 
       # - name: Sign and Attest Build Provenance
@@ -115,7 +99,7 @@ jobs:
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         pg_version: [16]

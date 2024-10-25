@@ -21,6 +21,11 @@ WHERE id @@@ '{"fuzzy_term": {"field": "description", "value": "shoez"}}'::jsonb
 </Note>
 
 <Note>
+  JSON syntax queries can accept datetime values as strings. To disambiguate these from
+  string values, you should set `"is_datetime": true` in the query parameters.
+</Note>
+
+<Note>
   Unlike the query string syntax, the left-hand side takes a key field instead
   of column name because some query objects can span multiple columns.
 </Note>

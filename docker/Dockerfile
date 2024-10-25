@@ -13,8 +13,7 @@ ARG RUST_VERSION=1.80.0
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
-    RUST_VERSION=${RUST_VERSION} \
-    PGRX_VERSION_PG_VECTOR_SCALE=${PGRX_VERSION_PG_VECTOR_SCALE}
+    RUST_VERSION=${RUST_VERSION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
@@ -211,7 +210,7 @@ RUN apt-get update && \
 
 # Install Postgis and ca-certificates
 # ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
-ENV POSTGIS_VERSION_MAJOR 3
+ENV POSTGIS_VERSION_MAJOR=3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_VERSION_MAJOR \

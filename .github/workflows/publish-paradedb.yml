@@ -28,12 +28,42 @@ permissions:
   attestations: write
 
 jobs:
-  publish-paradedb-container-image:
-    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-2
+  publish-paradedb-docker-image:
+    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        pg_version: [13, 14, 15, 16, 17]
+        include:
+          - runner: ubicloud-standard-8
+            pg_version: 13
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 13
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 14
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 14
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 15
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 15
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 16
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 16
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 17
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 17
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -52,7 +82,7 @@ jobs:
           fi
           echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG Helm chart
+      # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
       - name: Setup Docker Image tags
         id: meta
         uses: docker/metadata-action@v5
@@ -70,15 +100,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Set up Docker Buildx with Build Cloud
-        uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
-          version: lab:latest
-          driver: cloud
-          endpoint: ${{ secrets.DOCKERHUB_USERNAME }}/paradedb
-          install: true
-
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
         uses: docker/build-push-action@v6
@@ -90,7 +111,7 @@ jobs:
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
             PARADEDB_TELEMETRY=true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/${{ matrix.arch }}
           file: docker/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}

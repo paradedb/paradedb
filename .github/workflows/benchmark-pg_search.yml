@@ -7,8 +7,6 @@
 name: Benchmark pg_search
 
 on:
-  schedule:
-    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
@@ -19,11 +17,11 @@ on:
       - "cargo-paradedb/**"
       - "docker/Dockerfile"
       - "pg_search/**"
-      - "!pg_search/README.md"
       - "tokenizers/Cargo.toml"
   push:
-    branches:
-      - dev # Also run on dev to fill the GitHub Actions Rust cache in a way that pull requests can see it
+    branches: # Also run on `dev` and `main` to store benchmark baselines in GitHub Artifacts for PRs to compare against
+      - dev
+      - main
     paths:
       - "**/*.rs"
       - "**/*.toml"
@@ -101,7 +99,7 @@ jobs:
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      # On `dev` and `main`, we store the benchmark results as artifact to serve as a comparison point for PRs
+      # On `dev` and `main`, we store the benchmark results as a GitHub Artifact to serve as a comparison point for PRs
       - name: Store Benchmark Results (dev or main, push only)
         if: (github.ref == 'refs/heads/dev' && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         uses: actions/upload-artifact@v4
@@ -116,28 +114,28 @@ jobs:
           GH_TOKEN: ${{ github.token }} # Required by `gh`
         continue-on-error: true # TODO: Remove this once we have a baseline to compare against in `main`
         run: |
-          # We retrieve the latest successful benchmark run ID on `dev` or `main` that is a push event, since we only store artifacts on push,
-          # to know which GitHub Artifact to download
+          # Benchmark baselines are stored on `push` events on `dev` and `main` in GitHub Artifacts. Retrieve the last successful run ID for such runs.
           LATEST_RUN_ID=$(gh api \
             repos/paradedb/paradedb/actions/workflows/benchmark-pg_search.yml/runs \
-            --jq '.workflow_runs[] | select(.head_branch == "${{ github.ref_name }}" and .conclusion == "success" and .event == "push") | .id' \
+            --jq '.workflow_runs[] | select(.head_branch == "${{ github.base_ref }}" and .conclusion == "success" and .event == "push") | .id' \
             | head -n 1)
-          echo "Latest \`dev\` benchmark-pg_search run ID: $LATEST_RUN_ID"
+          echo "Latest \`${{ github.base_ref }}\` benchmark-pg_search run ID: $LATEST_RUN_ID"
 
-          # This automatically unzips the downloaded artifact, which extracts the output.json file
+          # This automatically unzips the downloaded GitHub Artifact, which extracts the target/criterion/ folder
           gh run download $LATEST_RUN_ID \
             --repo paradedb/paradedb \
-            --name benchmark-pg_search-criterion-${{ github.ref_name }} \
+            --name benchmark-pg_search-criterion-${{ github.base_ref }} \
             --dir ./previous/
           ls -l ./previous/
 
+      # TODO: The critcmp command never manages to find changes
       - name: Compare Benchmark Results (PRs only)
         if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
         id: compare_benchmarks
         continue-on-error: true # This is necessary as critcmp will error if there are no changes
         run: |
           cargo install -j $(nproc) --locked critcmp --debug
-          result=$(critcmp ./previous/ target/criterion/)
+          result=$(critcmp "./previous/Search Query/bench_eslogs_query_search_index/new/" "target/criterion/Search Query/bench_eslogs_query_search_index/new/")
           echo "Generating GitHub comment message"
           {
             echo 'DIFF<<EOF'

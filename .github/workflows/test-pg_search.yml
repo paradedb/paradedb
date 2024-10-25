@@ -17,8 +17,9 @@ on:
       - "tests/**"
       - "tokenizers/**"
   push:
-    branches:
-      - dev # Also run on dev to fill the GitHub Actions Rust cache in a way that pull requests can see it
+    branches: # Also run on `dev` and `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
+      - dev
+      - main
     paths:
       - "**/*.rs"
       - "**/*.toml"

@@ -11,6 +11,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - phil/docker # TODO: Remove once done testing
   workflow_dispatch:
     inputs:
       version:
@@ -29,41 +31,11 @@ permissions:
 
 jobs:
   publish-paradedb-docker-image:
-    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubicloud-standard-16-arm
     strategy:
       matrix:
-        include:
-          - runner: ubicloud-standard-8
-            pg_version: 13
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 13
-            arch: arm64
-          - runner: ubicloud-standard-8
-            pg_version: 14
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 14
-            arch: arm64
-          - runner: ubicloud-standard-8
-            pg_version: 15
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 15
-            arch: arm64
-          - runner: ubicloud-standard-8
-            pg_version: 16
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 16
-            arch: arm64
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
-          - runner: ubicloud-standard-8-arm
-            pg_version: 17
-            arch: arm64
+        pg_version: [13, 14, 15, 16, 17]
 
     steps:
       - name: Checkout Git Repository
@@ -111,17 +83,18 @@ jobs:
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
             PARADEDB_TELEMETRY=true
-          platforms: linux/${{ matrix.arch }}
+          platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
-          push: true
+          push: false # TODO: True once done testing
           tags: ${{ steps.meta.outputs.tags }}
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: index.docker.io/paradedb/paradedb
-          subject-digest: ${{ steps.build-push.outputs.digest }}
-          push-to-registry: true
+      # TODO: Reactivate once done testing
+      # - name: Sign and Attest Build Provenance
+      #   uses: actions/attest-build-provenance@v1
+      #   with:
+      #     subject-name: index.docker.io/paradedb/paradedb
+      #     subject-digest: ${{ steps.build-push.outputs.digest }}
+      #     push-to-registry: true
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}

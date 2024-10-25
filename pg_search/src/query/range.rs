@@ -1,18 +1,15 @@
 use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::ops::Bound;
-use tantivy::DateTime;
 use tantivy::{
     query::{RangeQuery, RegexQuery, TermQuery},
     schema::{Field, OwnedValue},
     Term,
 };
-
-use super::TantivyDateTime;
 
 const EMPTY_KEY: &str = "empty";
 const LOWER_KEY: &str = "lower";
@@ -153,7 +150,6 @@ impl RangeField {
 /// By default, Rust would serialize the `Bound` enum using its variant names,
 /// but we want to control the output format to ensure that keys like "included",
 /// "excluded", and "unbounded" appear in lowercase.
-#[allow(dead_code)] // improperly reported as dead code
 pub fn serialize_bound<S, T>(bound: &Bound<T>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -196,9 +192,6 @@ where
 {
     // First, deserialize into a `serde_json::Value`.
     let value: Value = Value::deserialize(deserializer)?;
-    if value.as_str() == Some("Unbounded") {
-        return Ok(Bound::Unbounded);
-    }
 
     // Try to deserialize using lowercase keys.
     if let Ok(bound) = LowercaseBoundDef::deserialize(value.clone()) {
@@ -218,293 +211,6 @@ where
         CapitalizedBoundDef::Excluded { Excluded } => Ok(Bound::Excluded(Excluded)),
         CapitalizedBoundDef::Unbounded => Ok(Bound::Unbounded),
     }
-}
-
-pub fn deserialize_date_bound(bound: &Bound<OwnedValue>) -> Result<Bound<OwnedValue>> {
-    match bound {
-        Bound::Included(OwnedValue::Str(date_string)) => {
-            Ok(TantivyDateTime::try_from(date_string.as_str()).map(|dt| OwnedValue::Date(dt.0))?)
-                .map(|v| Bound::Included(v))
-        }
-        Bound::Excluded(OwnedValue::Str(date_string)) => {
-            Ok(TantivyDateTime::try_from(date_string.as_str()).map(|dt| OwnedValue::Date(dt.0))?)
-                .map(|v| Bound::Excluded(v))
-        }
-        Bound::Unbounded => Ok(Bound::Unbounded),
-        other => Err(anyhow!("value must be a string, received: {other:?}")),
-    }
-}
-
-pub fn canonicalize_tantivy_lower_bound(bound: &Bound<OwnedValue>) -> Bound<OwnedValue> {
-    let one_day_nanos: i64 = 86_400_000_000_000;
-    match bound {
-        Bound::Excluded(OwnedValue::U64(i)) => Bound::Included(OwnedValue::U64(i + 1)),
-        Bound::Excluded(OwnedValue::I64(i)) => Bound::Included(OwnedValue::I64(i + 1)),
-        Bound::Excluded(OwnedValue::Date(date)) => Bound::Included(OwnedValue::Date(
-            DateTime::from_timestamp_nanos(date.into_timestamp_nanos() + one_day_nanos),
-        )),
-        other => other.clone(),
-    }
-}
-
-pub fn canonicalize_tantivy_upper_bound(bound: &Bound<OwnedValue>) -> Bound<OwnedValue> {
-    let one_day_nanos: i64 = 86_400_000_000_000;
-    pgrx::log!("UPPER BOUND: {bound:?}");
-    match bound {
-        Bound::Included(OwnedValue::U64(i)) => Bound::Excluded(OwnedValue::U64(i + 1)),
-        Bound::Included(OwnedValue::I64(i)) => Bound::Excluded(OwnedValue::I64(i + 1)),
-        Bound::Included(OwnedValue::Date(date)) => Bound::Excluded(OwnedValue::Date(
-            DateTime::from_timestamp_nanos(date.into_timestamp_nanos() + one_day_nanos),
-        )),
-        other => other.clone(),
-    }
-}
-
-pub fn canonicalize_lower_bound_u64(bound: &Bound<u64>) -> Bound<u64> {
-    match bound {
-        Bound::Excluded(excluded) => Bound::Included(excluded + 1),
-        other => other.clone(),
-    }
-}
-
-pub fn canonicalize_upper_bound_u64(bound: &Bound<u64>) -> Bound<u64> {
-    match bound {
-        Bound::Included(included) => Bound::Excluded(included + 1),
-        other => other.clone(),
-    }
-}
-
-pub fn deserialize_range<'de, D>(
-    deserializer: D,
-) -> Result<
-    (
-        String,
-        Bound<tantivy::schema::OwnedValue>,
-        Bound<tantivy::schema::OwnedValue>,
-        bool,
-    ),
-    D::Error,
->
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    struct RangeHelper {
-        field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<tantivy::schema::OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    }
-    let mut helper = RangeHelper::deserialize(deserializer)?;
-
-    if helper.is_datetime {
-        helper.lower_bound = deserialize_date_bound(&helper.lower_bound)
-            .expect("must be able to deserialize date in lower_bound");
-        helper.upper_bound = deserialize_date_bound(&helper.upper_bound)
-            .expect("must be able to deserialize date in upper_bound");
-    }
-
-    helper.lower_bound = canonicalize_tantivy_lower_bound(&helper.lower_bound);
-    helper.upper_bound = canonicalize_tantivy_upper_bound(&helper.upper_bound);
-
-    Ok((
-        helper.field,
-        helper.lower_bound,
-        helper.upper_bound,
-        helper.is_datetime,
-    ))
-}
-
-pub fn deserialize_range_contains<'de, D>(
-    deserializer: D,
-) -> Result<
-    (
-        String,
-        Bound<tantivy::schema::OwnedValue>,
-        Bound<tantivy::schema::OwnedValue>,
-        bool,
-    ),
-    D::Error,
->
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    struct RangeHelper {
-        field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<tantivy::schema::OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    }
-
-    let mut helper = RangeHelper::deserialize(deserializer)?;
-
-    if helper.is_datetime {
-        helper.lower_bound = deserialize_date_bound(&helper.lower_bound)
-            .expect("must be able to deserialize date in lower_bound");
-        helper.upper_bound = deserialize_date_bound(&helper.upper_bound)
-            .expect("must be able to deserialize date in upper_bound");
-    }
-
-    helper.lower_bound = canonicalize_tantivy_lower_bound(&helper.lower_bound);
-    helper.upper_bound = canonicalize_tantivy_upper_bound(&helper.upper_bound);
-
-    Ok((
-        helper.field,
-        helper.lower_bound,
-        helper.upper_bound,
-        helper.is_datetime,
-    ))
-}
-
-pub fn deserialize_range_intersects<'de, D>(
-    deserializer: D,
-) -> Result<
-    (
-        String,
-        Bound<tantivy::schema::OwnedValue>,
-        Bound<tantivy::schema::OwnedValue>,
-        bool,
-    ),
-    D::Error,
->
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    struct RangeHelper {
-        field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<tantivy::schema::OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    }
-
-    let mut helper = RangeHelper::deserialize(deserializer)?;
-
-    if helper.is_datetime {
-        helper.lower_bound = deserialize_date_bound(&helper.lower_bound)
-            .expect("must be able to deserialize date in lower_bound");
-        helper.upper_bound = deserialize_date_bound(&helper.upper_bound)
-            .expect("must be able to deserialize date in upper_bound");
-    }
-
-    helper.lower_bound = canonicalize_tantivy_lower_bound(&helper.lower_bound);
-    helper.upper_bound = canonicalize_tantivy_upper_bound(&helper.upper_bound);
-
-    Ok((
-        helper.field,
-        helper.lower_bound,
-        helper.upper_bound,
-        helper.is_datetime,
-    ))
-}
-
-pub fn deserialize_range_within<'de, D>(
-    deserializer: D,
-) -> Result<
-    (
-        String,
-        Bound<tantivy::schema::OwnedValue>,
-        Bound<tantivy::schema::OwnedValue>,
-        bool,
-    ),
-    D::Error,
->
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    struct RangeHelper {
-        field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<tantivy::schema::OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    }
-
-    let mut helper = RangeHelper::deserialize(deserializer)?;
-
-    if helper.is_datetime {
-        helper.lower_bound = deserialize_date_bound(&helper.lower_bound)
-            .expect("must be able to deserialize date in lower_bound");
-        helper.upper_bound = deserialize_date_bound(&helper.upper_bound)
-            .expect("must be able to deserialize date in upper_bound");
-    }
-
-    helper.lower_bound = canonicalize_tantivy_lower_bound(&helper.lower_bound);
-    helper.upper_bound = canonicalize_tantivy_upper_bound(&helper.upper_bound);
-
-    Ok((
-        helper.field,
-        helper.lower_bound,
-        helper.upper_bound,
-        helper.is_datetime,
-    ))
-}
-
-pub fn deserialize_fast_field_range_weight<'de, D>(
-    deserializer: D,
-) -> Result<(String, Bound<u64>, Bound<u64>), D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    struct FastFieldRangeHelper {
-        field: String,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<u64>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<u64>,
-    }
-
-    let helper = FastFieldRangeHelper::deserialize(deserializer)?;
-
-    Ok((
-        helper.field,
-        canonicalize_lower_bound_u64(&helper.lower_bound),
-        canonicalize_upper_bound_u64(&helper.upper_bound),
-    ))
 }
 
 // Define Lowercase and Capitalized variants to support both cases.

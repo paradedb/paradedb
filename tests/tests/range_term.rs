@@ -500,6 +500,12 @@ fn execute_range_test<T>(
                         }
                     };
 
+                    println!(
+                        "expected: {expected:?}, {result:?} {} {}",
+                        postgres_contains_query(&range, table, field, range_type),
+                        pg_search_contains_query(&range, table, field, range_type),
+                    );
+
                     assert_eq!(expected, result, "query failed for range: {:?}", range);
                     assert_eq!(
                         expected, result_json,
@@ -641,8 +647,7 @@ where
             "range_contains": {{
                 "field": "{}",
                 "lower_bound": {},
-                "upper_bound": {},
-                "is_datetime": {is_datetime}
+                "upper_bound": {}
             }}
         }}'::jsonb
         ORDER BY delivery_id"#,
@@ -707,8 +712,7 @@ where
             "range_within": {{
                 "field": "{}",
                 "lower_bound": {},
-                "upper_bound": {},
-                "is_datetime": {is_datetime}
+                "upper_bound": {}
             }}
         }}'::jsonb
         ORDER BY delivery_id"#,
@@ -773,8 +777,7 @@ where
             "range_intersects": {{
                 "field": "{}",
                 "lower_bound": {},
-                "upper_bound": {},
-                "is_datetime": {is_datetime}
+                "upper_bound": {}
             }}
         }}'::jsonb
         ORDER BY delivery_id"#,

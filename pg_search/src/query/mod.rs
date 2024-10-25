@@ -17,17 +17,16 @@
 
 mod range;
 
+use crate::postgres::utils::convert_pg_date_string;
 use crate::query::range::{Comparison, RangeField};
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, PgRelation, PostgresType};
-use range::{
-    deserialize_fast_field_range_weight, deserialize_range, deserialize_range_contains,
-    deserialize_range_intersects, deserialize_range_within,
-};
+use pgrx::{pg_sys, PgBuiltInOids, PgOid, PgRelation, PostgresType};
+use range::{deserialize_bound, serialize_bound};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
+use tantivy::DateTime;
 use tantivy::{
     collector::DocSetCollector,
     json_utils::split_json_path,
@@ -76,10 +75,17 @@ pub enum SearchQueryInput {
     Exists {
         field: String,
     },
-    #[serde(deserialize_with = "deserialize_fast_field_range_weight")]
     FastFieldRangeWeight {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<u64>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<u64>,
     },
     FuzzyTerm {
@@ -130,26 +136,47 @@ pub enum SearchQueryInput {
         phrases: Vec<String>,
         max_expansions: Option<u32>,
     },
-    #[serde(deserialize_with = "deserialize_range")]
     Range {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
     },
-    #[serde(deserialize_with = "deserialize_range_contains")]
     RangeContains {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
     },
-    #[serde(deserialize_with = "deserialize_range_intersects")]
     RangeIntersects {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
@@ -160,10 +187,17 @@ pub enum SearchQueryInput {
         #[serde(default)]
         is_datetime: bool,
     },
-    #[serde(deserialize_with = "deserialize_range_within")]
     RangeWithin {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
         #[serde(default)]
         is_datetime: bool,
@@ -310,6 +344,120 @@ pub trait AsFieldType<T> {
     }
 }
 
+fn is_datetime_typeoid(typeoid: PgOid) -> bool {
+    matches!(
+        typeoid,
+        PgOid::BuiltIn(
+            PgBuiltInOids::DATEOID
+                | PgBuiltInOids::DATERANGEOID
+                | PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | PgBuiltInOids::TSTZRANGEOID
+                | PgBuiltInOids::TIMEOID
+                | PgBuiltInOids::TIMETZOID
+        )
+    )
+}
+
+fn check_range_bounds(
+    typeoid: PgOid,
+    lower_bound: Bound<OwnedValue>,
+    upper_bound: Bound<OwnedValue>,
+) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>)> {
+    let one_day_nanos: i64 = 86_400_000_000_000;
+    let lower_bound = match (typeoid, lower_bound.clone()) {
+        // Excluded U64 needs to be canonicalized
+        (_, Bound::Excluded(OwnedValue::U64(n))) => Bound::Included(OwnedValue::U64(n + 1)),
+        // Excluded I64 needs to be canonicalized
+        (_, Bound::Excluded(OwnedValue::I64(n))) => Bound::Included(OwnedValue::I64(n + 1)),
+        // Excluded Date needs to be canonicalized
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            let nanos = datetime.into_timestamp_nanos();
+            Bound::Included(OwnedValue::Date(DateTime::from_timestamp_nanos(
+                nanos + one_day_nanos,
+            )))
+        }
+        (
+            PgOid::BuiltIn(
+                PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | pg_sys::BuiltinOid::TSTZRANGEOID,
+            ),
+            Bound::Excluded(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            Bound::Excluded(OwnedValue::Date(datetime))
+        }
+        (
+            PgOid::BuiltIn(
+                PgBuiltInOids::DATEOID
+                | PgBuiltInOids::DATERANGEOID
+                | PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | pg_sys::BuiltinOid::TSTZRANGEOID,
+            ),
+            Bound::Included(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            Bound::Included(OwnedValue::Date(datetime))
+        }
+        _ => lower_bound,
+    };
+
+    let upper_bound = match (PgOid::from(typeoid), upper_bound.clone()) {
+        // Included U64 needs to be canonicalized
+        (_, Bound::Included(OwnedValue::U64(n))) => Bound::Excluded(OwnedValue::U64(n + 1)),
+        // Included I64 needs to be canonicalized
+        (_, Bound::Included(OwnedValue::I64(n))) => Bound::Excluded(OwnedValue::I64(n + 1)),
+        // Included Date needs to be canonicalized
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
+            Bound::Included(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            let nanos = datetime.into_timestamp_nanos();
+            Bound::Excluded(OwnedValue::Date(DateTime::from_timestamp_nanos(
+                nanos + one_day_nanos,
+            )))
+        }
+        (
+            PgOid::BuiltIn(
+                PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | pg_sys::BuiltinOid::TSTZRANGEOID,
+            ),
+            Bound::Included(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            Bound::Included(OwnedValue::Date(datetime))
+        }
+        (
+            PgOid::BuiltIn(
+                PgBuiltInOids::DATEOID
+                | PgBuiltInOids::DATERANGEOID
+                | PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | pg_sys::BuiltinOid::TSTZRANGEOID,
+            ),
+            Bound::Excluded(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            Bound::Excluded(OwnedValue::Date(datetime))
+        }
+        _ => upper_bound,
+    };
+    Ok((lower_bound, upper_bound))
+}
+
 impl SearchQueryInput {
     pub fn into_tantivy_query(
         self,
@@ -408,14 +556,13 @@ impl SearchQueryInput {
                 prefix,
             } => {
                 let (field, path) = split_field_and_path(&field);
-                let (field_type, field_oid, field) = field_lookup
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let term = value_to_term(
                     field,
                     &OwnedValue::Str(value),
                     &field_type,
-                    &field_oid,
                     path.as_deref(),
                     false,
                 )?;
@@ -449,7 +596,7 @@ impl SearchQueryInput {
                 let match_all_terms = match_all_terms.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
 
-                let (field_type, field_oid, field) = field_lookup
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
 
@@ -463,7 +610,6 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(token),
                         &field_type,
-                        &field_oid,
                         path.as_deref(),
                         false,
                     )?;
@@ -528,9 +674,8 @@ impl SearchQueryInput {
 
                 match (document_id, document_fields) {
                     (Some(key_value), None) => {
-                        let (field_type, field_oid, field) = field_lookup.key_field();
-                        let term =
-                            value_to_term(field, &key_value, &field_type, &field_oid, None, false)?;
+                        let (field_type, _, field) = field_lookup.key_field();
+                        let term = value_to_term(field, &key_value, &field_type, None, false)?;
                         let query: Box<dyn Query> =
                             Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
                         let addresses = searcher.search(&query, &DocSetCollector)?;
@@ -576,7 +721,7 @@ impl SearchQueryInput {
                 max_expansions,
             } => {
                 let (field, path) = split_field_and_path(&field);
-                let (field_type, field_oid, field) = field_lookup
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
@@ -584,7 +729,6 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(phrase),
                         &field_type,
-                        &field_oid,
                         path.as_deref(),
                         false,
                     )
@@ -637,7 +781,7 @@ impl SearchQueryInput {
                 slop,
             } => {
                 let (field, path) = split_field_and_path(&field);
-                let (field_type, field_oid, field) = field_lookup
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
@@ -645,7 +789,6 @@ impl SearchQueryInput {
                         field,
                         &OwnedValue::Str(phrase),
                         &field_type,
-                        &field_oid,
                         path.as_deref(),
                         false,
                     )
@@ -665,16 +808,19 @@ impl SearchQueryInput {
             } => {
                 let (field, path) = split_field_and_path(&field);
                 let field_name = field;
-                let (field_type, field_oid, field) = field_lookup
+                let (field_type, typeoid, field) = field_lookup
                     .as_field_type(&field_name)
                     .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+
+                let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                let (lower_bound, upper_bound) =
+                    check_range_bounds(PgOid::from(typeoid), lower_bound, upper_bound)?;
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => Bound::Included(value_to_term(
                         field,
                         &value,
                         &field_type,
-                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?),
@@ -682,7 +828,6 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
-                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?),
@@ -694,7 +839,6 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
-                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?),
@@ -702,7 +846,6 @@ impl SearchQueryInput {
                         field,
                         &value,
                         &field_type,
-                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?),
@@ -717,6 +860,14 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
+                let (_, typeoid, _) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
+
+                let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                let (lower_bound, upper_bound) =
+                    check_range_bounds(PgOid::from(typeoid), lower_bound, upper_bound)?;
+
                 let range_field = RangeField::new(
                     field_lookup
                         .as_json_object(&field)
@@ -867,7 +1018,16 @@ impl SearchQueryInput {
                 lower_bound,
                 upper_bound,
                 is_datetime,
+                ..
             } => {
+                let (_, typeoid, _) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
+
+                let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                let (lower_bound, upper_bound) =
+                    check_range_bounds(PgOid::from(typeoid), lower_bound, upper_bound)?;
+
                 let range_field = RangeField::new(
                     field_lookup
                         .as_json_object(&field)
@@ -1138,6 +1298,14 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
+                let (_, typeoid, _) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
+
+                let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                let (lower_bound, upper_bound) =
+                    check_range_bounds(PgOid::from(typeoid), lower_bound, upper_bound)?;
+
                 let range_field = RangeField::new(
                     field_lookup
                         .as_json_object(&field)
@@ -1311,26 +1479,22 @@ impl SearchQueryInput {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
                     let (field, path) = split_field_and_path(&field);
-                    let (field_type, field_oid, field) = field_lookup
+                    let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(
-                        field,
-                        &value,
-                        &field_type,
-                        &field_oid,
-                        path.as_deref(),
-                        is_datetime,
-                    )?;
+
+                    let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                    let term =
+                        value_to_term(field, &value, &field_type, path.as_deref(), is_datetime)?;
 
                     Ok(Box::new(TermQuery::new(term, record_option.into())))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
-                    for (field_type, field_oid, field) in all_fields {
+                    for (field_type, _, field) in all_fields {
                         if let Ok(term) =
-                            value_to_term(field, &value, &field_type, &field_oid, None, is_datetime)
+                            value_to_term(field, &value, &field_type, None, is_datetime)
                         {
                             terms.push(term);
                         }
@@ -1343,14 +1507,15 @@ impl SearchQueryInput {
                 let mut terms = vec![];
                 for (field_name, field_value, is_datetime) in fields {
                     let (_, path) = split_field_and_path(&field_name);
-                    let (field_type, field_oid, field) = field_lookup
+                    let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
+
+                    let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
                     terms.push(value_to_term(
                         field,
                         &field_value,
                         &field_type,
-                        &field_oid,
                         path.as_deref(),
                         is_datetime,
                     )?);
@@ -1416,7 +1581,6 @@ pub fn value_to_term(
     field: Field,
     value: &OwnedValue,
     field_type: &FieldType,
-    _field_oid: &pg_sys::Oid,
     path: Option<&str>,
     is_datetime: bool,
 ) -> Result<Term, Box<dyn std::error::Error>> {

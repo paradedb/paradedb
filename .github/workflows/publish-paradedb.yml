@@ -32,10 +32,22 @@ permissions:
 jobs:
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubuntu-latest-16cores # GitHub-hosted Large Runner defined in the paradedb top-level GitHub organization
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        pg_version: [13, 14, 15, 16, 17]
+        include:
+          # We have 5 GitHub Actions Large Runners and use a different one for each Docker image build
+          # to avoid timeouts due to excessive load on a single runner.
+          - runner: ubuntu-latest-16-core-1
+            pg_version: 13
+          - runner: ubuntu-latest-16-core-2
+            pg_version: 14
+          - runner: ubuntu-latest-16-core-3
+            pg_version: 15
+          - runner: ubuntu-latest-16-core-4
+            pg_version: 16
+          - runner: ubuntu-latest-16-core-5
+            pg_version: 17
 
     steps:
       - name: Checkout Git Repository
@@ -65,6 +77,12 @@ jobs:
             type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == 16 }}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == 16 }}
             type=raw,value=latest,enable=${{ matrix.pg_version == 16 }}
+
+      - name: Set up Docker Buildx for Multi-Arch Builds
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          platforms: linux/amd64,linux/arm64
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3

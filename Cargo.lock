@@ -2983,7 +2983,6 @@ dependencies = [
  "os_info",
  "parking_lot",
  "pgrx",
- "regex",
  "reqwest 0.11.27",
  "rstest 0.23.0",
  "rustc-hash",

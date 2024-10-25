@@ -348,25 +348,6 @@ pub fn parse(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn parse_json(query_json: JsonB) -> SearchQueryInput {
-    serde_path_to_error::deserialize(query_json.0).unwrap_or_else(|err| {
-        panic!(
-            r#"error parsing search query input json at "{}": {}"#,
-            err.path(),
-            match err.inner().to_string() {
-                msg if msg.contains("expected unit") => {
-                    format!(
-                        r#"invalid type: map, pass null as value for "{}""#,
-                        err.path()
-                    )
-                }
-                msg => msg,
-            }
-        )
-    })
-}
-
-#[pg_extern(immutable, parallel_safe)]
 pub fn parse_with_field(
     field: FieldName,
     query_string: String,

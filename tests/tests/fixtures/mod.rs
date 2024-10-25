@@ -41,7 +41,7 @@ pub fn conn(database: Db) -> PgConnection {
 
         // You can hijack a test run to debug, like so:
         // let mut conn = <PgConnection as sqlx::Connection>::connect(
-        //     "<database-url>",
+        //     "postgres://neilhansen@localhost:5432/postgres",
         // )
         // .await
         // .unwrap();

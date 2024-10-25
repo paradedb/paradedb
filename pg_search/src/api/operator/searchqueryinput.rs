@@ -50,7 +50,7 @@ pub fn search_with_query_input(
                 _ => panic!("the SeachQueryInput must be wrapped in a WithIndex variant"),
             }
         };
-        let search_index = open_search_index(unsafe {
+        let indexrel = unsafe {
             &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         })
         .expect("should be able to open search index");

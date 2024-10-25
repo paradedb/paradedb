@@ -24,13 +24,12 @@ use crate::schema::{
 };
 pub use directory::*;
 pub use index::*;
-use pgrx::{pg_sys::BuiltinOid, PgOid};
 pub use rstest::*;
 use serde_json::json;
 
 #[fixture]
 pub fn simple_schema(
-    default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType, PgOid)>,
+    default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
 ) -> SearchIndexSchema {
     // As defined in the default_fields fixture, the key_field is the first
     // entry in the vectory.
@@ -65,131 +64,58 @@ pub fn mock_dir() -> MockWriterDirectory {
 }
 
 #[fixture]
-pub fn default_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType, PgOid)> {
+pub fn default_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
     let text: SearchFieldConfig = serde_json::from_value(json!({"Text": {}})).unwrap();
     let numeric: SearchFieldConfig = serde_json::from_value(json!({"Numeric": {}})).unwrap();
     let json: SearchFieldConfig = serde_json::from_value(json!({"Json": {}})).unwrap();
     let boolean: SearchFieldConfig = serde_json::from_value(json!({"Boolean": {}})).unwrap();
     vec![
-        (
-            "id".into(),
-            numeric.clone(),
-            SearchFieldType::I64,
-            PgOid::BuiltIn(BuiltinOid::INT8OID),
-        ),
-        (
-            "ctid".into(),
-            SearchFieldConfig::Ctid,
-            SearchFieldType::U64,
-            PgOid::BuiltIn(BuiltinOid::TIDOID),
-        ),
-        (
-            "description".into(),
-            text.clone(),
-            SearchFieldType::Text,
-            PgOid::BuiltIn(BuiltinOid::TEXTOID),
-        ),
-        (
-            "rating".into(),
-            numeric.clone(),
-            SearchFieldType::I64,
-            PgOid::BuiltIn(BuiltinOid::INT8OID),
-        ),
-        (
-            "category".into(),
-            text.clone(),
-            SearchFieldType::Text,
-            PgOid::BuiltIn(BuiltinOid::TEXTOID),
-        ),
-        (
-            "in_stock".into(),
-            boolean.clone(),
-            SearchFieldType::Bool,
-            PgOid::BuiltIn(BuiltinOid::BOOLOID),
-        ),
-        (
-            "metadata".into(),
-            json.clone(),
-            SearchFieldType::Json,
-            PgOid::BuiltIn(BuiltinOid::JSONBOID),
-        ),
+        ("id".into(), numeric.clone(), SearchFieldType::I64),
+        ("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64),
+        ("description".into(), text.clone(), SearchFieldType::Text),
+        ("rating".into(), numeric.clone(), SearchFieldType::I64),
+        ("category".into(), text.clone(), SearchFieldType::Text),
+        ("in_stock".into(), boolean.clone(), SearchFieldType::Bool),
+        ("metadata".into(), json.clone(), SearchFieldType::Json),
     ]
 }
 
 #[fixture]
-pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType, PgOid)> {
+pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
     let text: SearchFieldConfig =
         serde_json::from_value(json!({"Text": {"tokenizer": {"type": "chinese_compatible"}}}))
             .unwrap();
     let numeric: SearchFieldConfig = serde_json::from_value(json!({"Numeric": {}})).unwrap();
     let json: SearchFieldConfig = serde_json::from_value(json!({"Json": {}})).unwrap();
     vec![
-        (
-            "id".into(),
-            numeric.clone(),
-            SearchFieldType::I64,
-            PgOid::BuiltIn(BuiltinOid::INT8OID),
-        ),
-        (
-            "ctid".into(),
-            SearchFieldConfig::Ctid,
-            SearchFieldType::U64,
-            PgOid::BuiltIn(BuiltinOid::TIDOID),
-        ),
-        (
-            "author".into(),
-            text.clone(),
-            SearchFieldType::Text,
-            PgOid::BuiltIn(BuiltinOid::TEXTOID),
-        ),
-        (
-            "title".into(),
-            text.clone(),
-            SearchFieldType::Text,
-            PgOid::BuiltIn(BuiltinOid::TEXTOID),
-        ),
-        (
-            "message".into(),
-            numeric.clone(),
-            SearchFieldType::I64,
-            PgOid::BuiltIn(BuiltinOid::INT8OID),
-        ),
-        (
-            "content".into(),
-            json.clone(),
-            SearchFieldType::Json,
-            PgOid::BuiltIn(BuiltinOid::JSONBOID),
-        ),
-        (
-            "like_count".into(),
-            numeric.clone(),
-            SearchFieldType::I64,
-            PgOid::BuiltIn(BuiltinOid::INT8OID),
-        ),
+        ("id".into(), numeric.clone(), SearchFieldType::I64),
+        ("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64),
+        ("author".into(), text.clone(), SearchFieldType::Text),
+        ("title".into(), text.clone(), SearchFieldType::Text),
+        ("message".into(), numeric.clone(), SearchFieldType::I64),
+        ("content".into(), json.clone(), SearchFieldType::Json),
+        ("like_count".into(), numeric.clone(), SearchFieldType::I64),
         (
             "dislike_count".into(),
             numeric.clone(),
             SearchFieldType::I64,
-            PgOid::BuiltIn(BuiltinOid::INT8OID),
         ),
         (
             "comment_count".into(),
             numeric.clone(),
             SearchFieldType::I64,
-            PgOid::BuiltIn(BuiltinOid::INT8OID),
         ),
         (
             "unix_timestamp_milli".into(),
             numeric.clone(),
             SearchFieldType::I64,
-            PgOid::BuiltIn(BuiltinOid::INT8OID),
         ),
     ]
 }
 
 #[fixture]
 pub fn default_index(
-    default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType, PgOid)>,
+    default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
 ) -> MockSearchIndex {
     // Key field index is 0 (id) for default_fields.
     MockSearchIndex::new(default_fields, 0)
@@ -197,7 +123,7 @@ pub fn default_index(
 
 #[fixture]
 pub fn chinese_index(
-    chinese_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType, PgOid)>,
+    chinese_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
 ) -> MockSearchIndex {
     // Key field index is 0 (id) for chinese_fields.
     MockSearchIndex::new(chinese_fields, 0)

@@ -24,7 +24,6 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
-use pgrx::PgOid;
 use std::sync::Arc;
 use std::{collections::HashSet, path::Path};
 use std::{fs, io, result};
@@ -189,7 +188,7 @@ impl SearchIndexWriter {
 
     pub fn create_index(
         directory: WriterDirectory,
-        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType, PgOid)>,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         key_field_index: usize,
     ) -> Result<()> {
         let schema = SearchIndexSchema::new(fields, key_field_index)?;

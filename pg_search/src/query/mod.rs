@@ -247,11 +247,11 @@ impl SearchQueryInput {
 
 #[allow(dead_code)]
 pub trait AsFieldType<T> {
-    fn fields(&self) -> Vec<(FieldType, pg_sys::Oid, Field)>;
+    fn fields(&self) -> Vec<(FieldType, PgOid, Field)>;
 
-    fn key_field(&self) -> (FieldType, pg_sys::Oid, Field);
+    fn key_field(&self) -> (FieldType, PgOid, Field);
 
-    fn as_field_type(&self, from: &T) -> Option<(FieldType, pg_sys::Oid, Field)>;
+    fn as_field_type(&self, from: &T) -> Option<(FieldType, PgOid, Field)>;
 
     fn is_field_type(&self, from: &T, value: &OwnedValue) -> bool {
         matches!(
@@ -811,9 +811,9 @@ impl SearchQueryInput {
                     .as_field_type(&field_name)
                     .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
-                let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(PgOid::from(typeoid), lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => Bound::Included(value_to_term(
@@ -863,9 +863,9 @@ impl SearchQueryInput {
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
 
-                let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(PgOid::from(typeoid), lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
                 let range_field = RangeField::new(
                     field_lookup
@@ -1023,9 +1023,9 @@ impl SearchQueryInput {
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
 
-                let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(PgOid::from(typeoid), lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
                 let range_field = RangeField::new(
                     field_lookup
@@ -1301,9 +1301,9 @@ impl SearchQueryInput {
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
 
-                let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(PgOid::from(typeoid), lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
                 let range_field = RangeField::new(
                     field_lookup
@@ -1482,7 +1482,7 @@ impl SearchQueryInput {
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
 
-                    let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                    let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     let term =
                         value_to_term(field, &value, &field_type, path.as_deref(), is_datetime)?;
 
@@ -1510,7 +1510,7 @@ impl SearchQueryInput {
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
 
-                    let is_datetime = is_datetime_typeoid(PgOid::from(typeoid)) || is_datetime;
+                    let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     terms.push(value_to_term(
                         field,
                         &field_value,

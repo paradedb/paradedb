@@ -30,12 +30,7 @@ pub struct MockSearchIndex {
 
 impl MockSearchIndex {
     pub fn new(
-        fields: Vec<(
-            SearchFieldName,
-            SearchFieldConfig,
-            SearchFieldType,
-            pgrx::PgOid,
-        )>,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
         key_field_index: usize,
     ) -> Self {
         // We must store the TempDir instance on the struct, because it gets deleted when the

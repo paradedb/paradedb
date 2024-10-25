@@ -816,7 +816,7 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
             return PgOid::BuiltIn(pgrx::pg_sys::BuiltinOid::TIDOID);
         }
         let indexrel = self.0;
-        for (_, attribute) in indexrel.tuple_desc().iter().enumerate() {
+        for attribute in indexrel.tuple_desc().iter() {
             let attname = attribute.name().to_string();
             let typeoid = attribute.type_oid();
             if search_field.name.0 == attname {
@@ -864,7 +864,7 @@ impl AsFieldType<String> for (&PgRelation, &SearchIndexSchema) {
             .map(|search_field| {
                 let field = search_field.id.0;
                 let field_type = self.1.schema.get_field_entry(field).field_type().clone();
-                (field_type, typeoid_lookup.typeoid(&search_field), field)
+                (field_type, typeoid_lookup.typeoid(search_field), field)
             })
             .collect()
     }
@@ -874,7 +874,7 @@ impl AsFieldType<String> for (&PgRelation, &SearchIndexSchema) {
             .map(|search_field| {
                 let field = search_field.id.0;
                 let field_type = self.1.schema.get_field_entry(field).field_type().clone();
-                return (field_type, self.typeoid(&search_field), field);
+                (field_type, self.typeoid(search_field), field)
             })
     }
 }

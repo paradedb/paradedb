@@ -128,13 +128,14 @@ jobs:
             --dir ./previous/
           ls -l ./previous/
 
+      # TODO: The critcmp command never manages to find changes
       - name: Compare Benchmark Results (PRs only)
         if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
         id: compare_benchmarks
         continue-on-error: true # This is necessary as critcmp will error if there are no changes
         run: |
           cargo install -j $(nproc) --locked critcmp --debug
-          result=$(critcmp ./previous/ target/criterion/)
+          result=$(critcmp "./previous/Search Query/bench_eslogs_query_search_index/new/" "target/criterion/Search Query/bench_eslogs_query_search_index/new/")
           echo "Generating GitHub comment message"
           {
             echo 'DIFF<<EOF'

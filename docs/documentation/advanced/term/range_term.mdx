@@ -127,7 +127,7 @@ SELECT id, weight_range FROM mock_items
 WHERE id @@@
 '{
     "range_within": {
-        "field": "weight_range", 
+        "field": "weight_range",
         "lower_bound": {"excluded": 2},
         "upper_bound": {"included": 11}
     }

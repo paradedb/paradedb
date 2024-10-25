@@ -13,7 +13,7 @@ title: Term Set
 Matches documents containing any [term](/documentation/concepts/term) from a specified set.
 
 <CodeGroup>
-```sql Function Syntax 
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.term_set(

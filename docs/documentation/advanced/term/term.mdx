@@ -7,7 +7,7 @@ title: Term
 Matches documents containing a specified [term](/documentation/concepts/term).
 
 <CodeGroup>
-```sql Function Syntax 
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.term('description', 'shoes');

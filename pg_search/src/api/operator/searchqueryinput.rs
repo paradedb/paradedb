@@ -50,11 +50,10 @@ pub fn search_with_query_input(
                 _ => panic!("the SeachQueryInput must be wrapped in a WithIndex variant"),
             }
         };
-        let indexrel = unsafe {
-            PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
-        };
-        let search_index =
-            open_search_index(&indexrel).expect("should be able to open search index");
+        let search_index = open_search_index(unsafe {
+            &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
+        })
+        .expect("should be able to open search index");
 
         let scan_state = search_index.get_reader().unwrap();
         let top_docs = scan_state.search_via_channel(

@@ -12,7 +12,7 @@ on:
     tags:
       - "v*"
     branches:
-      - phil/docker # TODO: Remove this once done testing
+      - phil/docker # TODO: Remove once done testing
   workflow_dispatch:
     inputs:
       version:
@@ -30,12 +30,42 @@ permissions:
   attestations: write
 
 jobs:
-  publish-paradedb-container-image:
-    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-8
+  publish-paradedb-docker-image:
+    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        pg_version: [13, 14, 15, 16, 17]
+        include:
+          - runner: ubicloud-standard-8
+            pg_version: 13
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 13
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 14
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 14
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 15
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 15
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 16
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 16
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 17
+            arch: amd64
+          - runner: ubicloud-standard-8-arm
+            pg_version: 17
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -75,7 +105,7 @@ jobs:
       - name: Set up Docker Buildx with Build Cloud
         uses: docker/setup-buildx-action@v3
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/${{ matrix.arch }}
           install: true
 
       - name: Build and Push Docker Image to Docker Hub
@@ -89,9 +119,9 @@ jobs:
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
             PARADEDB_TELEMETRY=true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/${{ matrix.arch }}
           file: docker/Dockerfile
-          push: false # TODO: Remove this once done testing
+          push: false # TODO: remove once done testing
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance

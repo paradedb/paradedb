@@ -91,7 +91,9 @@ jobs:
           tags: |
             type=raw,value=${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
             type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == 16 }}
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == 16 }}
+            type=semver,pattern={{major}},value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == 16 }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == 16 }}
+            type=semver,pattern={{major}}.{{minor}}.{{patch}},value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == 16 }}
             type=raw,value=latest,enable=${{ matrix.pg_version == 16 }}
             type=raw,value=latest-pg${{ matrix.pg_version }}
             type=semver,pattern={{major}},value=${{ steps.version.outputs.tag }},suffix=-pg${{ matrix.pg_version }}

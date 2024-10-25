@@ -32,7 +32,7 @@ permissions:
 jobs:
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest-16cores # GitHub-hosted Large Runner defined in the paradedb top-level GitHub organization
     strategy:
       matrix:
         pg_version: [13, 14, 15, 16, 17]
@@ -54,9 +54,6 @@ jobs:
           fi
           echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Configure Depot CLI
-        uses: depot/setup-action@v1
-
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
       - name: Setup Docker Image tags
         id: meta
@@ -77,7 +74,7 @@ jobs:
 
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
           build-args: |
@@ -88,9 +85,7 @@ jobs:
             PARADEDB_TELEMETRY=true
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
-          push: false # TODO: Reactivate once testing
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
+          push: false # TODO: Reactivate
           tags: ${{ steps.meta.outputs.tags }}
 
       # - name: Sign and Attest Build Provenance

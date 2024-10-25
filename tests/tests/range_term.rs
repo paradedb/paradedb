@@ -599,7 +599,7 @@ fn pg_search_contains_json_query<T>(
 where
     T: Debug + Display + Clone + PartialEq,
 {
-    let is_datetime = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let is_datetime = ["daterange", "tsrange", "tstzrange"].contains(&range_type);
     let lower_bound = match range.start {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
@@ -664,7 +664,7 @@ fn pg_search_within_json_query<T>(
 where
     T: Debug + Display + Clone + PartialEq,
 {
-    let is_datetime = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let is_datetime = ["daterange", "tsrange", "tstzrange"].contains(&range_type);
     let lower_bound = match range.start {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
@@ -729,7 +729,7 @@ fn pg_search_intersects_json_query<T>(
 where
     T: Debug + Display + Clone + PartialEq,
 {
-    let is_datetime = vec!["daterange", "tsrange", "tstzrange"].contains(&range_type);
+    let is_datetime = ["daterange", "tsrange", "tstzrange"].contains(&range_type);
     let lower_bound = match range.start {
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,

@@ -61,7 +61,7 @@ pub fn search_with_query_input(
             query.contains_more_like_this(),
             Some(search_index.key_field_name()),
             SearchIndex::executor(),
-            &search_index.query(&indexrel, &query, &scan_state),
+            &search_index.query(&query, &scan_state),
         );
         let mut hs = FxHashSet::default();
         for (scored, _) in top_docs {

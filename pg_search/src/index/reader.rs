@@ -20,7 +20,7 @@ use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
-use pgrx::{pg_sys, PgRelation};
+use pgrx::pg_sys;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -471,7 +471,6 @@ impl SearchIndexReader {
 
     pub fn estimate_docs(
         &self,
-        indexrel: &PgRelation,
         mut query_parser: QueryParser,
         search_query_input: SearchQueryInput,
     ) -> Option<usize> {
@@ -485,7 +484,7 @@ impl SearchIndexReader {
         let schema = self.schema.schema.clone();
         let query = &search_query_input
             .clone()
-            .into_tantivy_query(indexrel, &self.schema, &mut query_parser, &self.searcher)
+            .into_tantivy_query(&self.schema, &mut query_parser, &self.searcher)
             .expect("must be able to parse query");
         let weight = match query.weight(tantivy::query::EnableScoring::Disabled {
             schema: &schema,

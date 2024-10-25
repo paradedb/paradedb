@@ -29,6 +29,7 @@ use crate::schema::{
 };
 use anyhow::Result;
 use once_cell::sync::Lazy;
+use pgrx::PgOid;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::num::NonZeroUsize;
 use tantivy::query::Query;
@@ -84,7 +85,7 @@ pub struct SearchIndex {
 impl SearchIndex {
     pub fn create_index(
         directory: WriterDirectory,
-        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType, PgOid)>,
         key_field_index: usize,
     ) -> Result<Self, SearchIndexError> {
         SearchIndexWriter::create_index(directory.clone(), fields, key_field_index)?;

@@ -6,7 +6,8 @@ title: Boost
 
 A boost query wraps around another query to amplify its scoring impact, without altering the set of matched documents.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category, paradedb.score(id)
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
@@ -16,6 +17,22 @@ WHERE id @@@ paradedb.boolean(
   ]
 );
 ```
+```sql JSON Syntax
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE id @@@
+'{
+    "boolean": {
+        "should": [
+            {"term": {"field": "description", "value": "shoes"}},
+            {"boost": {"boost": 2.0, "query": {"term": {"field": "description", "value": "running"}}}}
+        ]
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8"/>
 
 <ParamField body="boost" required>
   The factor by which to multiply the score of each result.

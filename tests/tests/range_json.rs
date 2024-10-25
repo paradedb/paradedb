@@ -52,7 +52,13 @@ fn integer_range(mut conn: PgConnection) {
     // INT4
     let rows: Vec<(i32, i32)> = r#"
     SELECT id, value_int4 FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_int4', range => '[2222,4444]'::int4range)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int4",
+            "lower_bound": {"included": 2222},
+            "upper_bound": {"included": 4444}
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -60,7 +66,13 @@ fn integer_range(mut conn: PgConnection) {
     // INT8
     let rows: Vec<(i32, i64)> = r#"
     SELECT id, value_int8 FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_int8', range => '[0,50000000)'::int8range)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int8",
+            "lower_bound": {"included": 0},
+            "upper_bound": {"excluded": 50000000}
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -81,7 +93,6 @@ fn unbounded_integer_range(mut conn: PgConnection) {
         (4444, 44444444);
     "#
     .execute(&mut conn);
-
     r#"
     CALL paradedb.create_bm25(
         table_name => 'test_table',
@@ -95,7 +106,13 @@ fn unbounded_integer_range(mut conn: PgConnection) {
     // Test unbounded upper range for INT4
     let rows: Vec<(i32, i32)> = r#"
     SELECT id, value_int4 FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_int4', range => '[2222,)'::int4range)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int4",
+            "lower_bound": {"included": 2222},
+            "upper_bound": null
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -105,7 +122,13 @@ fn unbounded_integer_range(mut conn: PgConnection) {
     // Test unbounded lower range for INT4
     let rows: Vec<(i32, i32)> = r#"
     SELECT id, value_int4 FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_int4', range => '(,2222]'::int4range)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int4",
+            "lower_bound": null,
+            "upper_bound": {"included": 2222}
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -115,7 +138,13 @@ fn unbounded_integer_range(mut conn: PgConnection) {
     // Test unbounded upper range for INT8
     let rows: Vec<(i32, i64)> = r#"
     SELECT id, value_int8 FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_int8', range => '[0,)'::int8range)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int8",
+            "lower_bound": {"included": 0},
+            "upper_bound": null
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
@@ -125,7 +154,13 @@ fn unbounded_integer_range(mut conn: PgConnection) {
     // Test unbounded lower range for INT8
     let rows: Vec<(i32, i64)> = r#"
     SELECT id, value_int8 FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_int8', range => '(,-5000000]'::int8range)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_int8",
+            "lower_bound": null,
+            "upper_bound": {"included": -5000000}
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -163,7 +198,13 @@ fn float_range(mut conn: PgConnection) {
     // FLOAT4
     let rows: Vec<(i32, f32)> = r#"
     SELECT id, value_float4 FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_float4', range => '[-2,3]'::numrange)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_float4",
+            "lower_bound": {"included": -2.0},
+            "upper_bound": {"included": 3.0}
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -171,15 +212,27 @@ fn float_range(mut conn: PgConnection) {
     // FLOAT8
     let rows: Vec<(i32, f64)> = r#"
     SELECT id, value_float8 FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_float8', range => '(2222.2222, 3333.3333]'::numrange)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_float8",
+            "lower_bound": {"excluded": 2222.2222},
+            "upper_bound": {"included": 3333.3333}
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 1);
 
-    // NUMERIC - no sqlx::Type for numerics, so just select id
+    // NUMERIC
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_table
-    WHERE test_table @@@ paradedb.range(field => 'value_numeric', range => '[0,400)'::numrange)
+    WHERE test_table @@@ '{
+        "range": {
+            "field": "value_numeric",
+            "lower_bound": {"included": 0.0},
+            "upper_bound": {"excluded": 400.0}
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
@@ -217,25 +270,43 @@ fn datetime_range(mut conn: PgConnection) {
 
     // DATE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-        paradedb.range(field => 'value_date', range => '[2020-05-20,2022-06-13]'::daterange)
+    SELECT * FROM test_table WHERE test_table @@@ '{
+        "range": {
+            "field": "value_date",
+            "lower_bound": {"included": "2020-05-20T00:00:00.000000Z"},
+            "upper_bound": {"included": "2022-06-13T00:00:00.000000Z"},
+            "is_datetime": true
+        }
+    }'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 
     // TIMESTAMP
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-        paradedb.range(field => 'value_timestamp', range => '[2019-08-02 07:52:43, 2021-06-10 10:32:41]'::tsrange)
+    SELECT * FROM test_table WHERE test_table @@@ '{
+        "range": {
+            "field": "value_timestamp",
+            "lower_bound": {"included": "2019-08-02T07:52:43.000000Z"},
+            "upper_bound": {"included": "2021-06-10T10:32:41.000000Z"},
+            "is_datetime": true
+        }
+    }'::jsonb
     ORDER BY id"#
-    .fetch_collect(&mut conn);
+        .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 2);
 
     // TIMESTAMP WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
-        paradedb.range(field => 'value_timestamptz', range => '[2020-07-09 17:52:13 EST, 2022-05-16 04:38:43 PST]'::tstzrange)
+    SELECT * FROM test_table WHERE test_table @@@ '{
+        "range": {
+            "field": "value_timestamptz",
+            "lower_bound": {"included": "2020-07-09T21:52:13.000000Z"},
+            "upper_bound": {"included": "2022-05-16T12:38:43.000000Z"},
+            "is_datetime": true
+        }
+    }'::jsonb
     ORDER BY id"#
-    .fetch_collect(&mut conn);
+        .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
 }

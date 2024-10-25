@@ -38,6 +38,14 @@ pub fn database() -> Db {
 pub fn conn(database: Db) -> PgConnection {
     block_on(async {
         let mut conn = database.connection().await;
+
+        // You can hijack a test run to debug, like so:
+        // let mut conn = <PgConnection as sqlx::Connection>::connect(
+        //     "postgres://neilhansen@localhost:5432/postgres",
+        // )
+        // .await
+        // .unwrap();
+
         sqlx::query("CREATE EXTENSION pg_search;")
             .execute(&mut conn)
             .await

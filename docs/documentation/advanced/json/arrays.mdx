@@ -16,9 +16,29 @@ When dealing with JSON arrays, the array elements are “flattened” so that ea
 
 The JSON array in the colors field is flattened to emit separate terms for each color. This allows for individual search queries like:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, metadata
 FROM mock_items
 WHERE id @@@ paradedb.term('metadata.colors:blue')
 OR id @@@ paradedb.term('metadata.colors:red');
 ```
+```sql JSON Syntax
+SELECT description, metadata
+FROM mock_items
+WHERE id @@@
+'{
+    "term": {
+        "field": "metadata.colors",
+        "value": "blue"
+    }
+}'::jsonb
+OR id @@@
+'{
+    "term": {
+        "field": "metadata.colors",
+        "value": "red"
+    }
+}'::jsonb;
+```
+</CodeGroup>

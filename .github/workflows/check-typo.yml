@@ -29,4 +29,6 @@ jobs:
         with:
           check_filenames: true
           ignore_words_file: .codespellignore
-          skip: "Cargo.lock,tests/*"
+          # The `skip` parameter is a total mess, read up before adding.
+          # https://github.com/codespell-project/codespell/issues/1915
+          skip: "Cargo.lock,./tests"

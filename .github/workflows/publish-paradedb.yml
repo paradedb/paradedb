@@ -11,8 +11,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/docker # TODO: Remove once done testing
   workflow_dispatch:
     inputs:
       version:
@@ -88,17 +86,17 @@ jobs:
             PARADEDB_TELEMETRY=true
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
-          push: false # TODO: Reactivate
+          push: true
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
 
-      # - name: Sign and Attest Build Provenance
-      #   uses: actions/attest-build-provenance@v1
-      #   with:
-      #     subject-name: index.docker.io/paradedb/paradedb
-      #     subject-digest: ${{ steps.build-push.outputs.digest }}
-      #     push-to-registry: true
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: index.docker.io/paradedb/paradedb
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}

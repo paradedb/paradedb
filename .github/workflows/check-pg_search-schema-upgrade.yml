@@ -43,7 +43,7 @@ jobs:
         id: pgrx
         working-directory: pg_search/
         run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
-  
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 

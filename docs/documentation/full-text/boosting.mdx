@@ -4,7 +4,7 @@ title: Boosting
 
 ## Constant Boosting
 
-The `^` operator is used to boost the scores of individual fields by a constant. In the following query, `category` is weighted twice as heavily as `description` in the final BM25 score.
+The `^` operator is used to boost the scores of individual fields by a constant. In the following query, `description` is weighted twice as heavily as `category` in the final BM25 score.
 
 ```sql
 SELECT id, paradedb.score(id)

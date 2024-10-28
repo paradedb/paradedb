@@ -1,16 +1,13 @@
 ---
 title: Range
 ---
-
 ## Basic Usage
-
 <Note>
   Range queries are supported over JSON fields indexed as
   [fast](/documentation/indexing/fast_fields).
 </Note>
 
 The following code block executes a range query over a JSON field:
-
 <CodeGroup>
 ```sql Function Syntax
 SELECT description, metadata
@@ -34,13 +31,9 @@ WHERE id @@@
 ```
 </CodeGroup>
 
-The [range query](/documentation/advanced/term/range) documentation provides details on the range function.
-
 ## Datetime Values
-
 Datetime values stored inside JSON must be RFC 3339 formatted in order to work with range queries. The following values
 are RFC 3339 compliant:
-
 ```sql
 -- UTC
 2024-10-06T14:30:00Z
@@ -51,7 +44,6 @@ are RFC 3339 compliant:
 ```
 
 The following values are not RFC 3339 compliant:
-
 ```sql
 -- No timezone
 2024-10-06T14:30:00
@@ -59,4 +51,19 @@ The following values are not RFC 3339 compliant:
 2024-10-06
 -- Time only
 14:30:00
+```
+
+## Datetime Handling
+When querying datetime values on JSON fields using JSON query syntax, always set `is_datetime: true` to ensure the query is parsed as a date.
+
+```sql
+SELECT id FROM mock_items WHERE mock_items @@@ '{
+    "range": {
+        "field": "metadata.attributes.tstz",
+        "lower_bound": {"included": "2023-05-01T08:12:34Z"},
+        "upper_bound": null,
+        "is_datetime": true
+    }
+}'::jsonb
+ORDER BY id;
 ```

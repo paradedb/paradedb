@@ -213,7 +213,7 @@ pub enum SearchQueryInput {
         is_datetime: bool,
     },
     TermSet {
-        terms: Vec<(String, tantivy::schema::OwnedValue, bool)>,
+        terms: Vec<TermInput>,
     },
     WithIndex {
         oid: pg_sys::Oid,
@@ -241,6 +241,33 @@ impl SearchQueryInput {
             SearchQueryInput::WithIndex { query, .. } => Self::contains_more_like_this(query),
             SearchQueryInput::MoreLikeThis { .. } => true,
             _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TermInput {
+    pub field: String,
+    pub value: tantivy::schema::OwnedValue,
+    #[serde(default)]
+    pub is_datetime: bool,
+}
+
+impl TryFrom<SearchQueryInput> for TermInput {
+    type Error = &'static str;
+
+    fn try_from(query: SearchQueryInput) -> Result<Self, Self::Error> {
+        match query {
+            SearchQueryInput::Term {
+                field,
+                value,
+                is_datetime,
+            } => Ok(TermInput {
+                field: field.expect("field string must not be empty"),
+                value,
+                is_datetime,
+            }),
+            _ => Err("Only Term variants can be converted to TermInput"),
         }
     }
 }
@@ -1504,16 +1531,21 @@ impl SearchQueryInput {
             }
             Self::TermSet { terms: fields } => {
                 let mut terms = vec![];
-                for (field_name, field_value, is_datetime) in fields {
-                    let (_, path) = split_field_and_path(&field_name);
+                for TermInput {
+                    field,
+                    value,
+                    is_datetime,
+                } in fields
+                {
+                    let (_, path) = split_field_and_path(&field);
                     let (field_type, typeoid, field) = field_lookup
-                        .as_field_type(&field_name)
-                        .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
+                        .as_field_type(&field)
+                        .ok_or_else(|| QueryError::NonIndexedField(field))?;
 
                     let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     terms.push(value_to_term(
                         field,
-                        &field_value,
+                        &value,
                         &field_type,
                         path.as_deref(),
                         is_datetime,

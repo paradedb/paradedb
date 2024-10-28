@@ -20,7 +20,7 @@ use pgrx::{iter::TableIterator, *};
 
 use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
-use crate::query::SearchQueryInput;
+use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::IndexRecordOption;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -795,7 +795,11 @@ pub fn term_set(
                 value,
                 is_datetime,
                 ..
-            } => field.map(|field| (field, value, is_datetime)),
+            } => field.map(|field| TermInput {
+                field,
+                value,
+                is_datetime,
+            }),
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();

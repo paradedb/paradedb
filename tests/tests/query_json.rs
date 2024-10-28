@@ -248,8 +248,8 @@ fn single_queries(mut conn: PgConnection) {
     WHERE bm25_search @@@ '{
         "term_set": {
             "terms": [
-                ["description", "shoes", false],
-                ["description", "novel", false]
+                {"field": "description", "value": "shoes", "is_datetime": false},
+                {"field": "description", "value": "novel", "is_datetime": false}
             ]
         }
     }'::jsonb ORDER BY id"#

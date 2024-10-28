@@ -956,11 +956,11 @@ fn term_level_queries(mut conn: PgConnection) {
     '{
         "term_set": {
             "terms": [
-                ["description", "shoes", false],
-                ["description", "novel", false]
+                {"field": "description", "value": "shoes"},
+                {"field": "description", "value": "novel"}
             ]
         }
-    }'::jsonb;
+    }'::jsonb ORDER BY id;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -1022,6 +1022,15 @@ fn json_queries(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
+    UPDATE mock_items
+    SET metadata = '{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'::jsonb 
+    WHERE id = 1;
+
+    UPDATE mock_items
+    SET metadata = '{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'::jsonb 
+    WHERE id = 2;
+
+
     CALL paradedb.create_bm25(
         index_name => 'search_idx',
         table_name => 'mock_items',
@@ -1030,7 +1039,7 @@ fn json_queries(mut conn: PgConnection) {
         numeric_fields => paradedb.field('rating'),
         boolean_fields => paradedb.field('in_stock'),
         datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
+        json_fields => paradedb.field('metadata', fast => true)
     );
     "#
     .execute(&mut conn);
@@ -1057,6 +1066,21 @@ fn json_queries(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
+
+    // Datetime Handling
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM mock_items WHERE mock_items @@@ '{
+        "range": {
+            "field": "metadata.attributes.tstz",
+            "lower_bound": {"included": "2023-05-01T08:12:34Z"},
+            "upper_bound": null,
+            "is_datetime": true
+        }
+    }'::jsonb
+    ORDER BY id;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
 }
 
 #[rstest]

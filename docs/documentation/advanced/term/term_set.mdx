@@ -30,11 +30,11 @@ WHERE id @@@
 '{
     "term_set": {
         "terms": [
-            ["description", "shoes", false],
-            ["description", "novel", false]
+            {"field": "description", "value": "shoes"},
+            {"field": "description", "value": "novel"}
         ]
     }
-}'::jsonb;
+}'::jsonb ORDER BY id;
 ```
 </CodeGroup>
 

@@ -109,6 +109,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install required system tools
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -236,6 +237,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Install required system tools
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

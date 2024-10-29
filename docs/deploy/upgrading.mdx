@@ -62,7 +62,7 @@ To upgrade the extensions running in a self-managed Postgres:
 
 1. Stop Postgres (e.g. via `pg_ctl stop -D </path/to/data/directory>`)
 2. Download and install the extension you wish to upgrade in the same way that it was initially installed (e.g. via cURL)
-3. Start Postgres
+3. Start Postgres (e.g. via `pg_ctl start -D /usr/local/var/postgres`)
 4. Run the following command in every database that has previously run `CREATE EXTENSION <extension_name>`
 
 ```sql

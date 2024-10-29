@@ -53,9 +53,9 @@ ALTER EXTENSION vector UPDATE TO '0.7.4';
 To upgrade the extensions running in a self-managed Postgres:
 
 1. Stop Postgres (e.g. via `pg_ctl stop -D </path/to/data/directory>`)
-2. Download and install the extension(s) you wish to upgrade in the same way that it was initially insalled (e.g. via cURL)
+2. Download and install the extension you wish to upgrade in the same way that it was initially insalled (e.g. via cURL)
 3. Start Postgres
-4. Run `ALTER EXTENSION` in every database that has previously run `CREATE EXTENSION <extension_name>`
+4. Run the following command in every database that has previously run `CREATE EXTENSION <extension_name>`
 
 ```sql
 ALTER EXTENSION <extension_name> UPDATE TO '<extension_version>';

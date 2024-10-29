@@ -7,8 +7,8 @@ title: Upgrading ParadeDB
 ParadeDB ships all of its functionality via Postgres extensions. All updates to ParadeDB can be
 received by updating one or more of the following extensions:
 
-1. `pg_search` for full text search
-2. `pg_analytics` for accelerated analytical queries
+1. `pg_search` for full text search and facets
+2. `pg_analytics` for querying data lakes
 3. `pgvector` for dense and sparse vector search
 
 ## Getting the Current Version
@@ -28,7 +28,7 @@ Because `pg_search`, `pg_analytics`, and `pgvector` are independent extensions, 
 For the latest available version, please refer to the respective Github repos:
 
 1. [`pg_search`](https://github.com/paradedb/paradedb/releases) is on version `0.11.1`
-2. [`pg_analytics`](https://github.com/paradedb/pg_analytics/blob/main/pg_analytics.control) is on version `0.2.1`
+2. [`pg_analytics`](https://github.com/paradedb/pg_analytics/blob/main/pg_analytics.control) is on version `0.2.2`
 3. [`pgvector`](https://github.com/pgvector/pgvector/tags) is on version `0.7.4`
 
 ## Updating ParadeDB Docker Image
@@ -44,14 +44,18 @@ The latest version of the Docker image should be `0.11.1`. Then, run the followi
 
 ```sql
 ALTER EXTENSION pg_search UPDATE TO '0.11.1';
-ALTER EXTENSION pg_analytics UPDATE TO '0.2.1';
+ALTER EXTENSION pg_analytics UPDATE TO '0.2.2';
 ALTER EXTENSION vector UPDATE TO '0.7.4';
 ```
 
 ## Updating Extensions
 
-If you are running the extensions in a self-managed Postgres, first download and install the extension you wish to upgrade in the same way that it was initially
-installed. Then, you can run the same `ALTER EXTENSION` commands as above.
+To upgrade the extensions running in a self-managed Postgres:
+
+1. Stop Postgres (e.g. via `pg_ctl stop -D </path/to/data/directory>`)
+2. Download and install the extension(s) you wish to upgrade in the same way that it was initially insalled (e.g. via cURL)
+3. Start Postgres
+4. Run `ALTER EXTENSION` in every database that has previously run `CREATE EXTENSION <extension_name>`
 
 ```sql
 ALTER EXTENSION <extension_name> UPDATE TO '<extension_version>';

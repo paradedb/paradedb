@@ -38,7 +38,7 @@ To upgrade the ParadeDB Docker image while preserving your data volume:
 1. Stop the ParadeDB Docker image via `docker stop paradedb`.
 
 2. Run the following command to pull a specific version of the Docker image. You can set the version number
-   to `latest` to pull the latest Docker image.
+   to `latest` to pull the latest Docker image. You can find the full list of available tags on [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags).
 
 ```bash
 docker pull paradedb/paradedb:<version_number>
@@ -61,7 +61,7 @@ ALTER EXTENSION vector UPDATE TO '0.7.4';
 To upgrade the extensions running in a self-managed Postgres:
 
 1. Stop Postgres (e.g. via `pg_ctl stop -D </path/to/data/directory>`)
-2. Download and install the extension you wish to upgrade in the same way that it was initially insalled (e.g. via cURL)
+2. Download and install the extension you wish to upgrade in the same way that it was initially installed (e.g. via cURL)
 3. Start Postgres
 4. Run the following command in every database that has previously run `CREATE EXTENSION <extension_name>`
 

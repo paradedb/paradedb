@@ -63,11 +63,6 @@ impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     }
 
     #[inline(always)]
-    pub fn expr_context(&self) -> *mut pg_sys::ExprContext {
-        self.csstate.ss.ps.ps_ExprContext
-    }
-
-    #[inline(always)]
     pub fn scanslot(&self) -> *mut pg_sys::TupleTableSlot {
         self.csstate.ss.ss_ScanTupleSlot
     }
@@ -75,16 +70,6 @@ impl<CS: CustomScan> CustomScanStateWrapper<CS> {
     #[inline(always)]
     pub fn projection_info(&self) -> *mut pg_sys::ProjectionInfo {
         self.csstate.ss.ps.ps_ProjInfo
-    }
-
-    #[inline(always)]
-    pub fn projection_tupdesc(&self) -> pg_sys::TupleDesc {
-        self.csstate.ss.ps.ps_ResultTupleDesc
-    }
-
-    #[inline(always)]
-    pub fn set_projection_scanslot(&mut self, slot: *mut pg_sys::TupleTableSlot) {
-        unsafe { (*(*self.csstate.ss.ps.ps_ProjInfo).pi_exprContext).ecxt_scantuple = slot }
     }
 }
 

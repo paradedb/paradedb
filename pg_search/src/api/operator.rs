@@ -317,7 +317,7 @@ unsafe fn make_search_query_input_opexpr_node(
 /// contains the var.
 ///
 /// It's possible the returned Oid will be [`pg_sys::Oid::INVALID`] if the Var doesn't eventually
-/// come from a relation relation.
+/// come from a relation.
 ///
 /// The returned [`pg_sys::AttrNumber`] is the physical attribute number in the relation the Var
 /// is from.

@@ -35,7 +35,11 @@ pub fn score_funcoid() -> pg_sys::Oid {
     }
 }
 
-pub unsafe fn uses_scores(node: *mut pg_sys::Node, mut score_funcoid: pg_sys::Oid) -> bool {
+pub unsafe fn uses_scores(
+    node: *mut pg_sys::Node,
+    score_funcoid: pg_sys::Oid,
+    rti: pg_sys::Index,
+) -> bool {
     #[pg_guard]
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
         if node.is_null() {
@@ -43,16 +47,29 @@ pub unsafe fn uses_scores(node: *mut pg_sys::Node, mut score_funcoid: pg_sys::Oi
         }
 
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let score_funcoid = data.cast::<pg_sys::Oid>();
-            if (*funcexpr).funcid == *score_funcoid {
-                return true;
+            let data = data.cast::<Data>();
+            if (*funcexpr).funcid == (*data).score_funcoid {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                assert!(args.len() == 1, "score function must have 1 argument");
+                if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+                    if (*var).varno as i32 == (*data).rti as i32 {
+                        return true;
+                    }
+                }
             }
         }
 
         expression_tree_walker(node, Some(walker), data)
     }
 
-    walker(node, addr_of_mut!(score_funcoid).cast())
+    struct Data {
+        score_funcoid: pg_sys::Oid,
+        rti: pg_sys::Index,
+    }
+
+    let mut data = Data { score_funcoid, rti };
+
+    walker(node, addr_of_mut!(data).cast())
 }
 
 pub unsafe fn inject_scores(
@@ -114,7 +131,7 @@ pub unsafe fn inject_scores(
     walker(node, data.cast())
 }
 
-pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: i32) -> bool {
+pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
     if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
         if (*funcexpr).funcid == score_funcoid() {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);

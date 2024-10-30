@@ -18,7 +18,6 @@
 //! https://www.postgresql.org/docs/current/custom-scan.html
 
 #![allow(unused_variables)]
-#![allow(dead_code)]
 #![allow(clippy::tabs_in_doc_comments)]
 
 use pgrx::{pg_sys, PgMemoryContexts};
@@ -43,7 +42,7 @@ use crate::postgres::customscan::exec::{
     mark_pos_custom_scan, rescan_custom_scan, restr_pos_custom_scan, shutdown_custom_scan,
 };
 
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, SortDirection};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
@@ -53,7 +52,13 @@ use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::register_rel_pathlist;
 
-pub trait CustomScanState: Default {}
+pub trait CustomScanState: Default {
+    fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState);
+
+    fn is_top_n_capable(&self) -> Option<(usize, SortDirection)> {
+        None
+    }
+}
 
 pub trait CustomScan: Default + Sized {
     const NAME: &'static CStr;
@@ -150,15 +155,16 @@ pub trait CustomScan: Default + Sized {
         eflags: i32,
     );
 
+    fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot;
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>);
-
-    fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 }
 
+#[allow(dead_code)]
 pub trait MarkRestoreCapable: CustomScan {
     fn exec_methods() -> pg_sys::CustomExecMethods {
         pg_sys::CustomExecMethods {
@@ -179,6 +185,7 @@ pub trait MarkRestoreCapable: CustomScan {
     }
 }
 
+#[allow(dead_code)]
 pub trait ParallelQueryCapable: CustomScan {
     fn exec_methods() -> pg_sys::CustomExecMethods {
         pg_sys::CustomExecMethods {
@@ -199,6 +206,7 @@ pub trait ParallelQueryCapable: CustomScan {
     }
 }
 
+#[allow(dead_code)]
 pub trait ParallelQueryAndMarkRestoreCapable:
     CustomScan + ParallelQueryCapable + MarkRestoreCapable
 {

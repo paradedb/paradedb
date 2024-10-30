@@ -48,12 +48,6 @@ impl Debug for Args {
     }
 }
 
-impl Args {
-    pub fn target_list(&self) -> impl Iterator<Item = Option<&pg_sys::TargetEntry>> + '_ {
-        self.tlist.iter_ptr().map(|entry| unsafe { entry.as_ref() })
-    }
-}
-
 pub struct CustomScanBuilder<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> {
     args: Args,
 

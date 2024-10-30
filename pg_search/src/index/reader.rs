@@ -16,17 +16,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::SearchIndex;
-use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
-use pgrx::pg_sys;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
-use tantivy::columnar::{ColumnValues, StrColumn};
-use tantivy::fastfield::FastFieldReaders;
+use tantivy::fastfield::Column;
 use tantivy::query::QueryParser;
 use tantivy::schema::{FieldType, Value};
 use tantivy::{
@@ -40,25 +36,27 @@ const CACHE_NUM_BLOCKS: usize = 10;
 
 /// Represents a matching document from a tantivy search.  Typically it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SearchIndexScore {
-    pub bm25: f32,
-    pub key: Option<TantivyValue>,
     pub ctid: u64,
+    pub bm25: f32,
 }
 
-impl Debug for SearchIndexScore {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SearchIndexScore")
-            .field("bm25", &self.bm25)
-            .field("key", &self.key)
-            .field("ctid", &{
-                let mut ipd = pg_sys::ItemPointerData::default();
-                crate::postgres::utils::u64_to_item_pointer(self.ctid, &mut ipd);
-                let (blockno, offno) = pgrx::itemptr::item_pointer_get_both(ipd);
-                format!("({},{})", blockno, offno)
-            })
-            .finish()
+impl SearchIndexScore {
+    #[inline]
+    pub fn new(ffcolumn: &Column<u64>, doc: DocId, score: Score) -> Self {
+        Self {
+            ctid: ffcolumn
+                .first(doc)
+                .expect("ctid should have a non-null value"),
+            bm25: score,
+        }
+    }
+}
+
+impl PartialOrd for SearchIndexScore {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.bm25.partial_cmp(&other.bm25)
     }
 }
 
@@ -74,24 +72,41 @@ pub enum SearchResults {
     #[default]
     None,
 
-    TopN(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+    TopNByScore(usize, std::vec::IntoIter<(OrderedScore, DocAddress)>),
+
+    TopNByField(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
 
     #[allow(clippy::type_complexity)]
-    Channel(
-        std::iter::Flatten<
-            crossbeam::channel::IntoIter<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
-        >,
-    ),
+    Channel(std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>),
 
     SingleSegment(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+}
+
+#[derive(PartialEq, Clone)]
+pub struct OrderedScore {
+    dir: SortDirection,
+    score: SearchIndexScore,
+}
+
+impl PartialOrd for OrderedScore {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let cmp = self.score.partial_cmp(&other.score);
+        match self.dir {
+            SortDirection::Desc => cmp,
+            SortDirection::Asc => cmp.map(|o| o.reverse()),
+        }
+    }
 }
 
 impl Debug for SearchResults {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SearchResults::None => write!(f, "SearchResults::None"),
-            SearchResults::TopN(count, iter) => {
-                write!(f, "SearchResults::TopN({count}, {:?})", iter.len())
+            SearchResults::TopNByScore(count, iter) => {
+                write!(f, "SearchResults::TopNByScore({count}, {:?})", iter.len())
+            }
+            SearchResults::TopNByField(count, iter) => {
+                write!(f, "SearchResults::TopNByField({count}, {:?})", iter.len())
             }
             SearchResults::Channel(iter) => {
                 write!(f, "SearchResults::FastPath(~{:?})", iter.size_hint())
@@ -110,10 +125,11 @@ impl Iterator for SearchResults {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             SearchResults::None => None,
-            SearchResults::TopN(_, iter) => iter.next(),
-            SearchResults::Channel(iter) => iter
+            SearchResults::TopNByScore(_, iter) => iter
                 .next()
-                .map(|result| result.unwrap_or_else(|e| panic!("{e}"))),
+                .map(|(OrderedScore { score, .. }, doc_address)| (score, doc_address)),
+            SearchResults::TopNByField(_, iter) => iter.next(),
+            SearchResults::Channel(iter) => iter.next(),
             SearchResults::SingleSegment(_, iter) => iter.next(),
         }
     }
@@ -122,7 +138,8 @@ impl Iterator for SearchResults {
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
             SearchResults::None => (0, Some(0)),
-            SearchResults::TopN(_, iter) => iter.size_hint(),
+            SearchResults::TopNByScore(_, iter) => iter.size_hint(),
+            SearchResults::TopNByField(_, iter) => iter.size_hint(),
             SearchResults::Channel(iter) => iter.size_hint(),
             SearchResults::SingleSegment(_, iter) => iter.size_hint(),
         }
@@ -135,7 +152,8 @@ impl Iterator for SearchResults {
     {
         match self {
             SearchResults::None => 0,
-            SearchResults::TopN(count, _) => count,
+            SearchResults::TopNByScore(count, _) => count,
+            SearchResults::TopNByField(count, _) => count,
             SearchResults::Channel(iter) => iter.count(),
             SearchResults::SingleSegment(count, _) => count,
         }
@@ -146,7 +164,8 @@ impl SearchResults {
     pub fn len(&self) -> Option<usize> {
         match self {
             SearchResults::None => Some(0),
-            SearchResults::TopN(count, _) => Some(*count),
+            SearchResults::TopNByScore(count, _) => Some(*count),
+            SearchResults::TopNByField(count, _) => Some(*count),
             SearchResults::Channel(_) => None,
             SearchResults::SingleSegment(count, _) => Some(*count),
         }
@@ -254,12 +273,13 @@ impl SearchIndexReader {
     pub fn search_via_channel(
         &self,
         need_scores: bool,
-        key_field: Option<String>,
+        sort_segments_by_ctid: bool,
         executor: &'static Executor,
         query: &dyn Query,
     ) -> SearchResults {
         let (sender, receiver) = crossbeam::channel::unbounded();
-        let collector = collector::ChannelCollector::new(need_scores, sender, key_field);
+        let collector =
+            collector::ChannelCollector::new(need_scores, sort_segments_by_ctid, sender);
         let searcher = self.searcher.clone();
         let schema = self.schema.schema.clone();
 
@@ -297,11 +317,10 @@ impl SearchIndexReader {
     pub fn search_segment(
         &self,
         need_scores: bool,
-        key_field: Option<String>,
         segment_ord: SegmentOrdinal,
         query: &dyn Query,
     ) -> SearchResults {
-        let collector = vec_collector::VecCollector::new(need_scores, key_field);
+        let collector = vec_collector::VecCollector::new(need_scores);
         let weight = query
             .weight(if need_scores {
                 tantivy::query::EnableScoring::Enabled {
@@ -368,7 +387,7 @@ impl SearchIndexReader {
 
         let collector =
             TopDocs::with_limit(n).order_by_u64_field(&sort_field.name.0, sortdir.into());
-        let results = self
+        let top_docs = self
             .searcher
             .search_with_executor(
                 query,
@@ -379,29 +398,25 @@ impl SearchIndexReader {
                     statistics_provider: &self.searcher,
                 },
             )
-            .expect("failed to search")
-            .into_iter();
+            .expect("failed to search");
 
-        let mut top_docs = Vec::with_capacity(results.len());
-        for (_ff_u64_value, doc_address) in results {
-            let segment_reader = self.searcher.segment_reader(doc_address.segment_ord);
-            let fast_fields = segment_reader.fast_fields();
-            let ctid_ff = FFType::new(fast_fields, "ctid");
+        let top_docs = top_docs
+            .into_iter()
+            .map(|(_, doc_address)| {
+                let ctid = self
+                    .searcher
+                    .segment_reader(doc_address.segment_ord)
+                    .fast_fields()
+                    .u64("ctid")
+                    .expect("ctid should be a fast field");
+                (
+                    SearchIndexScore::new(&ctid, doc_address.doc_id, 1.0),
+                    doc_address,
+                )
+            })
+            .collect::<Vec<_>>();
 
-            let ctid = ctid_ff
-                .as_u64(doc_address.doc_id)
-                .expect("DocId should have a ctid");
-
-            let scored = SearchIndexScore {
-                bm25: f32::NAN,
-                key: None,
-                ctid,
-            };
-
-            top_docs.push((scored, doc_address));
-        }
-
-        SearchResults::TopN(top_docs.len(), top_docs.into_iter())
+        SearchResults::TopNByField(top_docs.len(), top_docs.into_iter())
     }
 
     fn top_by_score(
@@ -411,29 +426,20 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
-        #[derive(PartialEq, Clone)]
-        struct OrderedScore {
-            dir: SortDirection,
-            score: Score,
-        }
+        let collector =
+            TopDocs::with_limit(n).tweak_score(move |segment_reader: &tantivy::SegmentReader| {
+                let ctid_ff = segment_reader
+                    .fast_fields()
+                    .u64("ctid")
+                    .expect("ctid should be a fast field");
 
-        impl PartialOrd for OrderedScore {
-            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-                let cmp = self.score.partial_cmp(&other.score);
-                match self.dir {
-                    SortDirection::Desc => cmp,
-                    SortDirection::Asc => cmp.map(|o| o.reverse()),
+                move |doc: DocId, original_score: Score| OrderedScore {
+                    dir: sortdir,
+                    score: SearchIndexScore::new(&ctid_ff, doc, original_score),
                 }
-            }
-        }
-        let collector = TopDocs::with_limit(n).tweak_score(move |_: &tantivy::SegmentReader| {
-            move |_: DocId, original_score: Score| OrderedScore {
-                dir: sortdir,
-                score: original_score,
-            }
-        });
+            });
 
-        let results = self
+        let top_docs = self
             .searcher
             .search_with_executor(
                 query,
@@ -447,26 +453,7 @@ impl SearchIndexReader {
             .expect("failed to search")
             .into_iter();
 
-        let mut top_docs = Vec::with_capacity(results.len());
-        for (OrderedScore { score, .. }, doc_address) in results {
-            let segment_reader = self.searcher.segment_reader(doc_address.segment_ord);
-            let fast_fields = segment_reader.fast_fields();
-            let ctid_ff = FFType::new(fast_fields, "ctid");
-
-            let ctid = ctid_ff
-                .as_u64(doc_address.doc_id)
-                .expect("DocId should have a ctid");
-
-            let scored = SearchIndexScore {
-                bm25: score,
-                key: None,
-                ctid,
-            };
-
-            top_docs.push((scored, doc_address));
-        }
-
-        SearchResults::TopN(top_docs.len(), top_docs.into_iter())
+        SearchResults::TopNByScore(top_docs.len(), top_docs.into_iter())
     }
 
     pub fn estimate_docs(
@@ -522,120 +509,30 @@ impl SearchIndexReader {
     }
 }
 
-/// Helper for working with different "fast field" types as if they're all one type
-enum FFType {
-    Text(StrColumn),
-    I64(Arc<dyn ColumnValues<i64>>),
-    F64(Arc<dyn ColumnValues<f64>>),
-    U64(Arc<dyn ColumnValues<u64>>),
-    Bool(Arc<dyn ColumnValues<bool>>),
-    Date(Arc<dyn ColumnValues<tantivy::DateTime>>),
-}
-
-impl FFType {
-    /// Construct the proper [`FFType`] for the specified `field_name`, which
-    /// should be a known field name in the Tantivy index
-    fn new(ffr: &FastFieldReaders, field_name: &str) -> Self {
-        if let Ok(Some(ff)) = ffr.str(field_name) {
-            Self::Text(ff)
-        } else if let Ok(ff) = ffr.u64(field_name) {
-            Self::U64(ff.first_or_default_col(0))
-        } else if let Ok(ff) = ffr.i64(field_name) {
-            Self::I64(ff.first_or_default_col(0))
-        } else if let Ok(ff) = ffr.f64(field_name) {
-            Self::F64(ff.first_or_default_col(0.0))
-        } else if let Ok(ff) = ffr.bool(field_name) {
-            Self::Bool(ff.first_or_default_col(false))
-        } else if let Ok(ff) = ffr.date(field_name) {
-            Self::Date(ff.first_or_default_col(tantivy::DateTime::MIN))
-        } else {
-            panic!("`{field_name}` is missing or is not configured as a fast field")
-        }
-    }
-
-    /// Given a [`DocId`], what is its "fast field" value?
-    #[inline(always)]
-    fn value(&self, doc: DocId) -> TantivyValue {
-        let value = match self {
-            FFType::Text(ff) => {
-                let mut s = String::new();
-                let ord = ff
-                    .term_ords(doc)
-                    .next()
-                    .expect("term ord should be retrievable");
-                ff.ord_to_str(ord, &mut s)
-                    .expect("string should be retrievable for term ord");
-                TantivyValue(s.into())
-            }
-            FFType::I64(ff) => TantivyValue(ff.get_val(doc).into()),
-            FFType::F64(ff) => TantivyValue(ff.get_val(doc).into()),
-            FFType::U64(ff) => TantivyValue(ff.get_val(doc).into()),
-            FFType::Bool(ff) => TantivyValue(ff.get_val(doc).into()),
-            FFType::Date(ff) => TantivyValue(ff.get_val(doc).into()),
-        };
-
-        value
-    }
-
-    /// Given a [`DocId`], what is its "fast field" value?  In the case of a String field, we
-    /// don't reconstruct the full string, and instead return the term ord as a u64
-    #[inline(always)]
-    #[allow(dead_code)]
-    fn value_fast(&self, doc: DocId) -> TantivyValue {
-        let value = match self {
-            FFType::Text(ff) => {
-                // just use the first term ord here.  that's enough to do a tie-break quickly
-                let ord = ff
-                    .term_ords(doc)
-                    .next()
-                    .expect("term ord should be retrievable");
-                TantivyValue(ord.into())
-            }
-            other => other.value(doc),
-        };
-
-        value
-    }
-
-    /// Given a [`DocId`], what is its u64 "fast field" value?
-    ///
-    /// If this [`FFType`] isn't [`FFType::U64`], this function returns [`None`].
-    #[inline(always)]
-    fn as_u64(&self, doc: DocId) -> Option<u64> {
-        if let FFType::U64(ff) = self {
-            Some(ff.get_val(doc))
-        } else {
-            None
-        }
-    }
-}
-
 mod collector {
-    use crate::index::reader::FFType;
     use crate::index::reader::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::fastfield::Column;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
     /// each segment, in parallel, as tantivy find each doc.
     pub struct ChannelCollector {
         need_scores: bool,
-        sender: crossbeam::channel::Sender<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
-        key_field: Option<String>,
+        sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
+        sort_segments_by_ctid: bool,
     }
 
     impl ChannelCollector {
         pub fn new(
             need_scores: bool,
-            sender: crossbeam::channel::Sender<
-                Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>,
-            >,
-            key_field: Option<String>,
+            sort_segments_by_ctid: bool,
+            sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
         ) -> Self {
             Self {
                 need_scores,
                 sender,
-                key_field,
+                sort_segments_by_ctid,
             }
         }
     }
@@ -649,19 +546,15 @@ mod collector {
             segment_local_id: SegmentOrdinal,
             segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
-            let fast_fields = segment_reader.fast_fields();
-            let ctid_ff = FFType::new(fast_fields, "ctid");
-            let key_ff = self
-                .key_field
-                .as_ref()
-                .map(|key_field| FFType::new(fast_fields, key_field));
-
             Ok(ChannelSegmentCollector {
                 segment_ord: segment_local_id,
-                ctid_ff,
-                key_ff,
                 sender: self.sender.clone(),
                 fruit: Vec::new(),
+                ctid_ff: segment_reader
+                    .fast_fields()
+                    .u64("ctid")
+                    .expect("ctid should be a u64 fast field"),
+                sort_by_ctid: self.sort_segments_by_ctid,
             })
         }
 
@@ -676,38 +569,26 @@ mod collector {
 
     pub struct ChannelSegmentCollector {
         segment_ord: SegmentOrdinal,
-        ctid_ff: FFType,
-        key_ff: Option<FFType>,
-        sender: crossbeam::channel::Sender<Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>>,
-        fruit: Vec<tantivy::Result<(SearchIndexScore, DocAddress)>>,
+        sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
+        fruit: Vec<(SearchIndexScore, DocAddress)>,
+        ctid_ff: Column<u64>,
+        sort_by_ctid: bool,
     }
 
     impl SegmentCollector for ChannelSegmentCollector {
         type Fruit = ();
 
         fn collect(&mut self, doc: DocId, score: Score) {
-            if let Some(ctid) = self.ctid_ff.as_u64(doc) {
-                let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
-
-                let doc_address = DocAddress::new(self.segment_ord, doc);
-                let scored = SearchIndexScore {
-                    bm25: score,
-                    key,
-                    ctid,
-                };
-
-                self.fruit.push(Ok((scored, doc_address)))
-            }
+            let doc_address = DocAddress::new(self.segment_ord, doc);
+            self.fruit.push((
+                SearchIndexScore::new(&self.ctid_ff, doc, score),
+                doc_address,
+            ))
         }
 
         fn harvest(mut self) -> Self::Fruit {
-            // ordering by ctid helps to avoid random heap access, at least for the docs that
-            // were found in this segment.  But we don't need to do it if we're also retrieving
-            // the "key_field".
-            if self.key_ff.is_none() {
-                self.fruit.sort_by_key(|result| {
-                    result.as_ref().map(|(scored, _)| scored.ctid).unwrap_or(0)
-                });
+            if self.sort_by_ctid {
+                self.fruit.sort_by_key(|(scored, _)| scored.ctid);
             }
 
             // if send fails that likely means the receiver was dropped so we have nowhere
@@ -718,24 +599,19 @@ mod collector {
 }
 
 mod vec_collector {
-    use crate::index::reader::FFType;
     use crate::index::reader::SearchIndexScore;
-    use pgrx::check_for_interrupts;
     use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::fastfield::Column;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     /// A [`Collector`] that collects all matching documents into a [`Vec`].  
     pub struct VecCollector {
         need_scores: bool,
-        key_field: Option<String>,
     }
 
     impl VecCollector {
-        pub fn new(need_scores: bool, key_field: Option<String>) -> Self {
-            Self {
-                need_scores,
-                key_field,
-            }
+        pub fn new(need_scores: bool) -> Self {
+            Self { need_scores }
         }
     }
 
@@ -748,18 +624,13 @@ mod vec_collector {
             segment_local_id: SegmentOrdinal,
             segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
-            let fast_fields = segment_reader.fast_fields();
-            let ctid_ff = FFType::new(fast_fields, "ctid");
-            let key_ff = self
-                .key_field
-                .as_ref()
-                .map(|key_field| FFType::new(fast_fields, key_field));
-
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,
-                ctid_ff,
-                key_ff,
                 results: Default::default(),
+                ctid_ff: segment_reader
+                    .fast_fields()
+                    .u64("ctid")
+                    .expect("ctid should be a u64 fast field"),
             })
         }
 
@@ -778,28 +649,19 @@ mod vec_collector {
 
     pub struct VecSegmentCollector {
         segment_ord: SegmentOrdinal,
-        ctid_ff: FFType,
-        key_ff: Option<FFType>,
         results: Vec<(SearchIndexScore, DocAddress)>,
+        ctid_ff: Column<u64>,
     }
 
     impl SegmentCollector for VecSegmentCollector {
         type Fruit = Vec<(SearchIndexScore, DocAddress)>;
 
         fn collect(&mut self, doc: DocId, score: Score) {
-            check_for_interrupts!();
-            if let Some(ctid) = self.ctid_ff.as_u64(doc) {
-                let key = self.key_ff.as_ref().map(|key_ff| key_ff.value(doc));
-
-                let doc_address = DocAddress::new(self.segment_ord, doc);
-                let scored = SearchIndexScore {
-                    bm25: score,
-                    key,
-                    ctid,
-                };
-
-                self.results.push((scored, doc_address));
-            }
+            let doc_address = DocAddress::new(self.segment_ord, doc);
+            self.results.push((
+                SearchIndexScore::new(&self.ctid_ff, doc, score),
+                doc_address,
+            ));
         }
 
         fn harvest(self) -> Self::Fruit {

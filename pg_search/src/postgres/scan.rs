@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::{SearchIndexReader, SearchResults};
 use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
@@ -27,11 +28,11 @@ use tantivy::query::Query;
 
 pub struct Bm25ScanState {
     need_scores: bool,
+    fast_fields: FFHelper,
     reader: SearchIndexReader,
     query: Box<dyn Query>,
     results: SearchResults,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
-    key_field: String,
     key_field_oid: PgOid,
 }
 
@@ -118,22 +119,18 @@ pub extern "C" fn amrescan(
             .get_key_field()
             .expect("bm25 index should have a key_field")
             .0;
+        let key_field_type = search_index.key_field().type_.into();
 
         let need_scores = search_query_input.contains_more_like_this();
         let query = search_index.query(&search_query_input, &search_reader);
         let results = if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-            search_reader.search_segment(
-                need_scores,
-                (*scan).xs_want_itup.then(|| key_field.clone()),
-                segment_number,
-                &query,
-            )
+            search_reader.search_segment(need_scores, segment_number, &query)
         } else if pg_sys::ParallelWorkerNumber > -1 {
             SearchResults::None
         } else {
             search_reader.search_via_channel(
                 need_scores,
-                (*scan).xs_want_itup.then(|| key_field.clone()),
+                !(*scan).xs_want_itup,
                 SearchIndex::executor(),
                 &query,
             )
@@ -143,11 +140,14 @@ pub extern "C" fn amrescan(
         let scan_state = if (*scan).xs_want_itup {
             Bm25ScanState {
                 need_scores,
+                fast_fields: FFHelper::with_fields(
+                    &search_reader,
+                    &[(key_field, key_field_type).into()],
+                ),
                 reader: search_reader,
                 query,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
-                key_field,
                 key_field_oid: PgOid::from(
                     (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid,
                 ),
@@ -155,11 +155,11 @@ pub extern "C" fn amrescan(
         } else {
             Bm25ScanState {
                 need_scores,
+                fast_fields: FFHelper::empty(),
                 reader: search_reader,
                 query,
                 results,
                 itup: (vec![], vec![]),
-                key_field,
                 key_field_oid: PgOid::Invalid,
             }
         };
@@ -191,14 +191,16 @@ pub extern "C" fn amgettuple(
 
     loop {
         match state.results.next() {
-            Some((scored, _)) => unsafe {
-                let tid = &mut (*scan).xs_heaptid;
-                crate::postgres::utils::u64_to_item_pointer(scored.ctid, tid);
+            Some((scored, doc_address)) => unsafe {
+                let ipd = &mut (*scan).xs_heaptid;
+                crate::postgres::utils::u64_to_item_pointer(scored.ctid, ipd);
 
                 if (*scan).xs_want_itup {
-                    match scored
-                        .key
-                        .expect("should have retrieved the key_field")
+                    let key = state
+                        .fast_fields
+                        .value(0, doc_address)
+                        .expect("key_field should be a fast_field");
+                    match key
                         .try_into_datum(state.key_field_oid)
                         .expect("key_field value should convert to a Datum")
                     {
@@ -286,14 +288,14 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
 
     let mut cnt = 0i64;
     loop {
-        for (scored, _) in &mut state.results {
-            let mut tid = pg_sys::ItemPointerData::default();
-            crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut tid);
+        for (scored, _) in state.results.by_ref() {
+            let mut ipd = pg_sys::ItemPointerData::default();
+            crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut ipd);
 
             unsafe {
                 // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
                 // initialized as a stack-allocated ItemPointerData
-                pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
+                pg_sys::tbm_add_tuples(tbm, &mut ipd, 1, false);
             }
 
             cnt += 1;
@@ -313,12 +315,10 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
 // if there's a segment to be claimed for parallel query execution, do that now
 fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
     if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-        state.results = state.reader.search_segment(
-            state.need_scores,
-            unsafe { (*scan).xs_want_itup.then(|| state.key_field.clone()) },
-            segment_number,
-            &state.query,
-        );
+        state.results =
+            state
+                .reader
+                .search_segment(state.need_scores, segment_number, &state.query);
         return true;
     }
     false

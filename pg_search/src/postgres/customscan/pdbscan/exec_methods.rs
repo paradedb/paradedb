@@ -15,175 +15,48 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::SearchIndexScore;
-use crate::index::SearchIndex;
-use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
-use crate::postgres::customscan::pdbscan::{make_tuple_table_slot, PdbScan};
-use pgrx::pg_sys::TupleTableSlot;
-use pgrx::{direct_function_call, pg_sys, IntoDatum};
-use tantivy::DocAddress;
+pub(crate) mod normal;
+pub(crate) mod top_n;
 
-// TODO:  should these be GUCs?  I think yes, probably
-const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;
-const MAX_CHUNK_SIZE: usize = 5000;
+use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use pgrx::pg_sys;
+use tantivy::{DocAddress, Score};
 
 pub enum ExecState {
-    Found {
-        scored: SearchIndexScore,
+    RequiresVisibilityCheck {
+        ctid: u64,
+        score: Score,
         doc_address: DocAddress,
-        slot: *mut TupleTableSlot,
     },
-    Invisible {
-        scored: SearchIndexScore,
+    Virtual {
+        slot: *mut pg_sys::TupleTableSlot,
     },
     Eof,
 }
 
-pub type NormalScanExecState = ();
-
-#[inline(always)]
-pub fn normal_scan_exec(
-    state: &mut CustomScanStateWrapper<PdbScan>,
-    _: *mut std::ffi::c_void,
-) -> ExecState {
-    match state.custom_state_mut().search_results.next() {
-        None => ExecState::Eof,
-        Some((scored, doc_address)) => {
-            let scanslot = state.scanslot();
-            let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
-
-            match make_tuple_table_slot(state, &scored, bslot) {
-                None => ExecState::Invisible { scored },
-                Some(slot) => ExecState::Found {
-                    scored,
-                    doc_address,
-                    slot,
-                },
-            }
-        }
+impl Default for Box<dyn ExecMethod> {
+    fn default() -> Self {
+        Box::new(UnknownScanStyle)
     }
 }
 
-#[derive(Default, Debug)]
-pub struct TopNScanExecState {
-    last_ctid: u64,
-    pub limit: usize,
-    pub have_less: bool,
-    found: usize,
-    pub chunk_size: usize,
+pub trait ExecMethod {
+    fn init(&mut self, state: &PdbScanState, cstate: *mut pg_sys::CustomScanState);
+    fn next(&mut self) -> ExecState;
 }
 
-#[inline(always)]
-pub fn top_n_scan_exec(
-    state: &mut CustomScanStateWrapper<PdbScan>,
-    isc: *mut std::ffi::c_void,
-) -> ExecState {
-    unsafe {
-        let topn_state = isc.cast::<TopNScanExecState>().as_mut().unwrap();
+struct UnknownScanStyle;
 
-        let mut next = state.custom_state_mut().search_results.next();
-        loop {
-            match next {
-                None => {
-                    if topn_state.found == topn_state.limit || topn_state.have_less {
-                        // we found all the matching rows
-                        return ExecState::Eof;
-                    }
-                }
-                Some((scored, doc_address)) => {
-                    let scanslot = state.scanslot();
-                    let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
+impl ExecMethod for UnknownScanStyle {
+    fn init(&mut self, _state: &PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
+        unimplemented!(
+            "logic error in pg_search:  `UnknownScanStyle::init()` should never be called"
+        )
+    }
 
-                    topn_state.last_ctid = scored.ctid;
-
-                    return match make_tuple_table_slot(state, &scored, bslot) {
-                        None => ExecState::Invisible { scored },
-                        Some(slot) => {
-                            topn_state.found += 1;
-                            ExecState::Found {
-                                scored,
-                                doc_address,
-                                slot,
-                            }
-                        }
-                    };
-                }
-            }
-
-            // we underflowed our tuples, so go get some more, if there are any
-            state.custom_state_mut().retry_count += 1;
-
-            // calculate a scaling factor to use against the limit
-            let factor = if topn_state.chunk_size == 0 {
-                // if we haven't done any chunking yet, calculate the scaling factor
-                // based on the proportion of dead tuples compared to live tuples
-                let heaprelid = state.custom_state().heaprelid;
-                let n_dead = direct_function_call::<i64>(
-                    pg_sys::pg_stat_get_dead_tuples,
-                    &[heaprelid.into_datum()],
-                )
-                .unwrap();
-                let n_live = direct_function_call::<i64>(
-                    pg_sys::pg_stat_get_live_tuples,
-                    &[heaprelid.into_datum()],
-                )
-                .unwrap();
-
-                (1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))).ceil() as usize
-            } else {
-                // we've already done chunking, so just use a default scaling factor
-                // to avoid exponentially growing the chunk size
-                SUBSEQUENT_RETRY_SCALE_FACTOR
-            };
-
-            // set the chunk size to the scaling factor times the limit
-            topn_state.chunk_size = (topn_state.chunk_size * factor)
-                .max(topn_state.limit * factor)
-                .min(MAX_CHUNK_SIZE);
-
-            let mut results = state
-                .custom_state()
-                .search_reader
-                .as_ref()
-                .unwrap()
-                .search_top_n(
-                    SearchIndex::executor(),
-                    state.custom_state().query.as_ref().unwrap(),
-                    state.custom_state().sort_field.clone(),
-                    state
-                        .custom_state()
-                        .sort_direction
-                        .as_ref()
-                        .cloned()
-                        .unwrap()
-                        .into(),
-                    topn_state.chunk_size,
-                );
-
-            // fast forward and stop on the ctid we last found
-            for (scored, _) in &mut results {
-                if scored.ctid == topn_state.last_ctid {
-                    // we've now advanced to the last ctid we found
-                    break;
-                }
-            }
-
-            // this should be the next valid tuple after that
-            next = match results.next() {
-                // ... and there it is!
-                Some(next) => Some(next),
-
-                // there wasn't one, so we've now read all possible matches
-                None => {
-                    return ExecState::Eof;
-                }
-            };
-
-            // we now have a new iterator of results to use going forward
-            state.custom_state_mut().search_results = results;
-
-            // but we'll loop back around and evaluate whatever `next` is now pointing to
-            continue;
-        }
+    fn next(&mut self) -> ExecState {
+        unimplemented!(
+            "logic error in pg_search:  `UnknownScanStyle::next()` should never be called"
+        )
     }
 }

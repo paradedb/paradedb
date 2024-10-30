@@ -42,6 +42,7 @@ pub trait AsInt {
     unsafe fn as_int(&self) -> Option<i32>;
 }
 
+#[allow(dead_code)]
 pub trait AsBool {
     unsafe fn as_bool(&self) -> Option<bool>;
 }

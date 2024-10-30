@@ -16,3 +16,7 @@ inherits = "release"
 debug = true
 lto = "thin"
 codegen-units = 32
+
+[workspace.dependencies]
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "0c3318a" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "0c3318a" }

@@ -69,7 +69,6 @@ pub fn default_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldT
     let numeric: SearchFieldConfig = serde_json::from_value(json!({"Numeric": {}})).unwrap();
     let json: SearchFieldConfig = serde_json::from_value(json!({"Json": {}})).unwrap();
     let boolean: SearchFieldConfig = serde_json::from_value(json!({"Boolean": {}})).unwrap();
-
     vec![
         ("id".into(), numeric.clone(), SearchFieldType::I64),
         ("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64),
@@ -88,7 +87,6 @@ pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldT
             .unwrap();
     let numeric: SearchFieldConfig = serde_json::from_value(json!({"Numeric": {}})).unwrap();
     let json: SearchFieldConfig = serde_json::from_value(json!({"Json": {}})).unwrap();
-
     vec![
         ("id".into(), numeric.clone(), SearchFieldType::I64),
         ("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64),

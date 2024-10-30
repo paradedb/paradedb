@@ -4,10 +4,39 @@ title: Overview
 
 Use `.` to search over text values nested inside JSON. For instance, the following query searches over a field with values like `{"metadata": {"color": "white"}}`.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.term('metadata.color', 'white');
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "term": {
+        "field": "metadata.color",
+        "value": "white"
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 The following query builder functions support JSON fields: [term](/documentation/advanced/term/term), [fuzzy term](/documentation/advanced/term/fuzzy_term), [phrase](/documentation/advanced/phrase/phrase), [fuzzy phrase](/documentation/advanced/phrase/fuzzy_phrase), [phrase prefix](/documentation/advanced/phrase/phrase_prefix), and [range](/documentation/advanced/term/range).
+
+## Datetime Handling
+
+When querying datetime values on JSON fields using JSON query syntax, always set `is_datetime: true` to ensure the query is parsed as a date.
+
+```sql
+SELECT id FROM mock_items WHERE mock_items @@@ '{
+    "range": {
+        "field": "metadata.attributes.tstz",
+        "lower_bound": {"included": "2023-05-01T08:12:34Z"},
+        "upper_bound": null,
+        "is_datetime": true
+    }
+}'::jsonb
+ORDER BY id;
+```

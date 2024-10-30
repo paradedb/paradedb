@@ -6,7 +6,8 @@ title: Const Score
 
 Applies a constant score across all documents matched by the underlying query. It can avoid unnecessary score computation on the wrapped query.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category, paradedb.score(id)
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
@@ -16,6 +17,22 @@ WHERE id @@@ paradedb.boolean(
   ]
 );
 ```
+```sql JSON Syntax
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE id @@@
+'{
+    "boolean": {
+        "should": [
+            {"const_score": {"score": 1.0, "query": {"term": {"field": "description", "value": "shoes"}}}},
+            {"term": {"field": "description", "value": "running"}}
+        ]
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8" />
 
 <ParamField body="score" required>
   The constant score to use for each result.

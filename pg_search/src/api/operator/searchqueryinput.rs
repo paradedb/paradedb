@@ -50,10 +50,11 @@ pub fn search_with_query_input(
                 _ => panic!("the SeachQueryInput must be wrapped in a WithIndex variant"),
             }
         };
-        let search_index = open_search_index(unsafe {
+        let indexrel = unsafe {
             &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
-        })
-        .expect("should be able to open search index");
+        };
+        let search_index =
+            open_search_index(indexrel).expect("should be able to open search index");
 
         let key_field = search_index.key_field_name();
         let key_field_type = search_index.key_field().type_.into();
@@ -66,7 +67,7 @@ pub fn search_with_query_input(
             query.contains_more_like_this(),
             false,
             SearchIndex::executor(),
-            &search_index.query(&query, &search_reader),
+            &search_index.query(indexrel, &query, &search_reader),
         );
         let mut hs = FxHashSet::default();
         for (_, doc_address) in top_docs {

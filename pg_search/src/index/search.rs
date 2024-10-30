@@ -29,6 +29,7 @@ use crate::schema::{
 };
 use anyhow::Result;
 use once_cell::sync::Lazy;
+use pgrx::PgRelation;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::num::NonZeroUsize;
 use tantivy::query::Query;
@@ -172,6 +173,7 @@ impl SearchIndex {
 
     pub fn query(
         &self,
+        indexrel: &PgRelation,
         search_query_input: &SearchQueryInput,
         reader: &SearchIndexReader,
     ) -> Box<dyn Query> {
@@ -179,7 +181,7 @@ impl SearchIndex {
         let searcher = reader.underlying_reader.searcher();
         search_query_input
             .clone()
-            .into_tantivy_query(&self.schema, &mut parser, &searcher)
+            .into_tantivy_query(&(indexrel, &self.schema), &mut parser, &searcher)
             .expect("must be able to parse query")
     }
 

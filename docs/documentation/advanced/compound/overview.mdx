@@ -4,7 +4,8 @@ title: Overview
 
 Compound queries combine multiple other queries. For instance, the following query looks for documents containing either the term `running` or `shoes` and boosts the relevance of documents matching `shoes`.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
@@ -14,5 +15,21 @@ WHERE id @@@ paradedb.boolean(
     ]
 );
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "boolean": {
+        "should": [
+            {"boost": {"query": {"term": {"field": "description", "value": "shoes"}}, "boost": 2.0}},
+            {"term": {"field": "description", "value": "running"}}
+        ]
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8" />
 
 Compound query functions are composable, which allows for arbitrarily fine-grained queries.

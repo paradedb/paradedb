@@ -12,7 +12,8 @@ title: Term Set
 
 Matches documents containing any [term](/documentation/concepts/term) from a specified set.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.term_set(
@@ -22,6 +23,22 @@ WHERE id @@@ paradedb.term_set(
 	]
 );
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "term_set": {
+        "terms": [
+            {"field": "description", "value": "shoes"},
+            {"field": "description", "value": "novel"}
+        ]
+    }
+}'::jsonb ORDER BY id;
+```
+</CodeGroup>
+
+<div className="mt-8" />
 
 <ParamField body="terms" required>
   An `ARRAY` of `paradedb.term` query objects.

@@ -11,16 +11,28 @@ title: Range
 
 The following code block executes a range query over a JSON field:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, metadata
 FROM mock_items
-WHERE mock_items @@@ paradedb.range(
+WHERE id @@@ paradedb.range(
     'metadata.attributes.quantity',
     int4range(2, 5, '()')
 );
 ```
-
-The [range query](/documentation/advanced/term/range) documentation provides details on the range function.
+```sql JSON Syntax
+SELECT description, metadata
+FROM mock_items
+WHERE id @@@
+'{
+    "range": {
+        "field": "metadata.attributes.quantity",
+        "lower_bound": {"excluded": 2},
+        "upper_bound": {"excluded": 5}
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 ## Datetime Values
 
@@ -45,4 +57,20 @@ The following values are not RFC 3339 compliant:
 2024-10-06
 -- Time only
 14:30:00
+```
+
+## Datetime Handling
+
+When querying datetime values on JSON fields using JSON query syntax, always set `is_datetime: true` to ensure the query is parsed as a date.
+
+```sql
+SELECT id FROM mock_items WHERE mock_items @@@ '{
+    "range": {
+        "field": "metadata.attributes.tstz",
+        "lower_bound": {"included": "2023-05-01T08:12:34Z"},
+        "upper_bound": null,
+        "is_datetime": true
+    }
+}'::jsonb
+ORDER BY id;
 ```

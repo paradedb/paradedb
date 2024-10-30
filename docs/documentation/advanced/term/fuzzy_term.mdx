@@ -12,12 +12,28 @@ allowing for minor typos in the input.
   a phrase containing multiple tokens.
 </Note>
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.fuzzy_term('description', 'shoez')
 LIMIT 5;
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "fuzzy_term": {
+        "field": "description",
+        "value": "shoez"
+    }
+}'::jsonb
+LIMIT 5;
+```
+</CodeGroup>
+
+<div className="mt-8" />
 
 <ParamField body="field" required>
   Specifies the field within the document to search for the term.

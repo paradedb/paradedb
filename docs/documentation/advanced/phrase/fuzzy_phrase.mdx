@@ -7,11 +7,26 @@ title: Fuzzy Phrase
 `fuzzy_phrase` is like `fuzzy_term` but for query phrases that are comprised of multiple tokens.
 Unlike a typical phrase query, `fuzzy_phrase` finds documents that are a fuzzy match against **any one** of the query tokens.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.fuzzy_phrase('description', 'ruining shoez');
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "fuzzy_phrase": {
+        "field": "description",
+        "value": "ruining shoez"
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8" />
 
 <ParamField body="field" required>
   Specifies the field within the document to search for the term.
@@ -43,11 +58,26 @@ WHERE id @@@ paradedb.fuzzy_phrase('description', 'ruining shoez');
 Setting `match_all_terms` to `true` makes it so that **all** query tokens must
 match in order for a document to be considered a match.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.fuzzy_phrase(
-  'description', 'ruining shoez',
+  field => 'description',
+  value => 'ruining shoez',
   match_all_terms => true
 );
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "fuzzy_phrase": {
+        "field": "description",
+        "value": "ruining shoez",
+        "match_all_terms": true
+    }
+}'::jsonb;
+```
+</CodeGroup>

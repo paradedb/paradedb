@@ -140,7 +140,11 @@ pub(crate) fn estimate_selectivity(
         .get_reader()
         .expect("search reader creation should not fail");
     let estimate = search_reader
-        .estimate_docs(search_index.query_parser(), search_query_input.clone())
+        .estimate_docs(
+            indexrel,
+            search_index.query_parser(),
+            search_query_input.clone(),
+        )
         .unwrap_or(1) as f64;
 
     let mut selectivity = estimate / reltuples;

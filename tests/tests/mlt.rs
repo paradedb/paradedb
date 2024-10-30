@@ -26,7 +26,11 @@ use sqlx::PgConnection;
 fn mlt_enables_scoring_issue1747(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let (id,) = "SELECT id FROM paradedb.bm25_search WHERE id @@@ paradedb.more_like_this(with_document_id => 3, with_min_term_frequency => 1) ORDER BY id LIMIT 1"
+    let (id,) = "
+    SELECT id FROM paradedb.bm25_search WHERE id @@@ paradedb.more_like_this(
+        document_id => 3,
+        min_term_frequency => 1
+    ) ORDER BY id LIMIT 1"
         .fetch_one::<(i32,)>(&mut conn);
     assert_eq!(id, 3);
 }
@@ -41,9 +45,9 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     WHERE id @@@ 
     paradedb.boolean(
         must => paradedb.more_like_this(
-            with_min_doc_frequency => 2,
-            with_min_term_frequency => 1,
-            with_document_fields => '{"description": "keyboard"}'
+            min_doc_frequency => 2,
+            min_term_frequency => 1,
+            document_fields => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -57,9 +61,9 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     WHERE id @@@ 
     paradedb.boolean(
         must_not => paradedb.more_like_this(
-            with_min_doc_frequency => 2,
-            with_min_term_frequency => 1,
-            with_document_fields => '{"description": "keyboard"}'
+            min_doc_frequency => 2,
+            min_term_frequency => 1,
+            document_fields => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -73,9 +77,9 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     WHERE id @@@ 
     paradedb.boolean(
         should => paradedb.more_like_this(
-            with_min_doc_frequency => 2,
-            with_min_term_frequency => 1,
-            with_document_fields => '{"description": "keyboard"}'
+            min_doc_frequency => 2,
+            min_term_frequency => 1,
+            document_fields => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -90,9 +94,9 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     paradedb.boost(
         boost => 1.5,
         query => paradedb.more_like_this(
-            with_min_doc_frequency => 2,
-            with_min_term_frequency => 1,
-            with_document_fields => '{"description": "keyboard"}'
+            min_doc_frequency => 2,
+            min_term_frequency => 1,
+            document_fields => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -107,9 +111,9 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     paradedb.const_score(
         score => 5,
         query => paradedb.more_like_this(
-            with_min_doc_frequency => 2,
-            with_min_term_frequency => 1,
-            with_document_fields => '{"description": "keyboard"}'
+            min_doc_frequency => 2,
+            min_term_frequency => 1,
+            document_fields => '{"description": "keyboard"}'
         )
     )
     ORDER BY id
@@ -124,14 +128,14 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     paradedb.disjunction_max(
         disjuncts => ARRAY[
             paradedb.more_like_this(
-                with_min_doc_frequency => 2,
-                with_min_term_frequency => 1,
-                with_document_fields => '{"description": "keyboard"}'
+                min_doc_frequency => 2,
+                min_term_frequency => 1,
+                document_fields => '{"description": "keyboard"}'
             ), 
             paradedb.more_like_this(
-                with_min_doc_frequency => 2,
-                with_min_term_frequency => 1,
-                with_document_fields => '{"description": "shoes"}'
+                min_doc_frequency => 2,
+                min_term_frequency => 1,
+                document_fields => '{"description": "shoes"}'
             )            
         ]
     )
@@ -151,15 +155,15 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
                 paradedb.boost(
                     boost => 3,
                     query => paradedb.more_like_this(
-                        with_min_doc_frequency => 2,
-                        with_min_term_frequency => 1,
-                        with_document_fields => '{"description": "keyboard"}'
+                        min_doc_frequency => 2,
+                        min_term_frequency => 1,
+                        document_fields => '{"description": "keyboard"}'
                     ) 
                 ),
                 paradedb.more_like_this(
-                    with_min_doc_frequency => 2,
-                    with_min_term_frequency => 1,
-                    with_document_fields => '{"description": "shoes"}'
+                    min_doc_frequency => 2,
+                    min_term_frequency => 1,
+                    document_fields => '{"description": "shoes"}'
                 )            
             ]
         )

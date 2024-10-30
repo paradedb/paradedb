@@ -9,7 +9,8 @@ title: Tantivy Query String
 `paradedb.parse` accepts Tantivy query strings, which is useful for concisely expressing complex queries or directly executing queries provided
 by the end user. For instance, the following two queries are equivalent:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear');
@@ -17,10 +18,43 @@ WHERE id @@@ paradedb.parse('description:"running shoes" OR category:footwear');
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.boolean(should => ARRAY[
-    paradedb.phrase('description', ARRAY['running', 'shoes']),
-    paradedb.term('category', 'footwear')
+paradedb.phrase('description', ARRAY['running', 'shoes']),
+paradedb.term('category', 'footwear')
 ]);
-```
+
+````
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ '{
+  "parse": {"query_string": "description:\"running shoes\" OR category:footwear"}
+}'::jsonb
+
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ '{
+  "boolean": {
+    "should": [
+      {
+        "phrase": {
+          "field": "description",
+          "phrases": ["running", "shoes"]
+        }
+      },
+      {
+        "term": {
+          "field": "category",
+          "value": "footwear"
+        }
+      }
+    ]
+  }
+}'::jsonb;
+````
+
+</CodeGroup>
+
+<div className="mt-8" />
 
 ## Lenient Query Parsing
 
@@ -29,17 +63,31 @@ For instance, a valid field name must be provided before every query (i.e. `cate
 
 By setting `lenient` to `true`, the query is executed on a best-effort basis. For example, if no field names are provided, the query is executed over all fields in the index:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.parse('speaker electronics', lenient => true);
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "parse": {
+        "query_string": "speaker electronics",
+        "lenient": true
+    }
+}'::jsonb;
+```
+</CodeGroup>
 
 ## Conjunction Mode
 
 By default, queries in the query string are `OR`ed together. For instance, the following two queries are equivalent:
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.parse('description:speaker category:electronics');
@@ -47,11 +95,34 @@ WHERE id @@@ paradedb.parse('description:speaker category:electronics');
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.parse('description:speaker OR category:electronics');
-```
 
-With `conjunction_mode` set to `true`, queries are `AND`ed together. This means that the following two queries are equivalent:
+````
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "parse": {
+        "query_string": "description:speaker category:electronics"
+    }
+}'::jsonb;
 
-```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "parse": {
+        "query_string": "description:speaker OR category:electronics"
+    }
+}'::jsonb;
+````
+
+</CodeGroup>
+
+With conjunction_mode set to true, queries are `AND`ed together. This means that the following two queries are equivalent:
+
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.parse(
@@ -62,16 +133,40 @@ WHERE id @@@ paradedb.parse(
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.parse(
-  'description:speaker AND category:electronics'
+'description:speaker AND category:electronics'
 );
-```
+
+````
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "parse": {
+        "query_string": "description:speaker category:electronics",
+        "conjunction_mode": true
+    }
+}'::jsonb;
+
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "parse": {
+        "query_string": "description:speaker AND category:electronics"
+    }
+}'::jsonb;
+````
+
+</CodeGroup>
 
 ## Parse with Field
 
 `paradedb.parse_with_field` takes a field name and a query string without field names. It's useful for executing user-provided query
 strings over specific fields. Like `paradedb.parse`, `lenient` and `conjunction_mode` can be passed to this function.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.parse_with_field(
@@ -80,3 +175,16 @@ WHERE id @@@ paradedb.parse_with_field(
   conjunction_mode => true
 );
 ```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "parse_with_field": {
+        "field": "description",
+        "query_string": "speaker bluetooth",
+        "conjunction_mode": true
+    }
+}'::jsonb;
+```
+</CodeGroup>

@@ -6,7 +6,8 @@ title: Disjunction Max
 
 Returns documents that match one or more of the specified subqueries. If a document matches multiple criteria, it receives the highest score from those matches.
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category, paradedb.score(id)
 FROM mock_items
 WHERE id @@@ paradedb.disjunction_max(ARRAY[
@@ -14,6 +15,22 @@ WHERE id @@@ paradedb.disjunction_max(ARRAY[
   paradedb.term('description', 'running')
 ]);
 ```
+```sql JSON Syntax
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE id @@@
+'{
+    "disjunction_max": {
+        "queries": [
+            {"term": {"field": "description", "value": "shoes"}},
+            {"term": {"field": "description", "value": "running"}}
+        ]
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8" />
 
 <ParamField body="disjuncts" required>
   Query objects to match against.

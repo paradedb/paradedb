@@ -17,15 +17,19 @@
 
 mod range;
 
+use crate::postgres::utils::convert_pg_date_string;
 use crate::query::range::{Comparison, RangeField};
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, PostgresType};
+use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
+use range::{deserialize_bound, serialize_bound};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
+use tantivy::DateTime;
 use tantivy::{
     collector::DocSetCollector,
+    json_utils::split_json_path,
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
         ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
@@ -38,6 +42,7 @@ use tantivy::{
 use thiserror::Error;
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
     All,
     Boolean {
@@ -72,7 +77,15 @@ pub enum SearchQueryInput {
     },
     FastFieldRangeWeight {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<u64>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<u64>,
     },
     FuzzyTerm {
@@ -81,7 +94,6 @@ pub enum SearchQueryInput {
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
-        path: Option<String>,
     },
     FuzzyPhrase {
         field: String,
@@ -90,7 +102,6 @@ pub enum SearchQueryInput {
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
         match_all_terms: Option<bool>,
-        path: Option<String>,
     },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
@@ -101,7 +112,7 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
-        document_fields: Vec<(String, tantivy::schema::OwnedValue)>,
+        document_fields: Option<Vec<(String, tantivy::schema::OwnedValue)>>,
         document_id: Option<tantivy::schema::OwnedValue>,
     },
     Parse {
@@ -119,42 +130,76 @@ pub enum SearchQueryInput {
         field: String,
         phrases: Vec<String>,
         slop: Option<u32>,
-        path: Option<String>,
     },
     PhrasePrefix {
         field: String,
         phrases: Vec<String>,
         max_expansions: Option<u32>,
-        path: Option<String>,
     },
     Range {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        path: Option<String>,
+        #[serde(default)]
         is_datetime: bool,
     },
     RangeContains {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(default)]
         is_datetime: bool,
     },
     RangeIntersects {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(default)]
         is_datetime: bool,
     },
     RangeTerm {
         field: String,
         value: tantivy::schema::OwnedValue,
+        #[serde(default)]
         is_datetime: bool,
     },
     RangeWithin {
         field: String,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(
+            serialize_with = "serialize_bound",
+            deserialize_with = "deserialize_bound"
+        )]
         upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
+        #[serde(default)]
         is_datetime: bool,
     },
     Regex {
@@ -164,11 +209,11 @@ pub enum SearchQueryInput {
     Term {
         field: Option<String>,
         value: tantivy::schema::OwnedValue,
-        path: Option<String>,
+        #[serde(default)]
         is_datetime: bool,
     },
     TermSet {
-        terms: Vec<(String, tantivy::schema::OwnedValue, Option<String>, bool)>,
+        terms: Vec<TermInput>,
     },
     WithIndex {
         oid: pg_sys::Oid,
@@ -200,90 +245,244 @@ impl SearchQueryInput {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TermInput {
+    pub field: String,
+    pub value: tantivy::schema::OwnedValue,
+    #[serde(default)]
+    pub is_datetime: bool,
+}
+
+impl TryFrom<SearchQueryInput> for TermInput {
+    type Error = &'static str;
+
+    fn try_from(query: SearchQueryInput) -> Result<Self, Self::Error> {
+        match query {
+            SearchQueryInput::Term {
+                field,
+                value,
+                is_datetime,
+            } => Ok(TermInput {
+                field: field.expect("field string must not be empty"),
+                value,
+                is_datetime,
+            }),
+            _ => Err("Only Term variants can be converted to TermInput"),
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub trait AsFieldType<T> {
-    fn fields(&self) -> Vec<(FieldType, Field)>;
+    fn fields(&self) -> Vec<(FieldType, PgOid, Field)>;
 
-    fn key_field(&self) -> (FieldType, Field);
+    fn key_field(&self) -> (FieldType, PgOid, Field);
 
-    fn as_field_type(&self, from: &T) -> Option<(FieldType, Field)>;
+    fn as_field_type(&self, from: &T) -> Option<(FieldType, PgOid, Field)>;
 
     fn is_field_type(&self, from: &T, value: &OwnedValue) -> bool {
         matches!(
             (self.as_field_type(from), value),
-            (Some((FieldType::Str(_), _)), OwnedValue::Str(_))
-                | (Some((FieldType::U64(_), _)), OwnedValue::U64(_))
-                | (Some((FieldType::I64(_), _)), OwnedValue::I64(_))
-                | (Some((FieldType::F64(_), _)), OwnedValue::F64(_))
-                | (Some((FieldType::Bool(_), _)), OwnedValue::Bool(_))
-                | (Some((FieldType::Date(_), _)), OwnedValue::Date(_))
-                | (Some((FieldType::Facet(_), _)), OwnedValue::Facet(_))
-                | (Some((FieldType::Bytes(_), _)), OwnedValue::Bytes(_))
-                | (Some((FieldType::JsonObject(_), _)), OwnedValue::Object(_))
-                | (Some((FieldType::IpAddr(_), _)), OwnedValue::IpAddr(_))
+            (Some((FieldType::Str(_), _, _)), OwnedValue::Str(_))
+                | (Some((FieldType::U64(_), _, _)), OwnedValue::U64(_))
+                | (Some((FieldType::I64(_), _, _)), OwnedValue::I64(_))
+                | (Some((FieldType::F64(_), _, _)), OwnedValue::F64(_))
+                | (Some((FieldType::Bool(_), _, _)), OwnedValue::Bool(_))
+                | (Some((FieldType::Date(_), _, _)), OwnedValue::Date(_))
+                | (Some((FieldType::Facet(_), _, _)), OwnedValue::Facet(_))
+                | (Some((FieldType::Bytes(_), _, _)), OwnedValue::Bytes(_))
+                | (
+                    Some((FieldType::JsonObject(_), _, _)),
+                    OwnedValue::Object(_)
+                )
+                | (Some((FieldType::IpAddr(_), _, _)), OwnedValue::IpAddr(_))
         )
     }
 
     fn as_str(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Str(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Str(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_u64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::U64(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::U64(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_i64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::I64(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::I64(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_f64(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::F64(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::F64(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_bool(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Bool(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Bool(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_date(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Date(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Date(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_facet(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Facet(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Facet(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_bytes(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::Bytes(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::Bytes(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_json_object(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::JsonObject(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::JsonObject(_) => Some(field),
+                _ => None,
+            })
     }
     fn as_ip_addr(&self, from: &T) -> Option<Field> {
-        self.as_field_type(from).and_then(|(ft, field)| match ft {
-            FieldType::IpAddr(_) => Some(field),
-            _ => None,
-        })
+        self.as_field_type(from)
+            .and_then(|(ft, _, field)| match ft {
+                FieldType::IpAddr(_) => Some(field),
+                _ => None,
+            })
     }
+}
+
+fn is_datetime_typeoid(typeoid: PgOid) -> bool {
+    matches!(
+        typeoid,
+        PgOid::BuiltIn(
+            PgBuiltInOids::DATEOID
+                | PgBuiltInOids::DATERANGEOID
+                | PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | PgBuiltInOids::TSTZRANGEOID
+                | PgBuiltInOids::TIMEOID
+                | PgBuiltInOids::TIMETZOID
+        )
+    )
+}
+
+fn check_range_bounds(
+    typeoid: PgOid,
+    lower_bound: Bound<OwnedValue>,
+    upper_bound: Bound<OwnedValue>,
+) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>)> {
+    let one_day_nanos: i64 = 86_400_000_000_000;
+    let lower_bound = match (typeoid, lower_bound.clone()) {
+        // Excluded U64 needs to be canonicalized
+        (_, Bound::Excluded(OwnedValue::U64(n))) => Bound::Included(OwnedValue::U64(n + 1)),
+        // Excluded I64 needs to be canonicalized
+        (_, Bound::Excluded(OwnedValue::I64(n))) => Bound::Included(OwnedValue::I64(n + 1)),
+        // Excluded Date needs to be canonicalized
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            let nanos = datetime.into_timestamp_nanos();
+            Bound::Included(OwnedValue::Date(DateTime::from_timestamp_nanos(
+                nanos + one_day_nanos,
+            )))
+        }
+        (
+            PgOid::BuiltIn(
+                PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | pg_sys::BuiltinOid::TSTZRANGEOID,
+            ),
+            Bound::Excluded(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            Bound::Excluded(OwnedValue::Date(datetime))
+        }
+        (
+            PgOid::BuiltIn(
+                PgBuiltInOids::DATEOID
+                | PgBuiltInOids::DATERANGEOID
+                | PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | pg_sys::BuiltinOid::TSTZRANGEOID,
+            ),
+            Bound::Included(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            Bound::Included(OwnedValue::Date(datetime))
+        }
+        _ => lower_bound,
+    };
+
+    let upper_bound = match (typeoid, upper_bound.clone()) {
+        // Included U64 needs to be canonicalized
+        (_, Bound::Included(OwnedValue::U64(n))) => Bound::Excluded(OwnedValue::U64(n + 1)),
+        // Included I64 needs to be canonicalized
+        (_, Bound::Included(OwnedValue::I64(n))) => Bound::Excluded(OwnedValue::I64(n + 1)),
+        // Included Date needs to be canonicalized
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
+            Bound::Included(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            let nanos = datetime.into_timestamp_nanos();
+            Bound::Excluded(OwnedValue::Date(DateTime::from_timestamp_nanos(
+                nanos + one_day_nanos,
+            )))
+        }
+        (
+            PgOid::BuiltIn(
+                PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | pg_sys::BuiltinOid::TSTZRANGEOID,
+            ),
+            Bound::Included(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            Bound::Included(OwnedValue::Date(datetime))
+        }
+        (
+            PgOid::BuiltIn(
+                PgBuiltInOids::DATEOID
+                | PgBuiltInOids::DATERANGEOID
+                | PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TSRANGEOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | pg_sys::BuiltinOid::TSTZRANGEOID,
+            ),
+            Bound::Excluded(OwnedValue::Str(date_string)),
+        ) => {
+            let datetime = convert_pg_date_string(typeoid, &date_string);
+            Bound::Excluded(OwnedValue::Date(datetime))
+        }
+        _ => upper_bound,
+    };
+    Ok((lower_bound, upper_bound))
 }
 
 impl SearchQueryInput {
@@ -381,9 +580,9 @@ impl SearchQueryInput {
                 distance,
                 transposition_cost_one,
                 prefix,
-                path,
             } => {
-                let (field_type, field) = field_lookup
+                let (field, path) = split_field_and_path(&field);
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let term = value_to_term(
@@ -416,14 +615,14 @@ impl SearchQueryInput {
                 transposition_cost_one,
                 prefix,
                 match_all_terms,
-                path,
             } => {
+                let (field, path) = split_field_and_path(&field);
                 let distance = distance.unwrap_or(2);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
                 let match_all_terms = match_all_terms.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
 
-                let (field_type, field) = field_lookup
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
 
@@ -499,48 +698,56 @@ impl SearchQueryInput {
                     builder = builder.with_stop_words(stop_words);
                 }
 
-                if let Some(key_value) = document_id {
-                    let (field_type, field) = field_lookup.key_field();
-                    let term = value_to_term(field, &key_value, &field_type, None, false)?;
-                    let query: Box<dyn Query> =
-                        Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
-                    let addresses = searcher.search(&query, &DocSetCollector)?;
-                    let disjuncts: Vec<Box<dyn Query>> = addresses
-                        .into_iter()
-                        .map(|address| builder.clone().with_document(address))
-                        .map(|query| Box::new(query) as Box<dyn Query>)
-                        .collect();
-                    return Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)));
-                }
-
-                let mut fields_map = HashMap::new();
-                for (field_name, value) in document_fields {
-                    if !field_lookup.is_field_type(&field_name, &value) {
-                        return Err(Box::new(QueryError::WrongFieldType(field_name)));
+                match (document_id, document_fields) {
+                    (Some(key_value), None) => {
+                        let (field_type, _, field) = field_lookup.key_field();
+                        let term = value_to_term(field, &key_value, &field_type, None, false)?;
+                        let query: Box<dyn Query> =
+                            Box::new(TermQuery::new(term, IndexRecordOption::Basic.into()));
+                        let addresses = searcher.search(&query, &DocSetCollector)?;
+                        let disjuncts: Vec<Box<dyn Query>> = addresses
+                            .into_iter()
+                            .map(|address| builder.clone().with_document(address))
+                            .map(|query| Box::new(query) as Box<dyn Query>)
+                            .collect();
+                        Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
                     }
+                    (None, Some(doc_fields)) => {
+                        let mut fields_map = HashMap::new();
+                        for (field_name, value) in doc_fields {
+                            if !field_lookup.is_field_type(&field_name, &value) {
+                                return Err(Box::new(QueryError::WrongFieldType(field_name)));
+                            }
 
-                    let (_, field) = field_lookup
-                        .as_field_type(&field_name)
-                        .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+                            let (_, _, field) = field_lookup
+                                .as_field_type(&field_name)
+                                .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
-                    fields_map.entry(field).or_insert_with(std::vec::Vec::new);
+                            fields_map.entry(field).or_insert_with(std::vec::Vec::new);
 
-                    if let Some(vec) = fields_map.get_mut(&field) {
-                        vec.push(value)
+                            if let Some(vec) = fields_map.get_mut(&field) {
+                                vec.push(value)
+                            }
+                        }
+                        Ok(Box::new(
+                            builder.with_document_fields(fields_map.into_iter().collect()),
+                        ))
+                    }
+                    (Some(_), Some(_)) => {
+                        panic!("more_like_this must be called with only one of document_id or document_fields")
+                    }
+                    (None, None) => {
+                        panic!("more_like_this must be called with either document_id or document_fields");
                     }
                 }
-
-                Ok(Box::new(
-                    builder.with_document_fields(fields_map.into_iter().collect()),
-                ))
             }
             Self::PhrasePrefix {
                 field,
                 phrases,
                 max_expansions,
-                path,
             } => {
-                let (field_type, field) = field_lookup
+                let (field, path) = split_field_and_path(&field);
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
@@ -598,9 +805,9 @@ impl SearchQueryInput {
                 field,
                 phrases,
                 slop,
-                path,
             } => {
-                let (field_type, field) = field_lookup
+                let (field, path) = split_field_and_path(&field);
+                let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
@@ -623,13 +830,17 @@ impl SearchQueryInput {
                 field,
                 lower_bound,
                 upper_bound,
-                path,
                 is_datetime,
             } => {
+                let (field, path) = split_field_and_path(&field);
                 let field_name = field;
-                let (field_type, field) = field_lookup
+                let (field_type, typeoid, field) = field_lookup
                     .as_field_type(&field_name)
                     .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+
+                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+                let (lower_bound, upper_bound) =
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => Bound::Included(value_to_term(
@@ -675,6 +886,14 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
+                let (_, typeoid, _) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
+
+                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+                let (lower_bound, upper_bound) =
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
+
                 let range_field = RangeField::new(
                     field_lookup
                         .as_json_object(&field)
@@ -825,7 +1044,16 @@ impl SearchQueryInput {
                 lower_bound,
                 upper_bound,
                 is_datetime,
+                ..
             } => {
+                let (_, typeoid, _) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
+
+                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+                let (lower_bound, upper_bound) =
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
+
                 let range_field = RangeField::new(
                     field_lookup
                         .as_json_object(&field)
@@ -1096,6 +1324,14 @@ impl SearchQueryInput {
                 upper_bound,
                 is_datetime,
             } => {
+                let (_, typeoid, _) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
+
+                let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+                let (lower_bound, upper_bound) =
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
+
                 let range_field = RangeField::new(
                     field_lookup
                         .as_json_object(&field)
@@ -1264,14 +1500,16 @@ impl SearchQueryInput {
             Self::Term {
                 field,
                 value,
-                path,
                 is_datetime,
             } => {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
-                    let (field_type, field) = field_lookup
+                    let (field, path) = split_field_and_path(&field);
+                    let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
+
+                    let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     let term =
                         value_to_term(field, &value, &field_type, path.as_deref(), is_datetime)?;
 
@@ -1280,7 +1518,7 @@ impl SearchQueryInput {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
-                    for (field_type, field) in all_fields {
+                    for (field_type, _, field) in all_fields {
                         if let Ok(term) =
                             value_to_term(field, &value, &field_type, None, is_datetime)
                         {
@@ -1293,13 +1531,21 @@ impl SearchQueryInput {
             }
             Self::TermSet { terms: fields } => {
                 let mut terms = vec![];
-                for (field_name, field_value, path, is_datetime) in fields {
-                    let (field_type, field) = field_lookup
-                        .as_field_type(&field_name)
-                        .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
+                for TermInput {
+                    field,
+                    value,
+                    is_datetime,
+                } in fields
+                {
+                    let (_, path) = split_field_and_path(&field);
+                    let (field_type, typeoid, field) = field_lookup
+                        .as_field_type(&field)
+                        .ok_or_else(|| QueryError::NonIndexedField(field))?;
+
+                    let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     terms.push(value_to_term(
                         field,
-                        &field_value,
+                        &value,
                         &field_type,
                         path.as_deref(),
                         is_datetime,
@@ -1435,6 +1681,15 @@ impl TryFrom<&str> for TantivyDateTime {
         Ok(TantivyDateTime(tantivy::DateTime::from_timestamp_micros(
             datetime.and_utc().timestamp_micros(),
         )))
+    }
+}
+
+pub fn split_field_and_path(field: &str) -> (String, Option<String>) {
+    let json_path = split_json_path(field);
+    if json_path.len() == 1 {
+        (field.to_string(), None)
+    } else {
+        (json_path[0].clone(), Some(json_path[1..].join(".")))
     }
 }
 

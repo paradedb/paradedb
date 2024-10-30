@@ -2,19 +2,31 @@
 title: Load Data from Postgres
 ---
 
-The easiest way to copy data from another Postgres into ParadeDB is with the `pg_dump` and `pg_restore` utilities. These are installed by default when you install `psql`.
+The easiest way to copy data from another Postgres into ParadeDB is with the `pg_dump` and `pg_restore` utilities. These are
+installed by default when you install `psql`.
 
-This approach is ideal for quickly bootstrapping your ParadeDB cluster with some data. To keep ParadeDB in sync with an existing Postgres database in real time, [logical replication](/deploy/replication) should be configured.
+This approach is ideal for quickly bootstrapping a development ParadeDB cluster
+with a snapshot of your data. To deploy ParadeDB in production, kept in sync with an existing Postgres database in real
+time, [logical replication](/deploy/replication) should be configured instead.
+
+<Note>
+  If your primary Postgres is in a virtual private cloud (VPC), we recommend deploying ParadeDB on a compute instance
+  within your VPC to avoid exposing public IP addresses and needing to provision traffic routing rules.
+
+For the best performance, we recommend using a storage-optimized instance.
+
+</Note>
 
 ## Create a Dump
 
-Run `pg_dump` to create a copy of your database.
+Run `pg_dump` to create a copy of your database. The `pg_dump` version needs be greater than or equal to that of your Postgres database. You can check the version with `pg_dump --version`.
 
 Below, we use the "custom" format (`-Fc`) for both `pg_dump` and `pg_restore`. Please review the [Postgres `pg_dump` documentation](https://www.postgresql.org/docs/current/app-pgdump.html) for other options that may be more appropriate for your environment.
 
 <Note>
-  Replace `host`, `username`, and `dbname` with your existing database
-  credentials.
+  Replace `host`, `username`, and `dbname` with your existing Postgres database
+  credentials. If you deployed ParadeDB within your VPC, the `host` will be the
+  private IP address of your existing Postgres database.
 </Note>
 
 ```bash
@@ -36,7 +48,7 @@ pg_dump -Fc --no-acl --no-owner \
 
 ## Restore the Dump
 
-Run `pg_restore` to load this data into ParadeDB.
+Run `pg_restore` to load this data into ParadeDB. The `pg_restore` version needs be greater than or equal to that of your `pg_dump`. You can check the version with `pg_restore --version`.
 
 <Note>
   Replace `host`, `username`, and `dbname` with your ParadeDB credentials.
@@ -50,3 +62,5 @@ pg_restore --verbose --clean --no-acl --no-owner \
     -Fc \
     old_db.dump
 ```
+
+Congratulations! You are now ready to run real queries over your data. To get started, refer to our [indexing documentation](https://docs.paradedb.com/documentation/indexing/create_index).

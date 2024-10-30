@@ -32,6 +32,7 @@ pub struct PrivateData {
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
     var_attname_lookup: Option<*mut pg_sys::List>,
+    maybe_ff: bool,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {
@@ -87,6 +88,10 @@ impl PrivateData {
     pub fn set_var_attname_lookup(&mut self, var_attname_lookup: *mut pg_sys::List) {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
+
+    pub fn set_maybe_ff(&mut self, maybe: bool) {
+        self.maybe_ff = maybe;
+    }
 }
 
 //
@@ -135,6 +140,10 @@ impl PrivateData {
         self.var_attname_lookup
             .map(|list| unsafe { PgList::from_pg(list) })
     }
+
+    pub fn maybe_ff(&self) -> bool {
+        self.maybe_ff
+    }
 }
 
 #[allow(non_snake_case)]
@@ -144,16 +153,18 @@ mod serialize {
     use pgrx::{pg_sys, PgList};
     use std::fmt::Display;
 
-    unsafe fn makeInteger<T: Into<u32>>(input: Option<T>) -> *mut pg_sys::Node {
+    pub(super) unsafe fn makeInteger<T: Into<u32>>(input: Option<T>) -> *mut pg_sys::Node {
         unwrapOrNull(input.map(|i| pg_sys::makeInteger(i.into() as _).cast::<pg_sys::Node>()))
     }
 
-    unsafe fn makeString<T: Display>(input: Option<T>) -> *mut pg_sys::Node {
+    pub(super) unsafe fn makeString<T: Display>(input: Option<T>) -> *mut pg_sys::Node {
         unwrapOrNull(
             input.map(|s| pg_sys::makeString(s.to_string().as_pg_cstr()).cast::<pg_sys::Node>()),
         )
     }
-    unsafe fn makeBoolean<T: Into<bool>>(input: Option<T>) -> *mut pg_sys::Node {
+
+    #[allow(dead_code)]
+    pub(super) unsafe fn makeBoolean<T: Into<bool>>(input: Option<T>) -> *mut pg_sys::Node {
         #[cfg(any(feature = "pg13", feature = "pg14"))]
         {
             unwrapOrNull(
@@ -195,6 +206,7 @@ mod serialize {
         ser.push(unwrapOrNull(
             privdat.var_attname_lookup.map(|v| v.cast::<pg_sys::Node>()),
         ));
+        ser.push(makeBoolean(Some(privdat.maybe_ff)));
 
         ser
     }
@@ -211,6 +223,7 @@ mod deserialize {
     unsafe fn decodeInteger<T: From<u32>>(node: *mut pg_sys::Node) -> Option<T> {
         node.as_int().map(|i| (i as u32).into())
     }
+
     unsafe fn decodeString<T: FromStr>(node: *mut pg_sys::Node) -> Option<T> {
         node.as_c_str().map(|i| {
             let s = i.to_str().expect("string node should be valid utf8");
@@ -219,6 +232,8 @@ mod deserialize {
                 .expect("value should parse from a String")
         })
     }
+
+    #[allow(dead_code)]
     unsafe fn decodeBoolean<T: From<bool>>(node: *mut pg_sys::Node) -> Option<T> {
         node.as_bool().map(|b| b.into())
     }
@@ -236,6 +251,10 @@ mod deserialize {
             var_attname_lookup: input
                 .get_ptr(7)
                 .and_then(|n| nodecast!(List, T_List, n, true)),
+            maybe_ff: input
+                .get_ptr(8)
+                .and_then(|n| decodeBoolean(n))
+                .unwrap_or_default(),
         }
     }
 }

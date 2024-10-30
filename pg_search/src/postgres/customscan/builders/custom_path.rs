@@ -60,9 +60,6 @@ impl From<u32> for SortDirection {
     }
 }
 
-const SORT_ASCENDING: u32 = pg_sys::BTLessStrategyNumber;
-const SORT_DESCENDING: u32 = pg_sys::BTGreaterStrategyNumber;
-
 impl From<SortDirection> for crate::index::reader::SortDirection {
     fn from(value: SortDirection) -> Self {
         match value {
@@ -110,6 +107,7 @@ pub struct Args {
 }
 
 impl Args {
+    #[allow(dead_code)]
     pub fn root(&self) -> &pg_sys::PlannerInfo {
         unsafe { self.root.as_ref().expect("Args::root should not be null") }
     }
@@ -125,6 +123,7 @@ impl Args {
 
 #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
 #[repr(u32)]
+#[allow(dead_code)]
 pub enum Flags {
     /// #define CUSTOMPATH_SUPPORT_BACKWARD_SCAN	0x0001
     BackwardScan = 0x0001,
@@ -205,10 +204,12 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn path_target(&self) -> *mut pg_sys::PathTarget {
         self.args.rel().reltarget
     }
 
+    #[allow(dead_code)]
     pub fn limit(&self) -> i32 {
         unsafe { (*self.args().root).limit_tuples.round() as i32 }
     }
@@ -217,6 +218,7 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
     // public settings
     //
 
+    #[allow(dead_code)]
     pub fn clear_flags(mut self) -> Self {
         self.flags.clear();
         self
@@ -227,6 +229,7 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         self
     }
 
+    #[allow(dead_code)]
     pub fn add_custom_path(mut self, path: *mut pg_sys::Path) -> Self {
         self.custom_paths.push(path);
         self

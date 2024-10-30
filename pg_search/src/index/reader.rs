@@ -19,7 +19,7 @@ use super::SearchIndex;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
-use pgrx::{pg_sys, PgRelation};
+use pgrx::PgRelation;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use tantivy::collector::{Collector, TopDocs};

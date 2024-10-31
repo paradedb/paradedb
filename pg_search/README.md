@@ -155,7 +155,7 @@ sudo pacman -S extra/clang
 
 ```bash
 # Note: Replace 16 with your version of Postgres
-git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git
+git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
 # macOS arm64

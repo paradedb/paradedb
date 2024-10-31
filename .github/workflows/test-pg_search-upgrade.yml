@@ -69,7 +69,7 @@ jobs:
       # Needed for hybrid search unit tests
       - name: Install pgvector
         run: |
-          git clone --branch v0.7.4 https://github.com/pgvector/pgvector.git
+          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
           cd pgvector/
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
           sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j

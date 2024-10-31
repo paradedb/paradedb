@@ -66,10 +66,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-COPY Cargo.toml /tmp/Cargo.toml
-COPY Cargo.lock /tmp/Cargo.lock
-COPY pg_search/ /tmp/pg_search
-COPY tokenizers/ /tmp/tokenizers
+COPY . /tmp/
 
 # Build the extension
 WORKDIR /tmp/pg_search

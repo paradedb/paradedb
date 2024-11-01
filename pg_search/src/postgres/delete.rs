@@ -17,6 +17,7 @@
 
 use crate::index::WriterResources;
 use crate::postgres::index::open_search_index;
+use crate::postgres::options::SearchIndexCreateOptions;
 use pgrx::{pg_sys::ItemPointerData, *};
 
 #[pg_guard]
@@ -35,8 +36,11 @@ pub extern "C" fn ambulkdelete(
     let reader = search_index
         .get_reader()
         .unwrap_or_else(|err| panic!("error loading index reader in bulkdelete: {err}"));
+    let options = index_relation.rd_options as *mut SearchIndexCreateOptions;
     let mut writer = search_index
-        .get_writer(WriterResources::Vacuum)
+        .get_writer(WriterResources::Vacuum, unsafe {
+            options.as_ref().unwrap()
+        })
         .unwrap_or_else(|err| panic!("error loading index writer in bulkdelete: {err}"));
 
     if stats.is_null() {
@@ -64,7 +68,6 @@ pub extern "C" fn ambulkdelete(
         }
     }
 
-    pgrx::warning!("committing vacuum");
     writer
         .commit()
         .unwrap_or_else(|err| panic!("error committing to index in ambulkdelete: {err}"));

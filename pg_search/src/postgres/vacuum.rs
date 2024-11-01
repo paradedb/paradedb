@@ -17,6 +17,7 @@
 
 use crate::index::WriterResources;
 use crate::postgres::index::open_search_index;
+use crate::postgres::options::SearchIndexCreateOptions;
 use pgrx::*;
 
 #[pg_guard]
@@ -41,8 +42,11 @@ pub extern "C" fn amvacuumcleanup(
 
     let search_index =
         open_search_index(&index_relation).expect("should be able to open search index");
+    let options = index_relation.rd_options as *mut SearchIndexCreateOptions;
     let mut writer = search_index
-        .get_writer(WriterResources::Vacuum)
+        .get_writer(WriterResources::Vacuum, unsafe {
+            options.as_ref().unwrap()
+        })
         .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));
 
     // Garbage collect the index and clear the writer cache to free up locks.

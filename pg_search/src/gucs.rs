@@ -196,22 +196,35 @@ fn adjust_nthreads(nthreads: i32) -> NonZeroUsize {
     }
 }
 
-fn adjust_budget(budget: i32, parallelism: Parallelism) -> usize {
-    let per_thread_budget = if budget <= 0 {
-        // value is unset, so we'll use the maintenance_work_mem
-        unsafe {
+fn adjust_budget(per_thread_budget: i32, parallelism: Parallelism) -> usize {
+    // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
+    mod limits {
+        // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
+        // in the `memory_arena` goes below MARGIN_IN_BYTES.
+        pub const MARGIN_IN_BYTES: usize = 1_000_000;
+
+        // We impose the memory per thread to be at least 15 MB, as the baseline consumption is 12MB.
+        pub const MEMORY_BUDGET_NUM_BYTES_MIN: usize = ((MARGIN_IN_BYTES as u32) * 15u32) as usize;
+        pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = u32::MAX as usize - MARGIN_IN_BYTES;
+    }
+
+    let per_thread_budget = if per_thread_budget <= 0 {
+        // value is unset, so we'll use the maintenance_work_mem, divided between the parallelism value
+        let mwm_as_bytes = unsafe {
             // SAFETY:  Postgres sets maintenance_work_mem when it starts up
             pg_sys::maintenance_work_mem as usize * 1024 // convert from kilobytes to bytes
-        }
+        };
+
+        mwm_as_bytes / parallelism.get()
     } else {
-        budget as usize * 1024 * 1024 // convert from megabytes to bytes
+        per_thread_budget as usize * 1024 * 1024 // convert from megabytes to bytes
     };
 
-    // tantivy will panic if we give it more than 4G per thread
-    // this comes from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
-    let adjusted_budget = per_thread_budget.min(4293967295 - 1);
+    // clamp the per_thread_budget to the min/max values
+    let per_thread_budget = per_thread_budget.clamp(
+        limits::MEMORY_BUDGET_NUM_BYTES_MIN,
+        limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
+    );
 
-    // tantivy will panic if we give it less than 15MB total
-    let total_budget = adjusted_budget * parallelism.get();
-    total_budget.max(15_000_000)
+    per_thread_budget * parallelism.get()
 }

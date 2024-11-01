@@ -197,7 +197,7 @@ fn adjust_nthreads(nthreads: i32) -> NonZeroUsize {
 }
 
 fn adjust_budget(budget: i32, parallelism: Parallelism) -> usize {
-    let adjusted_budget = if budget <= 0 {
+    let per_thread_budget = if budget <= 0 {
         // value is unset, so we'll use the maintenance_work_mem
         unsafe {
             // SAFETY:  Postgres sets maintenance_work_mem when it starts up
@@ -207,8 +207,11 @@ fn adjust_budget(budget: i32, parallelism: Parallelism) -> usize {
         budget as usize * 1024 * 1024 // convert from megabytes to bytes
     };
 
-    let total_budget = adjusted_budget * parallelism.get();
+    // tantivy will panic if we give it more than 4G per thread
+    // this comes from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed
+    let adjusted_budget = per_thread_budget.min(4293967295 - 1);
 
-    // tantivy will panic if we give it less than 15 meg
+    // tantivy will panic if we give it less than 15MB total
+    let total_budget = adjusted_budget * parallelism.get();
     total_budget.max(15_000_000)
 }

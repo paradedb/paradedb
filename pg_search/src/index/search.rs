@@ -131,15 +131,19 @@ impl SearchIndex {
             .underlying_index
             .writer_with_num_threads(parallelism.get(), memory_budget)?;
 
+        let wants_merge;
         let merge_policy: Box<dyn MergePolicy> = if merge_on_insert {
+            wants_merge = true;
             Box::new(NPlusOneMergePolicy(target_segment_count))
         } else {
+            wants_merge = false;
             Box::new(NoMergePolicy)
         };
         underlying_writer.set_merge_policy(merge_policy);
 
         Ok(SearchIndexWriter {
             underlying_writer: Some(underlying_writer),
+            wants_merge,
         })
     }
 

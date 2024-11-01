@@ -51,6 +51,14 @@ fn boolean_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1, true), (4, true)]);
+
+    let rows: Vec<(i32, bool)> = r#"
+    SELECT * FROM test_table
+    WHERE test_table @@@ paradedb.arr_term_in(field => 'value', value => ARRAY[true, false])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1, true), (2, false), (3, false), (4, true)]);
 }
 
 #[rstest]
@@ -90,6 +98,14 @@ fn integer_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1, -11)]);
 
+    let rows: Vec<(i32, i16)> = r#"
+    SELECT id, value_int2 FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(field => 'value_int2', value => ARRAY[-11, 22])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1, -11), (2, 22)]);
+
     // INT4
     let rows: Vec<(i32, i32)> = r#"
     SELECT id, value_int4 FROM test_table WHERE test_table @@@
@@ -99,6 +115,14 @@ fn integer_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2, 2222)]);
 
+    let rows: Vec<(i32, i32)> = r#"
+    SELECT id, value_int4 FROM test_table WHERE test_table @@@
+    paradedb.arr_term_in(field => 'value_int4', value => ARRAY[-1111, 2222])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1, -1111), (2, 2222)]);
+
     // INT8
     let rows: Vec<(i32, i64)> = r#"
     SELECT id, value_int8 FROM test_table WHERE test_table @@@ 
@@ -107,6 +131,14 @@ fn integer_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(3, 33333333)]);
+
+    let rows: Vec<(i32, i64)> = r#"
+    SELECT id, value_int8 FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(field => 'value_int8', value => ARRAY[-11111111, 33333333])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1, -11111111), (3, 33333333)]);
 }
 
 #[rstest]
@@ -146,6 +178,14 @@ fn float_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1, -1.1)]);
 
+    let rows: Vec<(i32, f32)> = r#"
+    SELECT id, value_float4 FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(field => 'value_float4', value => ARRAY[-1.1::float4, 3.3::float4])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1, -1.1), (3, 3.3)]);
+
     // FLOAT8
     let rows: Vec<(i32, f64)> = r#"
     SELECT id, value_float8 FROM test_table WHERE test_table @@@ 
@@ -155,6 +195,14 @@ fn float_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(4, 4444.4444)]);
 
+    let rows: Vec<(i32, f64)> = r#"
+    SELECT id, value_float8 FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(field => 'value_float8', value => ARRAY[-1111.1111::float8, 4444.4444::float8])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1, -1111.1111), (4, 4444.4444)]);
+
     // NUMERIC - no sqlx::Type for numerics, so just check id
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_table WHERE test_table @@@ 
@@ -163,6 +211,14 @@ fn float_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(3,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(field => 'value_numeric', value => ARRAY[-111.11111::numeric, 333.33333::numeric])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (3,)]);
 }
 
 #[rstest]
@@ -204,6 +260,14 @@ fn text_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1, "abc".into())]);
 
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, value_text FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(field => 'value_text', value => ARRAY['abc', 'ghi'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1, "abc".into()), (3, "ghi".into())]);
+
     // VARCHAR
     let rows: Vec<(i32, String)> = r#"
     SELECT id, value_varchar FROM test_table WHERE test_table @@@ 
@@ -213,6 +277,14 @@ fn text_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(3, "var ghi".into())]);
 
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, value_varchar FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(field => 'value_varchar', value => ARRAY['def', 'ghi'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2, "var def".into()), (3, "var ghi".into())]);
+
     // UUID - sqlx doesn't have a uuid type, so we just look for id
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_table WHERE test_table @@@ 
@@ -221,6 +293,16 @@ fn text_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(4,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_uuid', 
+        value => ARRAY['ae9d4a8c-8382-452d-96fb-a9a1c4192a03', 'a99e7330-37e6-4f14-8c95-985052ee74f3'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (4,)]);
 }
 
 #[rstest]
@@ -237,7 +319,8 @@ fn datetime_term(mut conn: PgConnection) {
 
     INSERT INTO test_table (value_date, value_timestamp, value_timestamptz, value_time, value_timetz) VALUES 
         (DATE '2023-05-03', TIMESTAMP '2023-04-15 13:27:09', TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST', TIME '08:09:10', TIME WITH TIME ZONE '08:09:10 PST'),
-        (DATE '2021-06-28', TIMESTAMP '2019-08-02 07:52:43.123', TIMESTAMP WITH TIME ZONE '2019-08-02 07:52:43.123 EST', TIME '11:43:21.456', TIME WITH TIME ZONE '11:43:21.456 EST');
+        (DATE '2021-06-28', TIMESTAMP '2019-08-02 07:52:43.123', TIMESTAMP WITH TIME ZONE '2019-08-02 07:52:43.123 EST', TIME '11:43:21.456', TIME WITH TIME ZONE '11:43:21.456 EST'),
+        (DATE '2024-10-30', TIMESTAMP '2024-10-31 10:45:43.23', TIMESTAMP WITH TIME ZONE '2024-10-30 10:45:43.23 EST', TIME '09:23:14.234', TIME WITH TIME ZONE '09:23:14.234 EST');
     "#
     .execute(&mut conn);
 
@@ -264,6 +347,14 @@ fn datetime_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(field => 'value_date', value => ARRAY[DATE '2023-05-03', DATE '2024-10-30'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (3,)]);
+
     // TIMESTAMP
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_table WHERE test_table @@@ 
@@ -272,6 +363,16 @@ fn datetime_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_timestamp',
+        value => ARRAY[TIMESTAMP '2023-04-15 13:27:09', TIMESTAMP '2019-08-02 07:52:43.123'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,)]);
 
     // TIMESTAMP WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
@@ -282,6 +383,17 @@ fn datetime_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_timestamptz',
+        value => ARRAY[TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST', TIMESTAMP WITH TIME ZONE '2024-10-30 10:45:43.23 EST'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (3,)]);
+
+
     // TIMESTAMP WITH TIME ZONE: Change time zone in query
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_table WHERE test_table @@@ 
@@ -290,6 +402,16 @@ fn datetime_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_timestamptz',
+        value => ARRAY[TIMESTAMP WITH TIME ZONE '2023-04-15 16:27:09 EST', TIMESTAMP WITH TIME ZONE '2024-10-30 07:45:43.23 PST'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (3,)]);
 
     // TIME
     let rows: Vec<(i32,)> = r#"
@@ -300,6 +422,16 @@ fn datetime_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_time',
+        value => ARRAY[TIME '11:43:21.456', TIME '09:23:14.234'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,), (3,)]);
+
     // TIME WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_table WHERE test_table @@@ 
@@ -308,6 +440,16 @@ fn datetime_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_timetz',
+        value => ARRAY[TIME WITH TIME ZONE '08:09:10 PST', TIME WITH TIME ZONE '11:43:21.456 EST'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,)]);
 
     // TIME WITH TIME ZONE: Change time zone in query
     let rows: Vec<(i32,)> = r#"
@@ -318,6 +460,16 @@ fn datetime_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_timetz',
+        value => ARRAY[TIME WITH TIME ZONE '08:43:21.456 PST', TIME WITH TIME ZONE '08:23:14.234 CST'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,), (3,)]);
+
     // TIMESTAMP WITH TIME ZONE: Query no time zone with time zone
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_table WHERE test_table @@@ 
@@ -327,6 +479,16 @@ fn datetime_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_timestamp',
+        value => ARRAY[TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 GMT', TIMESTAMP WITH TIME ZONE '2024-10-31 10:45:43.23 GMT'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (3,)]);
+
     // TIMESTAMP: Query time zone with no time zone (GMT = EST + 5)
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_table WHERE test_table @@@ 
@@ -335,4 +497,14 @@ fn datetime_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_table WHERE test_table @@@ 
+    paradedb.arr_term_in(
+        field => 'value_timestamptz',
+        value => ARRAY[TIMESTAMP '2019-08-02 12:52:43.123', TIMESTAMP '2024-10-30 15:45:43.23'])
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,), (3,)]);
 }

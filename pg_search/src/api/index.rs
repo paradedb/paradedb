@@ -662,6 +662,45 @@ range_term_fn!(
     true
 );
 
+macro_rules! arr_term_fn {
+    ($func_name:ident, $value_type:ty) => { 
+        #[pg_extern(name = "arr_term_in", immutable, parallel_safe)]
+        pub fn $func_name(field: &str, value: Vec<$value_type>) -> SearchQueryInput {
+            let terms: Vec<_> = value.into_iter().filter_map(|value| {
+                let (field, path) = split_field_and_path(&FieldName(field.to_string()));
+        
+                let tantivy_value = TantivyValue::try_from(value)
+                    .expect("value should be a valid TantivyValue representation")
+                    .tantivy_schema_value();
+        
+                let is_datetime = match tantivy_value {
+                    OwnedValue::Date(_) => true,
+                    _ => false,
+                };
+        
+                Some((field, tantivy_value, path, is_datetime))
+            }).collect();
+        
+            SearchQueryInput::TermSet { terms: terms }
+        }
+    };
+}
+arr_term_fn!(arr_term_i8, i8);
+arr_term_fn!(arr_term_i16, i16);
+arr_term_fn!(arr_term_i32, i32);
+arr_term_fn!(arr_term_i64, i64);
+arr_term_fn!(arr_term_text, String);
+arr_term_fn!(arr_term_f32, f32);
+arr_term_fn!(arr_term_f64, f64);
+arr_term_fn!(arr_term_bool, bool);
+arr_term_fn!(arr_term_date, pgrx::datum::Date);
+arr_term_fn!(arr_term_time, pgrx::datum::Time);
+arr_term_fn!(arr_term_timestamp, pgrx::datum::Timestamp);
+arr_term_fn!(arr_term_time_with_time_zone, pgrx::datum::TimeWithTimeZone);
+arr_term_fn!(arr_term_timestamp_with_time_zome, pgrx::datum::TimestampWithTimeZone);
+arr_term_fn!(arr_term_numeric, pgrx::AnyNumeric);
+arr_term_fn!(arr_term_uuid, pgrx::Uuid);
+
 #[derive(PostgresEnum, Serialize)]
 pub enum RangeRelation {
     Intersects,

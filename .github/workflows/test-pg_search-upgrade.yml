@@ -89,10 +89,10 @@ jobs:
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       # This is the first version at which we started supporting upgrading via ALTER EXTENSION
-      - name: Checkout ParadeDB v0.11.0
-        run: git checkout v0.11.0
+      - name: Checkout ParadeDB v0.10.0
+        run: git checkout v0.10.0
 
-      - name: Compile & install pg_search v0.11.0
+      - name: Compile & install pg_search v0.10.0
         working-directory: pg_search/
         run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

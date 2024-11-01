@@ -9,12 +9,6 @@ This approach is ideal for quickly bootstrapping a development ParadeDB cluster
 with a snapshot of your data. To deploy ParadeDB in production, kept in sync with an existing Postgres database in real
 time, [logical replication](/deploy/replication) should be configured instead.
 
-<Note>
-  If your primary Postgres is in a virtual private cloud (VPC), we recommend
-  deploying ParadeDB on a compute instance within your VPC to avoid exposing
-  public IP addresses and needing to provision traffic routing rules.
-</Note>
-
 ## Create a Dump
 
 Run `pg_dump` to create a copy of your database. The `pg_dump` version needs be greater than or equal to that of your Postgres database. You can check the version with `pg_dump --version`.

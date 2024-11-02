@@ -686,7 +686,7 @@ macro_rules! arr_term_fn {
                 })
                 .collect();
 
-            SearchQueryInput::TermSet { terms: terms }
+            SearchQueryInput::TermSet { terms }
         }
     };
 }

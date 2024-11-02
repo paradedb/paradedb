@@ -393,7 +393,6 @@ fn datetime_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,), (3,)]);
 
-
     // TIMESTAMP WITH TIME ZONE: Change time zone in query
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_table WHERE test_table @@@ 

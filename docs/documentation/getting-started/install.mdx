@@ -2,9 +2,16 @@
 title: Install ParadeDB
 ---
 
-The fastest way to install ParadeDB is by pulling the ParadeDB Docker image and running it locally.
+The fastest way to install ParadeDB is by pulling the ParadeDB Docker image and running it locally. If
+your primary Postgres is in a virtual private cloud (VPC), we recommend deploying ParadeDB on a compute
+instance within your VPC to avoid exposing public IP addresses and needing to provision traffic routing
+rules.
 
-**Note**: ParadeDB supports Postgres 13 to 17, and the `latest` tag ships with Postgres 16. To specify a different Postgres version, please refer to the available tags on [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags).
+<Note>
+  ParadeDB supports Postgres 13+, and the `latest` tag ships with Postgres 16.
+  To specify a different Postgres version, please refer to the available tags on
+  [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags).
+</Note>
 
 ```bash
 docker run \

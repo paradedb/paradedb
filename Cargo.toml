@@ -2,6 +2,11 @@
 resolver = "2"
 members = ["cargo-paradedb", "pg_search", "tests", "tokenizers"]
 
+[workspace.package]
+version = "0.11.1"
+edition = "2021"
+license = "AGPL-3.0"
+
 [profile.dev]
 panic = "unwind"
 

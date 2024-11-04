@@ -54,6 +54,8 @@ pub struct SearchIndexCreateOptions {
     datetime_fields_offset: i32,
     key_field_offset: i32,
     uuid_offset: i32,
+    target_segment_count: i32,
+    merge_on_insert: bool,
 }
 
 #[pg_guard]
@@ -150,7 +152,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 8;
+const NUM_REL_OPTS: usize = 10;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -196,6 +198,16 @@ pub unsafe extern "C" fn amoptions(
             optname: "uuid".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, uuid_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "target_segment_count".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: offset_of!(SearchIndexCreateOptions, target_segment_count) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "merge_on_insert".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_BOOL,
+            offset: offset_of!(SearchIndexCreateOptions, merge_on_insert) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -302,6 +314,14 @@ impl SearchIndexCreateOptions {
         }
     }
 
+    pub fn target_segment_count(&self) -> usize {
+        self.target_segment_count as usize
+    }
+
+    pub fn merge_on_insert(&self) -> bool {
+        self.merge_on_insert
+    }
+
     fn get_str(&self, offset: i32, default: String) -> String {
         if offset == 0 {
             default
@@ -384,6 +404,26 @@ pub unsafe fn init() {
         "Unique uuid for search index instance".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_uuid),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "target_segment_count".as_pg_cstr(),
+        "The minimum number of segments the index should try to maintain".as_pg_cstr(),
+        std::thread::available_parallelism()
+            .expect("failed to get available_parallelism")
+            .get()
+            .try_into()
+            .expect("your computer should have a reasonable CPU count"),
+        1,
+        i32::MAX,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_bool_reloption(
+        RELOPT_KIND_PDB,
+        "merge_on_insert".as_pg_cstr(),
+        "Merge segments immediately after rows are inserted into the index".as_pg_cstr(),
+        true,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }

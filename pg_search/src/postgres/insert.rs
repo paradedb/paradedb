@@ -18,6 +18,7 @@
 use crate::index::SearchIndexWriter;
 use crate::index::{SearchIndex, WriterResources};
 use crate::postgres::index::open_search_index;
+use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
 use pgrx::{pg_guard, pg_sys, pgrx_extern_c_guard, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
@@ -55,9 +56,13 @@ impl Drop for InsertState {
 }
 
 impl InsertState {
-    fn new(indexrel: &PgRelation, writer_resources: WriterResources) -> anyhow::Result<Self> {
+    unsafe fn new(
+        indexrel: &PgRelation,
+        writer_resources: WriterResources,
+    ) -> anyhow::Result<Self> {
         let index = open_search_index(indexrel)?;
-        let writer = index.get_writer(writer_resources)?;
+        let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
+        let writer = index.get_writer(writer_resources, options.as_ref().unwrap())?;
         Ok(Self {
             index,
             writer,

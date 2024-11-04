@@ -2,9 +2,10 @@
 title: Indexing
 ---
 
-## Index Creation
+## System Configuration Settings
 
-These settings affect the `paradedb.create_bm25` statement.
+These settings can be set in `postgresql.conf` and affect system resources used by the `paradedb.create_bm25()` function
+and normal INSERT/UPDATE/COPY statements.
 
 ### Indexing Threads
 
@@ -26,8 +27,9 @@ SET paradedb.create_index_parallelism = 8;
 `paradedb.create_index_memory_budget` sets the amount of memory to dedicate **per indexing thread** before the index segment needs to be
 written to disk.
 
-It defaults to Postgres' `maintenance_work_mem` but can be changed to suit the host system's available
-memory. In terms of raw indexing performance, larger is generally better.
+If unset, Postgres' `maintenance_work_mem` value is used, but is first divided by the total parallelism (`paradedb.create_index_parallelism`).
+
+In terms of raw indexing performance, larger is generally better.
 
 The value is measured in megabytes. A value of `1024` is the same as `1GB`.
 
@@ -45,10 +47,6 @@ This can be useful to monitor the progress of a long-running `CREATE INDEX` stat
 ```sql
 SET paradedb.log_create_index_progress = true;
 ```
-
-## Index Upsert
-
-These settings affect `INSERT`, `UPDATE`, and `COPY` statements to tables with a BM25 index.
 
 ### Statement Parallelism
 
@@ -72,7 +70,7 @@ SET paradedb.statement_parallelism = 1;
 `paradedb.statement_memory_budget` sets the amount of memory to dedicate **per indexing thread** before the index segment needs to be
 written to disk.
 
-Like [indexing memory](#indexing-memory), it defaults to `maintenance_work_mem` and is measured in megabytes.
+Like [indexing memory](#indexing-memory), it defaults to `maintenance_work_mem` divided by the total parallelism, and is measured in megabytes.
 
 If your typical update patterns are single-row atomic INSERTs or UPDATEs, then a value of `15MB` is ideal. If
 your update patterns typically update many thousands of rows, a larger value might be preferred for greater indexing
@@ -84,4 +82,22 @@ longer-term search overhead of having many additional index segments until (auto
 
 ```sql
 SET paradedb.statement_memory_budget = 15;
+```
+
+## Index Configuration Settings
+
+These settings can be applied to an existing `USING bm25` index with `ALTER INDEX <idxname> SET (...)` and affect runtime
+operations around how the underlying tantivy index segments are merged, and when.
+
+`target_segment_count` is an integer value that indicates the number of tantivy index segments that are preferred for
+the index. If unspecified, the default is the number of available CPUs. The actual number of index segments may be
+different, depending on runtime operations, but should generally be close to this value.
+
+`merge_on_insert` is a boolean that indicates if pg_search should merge segments whenever a tuple is inserted into the index.
+This includes INSERT/UPDATE/COPY statements. The default is `true`. Setting this to `false` can improve INSERT/UPDATE/COPY
+throughput at the expense of creating more segments that will be later merged by (auto)VACUUM.
+
+```sql
+ALTER INDEX idxfoo_bm25_index SET (target_segment_count = 8);
+ALTER INDEX idxfoo_bm25_index SET (merge_on_insert = true);
 ```

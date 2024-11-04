@@ -143,8 +143,6 @@ pub fn init() {
         GucContext::Suset,
         GucFlags::UNIT_MB,
     );
-
-    pgrx::warning!("GUCS initialized");
 }
 
 pub fn telemetry_enabled() -> bool {

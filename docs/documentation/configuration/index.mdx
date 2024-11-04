@@ -2,9 +2,10 @@
 title: Indexing
 ---
 
-## Index Creation
+## System Configuration Settings
 
-These settings affect the `paradedb.create_bm25` statement.
+These settings can be set in `postgresql.conf` and affect system resources used by the `paradedb.create_bm25()` function
+and normal INSERT/UPDATE/COPY statements.
 
 ### Indexing Threads
 
@@ -46,10 +47,6 @@ This can be useful to monitor the progress of a long-running `CREATE INDEX` stat
 SET paradedb.log_create_index_progress = true;
 ```
 
-## Index Upsert
-
-These settings affect `INSERT`, `UPDATE`, and `COPY` statements to tables with a BM25 index.
-
 ### Statement Parallelism
 
 <Note>This setting requires superuser privileges.</Note>
@@ -84,4 +81,22 @@ longer-term search overhead of having many additional index segments until (auto
 
 ```sql
 SET paradedb.statement_memory_budget = 15;
+```
+
+## Index Configuration Settings
+
+These settings can be applied to an existing `USING bm25` index with `ALTER INDEX <idxname> SET (...)` and affect runtime
+operations around how the underlying tantivy index segments are merged, and when.
+
+`target_segment_count` is an integer value that indicates the number of tantivy index segments that are preferred for
+the index. If unspecified, the default is the number of available CPUs. The actual number of index segments may be
+different, depending on runtime operations, but should generally be close to this value.
+
+`merge_on_insert` is a boolean that indicates if pg_search should merge segments whenever a tuple is inserted into the index.
+This includes INSERT/UPDATE/COPY statements. The default is `true`. Setting this to `false` can improve INSERT/UPDATE/COPY
+throughput at the expense of creating more segments that will be later merged by (auto)VACUUM.
+
+```sql
+ALTER INDEX idxfoo_bm25_index SET (target_segment_count = 8);
+ALTER INDEX idxfoo_bm25_index SET (merge_on_insert = true);
 ```

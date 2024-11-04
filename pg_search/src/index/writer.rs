@@ -123,6 +123,7 @@ pub struct SearchIndexWriter {
     // this is an Option<> because on drop we need to take ownership of the underlying
     // IndexWriter instance so we can, in the background, wait for all merging threads to finish
     pub underlying_writer: Option<IndexWriter>,
+    pub wants_merge: bool,
 }
 
 impl Drop for SearchIndexWriter {
@@ -131,11 +132,13 @@ impl Drop for SearchIndexWriter {
             // wait for all merging threads to finish.  we do this in the background
             // because we don't want to block the connection that created this SearchIndexWriter
             // from being able to do more work.
-            std::thread::spawn(move || {
-                if let Err(e) = writer.wait_merging_threads() {
-                    pgrx::warning!("`wait_merging_threads` failed: {e}");
-                }
-            });
+            if self.wants_merge {
+                std::thread::spawn(move || {
+                    if let Err(e) = writer.wait_merging_threads() {
+                        pgrx::warning!("`wait_merging_threads` failed: {e}");
+                    }
+                });
+            }
         }
     }
 }

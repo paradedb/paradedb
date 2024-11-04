@@ -18,10 +18,12 @@
 use super::reader::SearchIndexReader;
 use super::IndexError;
 use crate::gucs;
+use crate::index::merge_policy::NPlusOneMergePolicy;
 use crate::index::SearchIndexWriter;
 use crate::index::{
     BlockingDirectory, SearchDirectoryError, SearchFs, TantivyDirPath, WriterDirectory,
 };
+use crate::postgres::options::SearchIndexCreateOptions;
 use crate::query::SearchQueryInput;
 use crate::schema::{
     SearchDocument, SearchField, SearchFieldConfig, SearchFieldName, SearchFieldType,
@@ -32,6 +34,8 @@ use once_cell::sync::Lazy;
 use pgrx::PgRelation;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::num::NonZeroUsize;
+use tantivy::indexer::NoMergePolicy;
+use tantivy::merge_policy::MergePolicy;
 use tantivy::query::Query;
 use tantivy::{query::QueryParser, Executor, Index};
 use thiserror::Error;
@@ -54,21 +58,32 @@ pub enum WriterResources {
 }
 pub type Parallelism = NonZeroUsize;
 pub type MemoryBudget = usize;
+pub type TargetSegmentCount = usize;
+pub type DoMerging = bool;
 
 impl WriterResources {
-    pub fn resources(&self) -> (Parallelism, MemoryBudget) {
+    pub fn resources(
+        &self,
+        index_options: &SearchIndexCreateOptions,
+    ) -> (Parallelism, MemoryBudget, TargetSegmentCount, DoMerging) {
         match self {
             WriterResources::CreateIndex => (
                 gucs::create_index_parallelism(),
                 gucs::create_index_memory_budget(),
+                index_options.target_segment_count(),
+                true, // we always want a merge on CREATE INDEX
             ),
             WriterResources::Statement => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
+                index_options.target_segment_count(),
+                index_options.merge_on_insert(), // user/index decides if we merge for INSERT/UPDATE statements
             ),
             WriterResources::Vacuum => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
+                index_options.target_segment_count(),
+                true, // we always want a merge on (auto)VACUUM
             ),
         }
     }
@@ -105,13 +120,30 @@ impl SearchIndex {
     /// Retrieve an owned writer for a given index. This will block until this process
     /// can get an exclusive lock on the Tantivy writer. The return type needs to
     /// be entirely owned by the new process, with no references.
-    pub fn get_writer(&self, resources: WriterResources) -> Result<SearchIndexWriter> {
-        let (parallelism, memory_budget) = resources.resources();
+    pub fn get_writer(
+        &self,
+        resources: WriterResources,
+        index_options: &SearchIndexCreateOptions,
+    ) -> Result<SearchIndexWriter> {
+        let (parallelism, memory_budget, target_segment_count, merge_on_insert) =
+            resources.resources(index_options);
         let underlying_writer = self
             .underlying_index
             .writer_with_num_threads(parallelism.get(), memory_budget)?;
+
+        let wants_merge;
+        let merge_policy: Box<dyn MergePolicy> = if merge_on_insert {
+            wants_merge = true;
+            Box::new(NPlusOneMergePolicy(target_segment_count))
+        } else {
+            wants_merge = false;
+            Box::new(NoMergePolicy)
+        };
+        underlying_writer.set_merge_policy(merge_policy);
+
         Ok(SearchIndexWriter {
             underlying_writer: Some(underlying_writer),
+            wants_merge,
         })
     }
 

@@ -342,9 +342,15 @@ impl CustomScan for PdbScan {
                 panic!("failed to properly build `var_attname_lookup` due to mis-typed List");
             }
 
+            let score_funcoid = score_funcoid();
+            let snippet_funcoid = snippet_funcoid();
+
+            builder.custom_state().score_funcoid = score_funcoid;
+            builder.custom_state().snippet_funcoid = snippet_funcoid;
+
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
-                score_funcoid(),
+                score_funcoid,
                 (*builder.args().cscan).scan.scanrelid as pg_sys::Index,
             );
 
@@ -352,7 +358,7 @@ impl CustomScan for PdbScan {
             let rti = builder.custom_state().rti;
             let attname_lookup = &builder.custom_state().var_attname_lookup;
             builder.custom_state().snippet_generators =
-                uses_snippets(rti, attname_lookup, node, snippet_funcoid())
+                uses_snippets(rti, attname_lookup, node, snippet_funcoid)
                     .into_iter()
                     .map(|field| (field, None))
                     .collect();
@@ -655,8 +661,12 @@ unsafe fn maybe_rebuild_projinfo_for_const_projection(
     let mut const_projected_targetlist = projection_targetlist;
 
     if state.custom_state().need_scores() {
-        const_projected_targetlist =
-            inject_scores(const_projected_targetlist.cast(), score_funcoid(), score).cast();
+        const_projected_targetlist = inject_scores(
+            const_projected_targetlist.cast(),
+            state.custom_state().score_funcoid,
+            score,
+        )
+        .cast();
     }
     if state.custom_state().need_snippets() {
         let search_state = state
@@ -669,7 +679,7 @@ unsafe fn maybe_rebuild_projinfo_for_const_projection(
                 state.custom_state().rti,
                 &state.custom_state().var_attname_lookup,
                 const_projected_targetlist.cast(),
-                snippet_funcoid(),
+                state.custom_state().snippet_funcoid,
                 search_state,
                 &snippet_info.field,
                 &snippet_info.start_tag,

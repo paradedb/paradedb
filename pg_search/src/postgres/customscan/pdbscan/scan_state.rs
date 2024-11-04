@@ -58,6 +58,8 @@ pub struct PdbScanState {
     pub visibility_checker: Option<VisibilityChecker>,
 
     pub need_scores: bool,
+    pub score_funcoid: pg_sys::Oid,
+    pub snippet_funcoid: pg_sys::Oid,
     pub snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
     pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
 

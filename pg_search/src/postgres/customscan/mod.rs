@@ -301,7 +301,7 @@ where
 }
 
 /// Helper function for wrapping a raw [`pg_sys::CustomScanState`] pointer with something more
-/// usable by implementors
+/// usable by implementers
 fn wrap_custom_scan_state<CS: CustomScan>(
     node: *mut pg_sys::CustomScanState,
 ) -> NonNull<CustomScanStateWrapper<CS>> {

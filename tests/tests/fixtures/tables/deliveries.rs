@@ -52,7 +52,7 @@ BEGIN;
     );
 
     CALL paradedb.create_bm25(
-        index_name => 'deliveries',
+        index_name => 'deliveries_idx',
         table_name => 'deliveries',
         key_field => '%s',
         range_fields => 

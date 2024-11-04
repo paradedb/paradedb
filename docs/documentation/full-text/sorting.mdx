@@ -68,7 +68,7 @@ LIMIT 5;
  Limit  (cost=10.00..34.03 rows=5 width=36)
    ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..34.03 rows=5 width=36)
          Table: mock_items
-         Index: search_idx_bm25_index
+         Index: search_idx
          Scores: false
             Sort Field: rating
             Sort Direction: desc
@@ -110,7 +110,7 @@ LIMIT 5;
  Limit  (cost=10.00..34.05 rows=5 width=584)
    ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..34.05 rows=5 width=584)
          Table: mock_items
-         Index: search_idx_bm25_index
+         Index: search_idx
          Scores: false
             Sort Field: category
             Sort Direction: desc

@@ -170,7 +170,7 @@ fn text_arrays(mut conn: PgConnection) {
     ('{"another", "array", "of", "texts"}', '{"vtext3", "vtext4", "vtext5"}'),
     ('{"single element"}', '{"single varchar element"}');
     CALL paradedb.create_bm25(
-    	index_name => 'example_table',
+    	index_name => 'example_table_idx',
     	table_name => 'example_table',
     	key_field => 'id',
     	text_fields => paradedb.field('text_array') || paradedb.field('varchar_array')
@@ -207,7 +207,7 @@ fn int_arrays(mut conn: PgConnection) {
     ('{4, 5, 6}', '{300, 400, 500}'),
     ('{7, 8, 9}', '{600, 700, 800, 900}');
     CALL paradedb.create_bm25(
-        index_name => 'example_table',
+        index_name => 'example_table_idx',
         table_name => 'example_table',
         key_field => 'id',
         numeric_fields => paradedb.field('int_array') || paradedb.field('bigint_array')
@@ -238,7 +238,7 @@ fn boolean_arrays(mut conn: PgConnection) {
     ('{false, false, false}'),
     ('{true, true, false}');
     CALL paradedb.create_bm25(
-        index_name => 'example_table',
+        index_name => 'example_table_idx',
         table_name => 'example_table',
         key_field => 'id',
         boolean_fields => paradedb.field('bool_array')
@@ -272,7 +272,7 @@ fn datetime_arrays(mut conn: PgConnection) {
     (ARRAY['2023-03-01'::DATE, '2023-04-01'::DATE], ARRAY['2023-04-01 14:00:00'::TIMESTAMP, '2023-04-01 15:00:00'::TIMESTAMP]),
     (ARRAY['2023-05-01'::DATE, '2023-06-01'::DATE], ARRAY['2023-06-01 16:00:00'::TIMESTAMP, '2023-06-01 17:00:00'::TIMESTAMP]);
     CALL paradedb.create_bm25(
-        index_name => 'example_table',
+        index_name => 'example_table_idx',
         table_name => 'example_table',
         key_field => 'id',
         datetime_fields => paradedb.field('date_array') || paradedb.field('timestamp_array')
@@ -305,7 +305,7 @@ fn json_arrays(mut conn: PgConnection) {
         .execute(&mut conn);
 
     match "CALL paradedb.create_bm25(
-        index_name => 'example_table',
+        index_name => 'example_table_idx',
         table_name => 'example_table',
         key_field => 'id',
         json_fields => paradedb.field('json_array')
@@ -339,18 +339,18 @@ fn uuid(mut conn: PgConnection) {
     
     -- Ensure that indexing works with UUID present on table.
     CALL paradedb.create_bm25(
-    	index_name => 'uuid_table',
+    	index_name => 'uuid_table_bm25_index',
         table_name => 'uuid_table',
         key_field => 'id',
         text_fields => paradedb.field('some_text')
     );
     
-    CALL paradedb.drop_bm25('uuid_table');"#
+    DROP INDEX uuid_table_bm25_index CASCADE;"#
         .execute(&mut conn);
 
     r#"
     CALL paradedb.create_bm25(
-        index_name => 'uuid_table',
+        index_name => 'uuid_table_bm25_index',
         table_name => 'uuid_table',
         key_field => 'id',
         text_fields => paradedb.field('some_text') || paradedb.field('random_uuid')
@@ -481,9 +481,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
 
     // For this test, we'll turn off autovacuum, as we'll be measuring the size of the index.
     // We don't want a vacuum to happen and unexpectedly change the size.
-    "ALTER TABLE mock_items SET (autovacuum_enabled = false)"
-        .to_string()
-        .execute(&mut conn);
+    "ALTER TABLE mock_items SET (autovacuum_enabled = false)".execute(&mut conn);
 
     "CALL paradedb.create_bm25(
             index_name => 'search_idx',
@@ -494,7 +492,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     )"
     .execute(&mut conn);
 
-    let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx_bm25_index");
+    let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx");
     assert!(index_dir_path.exists());
 
     // Get the index metadata
@@ -898,19 +896,6 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
     .execute_result(&mut conn);
     assert!(ret.is_err());
 
-    // mismatch schema
-    let ret = "CALL paradedb.create_bm25(
-        index_name => 'public',
-        schema_name => 'paradedb',
-        table_name => 'test_partial_index',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        predicates => 'category = ''Electronics''' 
-    );"
-    .execute_result(&mut conn);
-    assert!(ret.is_err());
-
     let ret = "CALL paradedb.create_bm25(
         index_name => 'partial_idx',
         schema_name => 'paradedb',
@@ -941,20 +926,20 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
     let rows: Vec<(String,)> =
-        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
     // Drop a column that is not referenced in the partial index.
     "ALTER TABLE paradedb.test_partial_index DROP COLUMN metadata;".execute(&mut conn);
     let rows: Vec<(String,)> =
-        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
     // When the predicate column is dropped with CASCADE, the index and the corresponding
     // schema are both dropped.
     "ALTER TABLE paradedb.test_partial_index DROP COLUMN category CASCADE;".execute(&mut conn);
     let rows: Vec<(String,)> =
-        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 
     // We need to comment this test out for now, because we've had to change the implementation
@@ -983,7 +968,7 @@ fn high_limit_rows(mut conn: PgConnection) {
     "CALL paradedb.create_bm25(
         table_name => 'large_series', 
         schema_name => 'public', 
-        index_name => 'large_series', 
+        index_name => 'large_series_idx', 
         key_field => 'id',
         text_fields => paradedb.field('description')
     );"
@@ -1144,7 +1129,7 @@ fn json_range(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
     "CALL paradedb.create_bm25(
-        index_name => 'bm25_search',
+        index_name => 'bm25_search_idx',
         schema_name => 'paradedb',
         table_name => 'bm25_search',
         key_field => 'id',
@@ -1198,7 +1183,7 @@ fn json_array_term(mut conn: PgConnection) {
     CALL paradedb.create_bm25(
         table_name => 'colors', 
         schema_name => 'public', 
-        index_name => 'colors', 
+        index_name => 'colors_bm25_index', 
         key_field => 'id',
         json_fields => paradedb.field('colors_json') || paradedb.field('colors_jsonb')
     );

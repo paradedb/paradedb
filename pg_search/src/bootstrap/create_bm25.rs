@@ -20,14 +20,9 @@ use pgrx::prelude::*;
 use pgrx::{JsonB, PgRelation, Spi};
 use serde_json::Value;
 use std::collections::HashSet;
-use uuid::Uuid;
 
 use crate::index::{SearchFs, SearchIndex, WriterDirectory};
 use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
-
-// The maximum length of an index name in Postgres is 63 characters,
-// but we need to account for the trailing _bm25_index suffix
-const MAX_INDEX_NAME_LENGTH: usize = 52;
 
 #[pg_extern(
     sql = "
@@ -98,21 +93,6 @@ fn create_bm25_impl(
 
     if index_name.is_empty() {
         bail!("no index_name parameter given for bm25 index");
-    }
-
-    if index_name.len() > MAX_INDEX_NAME_LENGTH {
-        bail!(
-            "identifier {} exceeds maximum allowed length of {} characters",
-            spi::quote_identifier(index_name),
-            MAX_INDEX_NAME_LENGTH
-        );
-    };
-
-    if Spi::get_one::<bool>(&format!(
-        "SELECT EXISTS (SELECT i.schema_name FROM information_schema.schemata i WHERE i.schema_name = {})",
-        spi::quote_literal(index_name)
-    ))?.unwrap_or(false) {
-        bail!("Index name cannot be the same as a schema that already exists. Please choose a different index name or drop the {} schema.", index_name);
     }
 
     if table_name.is_empty() {
@@ -202,12 +182,9 @@ fn create_bm25_impl(
         "".to_string()
     };
 
-    let index_uuid = Uuid::new_v4().to_string();
-    let index_name_suffixed = format!("{}_bm25_index", index_name);
-
     Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}, uuid={}) {};",
-        spi::quote_identifier(index_name_suffixed.clone()),
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
+        spi::quote_identifier(index_name),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
         spi::quote_identifier(key_field),
@@ -219,7 +196,6 @@ fn create_bm25_impl(
         spi::quote_literal(json_fields),
         spi::quote_literal(range_fields),
         spi::quote_literal(datetime_fields),
-        spi::quote_identifier(index_uuid.clone()),
         predicate_where))?;
 
     Spi::run(&format!(
@@ -250,13 +226,11 @@ fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
             SET client_min_messages TO WARNING;
 
             EXECUTE 'DROP INDEX IF EXISTS {}.{} CASCADE'; 
-            EXECUTE 'DROP SCHEMA IF EXISTS {} CASCADE';
             EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
         END;
         $$;
         "#,
         spi::quote_identifier(schema_name),
-        spi::quote_identifier(format!("{}_bm25_index", index_name)),
         spi::quote_identifier(index_name),
     ))?;
 

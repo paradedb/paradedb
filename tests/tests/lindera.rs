@@ -39,7 +39,7 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
         ('박지후', '지역 축제 개최 소식', '이번 주말 지역 축제가 열립니다. 다양한 음식과 공연이 준비되어 있어 기대가 됩니다.');
 
     CALL paradedb.create_bm25(
-    	index_name => 'korean',
+    	index_name => 'korean_idx',
     	table_name => 'korean',
     	key_field => 'id',
         text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('korean_lindera'), record => 'position') ||
@@ -75,7 +75,7 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
         ('张伟', '篮球比赛回顾', '昨日篮球比赛精彩纷呈，尤其是最后时刻的逆转成为了比赛的亮点。'),
         ('王芳', '本地文化节', '本周末将举行一个地方文化节，预计将有各种食物和表演。');
     CALL paradedb.create_bm25(
-    	index_name => 'chinese',
+    	index_name => 'chinese_idx',
     	table_name => 'chinese',
         key_field => 'id',
         text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('chinese_lindera'), record => 'position') ||
@@ -112,7 +112,7 @@ async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
         ('鈴木一郎', 'サッカー試合レビュー', '昨日のサッカー試合では素晴らしいゴールが見られました。終了間際のドラマチックな展開がハイライトでした。'),
         ('高橋花子', '地元の祭り', '今週末に地元で祭りが開催されます。様々な食べ物とパフォーマンスが用意されています。');
     CALL paradedb.create_bm25(
-    	index_name => 'japanese',
+    	index_name => 'japanese_idx',
     	table_name => 'japanese',
         key_field => 'id',
         text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('japanese_lindera'), record => 'position') ||

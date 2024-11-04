@@ -46,7 +46,7 @@ BEGIN;
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CALL paradedb.create_bm25(
-    	index_name => 'bm25_search',
+    	index_name => 'bm25_search_bm25_index',
         table_name => 'bm25_search',
     	schema_name => 'paradedb',
         key_field => 'id',

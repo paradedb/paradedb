@@ -20,6 +20,7 @@ on:
 # Required to post a comment to the PR
 permissions:
   pull-requests: write
+  issues: write
 
 concurrency:
   group: check-pg_search-schema-upgrade-${{ github.head_ref || github.ref }}

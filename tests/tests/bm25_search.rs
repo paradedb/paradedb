@@ -345,7 +345,7 @@ fn uuid(mut conn: PgConnection) {
         text_fields => paradedb.field('some_text')
     );
     
-    CALL paradedb.drop_bm25('uuid_table');"#
+    DROP INDEX uuid_table_bm25_index CASCADE;"#
         .execute(&mut conn);
 
     r#"
@@ -481,9 +481,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
 
     // For this test, we'll turn off autovacuum, as we'll be measuring the size of the index.
     // We don't want a vacuum to happen and unexpectedly change the size.
-    "ALTER TABLE mock_items SET (autovacuum_enabled = false)"
-        .to_string()
-        .execute(&mut conn);
+    "ALTER TABLE mock_items SET (autovacuum_enabled = false)".execute(&mut conn);
 
     "CALL paradedb.create_bm25(
             index_name => 'search_idx',
@@ -494,7 +492,7 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     )"
     .execute(&mut conn);
 
-    let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx_bm25_index");
+    let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx");
     assert!(index_dir_path.exists());
 
     // Get the index metadata
@@ -898,19 +896,6 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
     .execute_result(&mut conn);
     assert!(ret.is_err());
 
-    // mismatch schema
-    let ret = "CALL paradedb.create_bm25(
-        index_name => 'public',
-        schema_name => 'paradedb',
-        table_name => 'test_partial_index',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        predicates => 'category = ''Electronics''' 
-    );"
-    .execute_result(&mut conn);
-    assert!(ret.is_err());
-
     let ret = "CALL paradedb.create_bm25(
         index_name => 'partial_idx',
         schema_name => 'paradedb',
@@ -941,20 +926,20 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
     let rows: Vec<(String,)> =
-        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
     // Drop a column that is not referenced in the partial index.
     "ALTER TABLE paradedb.test_partial_index DROP COLUMN metadata;".execute(&mut conn);
     let rows: Vec<(String,)> =
-        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
     // When the predicate column is dropped with CASCADE, the index and the corresponding
     // schema are both dropped.
     "ALTER TABLE paradedb.test_partial_index DROP COLUMN category CASCADE;".execute(&mut conn);
     let rows: Vec<(String,)> =
-        "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 
     // We need to comment this test out for now, because we've had to change the implementation
@@ -983,7 +968,7 @@ fn high_limit_rows(mut conn: PgConnection) {
     "CALL paradedb.create_bm25(
         table_name => 'large_series', 
         schema_name => 'public', 
-        index_name => 'large_series', 
+        index_name => 'large_series_idx', 
         key_field => 'id',
         text_fields => paradedb.field('description')
     );"

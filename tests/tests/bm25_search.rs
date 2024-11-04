@@ -170,7 +170,7 @@ fn text_arrays(mut conn: PgConnection) {
     ('{"another", "array", "of", "texts"}', '{"vtext3", "vtext4", "vtext5"}'),
     ('{"single element"}', '{"single varchar element"}');
     CALL paradedb.create_bm25(
-    	index_name => 'example_table',
+    	index_name => 'example_table_idx',
     	table_name => 'example_table',
     	key_field => 'id',
     	text_fields => paradedb.field('text_array') || paradedb.field('varchar_array')
@@ -207,7 +207,7 @@ fn int_arrays(mut conn: PgConnection) {
     ('{4, 5, 6}', '{300, 400, 500}'),
     ('{7, 8, 9}', '{600, 700, 800, 900}');
     CALL paradedb.create_bm25(
-        index_name => 'example_table',
+        index_name => 'example_table_idx',
         table_name => 'example_table',
         key_field => 'id',
         numeric_fields => paradedb.field('int_array') || paradedb.field('bigint_array')
@@ -238,7 +238,7 @@ fn boolean_arrays(mut conn: PgConnection) {
     ('{false, false, false}'),
     ('{true, true, false}');
     CALL paradedb.create_bm25(
-        index_name => 'example_table',
+        index_name => 'example_table_idx',
         table_name => 'example_table',
         key_field => 'id',
         boolean_fields => paradedb.field('bool_array')
@@ -272,7 +272,7 @@ fn datetime_arrays(mut conn: PgConnection) {
     (ARRAY['2023-03-01'::DATE, '2023-04-01'::DATE], ARRAY['2023-04-01 14:00:00'::TIMESTAMP, '2023-04-01 15:00:00'::TIMESTAMP]),
     (ARRAY['2023-05-01'::DATE, '2023-06-01'::DATE], ARRAY['2023-06-01 16:00:00'::TIMESTAMP, '2023-06-01 17:00:00'::TIMESTAMP]);
     CALL paradedb.create_bm25(
-        index_name => 'example_table',
+        index_name => 'example_table_idx',
         table_name => 'example_table',
         key_field => 'id',
         datetime_fields => paradedb.field('date_array') || paradedb.field('timestamp_array')
@@ -305,7 +305,7 @@ fn json_arrays(mut conn: PgConnection) {
         .execute(&mut conn);
 
     match "CALL paradedb.create_bm25(
-        index_name => 'example_table',
+        index_name => 'example_table_idx',
         table_name => 'example_table',
         key_field => 'id',
         json_fields => paradedb.field('json_array')
@@ -339,7 +339,7 @@ fn uuid(mut conn: PgConnection) {
     
     -- Ensure that indexing works with UUID present on table.
     CALL paradedb.create_bm25(
-    	index_name => 'uuid_table',
+    	index_name => 'uuid_table_bm25_index',
         table_name => 'uuid_table',
         key_field => 'id',
         text_fields => paradedb.field('some_text')
@@ -350,7 +350,7 @@ fn uuid(mut conn: PgConnection) {
 
     r#"
     CALL paradedb.create_bm25(
-        index_name => 'uuid_table',
+        index_name => 'uuid_table_bm25_index',
         table_name => 'uuid_table',
         key_field => 'id',
         text_fields => paradedb.field('some_text') || paradedb.field('random_uuid')
@@ -1144,7 +1144,7 @@ fn json_range(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
     "CALL paradedb.create_bm25(
-        index_name => 'bm25_search',
+        index_name => 'bm25_search_idx',
         schema_name => 'paradedb',
         table_name => 'bm25_search',
         key_field => 'id',
@@ -1198,7 +1198,7 @@ fn json_array_term(mut conn: PgConnection) {
     CALL paradedb.create_bm25(
         table_name => 'colors', 
         schema_name => 'public', 
-        index_name => 'colors', 
+        index_name => 'colors_bm25_index', 
         key_field => 'id',
         json_fields => paradedb.field('colors_json') || paradedb.field('colors_jsonb')
     );

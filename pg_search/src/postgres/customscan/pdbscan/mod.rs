@@ -45,7 +45,7 @@ use crate::postgres::customscan::pdbscan::projections::{
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::{CustomScan, CustomScanState};
+use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod, PlainExecCapable};
 use crate::postgres::index::open_search_index;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
@@ -54,7 +54,7 @@ use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use exec_methods::normal::NormalScanExecState;
 use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
-use pgrx::pg_sys::AsPgCStr;
+use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgRelation};
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -65,8 +65,17 @@ use tantivy::{DocAddress, Score};
 #[derive(Default)]
 pub struct PdbScan;
 
+impl ExecMethod for PdbScan {
+    fn exec_methods() -> *const CustomExecMethods {
+        <PdbScan as PlainExecCapable>::exec_methods()
+    }
+}
+
+impl PlainExecCapable for PdbScan {}
+
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
+
     type State = PdbScanState;
     type PrivateData = PrivateData;
 

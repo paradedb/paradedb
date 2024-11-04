@@ -27,8 +27,9 @@ SET paradedb.create_index_parallelism = 8;
 `paradedb.create_index_memory_budget` sets the amount of memory to dedicate **per indexing thread** before the index segment needs to be
 written to disk.
 
-It defaults to Postgres' `maintenance_work_mem` but can be changed to suit the host system's available
-memory. In terms of raw indexing performance, larger is generally better.
+If unset, Postgres' `maintenance_work_mem` value is used, but is first divided by the total parallelism (`paradedb.create_index_parallelism`).
+
+In terms of raw indexing performance, larger is generally better.
 
 The value is measured in megabytes. A value of `1024` is the same as `1GB`.
 
@@ -69,7 +70,7 @@ SET paradedb.statement_parallelism = 1;
 `paradedb.statement_memory_budget` sets the amount of memory to dedicate **per indexing thread** before the index segment needs to be
 written to disk.
 
-Like [indexing memory](#indexing-memory), it defaults to `maintenance_work_mem` and is measured in megabytes.
+Like [indexing memory](#indexing-memory), it defaults to `maintenance_work_mem` divided by the total parallelism, and is measured in megabytes.
 
 If your typical update patterns are single-row atomic INSERTs or UPDATEs, then a value of `15MB` is ideal. If
 your update patterns typically update many thousands of rows, a larger value might be preferred for greater indexing

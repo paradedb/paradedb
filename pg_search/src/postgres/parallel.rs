@@ -20,7 +20,7 @@ use std::ptr::addr_of_mut;
 
 #[derive(Debug)]
 #[repr(transparent)]
-struct Spinlock(pg_sys::slock_t);
+pub struct Spinlock(pg_sys::slock_t);
 
 impl Spinlock {
     #[inline(always)]
@@ -30,7 +30,7 @@ impl Spinlock {
 }
 
 #[repr(transparent)]
-struct AcquiredSpinLock(*mut pg_sys::slock_t);
+pub struct AcquiredSpinLock(*mut pg_sys::slock_t);
 
 impl AcquiredSpinLock {
     fn new(lock: &mut Spinlock) -> Self {

@@ -224,7 +224,7 @@ fn default_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CALL paradedb.create_bm25(
-    	index_name => 'tokenizer_config',
+    	index_name => 'tokenizer_config_idx',
     	table_name => 'tokenizer_config',
     	schema_name => 'paradedb',
     	key_field => 'id',
@@ -246,7 +246,7 @@ fn en_stem_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CALL paradedb.create_bm25(
-    	index_name => 'tokenizer_config',
+    	index_name => 'tokenizer_config_idx',
     	table_name => 'tokenizer_config',
     	schema_name => 'paradedb',
     	key_field => 'id',
@@ -268,7 +268,7 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CALL paradedb.create_bm25(
-    	index_name => 'tokenizer_config',
+    	index_name => 'tokenizer_config_idx',
     	table_name => 'tokenizer_config',
     	schema_name => 'paradedb',
     	key_field => 'id',
@@ -292,7 +292,7 @@ fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CALL paradedb.create_bm25(
-    	index_name => 'tokenizer_config',
+    	index_name => 'tokenizer_config_idx',
     	table_name => 'tokenizer_config',
     	schema_name => 'paradedb',
     	key_field => 'id',
@@ -316,7 +316,7 @@ fn whitespace_tokenizer_config(mut conn: PgConnection) {
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CALL paradedb.create_bm25(
-    	index_name => 'bm25_search',
+    	index_name => 'bm25_search_idx',
         table_name => 'bm25_search',
     	schema_name => 'paradedb',
         key_field => 'id',
@@ -350,7 +350,7 @@ fn lowercase_tokenizer_config(mut conn: PgConnection) {
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CALL paradedb.create_bm25(
-    	index_name => 'bm25_search',
+    	index_name => 'bm25_search_idx',
         table_name => 'bm25_search',
     	schema_name => 'paradedb',
         key_field => 'id',
@@ -378,7 +378,7 @@ fn raw_tokenizer_config(mut conn: PgConnection) {
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CALL paradedb.create_bm25(
-    	index_name => 'bm25_search',
+    	index_name => 'bm25_search_idx',
         table_name => 'bm25_search',
     	schema_name => 'paradedb',
         key_field => 'id',
@@ -412,7 +412,7 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CALL paradedb.create_bm25(
-        index_name => 'bm25_search',
+        index_name => 'bm25_search_idx',
         table_name => 'bm25_search',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -494,7 +494,7 @@ fn language_stem_tokenizer_deprecated(mut conn: PgConnection) {
         assert_eq!(row.0, 3);
 
         r#"
-        CALL paradedb.drop_bm25('stem_test');
+        DROP INDEX IF EXISTS stem_test;
         DROP TABLE IF EXISTS test_table;
         "#
         .execute(&mut conn);
@@ -553,7 +553,7 @@ fn language_stem_filter(mut conn: PgConnection) {
         assert_eq!(row.0, 3);
 
         r#"
-        CALL paradedb.drop_bm25('stem_test');
+        DROP INDEX IF EXISTS stem_test;
         DROP TABLE IF EXISTS test_table;
         "#
         .execute(&mut conn);

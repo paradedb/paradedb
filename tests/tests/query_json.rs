@@ -1178,7 +1178,7 @@ fn range_term(mut conn: PgConnection) {
     );
 
     CALL paradedb.create_bm25(
-        index_name => 'deliveries',
+        index_name => 'deliveries_idx',
         table_name => 'deliveries',
         key_field => 'delivery_id',
         range_fields => 

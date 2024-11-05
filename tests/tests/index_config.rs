@@ -36,7 +36,7 @@ fn invalid_create_bm25(mut conn: PgConnection) {
         .execute(&mut conn);
 
     match "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config'
     )"
     .execute_result(&mut conn)
@@ -46,7 +46,7 @@ fn invalid_create_bm25(mut conn: PgConnection) {
     };
 
     match "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    key_field => 'id'
     )"
@@ -57,7 +57,7 @@ fn invalid_create_bm25(mut conn: PgConnection) {
     };
 
     match "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    key_field => 'id',
 	    invalid_field => '{}'		
@@ -69,7 +69,7 @@ fn invalid_create_bm25(mut conn: PgConnection) {
     };
 
     match "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    key_field => 'id',
 	    numeric_fields => paradedb.field('id')		
@@ -87,7 +87,7 @@ fn prevent_duplicate(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -95,7 +95,7 @@ fn prevent_duplicate(mut conn: PgConnection) {
         .execute(&mut conn);
 
     match "CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -139,7 +139,7 @@ async fn drop_column(mut conn: PgConnection) {
         text_fields => paradedb.field('fulltext')
     );
 
-    CALL paradedb.drop_bm25('test_index');
+    DROP INDEX test_index CASCADE;
     ALTER TABLE test_table DROP COLUMN fkey;
     "#
     .execute(&mut conn);
@@ -156,7 +156,7 @@ async fn drop_column(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('test_index_bm25_index')".fetch(&mut conn);
+        "SELECT name, field_type FROM paradedb.schema('test_index')".fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
     assert_eq!(rows[1], ("fulltext".into(), "Str".into()));
@@ -169,7 +169,7 @@ fn default_text_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -177,7 +177,7 @@ fn default_text_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
@@ -192,7 +192,7 @@ fn text_field_with_options(mut conn: PgConnection) {
 
     r#"
     CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -201,7 +201,7 @@ fn text_field_with_options(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
@@ -216,7 +216,7 @@ fn multiple_text_fields(mut conn: PgConnection) {
 
     r#"
     CALL paradedb.create_bm25(
-	index_name => 'index_config',
+	index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -226,7 +226,7 @@ fn multiple_text_fields(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("category".into(), "Str".into()));
@@ -241,7 +241,7 @@ fn default_numeric_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -250,7 +250,7 @@ fn default_numeric_field(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
@@ -264,7 +264,7 @@ fn numeric_field_with_options(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -273,7 +273,7 @@ fn numeric_field_with_options(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
@@ -287,7 +287,7 @@ fn default_boolean_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -296,7 +296,7 @@ fn default_boolean_field(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
@@ -310,7 +310,7 @@ fn boolean_field_with_options(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -319,7 +319,7 @@ fn boolean_field_with_options(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
@@ -333,7 +333,7 @@ fn default_json_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -342,7 +342,7 @@ fn default_json_field(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
@@ -356,7 +356,7 @@ fn json_field_with_options(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CALL paradedb.create_bm25(
-	    index_name => 'index_config',
+	    index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -365,7 +365,7 @@ fn json_field_with_options(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("ctid".into(), "U64".into()));
@@ -379,7 +379,7 @@ fn default_datetime_field(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -388,7 +388,7 @@ fn default_datetime_field(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("created_at".into(), "Date".into()));
@@ -403,7 +403,7 @@ fn datetime_field_with_options(mut conn: PgConnection) {
         .execute(&mut conn);
 
     r#"CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -412,7 +412,7 @@ fn datetime_field_with_options(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("created_at".into(), "Date".into()));
@@ -426,7 +426,7 @@ fn multiple_fields(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25( index_name => 'index_config',
+    "CALL paradedb.create_bm25( index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -438,7 +438,7 @@ fn multiple_fields(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_bm25_index')"
+        "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("category".into(), "Str".into()));
@@ -470,7 +470,7 @@ fn null_values(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25( 
-        index_name => 'index_config',
+        index_name => 'index_config_index',
 	    table_name => 'index_config',
 	    schema_name => 'paradedb',
 	    key_field => 'id',
@@ -507,7 +507,7 @@ fn null_key_field_build(mut conn: PgConnection) {
         .execute(&mut conn);
 
     match "CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -517,7 +517,7 @@ fn null_key_field_build(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: error creating index entries for index 'index_config_bm25_index': key_field column 'id' cannot be NULL"
+            "error returned from database: error creating index entries for index 'index_config_index': key_field column 'id' cannot be NULL"
         ),
     };
 }
@@ -529,7 +529,7 @@ fn null_key_field_insert(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -542,7 +542,7 @@ fn null_key_field_insert(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: error creating index entries for index 'index_config_bm25_index': key_field column 'id' cannot be NULL"
+            "error returned from database: error creating index entries for index 'index_config_index': key_field column 'id' cannot be NULL"
         ),
     };
 }
@@ -555,7 +555,7 @@ fn column_name_camelcase(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'IdName',
@@ -576,7 +576,7 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
     "CREATE TABLE paradedb.index_config1(id INTEGER, description TEXT)".execute(&mut conn);
     "CREATE TABLE paradedb.index_config2(id INTEGER, description TEXT)".execute(&mut conn);
     "CALL paradedb.create_bm25(
-        index_name => 'index_config1',
+        index_name => 'index_config1_index',
         table_name => 'index_config1',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -584,7 +584,7 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
     )"
     .execute(&mut conn);
     "CALL paradedb.create_bm25(
-        index_name => 'index_config2',
+        index_name => 'index_config2_index',
         table_name => 'index_config2',
         schema_name => 'paradedb',
         key_field => 'id',
@@ -605,27 +605,6 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
         "SELECT * FROM paradedb.index_config2 WHERE index_config2 @@@ 'description:item'"
             .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
-}
-
-#[rstest]
-fn index_name_too_long(mut conn: PgConnection) {
-    "CREATE TABLE paradedb.index_config(id INTEGER, description TEXT)".execute(&mut conn);
-    "INSERT INTO paradedb.index_config VALUES (1, 'Item 1'), (2, 'Item 2')".execute(&mut conn);
-
-    match "CALL paradedb.create_bm25(
-        index_name => 'index_config_index_name_is_too_long_and_should_be_truncated',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
-    .execute_result(&mut conn) {
-        Ok(_) => panic!("should fail with index name too long"),
-        Err(err) => assert_eq!(
-            err.to_string(),
-            "error returned from database: identifier index_config_index_name_is_too_long_and_should_be_truncated exceeds maximum allowed length of 52 characters"
-        ),
-    };
 }
 
 #[rstest]
@@ -681,7 +660,7 @@ fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'public',
         key_field => 'id',
@@ -690,7 +669,7 @@ fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // Ensure the expected directory exists.
-    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_bm25_index");
+    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_index");
     assert!(
         index_dir.exists(),
         "expected index directory to exist at: {:?}",
@@ -698,7 +677,7 @@ fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
     );
 
     // Delete the index.
-    "DROP INDEX index_config_bm25_index CASCADE".execute(&mut conn);
+    "DROP INDEX index_config_index CASCADE".execute(&mut conn);
 
     // Ensure deletion has worked as expected.
     // Tantivy is a little stubborn about deletion. While the contents of the index
@@ -719,7 +698,7 @@ fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
         .execute(&mut conn);
 
     "CALL paradedb.create_bm25(
-        index_name => 'index_config',
+        index_name => 'index_config_index',
         table_name => 'index_config',
         schema_name => 'public',
         key_field => 'id',
@@ -728,7 +707,7 @@ fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // Ensure the expected directory exists.
-    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_bm25_index");
+    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_index");
     assert!(
         index_dir.exists(),
         "expected index directory to exist at: {:?}",
@@ -738,7 +717,7 @@ fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
     // Delete the index.
     "DO $$ 
     BEGIN
-        DROP INDEX index_config_bm25_index CASCADE;
+        DROP INDEX index_config_index CASCADE;
         RAISE EXCEPTION 'Aborting the transaction intentionally';
     END $$;"
         .execute_result(&mut conn)

@@ -208,7 +208,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
     // Create the bm25 index on the description field
     "CALL paradedb.create_bm25(
         table_name => 'mock_items',
-        index_name => 'mock_items',
+        index_name => 'search_idx',
         schema_name => 'public',
         key_field => 'id',
         text_fields => paradedb.field('description')
@@ -216,7 +216,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
     .execute(&mut source_conn);
     "CALL paradedb.create_bm25(
         table_name => 'mock_items',
-        index_name => 'mock_items',
+        index_name => 'search_idx',
         schema_name => 'public',
         key_field => 'id',
         text_fields => paradedb.field('description')
@@ -365,7 +365,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 
     "CALL paradedb.create_bm25(
         table_name => 'text_array_table',
-        index_name => 'text_array_table',
+        index_name => 'text_array_table_idx',
         schema_name => 'public',
         key_field => 'id',
         text_fields => paradedb.field('text_array')
@@ -465,7 +465,7 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
     // Create the bm25 index on the description field on the replica
     "CALL paradedb.create_bm25(
         table_name => 'mock_items',
-        index_name => 'mock_items',
+        index_name => 'search_idx',
         schema_name => 'public',
         key_field => 'id',
         text_fields => paradedb.field('description')

@@ -31,7 +31,7 @@ fn sort_by_lower(mut conn: PgConnection) {
         CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CALL paradedb.create_bm25(
-            index_name => 'bm25_search',
+            index_name => 'bm25_search_idx',
             table_name => 'bm25_search',
             schema_name => 'paradedb',
             key_field => 'id',
@@ -64,7 +64,7 @@ fn sort_by_raw(mut conn: PgConnection) {
         CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CALL paradedb.create_bm25(
-            index_name => 'bm25_search',
+            index_name => 'bm25_search_idx',
             table_name => 'bm25_search',
             schema_name => 'paradedb',
             key_field => 'id',
@@ -97,7 +97,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
         CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
         CALL paradedb.create_bm25(
-            index_name => 'bm25_search',
+            index_name => 'bm25_search_idx',
             table_name => 'bm25_search',
             schema_name => 'paradedb',
             key_field => 'id',

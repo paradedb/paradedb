@@ -229,7 +229,7 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     r#"
 CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
 CALL paradedb.create_bm25(
-    	index_name => 'mock_items',
+    	index_name => 'search_idx',
         table_name => 'mock_items',
     	schema_name => 'public',
         key_field => 'id',

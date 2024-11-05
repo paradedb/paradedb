@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::{CustomScan, ParallelQueryCapable};
+use crate::postgres::customscan::{wrap_custom_scan_state, CustomScan, ParallelQueryCapable};
 use pgrx::{pg_guard, pg_sys};
 
 /// Estimate the amount of dynamic shared memory that will be required for parallel operation. This
@@ -27,7 +27,8 @@ pub extern "C" fn estimate_dsm_custom_scan<CS: CustomScan + ParallelQueryCapable
     node: *mut pg_sys::CustomScanState,
     pcxt: *mut pg_sys::ParallelContext,
 ) -> pg_sys::Size {
-    unimplemented!("estimate_dsm_custom_scan")
+    let mut custom_state = wrap_custom_scan_state::<CS>(node);
+    unsafe { CS::estimate_dsm_custom_scan(custom_state.as_mut(), pcxt) }
 }
 
 /// Initialize the dynamic shared memory that will be required for parallel operation. coordinate
@@ -40,7 +41,8 @@ pub extern "C" fn initialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCapab
     pcxt: *mut pg_sys::ParallelContext,
     coordinate: *mut std::os::raw::c_void,
 ) {
-    unimplemented!("initialize_dsm_custom_scan")
+    let mut custom_state = wrap_custom_scan_state::<CS>(node);
+    unsafe { CS::initialize_dsm_custom_scan(custom_state.as_mut(), pcxt, coordinate) }
 }
 
 /// Re-initialize the dynamic shared memory required for parallel operation when the custom-scan
@@ -54,7 +56,8 @@ pub extern "C" fn reinitialize_dsm_custom_scan<CS: CustomScan + ParallelQueryCap
     pcxt: *mut pg_sys::ParallelContext,
     coordinate: *mut std::os::raw::c_void,
 ) {
-    unimplemented!("reinitialize_dsm_custom_scan")
+    let mut custom_state = wrap_custom_scan_state::<CS>(node);
+    unsafe { CS::reinitialize_dsm_custom_scan(custom_state.as_mut(), pcxt, coordinate) }
 }
 
 /// Initialize a parallel worker's local state based on the shared state set up by the leader during
@@ -66,5 +69,6 @@ pub extern "C" fn initialize_worker_custom_scan<CS: CustomScan + ParallelQueryCa
     toc: *mut pg_sys::shm_toc,
     coordinate: *mut std::os::raw::c_void,
 ) {
-    unimplemented!("initialize_worker_custom_scan")
+    let mut custom_state = wrap_custom_scan_state::<CS>(node);
+    unsafe { CS::initialize_worker_custom_scan(custom_state.as_mut(), toc, coordinate) }
 }

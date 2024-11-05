@@ -55,10 +55,7 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     // ensure that we can index top-level json arrays that are strings.
     // Prior to 82fb7126ce6d2368cf19dd4dc6e28915afc5cf1e (PR #1618, <=v0.9.4) this didn't work
 
-    r#"
-    call paradedb.drop_bm25('crash');
-    drop table if exists crash cascade;
-    
+    r#"    
     create table crash
     (
         id serial8,
@@ -69,7 +66,7 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     
     call paradedb.create_bm25(
             table_name => 'crash',
-            index_name => 'crash',
+            index_name => 'crash_idx',
             key_field => 'id',
             json_fields => paradedb.field('j', indexed => true, fast => true)
          );

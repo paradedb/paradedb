@@ -1820,7 +1820,7 @@ fn schema(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
-        "SELECT name, field_type FROM paradedb.schema('search_idx_bm25_index')".fetch(&mut conn);
+        "SELECT name, field_type FROM paradedb.schema('search_idx')".fetch(&mut conn);
 
     let expected = vec![
         ("category".to_string(), "Str".to_string()),
@@ -1857,7 +1857,7 @@ fn index_size(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let size: i64 = "SELECT index_size FROM paradedb.index_size('search_idx_bm25_index')"
+    let size: i64 = "SELECT index_size FROM paradedb.index_size('search_idx')"
         .fetch_one::<(i64,)>(&mut conn)
         .0;
 

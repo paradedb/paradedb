@@ -51,6 +51,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::register_rel_pathlist;
+use std::ptr::NonNull;
 
 pub trait CustomScanState: Default {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState);
@@ -60,7 +61,7 @@ pub trait CustomScanState: Default {
     }
 }
 
-pub trait CustomScan: Default + Sized {
+pub trait CustomScan: ExecMethod + Default + Sized {
     const NAME: &'static CStr;
     type State: CustomScanState;
     type PrivateData: From<*mut pg_sys::List> + Into<*mut pg_sys::List> + Default;
@@ -108,33 +109,6 @@ pub trait CustomScan: Default + Sized {
         }
     }
 
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomExecMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        BeginCustomScan: Some(begin_custom_scan::<Self>),
-                        ExecCustomScan: Some(exec_custom_scan::<Self>),
-                        EndCustomScan: Some(end_custom_scan::<Self>),
-                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-                        MarkPosCustomScan: None,
-                        RestrPosCustomScan: None,
-                        EstimateDSMCustomScan: None,
-                        InitializeDSMCustomScan: None,
-                        ReInitializeDSMCustomScan: None,
-                        InitializeWorkerCustomScan: None,
-                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
-                    },
-                );
-            }
-            METHODS
-        }
-    }
-
     fn callback(builder: CustomPathBuilder<Self::PrivateData>) -> Option<pg_sys::CustomPath>;
 
     fn plan_custom_path(builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan;
@@ -164,67 +138,173 @@ pub trait CustomScan: Default + Sized {
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 }
 
-#[allow(dead_code)]
-pub trait MarkRestoreCapable: CustomScan {
-    fn exec_methods() -> pg_sys::CustomExecMethods {
-        pg_sys::CustomExecMethods {
-            CustomName: Self::NAME.as_ptr(),
-            BeginCustomScan: Some(begin_custom_scan::<Self>),
-            ExecCustomScan: Some(exec_custom_scan::<Self>),
-            EndCustomScan: Some(end_custom_scan::<Self>),
-            ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-            MarkPosCustomScan: Some(mark_pos_custom_scan::<Self>),
-            RestrPosCustomScan: Some(restr_pos_custom_scan::<Self>),
-            EstimateDSMCustomScan: None,
-            InitializeDSMCustomScan: None,
-            ReInitializeDSMCustomScan: None,
-            InitializeWorkerCustomScan: None,
-            ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-            ExplainCustomScan: Some(explain_custom_scan::<Self>),
-        }
-    }
+pub trait ExecMethod {
+    fn exec_methods() -> *const pg_sys::CustomExecMethods;
 }
 
-#[allow(dead_code)]
-pub trait ParallelQueryCapable: CustomScan {
-    fn exec_methods() -> pg_sys::CustomExecMethods {
-        pg_sys::CustomExecMethods {
-            CustomName: Self::NAME.as_ptr(),
-            BeginCustomScan: Some(begin_custom_scan::<Self>),
-            ExecCustomScan: Some(exec_custom_scan::<Self>),
-            EndCustomScan: Some(end_custom_scan::<Self>),
-            ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-            MarkPosCustomScan: None,
-            RestrPosCustomScan: None,
-            EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
-            InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
-            ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
-            InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
-            ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-            ExplainCustomScan: Some(explain_custom_scan::<Self>),
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub trait ParallelQueryAndMarkRestoreCapable:
-    CustomScan + ParallelQueryCapable + MarkRestoreCapable
+pub trait PlainExecCapable: ExecMethod
+where
+    Self: CustomScan,
 {
-    fn exec_methods() -> pg_sys::CustomExecMethods {
-        pg_sys::CustomExecMethods {
-            CustomName: Self::NAME.as_ptr(),
-            BeginCustomScan: Some(begin_custom_scan::<Self>),
-            ExecCustomScan: Some(exec_custom_scan::<Self>),
-            EndCustomScan: Some(end_custom_scan::<Self>),
-            ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-            MarkPosCustomScan: Some(mark_pos_custom_scan::<Self>),
-            RestrPosCustomScan: Some(restr_pos_custom_scan::<Self>),
-            EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
-            InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
-            ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
-            InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
-            ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-            ExplainCustomScan: Some(explain_custom_scan::<Self>),
+    fn exec_methods() -> *const pg_sys::CustomExecMethods {
+        unsafe {
+            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
+
+            if METHODS.is_null() {
+                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                    pg_sys::CustomExecMethods {
+                        CustomName: Self::NAME.as_ptr(),
+                        BeginCustomScan: Some(begin_custom_scan::<Self>),
+                        ExecCustomScan: Some(exec_custom_scan::<Self>),
+                        EndCustomScan: Some(end_custom_scan::<Self>),
+                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
+                        MarkPosCustomScan: None,
+                        RestrPosCustomScan: None,
+                        EstimateDSMCustomScan: None,
+                        InitializeDSMCustomScan: None,
+                        ReInitializeDSMCustomScan: None,
+                        InitializeWorkerCustomScan: None,
+                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
+                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
+                    },
+                );
+            }
+            METHODS
         }
     }
+}
+
+#[allow(dead_code)]
+pub trait MarkRestoreCapable: ExecMethod
+where
+    Self: CustomScan,
+{
+    fn exec_methods() -> *const pg_sys::CustomExecMethods {
+        unsafe {
+            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
+
+            if METHODS.is_null() {
+                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                    pg_sys::CustomExecMethods {
+                        CustomName: Self::NAME.as_ptr(),
+                        BeginCustomScan: Some(begin_custom_scan::<Self>),
+                        ExecCustomScan: Some(exec_custom_scan::<Self>),
+                        EndCustomScan: Some(end_custom_scan::<Self>),
+                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
+                        MarkPosCustomScan: Some(mark_pos_custom_scan::<Self>),
+                        RestrPosCustomScan: Some(restr_pos_custom_scan::<Self>),
+                        EstimateDSMCustomScan: None,
+                        InitializeDSMCustomScan: None,
+                        ReInitializeDSMCustomScan: None,
+                        InitializeWorkerCustomScan: None,
+                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
+                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
+                    },
+                );
+            }
+            METHODS
+        }
+    }
+
+    fn mark_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+
+    fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+}
+
+#[allow(dead_code)]
+pub trait ParallelQueryCapable: ExecMethod
+where
+    Self: CustomScan,
+{
+    fn exec_methods() -> *const pg_sys::CustomExecMethods {
+        unsafe {
+            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
+
+            if METHODS.is_null() {
+                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                    pg_sys::CustomExecMethods {
+                        CustomName: Self::NAME.as_ptr(),
+                        BeginCustomScan: Some(begin_custom_scan::<Self>),
+                        ExecCustomScan: Some(exec_custom_scan::<Self>),
+                        EndCustomScan: Some(end_custom_scan::<Self>),
+                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
+                        MarkPosCustomScan: None,
+                        RestrPosCustomScan: None,
+                        EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
+                        InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
+                        ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
+                        InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
+                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
+                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
+                    },
+                );
+            }
+            METHODS
+        }
+    }
+
+    fn estimate_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        pcxt: *mut pg_sys::ParallelContext,
+    ) -> pg_sys::Size;
+
+    fn initialize_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut std::os::raw::c_void,
+    );
+
+    fn reinitialize_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut std::os::raw::c_void,
+    );
+
+    fn initialize_worker_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        toc: *mut pg_sys::shm_toc,
+        coordinate: *mut std::os::raw::c_void,
+    );
+}
+
+#[allow(dead_code)]
+pub trait ParallelQueryAndMarkRestoreCapable: ParallelQueryCapable + MarkRestoreCapable
+where
+    Self: CustomScan,
+{
+    fn exec_methods() -> *const pg_sys::CustomExecMethods {
+        unsafe {
+            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
+
+            if METHODS.is_null() {
+                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                    pg_sys::CustomExecMethods {
+                        CustomName: Self::NAME.as_ptr(),
+                        BeginCustomScan: Some(begin_custom_scan::<Self>),
+                        ExecCustomScan: Some(exec_custom_scan::<Self>),
+                        EndCustomScan: Some(end_custom_scan::<Self>),
+                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
+                        MarkPosCustomScan: Some(mark_pos_custom_scan::<Self>),
+                        RestrPosCustomScan: Some(restr_pos_custom_scan::<Self>),
+                        EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
+                        InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
+                        ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
+                        InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
+                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
+                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
+                    },
+                );
+            }
+            METHODS
+        }
+    }
+}
+
+/// Helper function for wrapping a raw [`pg_sys::CustomScanState`] pointer with something more
+/// usable by implementers
+fn wrap_custom_scan_state<CS: CustomScan>(
+    node: *mut pg_sys::CustomScanState,
+) -> NonNull<CustomScanStateWrapper<CS>> {
+    NonNull::<CustomScanStateWrapper<CS>>::new(node.cast())
+        .expect("`CustomScanState` node should not be null")
 }

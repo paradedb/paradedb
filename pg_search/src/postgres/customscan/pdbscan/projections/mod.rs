@@ -20,10 +20,12 @@ pub mod snippet;
 
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
-use crate::postgres::customscan::pdbscan::projections::snippet::snippet_funcoid;
+use crate::postgres::customscan::pdbscan::projections::snippet::{snippet_funcoid, SnippetInfo};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_guard, pg_sys, PgList};
+use std::collections::HashMap;
 use std::ptr::addr_of_mut;
+use tantivy::snippet::SnippetGenerator;
 
 pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     #[pg_guard]
@@ -107,4 +109,116 @@ pub unsafe fn pullout_funcexprs(
 
     walker(node, addr_of_mut!(data).cast());
     data.matches
+}
+
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn inject_placeholders(
+    targetlist: *mut pg_sys::List,
+    rti: pg_sys::Index,
+    score_funcoid: pg_sys::Oid,
+    snippet_funcoid: pg_sys::Oid,
+    attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
+    snippet_infos: &HashMap<SnippetInfo, Option<SnippetGenerator>>,
+) -> (
+    *mut pg_sys::List,
+    *mut pg_sys::Const,
+    HashMap<SnippetInfo, *mut pg_sys::Const>,
+) {
+    #[pg_guard]
+    unsafe extern "C" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut std::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        #[inline(always)]
+        unsafe fn inner(node: *mut pg_sys::Node, data: &mut Data) -> Option<*mut pg_sys::Node> {
+            let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+
+            if (*funcexpr).funcid == data.score_funcoid {
+                return Some(data.const_score_node.cast());
+            } else if (*funcexpr).funcid == data.snippet_funcoid {
+                let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+                let key = (data.rti as i32, (*var).varattno);
+                if let Some(attname) = data.attname_lookup.get(&key) {
+                    for snippet_info in data.snippet_infos.keys() {
+                        if &snippet_info.field == attname {
+                            let const_ = pg_sys::makeConst(
+                                pg_sys::TEXTOID,
+                                -1,
+                                pg_sys::DEFAULT_COLLATION_OID,
+                                -1,
+                                pg_sys::Datum::null(),
+                                true,
+                                false,
+                            );
+                            data.const_snippet_nodes
+                                .insert(snippet_info.clone(), const_);
+                            return Some(const_.cast());
+                        }
+                    }
+                }
+            }
+
+            None
+        }
+
+        let data = &mut *context.cast::<Data>();
+        if let Some(replacement) = inner(node, data) {
+            return replacement;
+        }
+
+        #[cfg(not(any(feature = "pg16", feature = "pg17")))]
+        {
+            let fnptr = walker as usize as *const ();
+            let walker: unsafe extern "C" fn() -> *mut pg_sys::Node = std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(walker), context)
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(walker), context)
+        }
+    }
+
+    struct Data<'a> {
+        rti: pg_sys::Index,
+
+        score_funcoid: pg_sys::Oid,
+        const_score_node: *mut pg_sys::Const,
+
+        snippet_funcoid: pg_sys::Oid,
+        attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
+        snippet_infos: &'a HashMap<SnippetInfo, Option<SnippetGenerator>>,
+        const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
+    }
+
+    let mut data = Data {
+        rti,
+
+        score_funcoid,
+        const_score_node: pg_sys::makeConst(
+            pg_sys::FLOAT4OID,
+            -1,
+            pg_sys::Oid::INVALID,
+            size_of::<f32>() as _,
+            pg_sys::Datum::null(),
+            true,
+            true,
+        ),
+
+        snippet_funcoid,
+        attname_lookup,
+        snippet_infos,
+        const_snippet_nodes: Default::default(),
+    };
+    let targetlist = walker(targetlist.cast(), addr_of_mut!(data).cast());
+    (
+        targetlist.cast(),
+        data.const_score_node,
+        data.const_snippet_nodes,
+    )
 }

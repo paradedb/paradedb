@@ -29,6 +29,7 @@ use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use tantivy::query::Query;
 use tantivy::snippet::SnippetGenerator;
+use tantivy::DocAddress;
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -58,10 +59,15 @@ pub struct PdbScanState {
     pub visibility_checker: Option<VisibilityChecker>,
 
     pub need_scores: bool,
+    pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
+
+    pub const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
     pub snippet_funcoid: pg_sys::Oid,
     pub snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
     pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
+
+    pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
 }
@@ -148,5 +154,18 @@ impl PdbScanState {
     #[inline(always)]
     pub fn visibility_checker(&mut self) -> &mut VisibilityChecker {
         self.visibility_checker.as_mut().unwrap()
+    }
+
+    pub fn make_snippet(
+        &self,
+        doc_address: DocAddress,
+        snippet_info: &SnippetInfo,
+    ) -> Option<String> {
+        let doc = self.search_reader.as_ref()?.get_doc(doc_address).ok()?;
+        let generator = self.snippet_generators.get(snippet_info)?.as_ref()?;
+        let mut snippet = generator.snippet_from_doc(&doc);
+
+        snippet.set_snippet_prefix_postfix(&snippet_info.start_tag, &snippet_info.end_tag);
+        Some(snippet.to_html())
     }
 }

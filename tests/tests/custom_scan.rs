@@ -25,6 +25,21 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
+fn corrupt_targetlist(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let (id, score) = "select count(*), max(paradedb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'"
+        .fetch_one::<(i64,f32)>(&mut conn);
+    assert_eq!((id, score), (2, 3.2668595));
+
+    "PREPARE prep AS select count(*), max(paradedb.score(id)) from paradedb.bm25_search where description @@@ 'keyboard'".execute(&mut conn);
+    for _ in 0..100 {
+        "EXECUTE prep".fetch_one::<(i64, f32)>(&mut conn);
+        assert_eq!((id, score), (2, 3.2668595));
+    }
+}
+
+#[rstest]
 fn attribute_1_of_table_has_wrong_type(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

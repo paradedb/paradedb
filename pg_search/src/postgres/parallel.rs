@@ -20,9 +20,17 @@ use std::ptr::addr_of_mut;
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct Spinlock(pg_sys::slock_t);
+pub struct Spinlock(pub pg_sys::slock_t);
 
 impl Spinlock {
+    #[inline(always)]
+    pub fn init(&mut self) {
+        unsafe {
+            // SAFETY:  `unsafe` due to normal FFI
+            pg_sys::SpinLockInit(addr_of_mut!(self.0));
+        }
+    }
+
     #[inline(always)]
     pub fn acquire(&mut self) -> impl Drop {
         AcquiredSpinLock::new(self)
@@ -68,7 +76,7 @@ impl Bm25ParallelScanState {
 #[pg_guard]
 pub unsafe extern "C" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
     let state = target.cast::<Bm25ParallelScanState>();
-    pg_sys::SpinLockInit(addr_of_mut!((*state).mutex.0));
+    (*state).mutex.init();
 }
 
 #[pg_guard]

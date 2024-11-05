@@ -35,13 +35,13 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
-    inject_scores, is_score_func, score_funcoid, uses_scores,
+    is_score_func, score_funcoid, uses_scores,
 };
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    inject_snippet, snippet_funcoid, uses_snippets, SnippetInfo,
+    snippet_funcoid, uses_snippets, SnippetInfo,
 };
 use crate::postgres::customscan::pdbscan::projections::{
-    maybe_needs_const_projections, pullout_funcexprs,
+    inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
@@ -55,12 +55,11 @@ use exec_methods::normal::NormalScanExecState;
 use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
 use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgRelation};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::{DocAddress, Score};
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -351,9 +350,15 @@ impl CustomScan for PdbScan {
                 panic!("failed to properly build `var_attname_lookup` due to mis-typed List");
             }
 
+            let score_funcoid = score_funcoid();
+            let snippet_funcoid = snippet_funcoid();
+
+            builder.custom_state().score_funcoid = score_funcoid;
+            builder.custom_state().snippet_funcoid = snippet_funcoid;
+
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
-                score_funcoid(),
+                score_funcoid,
                 (*builder.args().cscan).scan.scanrelid as pg_sys::Index,
             );
 
@@ -361,7 +366,7 @@ impl CustomScan for PdbScan {
             let rti = builder.custom_state().rti;
             let attname_lookup = &builder.custom_state().var_attname_lookup;
             builder.custom_state().snippet_generators =
-                uses_snippets(rti, attname_lookup, node, snippet_funcoid())
+                uses_snippets(rti, attname_lookup, node, snippet_funcoid)
                     .into_iter()
                     .map(|field| (field, None))
                     .collect();
@@ -538,6 +543,10 @@ impl CustomScan for PdbScan {
 
             state.custom_state_mut().snippet_generators = snippet_generators;
         }
+
+        unsafe {
+            inject_score_and_snippet_placeholders(state);
+        }
     }
 
     #[allow(clippy::blocks_in_conditions)]
@@ -573,13 +582,77 @@ impl CustomScan for PdbScan {
                             }
                         };
 
-                        // project it if we need to
-                        let projection_info =
-                            maybe_rebuild_projinfo_for_const_projection(state, score, doc_address);
+                        if !state.custom_state().need_scores()
+                            && !state.custom_state().need_snippets()
+                        {
+                            //
+                            // we don't need scores or snippets
+                            // do the projection and return
+                            //
 
-                        // finally, do the projection
-                        (*(*projection_info).pi_exprContext).ecxt_scantuple = slot;
-                        return pg_sys::ExecProject(projection_info);
+                            (*(*state.projection_info()).pi_exprContext).ecxt_scantuple = slot;
+                            return pg_sys::ExecProject(state.projection_info());
+                        } else {
+                            //
+                            // we do need scores or snippets
+                            //
+                            // replace their placeholder values and then rebuild the ProjectionInfo
+                            // and project it
+                            //
+
+                            let mut per_tuple_context = PgMemoryContexts::For(
+                                (*(*state.projection_info()).pi_exprContext).ecxt_per_tuple_memory,
+                            );
+                            per_tuple_context.reset();
+
+                            if state.custom_state().need_scores() {
+                                let const_score_node = state
+                                    .custom_state()
+                                    .const_score_node
+                                    .expect("const_score_node should be set");
+                                (*const_score_node).constvalue = score.into_datum().unwrap();
+                                (*const_score_node).constisnull = false;
+                            }
+
+                            if state.custom_state().need_snippets() {
+                                per_tuple_context.switch_to(|_| {
+                                    for (snippet_info, const_snippet_node) in
+                                        &state.custom_state().const_snippet_nodes
+                                    {
+                                        if let Some(snippet) = state
+                                            .custom_state()
+                                            .make_snippet(doc_address, snippet_info)
+                                        {
+                                            (**const_snippet_node).constvalue =
+                                                snippet.into_datum().unwrap();
+                                            (**const_snippet_node).constisnull = false;
+                                        } else {
+                                            (**const_snippet_node).constvalue =
+                                                pg_sys::Datum::null();
+                                            (**const_snippet_node).constisnull = true;
+                                        }
+                                    }
+                                });
+                            }
+
+                            // finally, do the projection
+                            return per_tuple_context.switch_to(|_| {
+                                let planstate = state.planstate();
+
+                                (*(*state.projection_info()).pi_exprContext).ecxt_scantuple = slot;
+                                let proj_info = pg_sys::ExecBuildProjectionInfo(
+                                    state
+                                        .custom_state()
+                                        .placeholder_targetlist
+                                        .expect("placeholder_targetlist must be set"),
+                                    (*planstate).ps_ExprContext,
+                                    (*planstate).ps_ResultTupleSlot,
+                                    planstate,
+                                    (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
+                                );
+                                pg_sys::ExecProject(proj_info)
+                            });
+                        }
                     }
                 }
 
@@ -640,66 +713,29 @@ fn make_tuple_table_slot(
         })
 }
 
-unsafe fn maybe_rebuild_projinfo_for_const_projection(
-    state: &mut CustomScanStateWrapper<PdbScan>,
-    score: Score,
-    doc_address: DocAddress,
-) -> *mut pg_sys::ProjectionInfo {
+unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
     if !state.custom_state().need_scores() && !state.custom_state().need_snippets() {
         // scores/snippets aren't necessary so we use whatever we originally setup as our ProjectionInfo
-        return state.projection_info();
+        return;
     }
 
-    // the query requires scores.  since we have it in `scored.bm25`, we inject
-    // that constant value into every position in the Plan's TargetList that uses
-    // our `paradedb.score(record)` function.  This is what `inject_scores()` does
-    // and it returns a whole new TargetList.
-    //
-    // It's from that TargetList we build a new ProjectionInfo with the FuncExprs
-    // replaced with the actual score f32 Const nodes.  Essentially we're manually
-    // projecting the scores where they need to go
+    // inject score and/or snippet placeholder [`pg_sys::Const`] nodes into what is a copy of the Plan's
+    // targetlist.  We store this in our custom state's "placeholder_targetlist" for use during the
+    // forced projection we must do later.
+
     let planstate = state.planstate();
-    let projection_targetlist = (*(*planstate).plan).targetlist;
+    let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
+        (*(*planstate).plan).targetlist,
+        state.custom_state().rti,
+        state.custom_state().score_funcoid,
+        state.custom_state().snippet_funcoid,
+        &state.custom_state().var_attname_lookup,
+        &state.custom_state().snippet_generators,
+    );
 
-    let mut const_projected_targetlist = projection_targetlist;
-
-    if state.custom_state().need_scores() {
-        const_projected_targetlist =
-            inject_scores(const_projected_targetlist.cast(), score_funcoid(), score).cast();
-    }
-    if state.custom_state().need_snippets() {
-        let search_state = state
-            .custom_state()
-            .search_reader
-            .as_ref()
-            .expect("CustomState should hae a SearchState since it requires snippets");
-        for (snippet_info, generator) in &state.custom_state().snippet_generators {
-            const_projected_targetlist = inject_snippet(
-                state.custom_state().rti,
-                &state.custom_state().var_attname_lookup,
-                const_projected_targetlist.cast(),
-                snippet_funcoid(),
-                search_state,
-                &snippet_info.field,
-                &snippet_info.start_tag,
-                &snippet_info.end_tag,
-                generator
-                    .as_ref()
-                    .expect("SnippetGenerator should have been created"),
-                doc_address,
-            )
-            .cast();
-        }
-    }
-
-    // build the new ProjectionInfo based on our modified TargetList
-    pg_sys::ExecBuildProjectionInfo(
-        const_projected_targetlist.cast(),
-        (*planstate).ps_ExprContext,
-        (*planstate).ps_ResultTupleSlot,
-        planstate,
-        (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
-    )
+    state.custom_state_mut().placeholder_targetlist = Some(targetlist);
+    state.custom_state_mut().const_score_node = Some(const_score_node);
+    state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
 }
 
 unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(

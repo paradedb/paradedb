@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::SearchIndexReader;
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
@@ -24,13 +23,11 @@ use pgrx::{
 };
 use std::collections::HashMap;
 use std::ptr::addr_of_mut;
-use tantivy::snippet::SnippetGenerator;
-use tantivy::DocAddress;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
-#[derive(Debug, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct SnippetInfo {
     pub field: String,
     pub start_tag: String,
@@ -131,105 +128,4 @@ pub unsafe fn uses_snippets(
 
     walker(node, addr_of_mut!(context).cast());
     context.snippet_info
-}
-
-#[allow(clippy::too_many_arguments)]
-pub unsafe fn inject_snippet(
-    rti: pg_sys::Index,
-    attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
-    node: *mut pg_sys::Node,
-    snippet_funcoid: pg_sys::Oid,
-    search_reader: &SearchIndexReader,
-    field: &str,
-    start: &str,
-    end: &str,
-    snippet_generator: &SnippetGenerator,
-    doc_address: DocAddress,
-) -> *mut pg_sys::Node {
-    struct Context<'a> {
-        rti: pg_sys::Index,
-        attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
-        snippet_funcoid: pg_sys::Oid,
-        search_reader: &'a SearchIndexReader,
-        field: &'a str,
-        start: &'a str,
-        end: &'a str,
-        snippet_generator: &'a SnippetGenerator,
-        doc_address: DocAddress,
-    }
-
-    #[pg_guard]
-    unsafe extern "C" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> *mut pg_sys::Node {
-        if node.is_null() {
-            return std::ptr::null_mut();
-        }
-
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let context = data.cast::<Context>();
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-
-            if (*funcexpr).funcid == (*context).snippet_funcoid {
-                // this should be equal to the number of args in the `snippet()` function above
-                assert!(args.len() == 4);
-
-                if let Some(first_arg) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                    let attname = (*context)
-                        .attname_lookup
-                        .get(&((*context).rti as _, (*first_arg).varattno as _))
-                        .cloned()
-                        .expect("Var attname should be in lookup");
-                    if attname == (*context).field {
-                        let doc = (*context)
-                            .search_reader
-                            .get_doc((*context).doc_address)
-                            .expect("should be able to retrieve doc for snippet generation");
-
-                        let mut snippet = (*context).snippet_generator.snippet_from_doc(&doc);
-                        snippet.set_snippet_prefix_postfix((*context).start, (*context).end);
-                        let html = snippet.to_html().into_datum().unwrap();
-                        let const_ = pg_sys::makeConst(
-                            pg_sys::TEXTOID,
-                            -1,
-                            pg_sys::DEFAULT_COLLATION_OID,
-                            -1,
-                            html,
-                            false,
-                            false,
-                        );
-                        return const_.cast();
-                    }
-                }
-            }
-        }
-
-        #[cfg(not(any(feature = "pg16", feature = "pg17")))]
-        {
-            let fnptr = walker as usize as *const ();
-            let walker: unsafe extern "C" fn() -> *mut pg_sys::Node = std::mem::transmute(fnptr);
-            pg_sys::expression_tree_mutator(node, Some(walker), data)
-        }
-
-        #[cfg(any(feature = "pg16", feature = "pg17"))]
-        {
-            pg_sys::expression_tree_mutator_impl(node, Some(walker), data)
-        }
-    }
-
-    let mut context = Context {
-        rti,
-        attname_lookup,
-        snippet_funcoid,
-        search_reader,
-        field,
-        start,
-        end,
-        snippet_generator,
-        doc_address,
-    };
-
-    let data = addr_of_mut!(context);
-    walker(node, data.cast())
 }

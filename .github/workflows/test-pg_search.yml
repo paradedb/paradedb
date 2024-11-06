@@ -137,7 +137,7 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: rustup component add llvm-tools-preview
 
-      - name: Install cargo-pgrx
+      - name: Install cargo-pgrx and cargo-valgrind
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug

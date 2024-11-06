@@ -100,20 +100,24 @@ jobs:
         working-directory: pg_search/
         run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
+      - name: Export Benchmark Results as Critcmp JSON
+        run: |
+          cargo install -j $(nproc) --locked critcmp --debug
+          critcmp --export target/criterion/ > /tmp/current.json
+
       # On `dev` and `main`, we store the benchmark results as a GitHub Artifact to serve as a comparison point for PRs
       - name: Store Benchmark Results (dev or main, push only)
         if: (github.ref == 'refs/heads/dev' && github.event_name == 'push') || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-pg_search-criterion-${{ github.ref_name }}
-          path: target/criterion/
+          name: benchmark-pg_search-criterion-${{ github.ref_name }}.json
+          path: /tmp/current.json
 
       - name: Download Benchmark Baseline (PRs only)
         if: github.event_name == 'pull_request'
         id: download_baseline
         env:
           GH_TOKEN: ${{ github.token }} # Required by `gh`
-        continue-on-error: true # TODO: Remove this once we have a baseline to compare against in `main`
         run: |
           # Benchmark baselines are stored on `push` events on `dev` and `main` in GitHub Artifacts. Retrieve the last successful run ID for such runs.
           LATEST_RUN_ID=$(gh api \
@@ -129,14 +133,12 @@ jobs:
             --dir ./previous/
           ls -l ./previous/
 
-      # TODO: The critcmp command never manages to find changes
       - name: Compare Benchmark Results (PRs only)
         if: steps.download_baseline.outcome == 'success' && github.event_name == 'pull_request'
         id: compare_benchmarks
         continue-on-error: true # This is necessary as critcmp will error if there are no changes
         run: |
-          cargo install -j $(nproc) --locked critcmp --debug
-          result=$(critcmp "./previous/Search Query/bench_eslogs_query_search_index/new/" "target/criterion/Search Query/bench_eslogs_query_search_index/new/")
+          result=$(critcmp ./previous/benchmark-pg_search-criterion.json /tmp/current.json)          
           echo "Generating GitHub comment message"
           {
             echo 'DIFF<<EOF'

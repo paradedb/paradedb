@@ -137,9 +137,11 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: rustup component add llvm-tools-preview
 
-      - name: Install cargo-pgrx
+      - name: Install cargo-pgrx and cargo-valgrind
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: |
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+          cargo install -h $(nproc) --locked cargo-valgrind
 
       - name: Initialize cargo-pgrx environment
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -169,23 +171,7 @@ jobs:
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           export PARADEDB_TELEMETRY=false
-
-          cargo install cargo-valgrind
-          cargo valgrind test --features pg${{ matrix.pg_version }},icu --no-default-features
-
-      - name: Analyze Valgrind Output
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          # Filter for definite memory leaks
-          grep "definitely lost" valgrind_output.log | tee memory_leak_report.txt
-
-          # Fail the job if any definite memory leaks are found
-          if grep -q "definitely lost: [1-9]" memory_leak_report.txt; then
-            echo "Memory leaks detected!"
-            exit 1
-          else
-            echo "No memory leaks detected."
-          fi
+          RUST_BACKTRACE=1 cargo valgrind test --features pg${{ matrix.pg_version }},icu --no-default-features
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()

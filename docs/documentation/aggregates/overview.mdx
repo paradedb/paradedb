@@ -141,7 +141,7 @@ to remove in future releases.
 
 ### Regular Vacuums
 
-Over time, a table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html) can become outdated. This can negatively impact aggregate performance by increasing the time it takes to perform visiblity checks over individual rows.
+Over time, a table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html) can become outdated. This can negatively impact aggregate performance by increasing the time it takes to perform visibility checks over individual rows.
 
 Running `VACUUM` over the table updates its visibility map. This can be automated by configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).
 

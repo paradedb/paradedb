@@ -170,8 +170,8 @@ jobs:
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           export PARADEDB_TELEMETRY=false
 
-          # Run Valgrind with the cargo test command to capture memory leaks
-          valgrind --leak-check=full --error-exitcode=1 cargo test --features pg${{ matrix.pg_version }},icu --no-default-features
+          rustup target add x86_64-unknown-linux-gnu
+          RUSTFLAGS="-Z sanitizer=address" cargo test --target x86_64-unknown-linux-gnu --features pg${{ matrix.pg_version }},icu --no-default-features
 
       - name: Analyze Valgrind Output
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

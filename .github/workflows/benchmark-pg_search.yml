@@ -103,7 +103,7 @@ jobs:
       - name: Export Benchmark Results as Critcmp JSON
         run: |
           cargo install -j $(nproc) --locked critcmp --debug
-          critcmp --export target/criterion/ > /tmp/current.json
+          critcmp --export "target/criterion/Search Query/bench_eslogs_query_search_index/new/" > /tmp/current.json
 
       # On `dev` and `main`, we store the benchmark results as a GitHub Artifact to serve as a comparison point for PRs
       - name: Store Benchmark Results (dev or main, push only)

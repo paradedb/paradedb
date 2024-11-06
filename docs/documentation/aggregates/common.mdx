@@ -1,0 +1,110 @@
+---
+title: Common Aggregates
+---
+
+<Note>
+  Please read the [overview](/documentation/aggregates/overview) for important information on how to accelerate aggregate queries.
+</Note>
+
+## Count
+
+`COUNT` tallies the number of values for the specified field across all documents.
+
+```sql
+SELECT COUNT(*) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+<Info>
+**For ParadeDB Enterprise:** Under the hood, `COUNT(*)` is automatically rewritten to count the `key_field`, which is always indexed as fast. Therefore, you
+do not need to worry about passing a fast field to `COUNT` if `*` is used.
+</Info>
+
+## Average
+
+`AVG` calculates the mean of the specified numeric field values across all documents.
+
+```sql
+SELECT AVG(rating) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+## Sum
+
+`SUM` computes the total sum of the specified numeric field values across all documents.
+
+```sql
+SELECT SUM(rating) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+## Min
+
+`MIN` finds the smallest value for the specified numeric field across all documents.
+
+```sql
+SELECT MIN(rating) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+## Max
+
+`MAX` finds the largest value for the specified numeric field across all documents.
+
+```sql
+SELECT MAX(rating) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+## Cardinality
+
+`COUNT(DISTINCT)` returns the number of unique values in a field. This is also known as a cardinality aggregation.
+
+```sql
+SELECT COUNT(DISTINCT rating) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+## Histogram
+
+The following query creates buckets of size `1` for the `rating` field. Each field value is rounded down to its bucket.
+
+```sql
+SELECT FLOOR(rating / 1) * 1 AS bucket, COUNT(*) AS count
+FROM mock_items
+GROUP BY bucket
+ORDER BY bucket;
+```
+
+<Accordion title="Expected Response">
+```csv
+ bucket | count
+--------+-------
+      1 |     1
+      2 |     3
+      3 |     9
+      4 |    16
+      5 |    12
+(5 rows)
+```
+</Accordion>
+
+This query increases the bucket size to `2`.
+
+```sql
+SELECT FLOOR(rating / 2) * 2 AS bucket, COUNT(*) AS count
+FROM mock_items
+GROUP BY bucket
+ORDER BY bucket;
+```
+
+<Accordion title="Expected Response">
+```csv
+ bucket | count
+--------+-------
+      0 |     1
+      2 |    12
+      4 |    28
+(3 rows)
+```
+</Accordion>

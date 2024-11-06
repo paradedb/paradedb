@@ -2,10 +2,10 @@
 title: Indexing
 ---
 
-## System Configuration Settings
+## Index Settings
 
 These settings can be set in `postgresql.conf` and affect system resources used by the `paradedb.create_bm25()` function
-and normal INSERT/UPDATE/COPY statements.
+and normal `INSERT/UPDATE/COPY` statements.
 
 ### Indexing Threads
 
@@ -55,7 +55,7 @@ SET paradedb.log_create_index_progress = true;
 `paradedb.statement_parallelism` controls the number of indexing threads used during `INSERT/UPDATE/COPY` statements. The default is `8`. A value of
 zero will automatically detect "available parallelism" of the host computer.
 
-If your typical update patterns are single-row atomic INSERTs or UPDATEs, then a value of `1` is ideal. If
+If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `1` is ideal. If
 your update patterns typically update many thousands of rows at once, a larger value might be preferred for greater indexing
 concurrency.
 
@@ -72,32 +72,46 @@ written to disk.
 
 Like [indexing memory](#indexing-memory), it defaults to `maintenance_work_mem` divided by the total parallelism, and is measured in megabytes.
 
-If your typical update patterns are single-row atomic INSERTs or UPDATEs, then a value of `15MB` is ideal. If
+If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `15MB` is ideal. If
 your update patterns typically update many thousands of rows, a larger value might be preferred for greater indexing
 concurrency.
 
-Generally speaking, for statement level indexing, the parallelism value dictates the number of new Tantivy index
-segments that will be created, so there's a trade-off between finishing the INSERT/UPDATE statement quickly and the
-longer-term search overhead of having many additional index segments until (auto)VACUUM runs.
+Generally speaking, for statement level indexing, the parallelism value dictates the number of new index
+[segments](#segment-settings) that will be created, so there's a trade-off between finishing the `INSERT/UPDATE` statement quickly and the
+longer-term search overhead of having many additional index segments until `VACUUM` runs.
 
 ```sql
 SET paradedb.statement_memory_budget = 15;
 ```
 
-## Index Configuration Settings
+## Segment Settings
 
-These settings can be applied to an existing `USING bm25` index with `ALTER INDEX <idxname> SET (...)` and affect runtime
-operations around how the underlying tantivy index segments are merged, and when.
+A segment is an individual unit of an index. Each BM25 index is comprised of multiple segments. Every atomic insert or update creates a new segment.
 
-`target_segment_count` is an integer value that indicates the number of tantivy index segments that are preferred for
-the index. If unspecified, the default is the number of available CPUs. The actual number of index segments may be
-different, depending on runtime operations, but should generally be close to this value.
+### Target Segment Count
 
-`merge_on_insert` is a boolean that indicates if pg_search should merge segments whenever a tuple is inserted into the index.
-This includes INSERT/UPDATE/COPY statements. The default is `true`. Setting this to `false` can improve INSERT/UPDATE/COPY
-throughput at the expense of creating more segments that will be later merged by (auto)VACUUM.
+Having too many segments can negatively impact search performance. During a `VACUUM`, smaller segments can be merged into larger segments.
+
+`target_segment_count` controls the number of segments that should exist and defaults to the number of available CPUs
+on the host machine. This allows multiple threads to read from segments in parallel during a search.
+
+<Note>
+  While ParadeDB attempts to create `target_segment_count` segments, the actual
+  number of segments may not always equal `target_segment_count`. For instance,
+  it could exceed this number of `VACUUM` is not run, or fall below this number
+  if the table contains a small number of rows.
+</Note>
 
 ```sql
-ALTER INDEX idxfoo_bm25_index SET (target_segment_count = 8);
-ALTER INDEX idxfoo_bm25_index SET (merge_on_insert = true);
+ALTER INDEX search_idx SET (target_segment_count = 8);
+```
+
+### Merge on Insert
+
+`merge_on_insert` indicates if ParadeDB should look for merge opportunities during `INSERT`, `UPDATE`, or `DELETE`
+operations in addition to `VACUUM`s. The default is `true`. Setting this to `false` can improve `INSERT/UPDATE/COPY`
+throughput at the expense of creating more segments that will later be merged by `VACUUM`.
+
+```sql
+ALTER INDEX search_idx SET (merge_on_insert = true);
 ```

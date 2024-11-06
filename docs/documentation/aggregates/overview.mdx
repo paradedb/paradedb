@@ -1,0 +1,174 @@
+---
+title: Overview
+---
+
+## Basic Usage
+
+ParadeDB supports aggregates through plain SQL functions like `COUNT`, `SUM`, and `AVG`. For instance, the following query finds the total number of search results for a full text query.
+
+```sql
+SELECT COUNT(*) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+## Fast Aggregates
+
+<Info>
+  Fast aggregates are an enterprise-only feature. [Contact us](mailto:sales@paradedb.com) for access.
+</Info>
+
+The performance of aggregates over very large result sets (i.e. millions of rows) is a well-known problem in Postgres.
+
+In ParadeDB enterprise, aggregates over full text search results are drastically accelerated by [fast fields](/documentation/indexing/fast_fields).
+Fast fields are stored in a column-oriented fashion, which makes them much quicker to read and process.
+
+You can check which fields are indexed as fast by running `paradedb.schema`.
+
+```sql
+SELECT name, fast FROM paradedb.schema('search_idx') ORDER BY fast;
+```
+
+<Accordion title="Expected Response">
+```csv
+     name     | fast
+--------------+------
+ metadata     | f
+ description  | f
+ category     | f
+ id           | t
+ in_stock     | t
+ rating       | t
+ weight_range | t
+ created_at   | t
+ ctid         | t
+(9 rows)
+```
+</Accordion>
+
+In order for a query to be accelerated, **all** of the returned columns must be fast fields. For instance, the following query is accelerated because both `rating`
+and `id` are fast fields:
+
+```sql
+SELECT rating, COUNT(id) FROM mock_items
+WHERE description @@@ 'shoes'
+GROUP BY rating LIMIT 5;
+```
+
+You can verify if a query will be accelerated by running `EXPLAIN`. Accelerated queries will show either a `Custom Scan` or `Parallel Index Only Scan` in the query plan.
+
+```sql
+EXPLAIN SELECT rating, COUNT(id) FROM mock_items
+WHERE description @@@ 'shoes'
+GROUP BY rating LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+                                                                                      QUERY PLAN
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=11.53..11.57 rows=2 width=12)
+   ->  GroupAggregate  (cost=11.53..11.57 rows=2 width=12)
+         Group Key: rating
+         ->  Sort  (cost=11.53..11.54 rows=2 width=8)
+               Sort Key: rating
+               ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..11.52 rows=2 width=8)
+                     Table: mock_items
+                     Index: search_idx
+                     Fast Fields: rating, id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"oid":3567455,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+```
+</Accordion>
+
+On the other hand, a query that selects a non-fast field like `description` is not accelerated.
+
+```sql
+SELECT description, COUNT(id) FROM mock_items
+WHERE description @@@ 'shoes'
+GROUP BY description LIMIT 5;
+```
+
+If we run `EXPLAIN` on this query, we'll see a regular `Index Scan`, which indicates that no fast field optimization occurred.
+
+```sql
+EXPLAIN SELECT description, COUNT(id) FROM mock_items
+WHERE description @@@ 'shoes'
+GROUP BY description LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+                                                                                                                QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=14.04..14.08 rows=2 width=40)
+   ->  GroupAggregate  (cost=14.04..14.08 rows=2 width=40)
+         Group Key: description
+         ->  Sort  (cost=14.04..14.04 rows=2 width=36)
+               Sort Key: description
+               ->  Index Scan using search_idx on mock_items  (cost=10.00..14.03 rows=2 width=36)
+                     Index Cond: (id @@@ '{"with_index":{"oid":3567455,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput COLLATE "default")
+(7 rows)
+```
+</Accordion>
+
+## Caveats
+
+In addition to configuring fast fields, there are several other important factors that optimize aggregate performance.
+
+### Predicates
+
+In order for ParadeDB's fast field optimizations to apply, the full text search `@@@` operator must be present and used for all predicates.
+For instance, the following two queries produce identical results, but the second query will return faster because only `@@@`, not `=`, is used.
+
+```sql
+-- Slow query
+SELECT COUNT(*) FROM mock_items
+WHERE description @@@ 'shoes' AND rating = 5;
+
+-- Fast query
+SELECT COUNT(*) FROM mock_items
+WHERE id @@@ paradedb.boolean(
+  must => ARRAY[
+    paradedb.term('description', 'shoes'),
+    paradedb.term('rating', 5)
+  ]
+);
+```
+
+Additionally, multiple predicates should be combined into a single `paradedb.boolean` instead of using Postgres `AND`, `OR`, or `NOT`. This is a temporary limitation we expect
+to remove in future releases.
+
+### Regular Vacuums
+
+Over time, a table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html) can become outdated. This can negatively impact aggregate performance by increasing the time it takes to perform visiblity checks over individual rows.
+
+Running `VACUUM` over the table updates its visibility map. This can be automated by configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).
+
+```sql
+VACUUM mock_items;
+```
+
+### Parallel Scan Workers
+
+If the table is large enough, ParadeDB can invoke a parallel index-only scan for queries that return only a `COUNT(*)`.
+
+```sql
+-- This will invoke a parallel scan if mock_items becomes very large
+SELECT COUNT(*) FROM mock_items
+WHERE description @@@ 'shoes';
+
+-- This will not invoke a parallel scan
+SELECT rating, COUNT(*) FROM mock_items
+WHERE description @@@ 'shoes'
+GROUP BY rating LIMIT 5;
+```
+
+If a parallel scan was invoked, a `Parallel Index Only Scan` will appear in the query's `EXPLAIN` output. Tuning Postgres' [parallel worker settings](/documentation/configuration/parallel)
+can further accelerate parallel scans.
+
+### Text Fast Fields
+
+A known limitation of our underlying search library, Tantivy, is that text fast fields are slower to return than non-text fast fields.
+Future releases will improve the speeds of text fast fields. In the meantime, we recommend using a non-text field for aggregates whenever possible. For instance,
+passing a numeric instead of a text field into `COUNT`.

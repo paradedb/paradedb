@@ -168,11 +168,10 @@
               ]
             },
             {
-              "group": "Faceting",
+              "group": "Aggregates",
               "pages": [
-                "documentation/faceting/overview",
-                "documentation/faceting/metric",
-                "documentation/faceting/bucket"
+                "documentation/aggregates/overview",
+                "documentation/aggregates/common"
               ]
             },
             {
@@ -187,6 +186,7 @@
               "group": "Configuration",
               "pages": [
                 "documentation/configuration/index",
+                "documentation/configuration/parallel",
                 "documentation/configuration/scan",
                 "documentation/configuration/telemetry"
               ]
@@ -204,9 +204,7 @@
         {
           "group": "Concepts",
           "pages": [
-            "documentation/concepts/aggregation",
             "documentation/concepts/bm25",
-            "documentation/concepts/faceting",
             "documentation/concepts/index",
             "documentation/concepts/matching",
             "documentation/concepts/phrase",

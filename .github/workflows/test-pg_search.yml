@@ -165,15 +165,13 @@ jobs:
 
       - name: Run pg_search test suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        env:
-          RUST_BACKTRACE: 1
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           export PARADEDB_TELEMETRY=false
 
           # Run Valgrind with the cargo test command to capture memory leaks
-          valgrind --leak-check=full --track-origins=yes cargo test --features pg${{ matrix.pg_version }},icu --no-default-features 2>&1 | tee valgrind_output.log
+          valgrind --leak-check=full --error-exitcode=1 cargo test --features pg${{ matrix.pg_version }},icu --no-default-features
 
       - name: Analyze Valgrind Output
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

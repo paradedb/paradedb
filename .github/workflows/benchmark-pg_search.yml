@@ -138,7 +138,7 @@ jobs:
         id: compare_benchmarks
         continue-on-error: true # This is necessary as critcmp will error if there are no changes
         run: |
-          result=$(critcmp ./previous/benchmark-pg_search-criterion.json /tmp/current.json)          
+          result=$(critcmp ./previous/benchmark-pg_search-criterion.json /tmp/current.json)
           echo "Generating GitHub comment message"
           {
             echo 'DIFF<<EOF'

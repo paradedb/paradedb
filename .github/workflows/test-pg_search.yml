@@ -170,8 +170,8 @@ jobs:
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           export PARADEDB_TELEMETRY=false
 
-          rustup target add x86_64-unknown-linux-gnu
-          RUSTFLAGS="-Z sanitizer=address" cargo test --target x86_64-unknown-linux-gnu --features pg${{ matrix.pg_version }},icu --no-default-features
+          cargo install cargo-valgrind
+          cargo valgrind test --features pg${{ matrix.pg_version }},icu --no-default-features
 
       - name: Analyze Valgrind Output
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

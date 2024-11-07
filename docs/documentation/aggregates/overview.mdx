@@ -4,7 +4,7 @@ title: Overview
 
 ## Basic Usage
 
-ParadeDB supports aggregates through plain SQL functions like `COUNT`, `SUM`, and `AVG`. For instance, the following query finds the total number of search results for a full text query.
+ParadeDB supports aggregates through plain SQL functions like `COUNT`, `SUM`, and `AVG`. For instance, the following query tallies the total number of search results for a full text query.
 
 ```sql
 SELECT COUNT(*) FROM mock_items
@@ -17,7 +17,7 @@ WHERE description @@@ 'shoes';
   Fast aggregates are an enterprise-only feature. [Contact us](mailto:sales@paradedb.com) for access.
 </Info>
 
-The performance of aggregates over very large result sets (i.e. millions of rows) is a well-known problem in Postgres.
+The performance of aggregates over very large result sets (millions of rows or more) is a well-known problem in Postgres.
 
 In ParadeDB enterprise, aggregates over full text search results are drastically accelerated by [fast fields](/documentation/indexing/fast_fields).
 Fast fields are stored in a column-oriented fashion, which makes them much quicker to read and process.
@@ -45,11 +45,11 @@ SELECT name, fast FROM paradedb.schema('search_idx') ORDER BY fast;
 ```
 </Accordion>
 
-In order for a query to be accelerated, **all** of the returned columns must be fast fields. For instance, the following query is accelerated because both `rating`
-and `id` are fast fields:
+In order for a query to be accelerated, **all** of the returned columns must be fast fields. For instance, the following query is accelerated because `rating` is a fast
+field, and `COUNT(*)` does not specify any fields.
 
 ```sql
-SELECT rating, COUNT(id) FROM mock_items
+SELECT rating, COUNT(*) FROM mock_items
 WHERE description @@@ 'shoes'
 GROUP BY rating LIMIT 5;
 ```
@@ -57,7 +57,7 @@ GROUP BY rating LIMIT 5;
 You can verify if a query will be accelerated by running `EXPLAIN`. Accelerated queries will show either a `Custom Scan` or `Parallel Index Only Scan` in the query plan.
 
 ```sql
-EXPLAIN SELECT rating, COUNT(id) FROM mock_items
+EXPLAIN SELECT rating, COUNT(*) FROM mock_items
 WHERE description @@@ 'shoes'
 GROUP BY rating LIMIT 5;
 ```
@@ -69,12 +69,12 @@ GROUP BY rating LIMIT 5;
  Limit  (cost=11.53..11.57 rows=2 width=12)
    ->  GroupAggregate  (cost=11.53..11.57 rows=2 width=12)
          Group Key: rating
-         ->  Sort  (cost=11.53..11.54 rows=2 width=8)
+         ->  Sort  (cost=11.53..11.54 rows=2 width=4)
                Sort Key: rating
-               ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..11.52 rows=2 width=8)
+               ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..11.52 rows=2 width=4)
                      Table: mock_items
                      Index: search_idx
-                     Fast Fields: rating, id
+                     Fast Fields: rating
                      Scores: false
                      Tantivy Query: {"with_index":{"oid":3567455,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
@@ -84,7 +84,7 @@ GROUP BY rating LIMIT 5;
 On the other hand, a query that selects a non-fast field like `description` is not accelerated.
 
 ```sql
-SELECT description, COUNT(id) FROM mock_items
+SELECT description, COUNT(*) FROM mock_items
 WHERE description @@@ 'shoes'
 GROUP BY description LIMIT 5;
 ```
@@ -92,7 +92,7 @@ GROUP BY description LIMIT 5;
 If we run `EXPLAIN` on this query, we'll see a regular `Index Scan`, which indicates that no fast field optimization occurred.
 
 ```sql
-EXPLAIN SELECT description, COUNT(id) FROM mock_items
+EXPLAIN SELECT description, COUNT(*) FROM mock_items
 WHERE description @@@ 'shoes'
 GROUP BY description LIMIT 5;
 ```
@@ -104,9 +104,9 @@ GROUP BY description LIMIT 5;
  Limit  (cost=14.04..14.08 rows=2 width=40)
    ->  GroupAggregate  (cost=14.04..14.08 rows=2 width=40)
          Group Key: description
-         ->  Sort  (cost=14.04..14.04 rows=2 width=36)
+         ->  Sort  (cost=14.04..14.04 rows=2 width=32)
                Sort Key: description
-               ->  Index Scan using search_idx on mock_items  (cost=10.00..14.03 rows=2 width=36)
+               ->  Index Scan using search_idx on mock_items  (cost=10.00..14.03 rows=2 width=32)
                      Index Cond: (id @@@ '{"with_index":{"oid":3567455,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput COLLATE "default")
 (7 rows)
 ```

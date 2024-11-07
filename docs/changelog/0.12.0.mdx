@@ -6,23 +6,33 @@ title: 0.12.0
 
 ### JSON Syntax
 
-- [#1811](https://github.com/paradedb/paradedb/pull/1811) introduced the ability to pass JSON objects directly to the search query, similar to Elasticsearch's Query DSL. The documentation has been updated to reflect this new query syntax option.
-
-### Index Configuration
-
-- [#1883](https://github.com/paradedb/paradedb/pull/1883) introduced the ability for users to adjust a BM25 index's performance based on their hardware and requirements, and can be found [here](/documentation/configuration/index#index-configuration-settings).
+[#1811](https://github.com/paradedb/paradedb/pull/1811) introduced the ability to pass JSON objects directly to the search query, similar to Elasticsearch's Query DSL. The documentation has been updated to reflect this new query syntax option.
 
 ## Performance Improvements 🚀
 
-### Incredibly Fast Aggregates
+### Fast Aggregates
 
-- This release introduces efficient handling of aggregate queries (e.g. `COUNT(<field>)`, `SUM(<field>)`, etc.), where `<field>` is indexed as a fast field. This [optimization](/documentation/aggregates/overview) is automatically applied by the query planner when these queries are executed. This functionality is available in ParadeDB Enterprise.
+Our first milestone in accelerating aggregates like `COUNT` has landed in ParadeDB Enterprise.
+In this optimization, fields indexed as [fast fields](/documentation/indexing/fast_fields) are read in columnar bathces instead of
+being read one-by-one, which drastically improves query times over large result sets. We're seeing a ~25X speedup on our test
+`COUNT` queries that return 100 million rows.
+
+The second milestone is to parallelize these queries, which we expect to deliver an additional ~10X speedup depending on the hardware of the host machine.
+This optimization will land in the next enterprise release.
+
+### Improved Index Merge Policy
+
+Under the hood, the BM25 index is actually made up of mini indexes called segments. Because multiple threads read from segments in parallel during a search, having
+significantly more segments than number of available CPUs can negatively impact search performance.
+
+[#1883](https://github.com/paradedb/paradedb/pull/1883) changes the segment merge policy (which automatically runs on `INSERT` and `VACUUM`) to target the number of
+CPUs on the machine. This can be configured in the index settings.
 
 ## Stability Improvements 💪
 
-- `0.11.1` introduced a regression where BM25 scores and snippets leaked some memory and added some performance overhead. This has been fixed, leading to an almost 2x performance improvement.
+- `0.11.1` introduced a regression where BM25 scores and snippets leaked memory. This has been fixed and we're seeing a 2X speedup over scoring/snippet queries.
 
-- [#1881](https://github.com/paradedb/paradedb/pull/1881) fixes a bug where users could configure the index writing memory limit to exceed that of our underlying search engine.
+- [#1881](https://github.com/paradedb/paradedb/pull/1881) makes sure that `paradedb.create_index_memory_budget` does not exceed Tantivy's hard-coded 4GB limit.
 
 - [#1893](https://github.com/paradedb/paradedb/pull/1893) makes `ALTER` and `DROP` commands more ergonomic by removing the `bm25_index` suffix from BM25 indexes.
 

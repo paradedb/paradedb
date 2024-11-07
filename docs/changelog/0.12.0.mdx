@@ -1,0 +1,65 @@
+---
+title: 0.12.0
+---
+
+## Syntax Changes 💡
+
+### JSON Syntax
+
+[#1811](https://github.com/paradedb/paradedb/pull/1811) introduced the ability to pass JSON objects directly to the search query, similar to Elasticsearch's Query DSL. The documentation has been updated to reflect this new query syntax option.
+
+### Change to Index Naming
+
+Prior to `0.12.0`, the underlying Postgres index created with `paradedb.create_bm25` would have `_bm25_index` automatically appended. This made it possible to create indexes
+with the same name as the underlying table:
+
+```sql
+CALL paradedb.create_bm25(
+    index_name => 'mock_items',
+    table_name => 'mock_items',
+    ...
+)
+```
+
+Unfortunately, appending `_bm25_index` to the index name was also a footgun to users who wanted to run `ALTER` or `DROP` over their Postgres index. In `0.12.0`, we no longer append `_bm25_index` to the Postgres index name
+and create a Postgres index with whatever name is passed into `index_name`. This means that the `index_name` must now be different than the `table_name`, which is standard for Postgres
+indexes.
+
+## Performance Improvements 🚀
+
+### Fast Aggregates
+
+Our first milestone in accelerating aggregates like `COUNT` has landed in ParadeDB Enterprise.
+In this optimization, fields indexed as [fast fields](/documentation/indexing/fast_fields) are read in columnar batches instead of
+being read one-by-one, which drastically improves query times over large result sets. We're seeing a ~25X speedup on our test
+`COUNT` queries that return 100 million rows.
+
+The second milestone is to parallelize these queries, which we expect to deliver an additional ~10X speedup depending on the hardware of the host machine.
+This optimization will land in the next enterprise release.
+
+### Improved Index Merge Policy
+
+Under the hood, the BM25 index is actually made up of mini indexes called segments. Because multiple threads read from segments in parallel during a search, having
+significantly more segments than number of available CPUs can negatively impact search performance.
+
+[#1883](https://github.com/paradedb/paradedb/pull/1883) changes the segment merge policy (which automatically runs on `INSERT` and `VACUUM`) to target the number of
+CPUs on the machine. This can be configured in the index settings.
+
+## Stability Improvements 💪
+
+- `0.11.1` introduced a regression where BM25 scores and snippets leaked memory. This has been fixed and we're seeing a 2X speedup over scoring/snippet queries.
+
+- [#1881](https://github.com/paradedb/paradedb/pull/1881) makes sure that `paradedb.create_index_memory_budget` does not exceed Tantivy's hard-coded 4GB limit.
+
+## Docker Image 🐳
+
+- The ParadeDB Docker image now ships with tags for all major versions of Postgres. They can be found [here](https://hub.docker.com/r/paradedb/paradedb/tags).
+- The ParadeDB Docker image now ships with `pgvector` version `0.8.0`.
+
+## New Contributors 👋
+
+- [@sandros94](https://github.com/sandros94) made their first contribution in [#1862](https://github.com/paradedb/paradedb/pull/1862).
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.12.0).

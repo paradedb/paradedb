@@ -30,7 +30,7 @@ indexes.
 ### Fast Aggregates
 
 Our first milestone in accelerating aggregates like `COUNT` has landed in ParadeDB Enterprise.
-In this optimization, fields indexed as [fast fields](/documentation/indexing/fast_fields) are read in columnar bathces instead of
+In this optimization, fields indexed as [fast fields](/documentation/indexing/fast_fields) are read in columnar batches instead of
 being read one-by-one, which drastically improves query times over large result sets. We're seeing a ~25X speedup on our test
 `COUNT` queries that return 100 million rows.
 

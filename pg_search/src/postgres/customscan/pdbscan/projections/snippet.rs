@@ -63,16 +63,38 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
     }
 }
 
+#[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+fn snippet_position_from_relation(
+    field: AnyElement,
+    start_tag: default!(String, "'<b>'"),
+    end_tag: default!(String, "'</b>'"),
+    max_num_chars: default!(i32, "150"),
+) -> Option<Vec<i32>> {
+    None
+}
+
+pub fn snippet_positions_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.snippet_positions(anyelement, text, text, int)".into_datum()],
+        )
+        .expect("the `paradedb.snippet_positions(anyelement, text, text, int) type should exist")
+    }
+}
+
 pub unsafe fn uses_snippets(
     rti: pg_sys::Index,
     attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
+    snippet_positions_funcoid: pg_sys::Oid,
 ) -> Vec<SnippetInfo> {
     struct Context<'a> {
         rti: pg_sys::Index,
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
+        snippet_positions_funcoid: pg_sys::Oid,
         snippet_info: Vec<SnippetInfo>,
     }
 
@@ -85,7 +107,9 @@ pub unsafe fn uses_snippets(
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
             let context = data.cast::<Context>();
 
-            if (*funcexpr).funcid == (*context).snippet_funcoid {
+            if (*funcexpr).funcid == (*context).snippet_funcoid
+                || (*funcexpr).funcid == (*context).snippet_positions_funcoid
+            {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
 
                 // this should be equal to the number of args in the `snippet()` function above
@@ -119,7 +143,7 @@ pub unsafe fn uses_snippets(
                         max_num_chars: max_num_chars_arg as usize,
                     });
                 } else {
-                    panic!("`paradedb.snippet()`'s arguments must be literals")
+                    panic!("`paradedb.snippet()`' or `paradedb.snippet_positions()`' arguments must be literals");
                 }
             }
         }
@@ -131,6 +155,7 @@ pub unsafe fn uses_snippets(
         rti,
         attname_lookup,
         snippet_funcoid,
+        snippet_positions_funcoid,
         snippet_info: vec![],
     };
 

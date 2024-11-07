@@ -57,6 +57,7 @@ use exec_methods::ExecState;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
+use projections::snippet::snippet_positions_funcoid;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
@@ -228,9 +229,13 @@ impl CustomScan for PdbScan {
             let mut attname_lookup = PgList::<pg_sys::Node>::new();
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
+            let snippet_positions_funcoid = snippet_positions_funcoid();
             for te in processed_tlist.iter_ptr() {
-                let func_vars_at_level =
-                    pullout_funcexprs(te.cast(), &[score_funcoid, snippet_funcoid], rti);
+                let func_vars_at_level = pullout_funcexprs(
+                    te.cast(),
+                    &[score_funcoid, snippet_funcoid, snippet_positions_funcoid],
+                    rti,
+                );
 
                 for (funcexpr, var) in func_vars_at_level {
                     // if we have a tlist, then we need to add the specific function that uses
@@ -342,6 +347,7 @@ impl CustomScan for PdbScan {
 
             let score_funcoid = score_funcoid();
             let snippet_funcoid = snippet_funcoid();
+            let snippet_positions_funcoid = snippet_positions_funcoid();
 
             builder.custom_state().score_funcoid = score_funcoid;
             builder.custom_state().snippet_funcoid = snippet_funcoid;
@@ -355,11 +361,16 @@ impl CustomScan for PdbScan {
             let node = builder.target_list().as_ptr().cast();
             let rti = builder.custom_state().rti;
             let attname_lookup = &builder.custom_state().var_attname_lookup;
-            builder.custom_state().snippet_generators =
-                uses_snippets(rti, attname_lookup, node, snippet_funcoid)
-                    .into_iter()
-                    .map(|field| (field, None))
-                    .collect();
+            builder.custom_state().snippet_generators = uses_snippets(
+                rti,
+                attname_lookup,
+                node,
+                snippet_funcoid,
+                snippet_positions_funcoid,
+            )
+            .into_iter()
+            .map(|field| (field, None))
+            .collect();
 
             let need_snippets = builder.custom_state().need_snippets();
             if let Some((limit, sort_direction)) = builder.custom_state().is_top_n_capable() {

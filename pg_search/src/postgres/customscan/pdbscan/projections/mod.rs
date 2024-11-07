@@ -24,6 +24,7 @@ use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::projections::snippet::{snippet_funcoid, SnippetInfo};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
+use snippet::snippet_positions_funcoid;
 use std::collections::HashMap;
 use std::ptr::{addr_of_mut, NonNull};
 use tantivy::snippet::SnippetGenerator;
@@ -91,6 +92,7 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
             let data = &*data.cast::<Data>();
             if (*funcexpr).funcid == data.score_funcoid
                 || (*funcexpr).funcid == data.snipped_funcoid
+                || (*funcexpr).funcid == data.snipped_positions_funcoid
             {
                 return true;
             }
@@ -102,11 +104,13 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     struct Data {
         score_funcoid: pg_sys::Oid,
         snipped_funcoid: pg_sys::Oid,
+        snipped_positions_funcoid: pg_sys::Oid,
     }
 
     let mut data = Data {
         score_funcoid: score_funcoid(),
         snipped_funcoid: snippet_funcoid(),
+        snipped_positions_funcoid: snippet_positions_funcoid(),
     };
 
     let data = addr_of_mut!(data).cast();

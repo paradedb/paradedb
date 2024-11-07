@@ -351,6 +351,7 @@ impl CustomScan for PdbScan {
 
             builder.custom_state().score_funcoid = score_funcoid;
             builder.custom_state().snippet_funcoid = snippet_funcoid;
+            builder.custom_state().snippet_positions_funcoid = snippet_positions_funcoid;
 
             builder.custom_state().need_scores = uses_scores(
                 builder.target_list().as_ptr().cast(),
@@ -649,6 +650,25 @@ impl CustomScan for PdbScan {
                                         }
                                     }
                                 });
+
+                                per_tuple_context.switch_to(|_| {
+                                    for (snippet_info, const_snippet_positions_nodes) in
+                                        &state.custom_state().const_snippet_positions_nodes
+                                    {
+                                        if let Some(snippet) = state
+                                            .custom_state()
+                                            .make_snippet(doc_address, snippet_info)
+                                        {
+                                            (**const_snippet_positions_nodes).constvalue =
+                                                snippet.into_datum().unwrap();
+                                            (**const_snippet_positions_nodes).constisnull = false;
+                                        } else {
+                                            (**const_snippet_positions_nodes).constvalue =
+                                                pg_sys::Datum::null();
+                                            (**const_snippet_positions_nodes).constisnull = true;
+                                        }
+                                    }
+                                });
                             }
 
                             // finally, do the projection
@@ -729,18 +749,21 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     // forced projection we must do later.
 
     let planstate = state.planstate();
-    let (targetlist, const_score_node, const_snippet_nodes) = inject_placeholders(
-        (*(*planstate).plan).targetlist,
-        state.custom_state().rti,
-        state.custom_state().score_funcoid,
-        state.custom_state().snippet_funcoid,
-        &state.custom_state().var_attname_lookup,
-        &state.custom_state().snippet_generators,
-    );
+    let (targetlist, const_score_node, const_snippet_nodes, const_snippet_positions_nodes) =
+        inject_placeholders(
+            (*(*planstate).plan).targetlist,
+            state.custom_state().rti,
+            state.custom_state().score_funcoid,
+            state.custom_state().snippet_funcoid,
+            state.custom_state().snippet_positions_funcoid,
+            &state.custom_state().var_attname_lookup,
+            &state.custom_state().snippet_generators,
+        );
 
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
+    state.custom_state_mut().const_snippet_positions_nodes = const_snippet_positions_nodes;
 }
 
 unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(

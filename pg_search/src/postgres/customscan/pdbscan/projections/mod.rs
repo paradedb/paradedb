@@ -174,11 +174,13 @@ pub unsafe fn inject_placeholders(
     rti: pg_sys::Index,
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
+    snippet_positions_funcoid: pg_sys::Oid,
     attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
     snippet_infos: &HashMap<SnippetInfo, Option<SnippetGenerator>>,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
+    HashMap<SnippetInfo, *mut pg_sys::Const>,
     HashMap<SnippetInfo, *mut pg_sys::Const>,
 ) {
     #[pg_guard]
@@ -218,6 +220,27 @@ pub unsafe fn inject_placeholders(
                         }
                     }
                 }
+            } else if (*funcexpr).funcid == data.snippet_positions_funcoid {
+                let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+                let key = (data.rti as i32, (*var).varattno);
+                if let Some(attname) = data.attname_lookup.get(&key) {
+                    for snippet_info in data.snippet_infos.keys() {
+                        if &snippet_info.field == attname {
+                            let const_ = pg_sys::makeConst(
+                                pg_sys::INT4ARRAYOID,
+                                -1,
+                                pg_sys::DEFAULT_COLLATION_OID,
+                                -1,
+                                pg_sys::Datum::null(),
+                                true,
+                                false,
+                            );
+                            data.const_snippet_positions_nodes
+                                .insert(snippet_info.clone(), const_);
+                            return Some(const_.cast());
+                        }
+                    }
+                }
             }
 
             None
@@ -248,9 +271,12 @@ pub unsafe fn inject_placeholders(
         const_score_node: *mut pg_sys::Const,
 
         snippet_funcoid: pg_sys::Oid,
+        snippet_positions_funcoid: pg_sys::Oid,
+
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_infos: &'a HashMap<SnippetInfo, Option<SnippetGenerator>>,
         const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
+        const_snippet_positions_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
     }
 
     let mut data = Data {
@@ -268,14 +294,17 @@ pub unsafe fn inject_placeholders(
         ),
 
         snippet_funcoid,
+        snippet_positions_funcoid,
         attname_lookup,
         snippet_infos,
         const_snippet_nodes: Default::default(),
+        const_snippet_positions_nodes: Default::default(),
     };
     let targetlist = walker(targetlist.cast(), addr_of_mut!(data).cast());
     (
         targetlist.cast(),
         data.const_score_node,
         data.const_snippet_nodes,
+        data.const_snippet_positions_nodes,
     )
 }

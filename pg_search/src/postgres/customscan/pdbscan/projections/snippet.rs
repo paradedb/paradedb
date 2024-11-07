@@ -143,7 +143,7 @@ pub unsafe fn uses_snippets(
                         max_num_chars: max_num_chars_arg as usize,
                     });
                 } else {
-                    panic!("`paradedb.snippet()`' or `paradedb.snippet_positions()`' arguments must be literals");
+                    panic!("`paradedb.snippet()` or `paradedb.snippet_positions()`'s arguments must be literals");
                 }
             }
         }

@@ -79,16 +79,15 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      # This checks that the version in Cargo.toml is incremented to the next release. We only run it
-      # on PRs to main, which are our release promotion PRs.
+      # This checks that the version in the top-level Cargo.toml is incremented to the next release.
+      # We only run it on PRs to main, which are our promotion PRs.
       - name: Check version in Cargo.toml
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_search/
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
           RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
           if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
-            echo "Version in Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($RELEASE_VERSION), did you forget to increment it?"
+            echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($RELEASE_VERSION). Did you forget to increment it?"
             exit 1
           fi
           echo "Version check passed!"

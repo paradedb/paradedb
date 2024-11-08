@@ -112,9 +112,25 @@ GROUP BY description LIMIT 5;
 ```
 </Accordion>
 
-## Caveats
+## Performance Tuning
 
 In addition to configuring fast fields, there are several other important factors that optimize aggregate performance.
+
+### Parallel Workers
+
+If the table is large enough, ParadeDB can invoke a parallel scan for certain aggregate queries.
+
+```sql
+-- This will invoke a parallel scan if mock_items becomes very large
+SELECT COUNT(*) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+If a parallel scan was invoked, a `Parallel Index Only Scan` will appear in the query's `EXPLAIN` output.
+
+By default, Postgres allows `2` workers per parallel query. Increasing the number of [parallel workers](/documentation/configuration/parallel)
+allows parallel queries to use all of the available hardware on the host machine and can deliver significant
+speedups.
 
 ### Predicates
 
@@ -148,24 +164,6 @@ Running `VACUUM` over the table updates its visibility map. This can be automate
 ```sql
 VACUUM mock_items;
 ```
-
-### Parallel Scan Workers
-
-If the table is large enough, ParadeDB can invoke a parallel index-only scan for queries that return only a `COUNT(*)`.
-
-```sql
--- This will invoke a parallel scan if mock_items becomes very large
-SELECT COUNT(*) FROM mock_items
-WHERE description @@@ 'shoes';
-
--- This will not invoke a parallel scan
-SELECT rating, COUNT(*) FROM mock_items
-WHERE description @@@ 'shoes'
-GROUP BY rating LIMIT 5;
-```
-
-If a parallel scan was invoked, a `Parallel Index Only Scan` will appear in the query's `EXPLAIN` output. Tuning Postgres' [parallel worker settings](/documentation/configuration/parallel)
-can further accelerate parallel scans.
 
 ### Text Fast Fields
 

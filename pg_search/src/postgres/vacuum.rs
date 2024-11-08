@@ -49,6 +49,18 @@ pub extern "C" fn amvacuumcleanup(
         })
         .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));
 
+    let mut underlying_writer = writer.underlying_writer.unwrap();
+    let merge_policy = underlying_writer.get_merge_policy();
+    let segments = search_index
+        .underlying_index
+        .load_metas()
+        .expect("should be able to load metas")
+        .segments;
+    let candidates = merge_policy.compute_merge_candidates(segments.as_slice());
+    for candidate in candidates {
+        underlying_writer.merge(&candidate.0).wait().unwrap();
+    }
+
     // Garbage collect the index and clear the writer cache to free up locks.
     search_index
         .vacuum(&writer)

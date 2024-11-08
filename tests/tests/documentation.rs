@@ -447,12 +447,14 @@ fn full_text_search(mut conn: PgConnection) {
     SELECT id, paradedb.snippet_positions(description, start_tag => '<i>', end_tag => '</i>')
     FROM mock_items
     WHERE description @@@ 'shoes'
+    ORDER BY id
     LIMIT 5
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0].1, [14, 5]);
-    assert_eq!(rows[1].1, [8, 5]);
+    assert_eq!(rows[1].1, [14, 5]);
+    assert_eq!(rows[2].1, [8, 5]);
 
     // Order by score
     let rows: Vec<(String, i32, String, f32)> = r#"

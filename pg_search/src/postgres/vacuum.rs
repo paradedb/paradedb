@@ -57,6 +57,7 @@ pub extern "C" fn amvacuumcleanup(
         .segments;
     let candidates = merge_policy.compute_merge_candidates(segments.as_slice());
     for candidate in candidates {
+        pgrx::info!("vacuuming {:?}", candidate);
         writer.merge(&candidate.0);
     }
 
@@ -77,6 +78,7 @@ pub extern "C" fn amvacuumcleanup(
         .unwrap()
         .wait_merging_threads()
         .expect("wait_merging_threads() should succeed");
+    pgrx::info!("vacuumed index {index_name}");
 
     stats
 }

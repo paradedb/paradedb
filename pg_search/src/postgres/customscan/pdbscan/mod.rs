@@ -657,7 +657,7 @@ impl CustomScan for PdbScan {
                                     {
                                         if let Some(snippet) = state
                                             .custom_state()
-                                            .make_snippet(doc_address, snippet_info)
+                                            .make_snippet_positions(doc_address, snippet_info)
                                         {
                                             (**const_snippet_positions_nodes).constvalue =
                                                 snippet.into_datum().unwrap();

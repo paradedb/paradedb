@@ -83,6 +83,19 @@ CREATE  FUNCTION "snippet"(
     STRICT STABLE PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'snippet_from_relation_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/postgres/customscan/pdbscan/projections/snippet.rs:58
+-- pg_search::postgres::customscan::pdbscan::projections::snippet::snippet_positions
+CREATE  FUNCTION \\"snippet_positions\\"(
+    "field\\" anyelement, /* pgrx::datum::anyelement::AnyElement */
+		"start_tag\\" TEXT DEFAULT \'<b>\', /* alloc::string::String */
+    "end_tag\\" TEXT DEFAULT \'</b>\', /* alloc::string::String */
+    "max_num_chars\\" INT DEFAULT 150 /* i32 */
+) RETURNS INT[] /* core::option::Option<alloc::vec::Vec<i32>> */
+    STRICT STABLE PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'snippet_position_from_relation_wrapper';
 DROP FUNCTION IF EXISTS term(field text, value anyarray);
 CREATE OR REPLACE FUNCTION term(field fieldname, value anyarray DEFAULT NULL) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'anyarray_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;
 DROP FUNCTION IF EXISTS term(field text, value date);

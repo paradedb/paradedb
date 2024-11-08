@@ -63,7 +63,7 @@ pub extern "C" fn amvacuumcleanup(
 
     let mut handles = vec![];
     for future in futures {
-        let handle = std::thread::spawn(move || future.wait());
+        let handle = std::thread::spawn(move || future.wait().expect("merge future should succeed"));
         handles.push(handle);
     }
 

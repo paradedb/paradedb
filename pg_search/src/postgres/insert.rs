@@ -26,7 +26,7 @@ use std::panic::{catch_unwind, resume_unwind};
 
 pub struct InsertState {
     pub index: SearchIndex,
-    pub writer: SearchIndexWriter,
+    pub writer: Option<SearchIndexWriter>,
     abort_on_drop: bool,
 }
 
@@ -35,22 +35,24 @@ impl Drop for InsertState {
     /// or abort.
     fn drop(&mut self) {
         unsafe {
-            pgrx_extern_c_guard(|| {
-                if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop {
-                    self.writer
-                        .commit()
-                        .expect("tantivy index commit should succeed");
-                } else if let Err(e) = self.writer.abort() {
-                    if pg_sys::IsAbortedTransactionBlockState() {
-                        // we're in an aborted state, so the best we can do is warn that our
-                        // attempt to abort the tantivy changes failed
-                        pgrx::warning!("failed to abort tantivy index changes: {}", e);
-                    } else {
-                        // haven't aborted yet so we can raise the error we got during abort
-                        panic!("{e}")
+            if let Some(mut writer) = self.writer.take() {
+                pgrx_extern_c_guard(|| {
+                    if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop {
+                        writer
+                            .commit()
+                            .expect("tantivy index commit should succeed");
+                    } else if let Err(e) = writer.abort() {
+                        if pg_sys::IsAbortedTransactionBlockState() {
+                            // we're in an aborted state, so the best we can do is warn that our
+                            // attempt to abort the tantivy changes failed
+                            pgrx::warning!("failed to abort tantivy index changes: {}", e);
+                        } else {
+                            // haven't aborted yet so we can raise the error we got during abort
+                            panic!("{e}")
+                        }
                     }
-                }
-            });
+                });
+            }
         }
     }
 }
@@ -65,7 +67,7 @@ impl InsertState {
         let writer = index.get_writer(writer_resources, options.as_ref().unwrap())?;
         Ok(Self {
             index,
-            writer,
+            writer: Some(writer),
             abort_on_drop: false,
         })
     }
@@ -139,7 +141,10 @@ unsafe fn aminsert_internal(
         let state = &*init_insert_state(index_relation, index_info, WriterResources::Statement);
         let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
         let search_index = &state.index;
-        let writer = &state.writer;
+        let writer = state
+            .writer
+            .as_ref()
+            .expect("InsertState::writer should be set");
         let search_document =
             row_to_search_document(*ctid, &tupdesc, values, isnull, &search_index.schema)
                 .unwrap_or_else(|err| {

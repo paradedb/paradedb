@@ -263,7 +263,36 @@ fn do_heap_scan<'a>(
             Some(build_callback),
             &mut state,
         );
+
+        let insert_state = init_insert_state(
+            index_relation.as_ptr(),
+            index_info,
+            WriterResources::CreateIndex,
+        );
+        if let Some(mut writer) = (*insert_state).writer.take() {
+            writer
+                .commit()
+                .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
+            pgrx::warning!(
+                "waiting for merge: currently have {} segments",
+                writer
+                    .underlying_writer
+                    .as_ref()
+                    .unwrap()
+                    .index()
+                    .searchable_segments()
+                    .unwrap()
+                    .len()
+            );
+            writer
+                .underlying_writer
+                .take()
+                .unwrap()
+                .wait_merging_threads()
+                .unwrap_or_else(|e| panic!("failed to wait for index merge: {e}"));
+        }
     }
+
     state
 }
 
@@ -299,7 +328,10 @@ unsafe fn build_callback_internal(
         WriterResources::CreateIndex,
     );
     let search_index = &(*insert_state).index;
-    let writer = &(*insert_state).writer;
+    let writer = (*insert_state)
+        .writer
+        .as_ref()
+        .expect("InsertState::writer should be set");
     let schema = &(*insert_state).index.schema;
 
     // In the block below, we switch to the memory context we've defined on our build

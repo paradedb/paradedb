@@ -50,6 +50,7 @@ pub extern "C" fn amvacuumcleanup(
         .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));
 
     // Merge segments
+    let mut futures = vec![];
     let merge_policy = writer.get_merge_policy();
     let segments = search_index
         .load_metas()
@@ -57,12 +58,19 @@ pub extern "C" fn amvacuumcleanup(
         .segments;
     let candidates = merge_policy.compute_merge_candidates(segments.as_slice());
     for candidate in candidates {
-        pgrx::info!("vacuuming {:?}", candidate);
-        writer
-            .merge(&candidate.0)
-            .wait()
-            .expect("merge should succeed");
+        futures.push(writer.merge(&candidate.0));
     }
+
+    let mut handles = vec![];
+    for future in futures {
+        let handle = std::thread::spawn(move || future.wait());
+        handles.push(handle);
+    }
+
+    let _ = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("merge thread panicked"))
+        .collect::<Vec<_>>();
 
     // Garbage collect the index and clear the writer cache to free up locks.
     search_index
@@ -81,7 +89,6 @@ pub extern "C" fn amvacuumcleanup(
         .unwrap()
         .wait_merging_threads()
         .expect("wait_merging_threads() should succeed");
-    pgrx::info!("vacuumed index {index_name}");
 
     stats
 }

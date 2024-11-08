@@ -273,6 +273,7 @@ fn do_heap_scan<'a>(
             writer
                 .commit()
                 .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
+
             writer
                 .underlying_writer
                 .take()

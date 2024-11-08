@@ -57,6 +57,7 @@ fn create_and_drop_builtin_index(mut conn: PgConnection) {
 #[rstest]
 fn segment_count_correct_after_merge(mut conn: PgConnection) {
     r#"
+        DROP TABLE IF EXISTS test_table;
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
         INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 10000);
         CALL paradedb.create_bm25(table_name => 'test_table', schema_name => 'public', index_name => 'idxtest_table', key_field => 'id', text_fields => paradedb.field('value'));
@@ -69,10 +70,18 @@ fn segment_count_correct_after_merge(mut conn: PgConnection) {
     // we now want to target just 2 segments
     "ALTER INDEX idxtest_table SET (target_segment_count = 2);".execute(&mut conn);
 
-    // reindexing should actually get us 3 segments because our policy is N+1
+    // reindexing gets us 2 segments b/c that's our target *and* its less than the default parallelism
     "REINDEX INDEX idxtest_table;".execute(&mut conn);
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
-    assert_eq!(nsegments, 3);
+    assert_eq!(nsegments, 2);
+
+    // same thing here.  do full table update and then VACUUM should get us back to 2 segments
+    "UPDATE test_table SET value = value || ' ';".execute(&mut conn);
+    "VACUUM test_table;".execute(&mut conn);
+    let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0 as usize;
+    assert_eq!(nsegments, 2);
 }

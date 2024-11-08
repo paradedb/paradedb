@@ -37,12 +37,12 @@ impl Drop for InsertState {
         unsafe {
             if let Some(mut writer) = self.writer.take() {
                 pgrx_extern_c_guard(|| {
-                    if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop {
+                    if pg_sys::IsTransactionState() && !self.abort_on_drop {
                         writer
                             .commit()
                             .expect("tantivy index commit should succeed");
                     } else if let Err(e) = writer.abort() {
-                        if pg_sys::IsAbortedTransactionBlockState() {
+                        if !pg_sys::IsTransactionState() {
                             // we're in an aborted state, so the best we can do is warn that our
                             // attempt to abort the tantivy changes failed
                             pgrx::warning!("failed to abort tantivy index changes: {}", e);

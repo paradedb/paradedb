@@ -127,18 +127,52 @@ impl SearchIndex {
     ) -> Result<SearchIndexWriter> {
         let (parallelism, memory_budget, target_segment_count, merge_on_insert) =
             resources.resources(index_options);
+        let parallelism = parallelism.get().min(target_segment_count);
+
         let underlying_writer = self
             .underlying_index
-            .writer_with_num_threads(parallelism.get(), memory_budget)?;
+            .writer_with_num_threads(parallelism, memory_budget)?;
 
-        let wants_merge;
-        let merge_policy: Box<dyn MergePolicy> = if merge_on_insert {
-            wants_merge = true;
-            Box::new(NPlusOneMergePolicy(target_segment_count))
-        } else {
-            wants_merge = false;
-            Box::new(NoMergePolicy)
+        let (wants_merge, merge_policy) = match resources {
+            // During a CREATE INDEX we use `target_segment_count` but require twice
+            // as many segments before we'll do a merge.
+            WriterResources::CreateIndex => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: target_segment_count * 2,
+                });
+                (true, policy)
+            }
+
+            // During a VACUUM we want to merge down to our `target_segment_count`
+            WriterResources::Vacuum => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: 0,
+                });
+                (true, policy)
+            }
+
+            // During regular INSERT/UPDATE/COPY statements, if we were asked to "merge_on_insert"
+            // then we use our `NPlusOneMergePolicy` which will ensure we don't more than
+            // `target_segment_count` segments, requiring at least 2 to merge together.
+            // The idea being that only the very smallest segments will be merged together, reducing write amplification
+            WriterResources::Statement if merge_on_insert => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: 2,
+                });
+                (true, policy)
+            }
+
+            // During regular INSERT/UPDATE/COPY statements, if we were told not to "merge_on_insert"
+            // then we don't do any merging at all.
+            WriterResources::Statement => {
+                let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
+                (false, policy)
+            }
         };
+
         underlying_writer.set_merge_policy(merge_policy);
 
         Ok(SearchIndexWriter {

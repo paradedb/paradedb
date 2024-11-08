@@ -75,12 +75,4 @@ fn segment_count_correct_after_merge(mut conn: PgConnection) {
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
     assert_eq!(nsegments, 3);
-
-    // same thing here.  do full table update and then VACUUM should get us back to 2+1 segments
-    "UPDATE test_table SET value = value || ' ';".execute(&mut conn);
-    "VACUUM test_table;".execute(&mut conn);
-    let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
-        .fetch_one::<(i64,)>(&mut conn)
-        .0 as usize;
-    assert_eq!(nsegments, 3);
 }

@@ -3,20 +3,26 @@ title: Parallel Scans
 ---
 
 The BM25 index supports parallel scans. You can check if the Postgres query planner chose a parallel scan by running `EXPLAIN` on a query.
-There are a few Postgres settings that can tune the performance of parallel scans.
+The following Postgres settings must be configured to increase the number of parallel workers.
 
-## Max Worker Processes
+## Max Parallel Workers
 
-`max_worker_processes` is a global limit for the number of available background workers across all connections. The default is `8`.
-This setting must be changed inside `postgresql.conf`, and Postgres needs to be restarted afterward.
+`max_parallel_workers` and `max_worker_processes` control how many workers are available to parallel scans.
+`max_worker_processes` is a global limit for the number of available workers across all connections, and
+`max_parallel_workers` specifies how many of those workers can be used for parallel scans.
+
+These settings must be changed inside `postgresql.conf`, and Postgres needs to be restarted afterward.
 
 ```init postgresql.conf
 max_worker_processes = 16;
+max_parallel_workers = 16;
 ```
 
 ## Max Parallel Workers per Gather
 
 `max_parallel_workers_per_gather` is a limit for the number of parallel workers that a single parallel query can use. The default is `2`.
+This setting can be set in `postgresql.conf` to apply to all connections, or within a connection to apply to a single
+session.
 
 ```sql
 SET max_parallel_workers_per_gather = 16;

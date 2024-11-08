@@ -58,7 +58,10 @@ pub extern "C" fn amvacuumcleanup(
     let candidates = merge_policy.compute_merge_candidates(segments.as_slice());
     for candidate in candidates {
         pgrx::info!("vacuuming {:?}", candidate);
-        writer.merge(&candidate.0);
+        writer
+            .merge(&candidate.0)
+            .wait()
+            .expect("merge should succeed");
     }
 
     // Garbage collect the index and clear the writer cache to free up locks.

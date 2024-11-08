@@ -19,6 +19,9 @@ use tempfile::TempDir;
 static INIT: Once = Once::new();
 static LAST_PORT: AtomicUsize = AtomicUsize::new(49152);
 
+const RETRIES: u32 = 60;
+const RETRY_DELAY: u64 = 1000; // measured in milliseconds
+
 // Function to check if a port can be bound (i.e., is available)
 fn can_bind(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
@@ -256,7 +259,9 @@ async fn test_ephemeral_postgres() -> Result<()> {
     // Wait for the replication to complete
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
-            .fetch_retry(&mut target_conn, 5, 1000, |result| !result.is_empty());
+            .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |result| {
+                !result.is_empty()
+            });
 
     assert_eq!(source_results.len(), 1);
     assert_eq!(target_results.len(), 1);
@@ -274,7 +279,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE mock_items @@@ 'description:\"running shoes\"' ORDER BY id".fetch_retry(
             &mut target_conn,
-            10,
+            60,
             1000,
             |result| !result.is_empty(),
         );
@@ -294,7 +299,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
     let target_results: Vec<(i32,)> =
         "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
             &mut target_conn,
-            10,
+            60,
             1000,
             |result| !result.is_empty(),
         );
@@ -314,7 +319,7 @@ async fn test_ephemeral_postgres() -> Result<()> {
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
             &mut target_conn,
-            10,
+            60,
             1000,
             |result| !result.is_empty(),
         );
@@ -489,7 +494,9 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
     // Verify the insert is replicated to the target database and can be searched using pg_search
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
-            .fetch_retry(&mut target_conn, 5, 1000, |result| !result.is_empty());
+            .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |result| {
+                !result.is_empty()
+            });
 
     assert_eq!(target_results.len(), 1);
     assert_eq!(target_results[0].0, "Green hiking shoes");

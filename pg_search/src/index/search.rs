@@ -34,6 +34,7 @@ use once_cell::sync::Lazy;
 use pgrx::PgRelation;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::num::NonZeroUsize;
+use tantivy::index::IndexMeta;
 use tantivy::indexer::NoMergePolicy;
 use tantivy::merge_policy::MergePolicy;
 use tantivy::query::Query;
@@ -150,6 +151,10 @@ impl SearchIndex {
     #[allow(static_mut_refs)]
     pub fn executor() -> &'static Executor {
         unsafe { &SEARCH_EXECUTOR }
+    }
+
+    pub fn load_metas(&self) -> Result<IndexMeta> {
+        Ok(self.underlying_index.load_metas()?)
     }
 
     pub fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {

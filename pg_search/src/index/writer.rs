@@ -31,11 +31,15 @@ use tantivy::directory::{
     DirectoryClone, DirectoryLock, FileHandle, FileSlice, Lock, WatchCallback, WatchHandle,
     WritePtr,
 };
+use tantivy::index::{SegmentId, SegmentMeta};
+use tantivy::merge_policy::MergePolicy;
 use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
     IndexSettings,
 };
-use tantivy::{directory::MmapDirectory, schema::Field, Directory, Index, IndexWriter};
+use tantivy::{
+    directory::MmapDirectory, schema::Field, Directory, FutureResult, Index, IndexWriter,
+};
 use thiserror::Error;
 
 use super::directory::{SearchDirectoryError, SearchFs, WriterDirectory};
@@ -178,6 +182,14 @@ impl SearchIndexWriter {
     pub fn abort(&mut self) -> Result<(), IndexError> {
         self.underlying_writer.as_mut().unwrap().rollback()?;
         Ok(())
+    }
+
+    pub fn get_merge_policy(&self) -> Arc<dyn MergePolicy> {
+        self.underlying_writer.as_ref().unwrap().get_merge_policy()
+    }
+
+    pub fn merge(&mut self, segment_ids: &[SegmentId]) -> FutureResult<Option<SegmentMeta>> {
+        self.underlying_writer.as_mut().unwrap().merge(segment_ids)
     }
 
     pub fn vacuum(&self) -> Result<(), IndexError> {

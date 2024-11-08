@@ -140,7 +140,7 @@ impl SearchIndex {
             wants_merge = false;
             Box::new(NoMergePolicy)
         };
-        underlying_writer.set_merge_policy(merge_policy);
+        // underlying_writer.set_merge_policy(merge_policy);
 
         Ok(SearchIndexWriter {
             underlying_writer: Some(underlying_writer),

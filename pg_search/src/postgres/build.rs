@@ -273,17 +273,6 @@ fn do_heap_scan<'a>(
             writer
                 .commit()
                 .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
-            pgrx::warning!(
-                "waiting for merge: currently have {} segments",
-                writer
-                    .underlying_writer
-                    .as_ref()
-                    .unwrap()
-                    .index()
-                    .searchable_segments()
-                    .unwrap()
-                    .len()
-            );
             writer
                 .underlying_writer
                 .take()

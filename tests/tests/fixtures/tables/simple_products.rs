@@ -50,11 +50,15 @@ BEGIN;
         table_name => 'bm25_search',
     	schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-    	numeric_fields => paradedb.field('rating'),
-    	boolean_fields => paradedb.field('in_stock'),
-    	json_fields => paradedb.field('metadata'),
-        datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date') || paradedb.field('latest_available_time')        
+        fields =>
+            paradedb.field('description')
+         || paradedb.field('category')
+    	 || paradedb.field('rating')
+    	 || paradedb.field('in_stock')
+    	 || paradedb.field('metadata')
+         || paradedb.field('created_at')
+         || paradedb.field('last_updated_date')
+         || paradedb.field('latest_available_time')        
     );
 COMMIT;
 "#;

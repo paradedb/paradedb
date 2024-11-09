@@ -201,7 +201,10 @@ pub extern "C" fn ambuild(
     };
 
     // Concatenate the separate lists of fields.
-    let fields: Vec<_> = text_fields
+    let fields: Vec<_> = rdopts
+        .get_fields(&heap_relation)
+        .into_iter()
+        .chain(text_fields)
         .chain(numeric_fields)
         .chain(boolean_fields)
         .chain(json_fields)

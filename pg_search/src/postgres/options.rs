@@ -22,7 +22,7 @@ use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::CStr;
 
-use crate::schema::{SearchFieldConfig, SearchFieldName};
+use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
@@ -52,6 +52,7 @@ pub struct SearchIndexCreateOptions {
     json_fields_offset: i32,
     range_fields_offset: i32,
     datetime_fields_offset: i32,
+    fields_offset: i32,
     key_field_offset: i32,
     target_segment_count: i32,
     merge_on_insert: bool,
@@ -130,6 +131,18 @@ extern "C" fn validate_datetime_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C" fn validate_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+    if json_str.is_empty() {
+        return;
+    }
+
+    // Just ensure the config can be deserialized as json.
+    let _: HashMap<String, serde_json::Value> = json5::from_str(&json_str)
+        .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
+}
+
+#[pg_guard]
 extern "C" fn validate_key_field(value: *const std::os::raw::c_char) {
     cstr_to_rust_str(value);
 }
@@ -146,7 +159,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 9;
+const NUM_REL_OPTS: usize = 10;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -197,6 +210,11 @@ pub unsafe extern "C" fn amoptions(
             optname: "merge_on_insert".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_BOOL,
             offset: offset_of!(SearchIndexCreateOptions, merge_on_insert) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(SearchIndexCreateOptions, fields_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -292,6 +310,63 @@ impl SearchIndexCreateOptions {
             return Vec::new();
         }
         Self::deserialize_config_fields(config, &SearchFieldConfig::date_from_json)
+    }
+
+    pub fn get_fields(
+        &self,
+        heaprel: &PgRelation,
+    ) -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
+        // Create a map from column name to column type. We'll use this to verify that index
+        // configurations passed by the user reference the correct types for each column.
+        let name_type_map: HashMap<String, SearchFieldType> = heaprel
+            .tuple_desc()
+            .into_iter()
+            .filter_map(|attribute| {
+                let attname = attribute.name();
+                let attribute_type_oid = attribute.type_oid();
+                let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+                let base_oid = if array_type != pg_sys::InvalidOid {
+                    PgOid::from(array_type)
+                } else {
+                    attribute_type_oid
+                };
+                if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
+                    Some((attname.into(), search_field_type))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let config = self.get_str(self.fields_offset, "".to_string());
+
+        let config_map: HashMap<String, serde_json::Value> = json5::from_str(&config)
+            .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
+
+        config_map
+            .into_iter()
+            .map(|(field_name, field_config)| {
+                let field_type = name_type_map
+                    .get(&field_name)
+                    .expect("must be able to lookup field type by name");
+
+                (
+                    field_name.clone().into(),
+                    match field_type {
+                        SearchFieldType::Text => SearchFieldConfig::text_from_json(field_config),
+                        SearchFieldType::I64 => SearchFieldConfig::numeric_from_json(field_config),
+                        SearchFieldType::F64 => SearchFieldConfig::numeric_from_json(field_config),
+                        SearchFieldType::U64 => SearchFieldConfig::numeric_from_json(field_config),
+                        SearchFieldType::Bool => SearchFieldConfig::boolean_from_json(field_config),
+                        SearchFieldType::Json => SearchFieldConfig::json_from_json(field_config),
+                        SearchFieldType::Date => SearchFieldConfig::date_from_json(field_config),
+                        SearchFieldType::Range => SearchFieldConfig::range_from_json(field_config),
+                    }
+                    .expect("field config should be valid for SearchFieldConfig::{field_name}"),
+                    field_type.clone(),
+                )
+            })
+            .collect()
     }
 
     pub fn get_key_field(&self) -> Option<SearchFieldName> {
@@ -405,6 +480,14 @@ pub unsafe fn init() {
         "merge_on_insert".as_pg_cstr(),
         "Merge segments immediately after rows are inserted into the index".as_pg_cstr(),
         true,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "fields".as_pg_cstr(),
+        "JSON string specifying how date fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_fields),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }

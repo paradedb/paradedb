@@ -363,7 +363,7 @@ impl SearchIndexCreateOptions {
                         SearchFieldType::Range => SearchFieldConfig::range_from_json(field_config),
                     }
                     .expect("field config should be valid for SearchFieldConfig::{field_name}"),
-                    field_type.clone(),
+                    *field_type,
                 )
             })
             .collect()

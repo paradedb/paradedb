@@ -229,6 +229,15 @@ fn single_queries(mut conn: PgConnection) {
     ) ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 2, "end anchor $ should match two items");
+    
+    // Regex Phrase
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_phrase(
+        field => 'description',
+        phrases => ARRAY['.*bot', '.*ing', 'kit']
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
 
     // Term
     let columns: SimpleProductsTableVec = r#"

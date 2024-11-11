@@ -57,6 +57,7 @@ pub fn tokenizer(
     language: default!(Option<String>, "NULL"),
     pattern: default!(Option<String>, "NULL"),
     stemmer: default!(Option<String>, "NULL"),
+    stop_words: default!(Option<Vec<String>>, "NULL"),
 ) -> JsonB {
     let mut config = Map::new();
 
@@ -66,6 +67,12 @@ pub fn tokenizer(
     remove_long.map(|v| config.insert("remove_long".to_string(), Value::Number(v.into())));
     lowercase.map(|v| config.insert("lowercase".to_string(), Value::Bool(v)));
     stemmer.map(|v| config.insert("stemmer".to_string(), Value::String(v)));
+    stop_words.map(|v| {
+        config.insert(
+            "stop_words".to_string(),
+            Value::Array(v.into_iter().map(Value::String).collect()),
+        )
+    });
     // Options for type = ngram
     min_gram.map(|v| config.insert("min_gram".to_string(), Value::Number(v.into())));
     max_gram.map(|v| config.insert("max_gram".to_string(), Value::Number(v.into())));

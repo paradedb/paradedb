@@ -31,7 +31,7 @@ use serde_json::json;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
     AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RegexTokenizer,
-    RemoveLongFilter, SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
+    RemoveLongFilter, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
@@ -39,6 +39,7 @@ pub struct SearchTokenizerFilters {
     remove_long: Option<usize>,
     lowercase: Option<bool>,
     stemmer: Option<Language>,
+    stop_words: Option<Vec<String>>,
 }
 
 impl SearchTokenizerFilters {
@@ -66,6 +67,12 @@ impl SearchTokenizerFilters {
                 anyhow::anyhow!("stemmer tokenizer requires a valid 'stemmer' field")
             })?);
         }
+        if let Some(stop_words) = value.get("stop_words") {
+            filters.stop_words =
+                Some(serde_json::from_value(stop_words.clone()).map_err(|_| {
+                    anyhow::anyhow!("stop_words tokenizer requires a valid 'stop_words' field")
+                })?);
+        }
 
         Ok(filters)
     }
@@ -79,6 +86,15 @@ impl SearchTokenizerFilters {
         if let Some(value) = self.lowercase {
             let v = serde_json::Value::Bool(value);
             enclosing.insert("lowercase".to_string(), v);
+        }
+        if let Some(stop_words) = self.stop_words.as_ref() {
+            let v = serde_json::Value::Array(
+                stop_words
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            );
+            enclosing.insert("stop_words".to_string(), v);
         }
     }
 
@@ -108,6 +124,10 @@ impl SearchTokenizerFilters {
             write!(buffer, "{}stemmer={value:?}", sep(is_empty)).unwrap();
             is_empty = false;
         }
+        if let Some(value) = self.stop_words.as_ref() {
+            write!(buffer, "{}stop_words={value:?}", sep(is_empty)).unwrap();
+            is_empty = false;
+        }
 
         if is_empty {
             "".into()
@@ -130,6 +150,12 @@ impl SearchTokenizerFilters {
 
     fn stemmer(&self) -> Option<Stemmer> {
         self.stemmer.map(Stemmer::new)
+    }
+
+    fn stop_words(&self) -> Option<StopWordFilter> {
+        self.stop_words
+            .as_ref()
+            .map(|stop_words| StopWordFilter::remove(stop_words.clone()))
     }
 }
 
@@ -297,6 +323,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             SearchTokenizer::Raw(filters) => Some(
@@ -304,6 +331,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             // Deprecated, use `raw` with `lowercase` filter instead
@@ -312,6 +340,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             SearchTokenizer::WhiteSpace(filters) => Some(
@@ -319,6 +348,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             SearchTokenizer::RegexTokenizer { pattern, filters } => Some(
@@ -326,6 +356,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             SearchTokenizer::Ngram {
@@ -341,6 +372,7 @@ impl SearchTokenizer {
                 .filter(filters.remove_long_filter())
                 .filter(filters.lower_caser())
                 .filter(filters.stemmer())
+                .filter(filters.stop_words())
                 .build(),
             ),
             SearchTokenizer::ChineseCompatible(filters) => Some(
@@ -348,6 +380,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             SearchTokenizer::SourceCode(filters) => Some(
@@ -356,6 +389,7 @@ impl SearchTokenizer {
                     .filter(filters.lower_caser())
                     .filter(AsciiFoldingFilter)
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             SearchTokenizer::ChineseLindera(filters) => Some(
@@ -363,6 +397,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             SearchTokenizer::JapaneseLindera(filters) => Some(
@@ -370,6 +405,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             SearchTokenizer::KoreanLindera(filters) => Some(
@@ -377,6 +413,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
             // Deprecated, use `stemmer` filter instead
@@ -385,6 +422,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(Stemmer::new(Language::English))
+                    .filter(filters.stop_words())
                     .build(),
             ),
             // Deprecated, use `stemmer` filter instead
@@ -393,6 +431,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(Stemmer::new(*language))
+                    .filter(filters.stop_words())
                     .build(),
             ),
             #[cfg(feature = "icu")]
@@ -401,6 +440,7 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stop_words())
                     .build(),
             ),
         }
@@ -521,6 +561,7 @@ mod tests {
             remove_long: Some(999),
             lowercase: Some(true),
             stemmer: None,
+            stop_words: None,
         });
         assert_eq!(
             tokenizer.name(),
@@ -548,7 +589,8 @@ mod tests {
                 filters: SearchTokenizerFilters {
                     remove_long: Some(123),
                     lowercase: Some(false),
-                    stemmer: None
+                    stemmer: None,
+                    stop_words: None,
                 }
             }
         );
@@ -567,6 +609,7 @@ mod tests {
                 remove_long: Some(100),
                 lowercase: None,
                 stemmer: None,
+                stop_words: None,
             },
         };
 

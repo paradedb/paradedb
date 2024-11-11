@@ -70,6 +70,7 @@ pub struct PdbScanState {
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
+    exec_method_name: String,
 }
 
 impl CustomScanState for PdbScanState {
@@ -92,20 +93,23 @@ impl PdbScanState {
     #[inline(always)]
     pub fn assign_exec_method<T: ExecMethod + 'static>(&mut self, method: T) {
         self.exec_method = UnsafeCell::new(Box::new(method));
+        self.exec_method_name = std::any::type_name::<T>().to_string();
     }
 
     #[inline(always)]
-    pub fn exec_method(&mut self) -> &mut Box<dyn ExecMethod> {
-        unsafe {
-            let ptr = self.exec_method.get();
-            assert!(!ptr.is_null());
-            ptr.as_mut().unwrap_unchecked()
-        }
+    pub fn exec_method<'a>(&mut self) -> &'a mut Box<dyn ExecMethod> {
+        let ptr = self.exec_method.get();
+        assert!(!ptr.is_null());
+        unsafe { ptr.as_mut().unwrap_unchecked() }
+    }
+
+    pub fn exec_method_name(&self) -> &str {
+        &self.exec_method_name
     }
 
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
-        self.need_scores
+        self.need_scores || self.search_query_input.contains_more_like_this()
     }
 
     #[inline(always)]

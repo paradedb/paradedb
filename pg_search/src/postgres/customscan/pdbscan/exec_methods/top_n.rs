@@ -84,7 +84,7 @@ impl ExecMethod for TopNScanExecState {
         self.search_reader = state.search_reader.clone();
     }
 
-    fn next(&mut self) -> ExecState {
+    fn internal_next(&mut self) -> ExecState {
         unsafe {
             let mut next = self.search_results.next();
             loop {

@@ -16,6 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
+use crate::postgres::customscan::pdbscan::privdat::deserialize::decodeString;
+use crate::postgres::customscan::pdbscan::privdat::serialize::{
+    makeInteger, makeString, AsValueNode,
+};
 use crate::query::SearchQueryInput;
 use pgrx::{node_to_string, pg_sys, FromDatum, PgList};
 
@@ -32,20 +36,17 @@ pub enum Qual {
     Not(Box<Qual>),
 }
 
-impl From<Qual> for SearchQueryInput {
-    fn from(value: Qual) -> Self {
+impl From<&Qual> for SearchQueryInput {
+    fn from(value: &Qual) -> Self {
         match value {
             Qual::Ignore => SearchQueryInput::All,
             Qual::OperatorExpression { val, .. } => unsafe {
-                SearchQueryInput::from_datum((*val).constvalue, (*val).constisnull)
+                SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
             },
 
             Qual::And(quals) => {
-                let must = quals
-                    .into_iter()
-                    .map(SearchQueryInput::from)
-                    .collect::<Vec<_>>();
+                let must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
 
                 match must.len() {
                     0 => panic!("Qual::And should have at least one item"),
@@ -58,10 +59,7 @@ impl From<Qual> for SearchQueryInput {
                 }
             }
             Qual::Or(quals) => {
-                let should = quals
-                    .into_iter()
-                    .map(SearchQueryInput::from)
-                    .collect::<Vec<_>>();
+                let should = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
 
                 match should.len() {
                     0 => panic!("Qual::Or should have at least one item"),
@@ -74,7 +72,7 @@ impl From<Qual> for SearchQueryInput {
                 }
             }
             Qual::Not(qual) => {
-                let must_not = vec![SearchQueryInput::from(*qual)];
+                let must_not = vec![SearchQueryInput::from(qual.as_ref())];
 
                 SearchQueryInput::Boolean {
                     must: Default::default(),
@@ -83,6 +81,110 @@ impl From<Qual> for SearchQueryInput {
                 }
             }
         }
+    }
+}
+
+impl From<Qual> for PgList<pg_sys::Node> {
+    fn from(value: Qual) -> Self {
+        unsafe {
+            let mut list = PgList::new();
+
+            match value {
+                Qual::Ignore => list.push(makeString(Some("IGNORE"))),
+                Qual::OperatorExpression { var, opno, val } => {
+                    list.push(makeString(Some("OPERATOR_EXPRESSION")));
+                    list.push(var.cast());
+                    list.push(makeInteger(Some(opno)));
+                    list.push(val.cast());
+                }
+                Qual::And(quals) => {
+                    list.push(makeString(Some("AND")));
+                    list.push(makeInteger(Some(quals.len())));
+                    for qual in quals {
+                        let or: PgList<pg_sys::Node> = qual.into();
+                        list.push(or.into_pg().cast());
+                    }
+                }
+                Qual::Or(quals) => {
+                    list.push(makeString(Some("OR")));
+                    list.push(makeInteger(Some(quals.len())));
+                    for qual in quals {
+                        let and: PgList<pg_sys::Node> = qual.into();
+                        list.push(and.into_pg().cast());
+                    }
+                }
+                Qual::Not(not) => {
+                    list.push(makeString(Some("NOT")));
+                    let not: PgList<pg_sys::Node> = (*not).into();
+                    list.push(not.into_pg().cast());
+                }
+            }
+
+            list
+        }
+    }
+}
+
+impl From<PgList<pg_sys::Node>> for Qual {
+    fn from(value: PgList<pg_sys::Node>) -> Self {
+        fn inner(value: PgList<pg_sys::Node>) -> Option<Qual> {
+            unsafe {
+                let first = value.get_ptr(0)?;
+
+                if let Some(type_) = decodeString::<String>(first) {
+                    match type_.as_str() {
+                        "IGNORE" => Some(Qual::Ignore),
+                        "OPERATOR_EXPRESSION" => {
+                            let (var, opno, val) = (
+                                nodecast!(Var, T_Var, value.get_ptr(1)?)?,
+                                pg_sys::Oid::from_value_node(value.get_ptr(2)?)?,
+                                nodecast!(Const, T_Const, value.get_ptr(3)?)?,
+                            );
+                            Some(Qual::OperatorExpression { var, opno, val })
+                        }
+                        "AND" => {
+                            let len = usize::from_value_node(value.get_ptr(1)?)?;
+                            let mut quals = Vec::with_capacity(len);
+                            for i in 2..value.len() {
+                                let qual_list = PgList::<pg_sys::Node>::from_pg(nodecast!(
+                                    List,
+                                    T_List,
+                                    value.get_ptr(i)?
+                                )?);
+                                quals.push(qual_list.into());
+                            }
+                            Some(Qual::And(quals))
+                        }
+                        "OR" => {
+                            let len = usize::from_value_node(value.get_ptr(1)?)?;
+                            let mut quals = Vec::with_capacity(len);
+                            for i in 2..value.len() {
+                                let qual_list = PgList::<pg_sys::Node>::from_pg(nodecast!(
+                                    List,
+                                    T_List,
+                                    value.get_ptr(i)?
+                                )?);
+                                quals.push(qual_list.into());
+                            }
+                            Some(Qual::Or(quals))
+                        }
+                        "NOT" => {
+                            let not_qual = PgList::<pg_sys::Node>::from_pg(nodecast!(
+                                List,
+                                T_List,
+                                value.get_ptr(1)?
+                            )?);
+                            Some(Qual::Not(Box::new(not_qual.into())))
+                        }
+                        other => panic!("unexpected Qual list node: {other}"),
+                    }
+                } else {
+                    panic!("malformed Qual list")
+                }
+            }
+        }
+
+        inner(value).expect("Qual list should not be empty")
     }
 }
 

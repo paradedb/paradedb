@@ -133,6 +133,7 @@ pub extern "C" fn amrescan(
                 !(*scan).xs_want_itup,
                 SearchIndex::executor(),
                 &query,
+                None,
             )
         };
 

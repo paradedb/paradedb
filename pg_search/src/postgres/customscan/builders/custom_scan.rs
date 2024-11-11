@@ -73,6 +73,11 @@ impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanB
                 plan: pg_sys::Plan {
                     type_: pg_sys::NodeTag::T_CustomScan,
                     targetlist: tlist,
+                    startup_cost: unsafe { (*best_path).path.startup_cost },
+                    total_cost: unsafe { (*best_path).path.total_cost },
+                    plan_rows: unsafe { (*best_path).path.rows },
+                    parallel_aware: unsafe { (*best_path).path.parallel_aware },
+                    parallel_safe: unsafe { (*best_path).path.parallel_safe },
                     ..Default::default()
                 },
                 scanrelid: unsafe { *rel }.relid,

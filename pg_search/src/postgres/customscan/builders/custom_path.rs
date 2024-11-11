@@ -133,6 +133,9 @@ pub enum Flags {
 
     /// #define CUSTOMPATH_SUPPORT_PROJECTION		0x0004
     Projection = 0x0004,
+
+    /// ParadeDB custom flag for indicating we want to force the plan to be used
+    Force = 0x0008,
 }
 
 pub struct CustomPathBuilder<P: Into<*mut pg_sys::List> + Default> {
@@ -265,6 +268,15 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
             }
             self
         }
+    }
+
+    pub fn set_force_path(mut self, force: bool) -> Self {
+        if force {
+            self.flags.insert(Flags::Force);
+        } else {
+            self.flags.remove(&Flags::Force);
+        }
+        self
     }
 
     pub fn build(mut self) -> pg_sys::CustomPath {

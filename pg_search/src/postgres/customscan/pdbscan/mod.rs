@@ -64,13 +64,13 @@ use tantivy::snippet::SnippetGenerator;
 #[derive(Default)]
 pub struct PdbScan;
 
+impl PlainExecCapable for PdbScan {}
+
 impl ExecMethod for PdbScan {
     fn exec_methods() -> *const CustomExecMethods {
         <PdbScan as PlainExecCapable>::exec_methods()
     }
 }
-
-impl PlainExecCapable for PdbScan {}
 
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
@@ -114,14 +114,11 @@ impl CustomScan for PdbScan {
             #[cfg(any(feature = "pg16", feature = "pg17"))]
             let baserels = (*builder.args().root).all_query_rels;
 
-            let limit = if
-            // we can only use the limit if we have an orderby score pathkey
-            pathkey.is_some()
-                && (*builder.args().root).limit_tuples > -1.0
-
-                // and if the path is for sole base relation
+            let limit = if (*builder.args().root).limit_tuples > -1.0
                 && pg_sys::bms_equal((*builder.args().rel).relids, baserels)
             {
+                // we can only use the limit for estimates if a) we have one, and b) we know
+                // the query is only querying one relation
                 Some((*builder.args().root).limit_tuples)
             } else {
                 None
@@ -130,7 +127,8 @@ impl CustomScan for PdbScan {
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
-            let ff_cnt = 0.0;
+            let ff_cnt = 0;
+            let is_topn = limit.is_some() && pathkey.is_some();
 
             //
             // look for quals we can support
@@ -143,22 +141,30 @@ impl CustomScan for PdbScan {
             ) {
                 let selectivity = if let Some(limit) = limit {
                     // use the limit
-                    limit / table.reltuples().map(|n| n as Cardinality).unwrap_or(limit)
+                    limit
+                        / table
+                            .reltuples()
+                            .map(|n| n as Cardinality)
+                            .unwrap_or(UNKNOWN_SELECTIVITY)
                 } else if restrict_info.len() == 1 {
                     // we can use the norm_selec that already happened
                     (*restrict_info.get_ptr(0).unwrap()).norm_selec
                 } else {
                     // ask the index
-                    let search_config = SearchQueryInput::from(quals);
+                    let search_config = SearchQueryInput::from(&quals);
                     estimate_selectivity(&bm25_index, &search_config).unwrap_or(UNKNOWN_SELECTIVITY)
                 };
 
                 builder.custom_private().set_heaprelid(table.oid());
                 builder.custom_private().set_indexrelid(bm25_index.oid());
                 builder.custom_private().set_range_table_index(rti);
-                builder.custom_private().set_quals(restrict_info);
+                builder.custom_private().set_quals(quals);
+                builder.custom_private().set_limit(limit);
 
-                if limit.is_some() && pathkey.is_some() {
+                // we must use this path if we need to do const projections for scores or snippets
+                builder = builder.set_force_path(maybe_needs_const_projections || is_topn);
+
+                if is_topn {
                     // sorting by a field only works if we're not doing const projections
                     //
                     // and sorting by score always works
@@ -166,43 +172,35 @@ impl CustomScan for PdbScan {
                         && matches!(&pathkey, Some(OrderByStyle::Field(..))))
                     {
                         builder = builder.add_path_key(&pathkey);
-                        builder.custom_private().set_sort_field(&pathkey);
-                        builder.custom_private().set_limit(limit);
-                        builder
-                            .custom_private()
-                            .set_sort_direction(pathkey.map(|style| style.direction()));
+                        builder.custom_private().set_sort_info(&pathkey);
                     }
                 }
 
                 let reltuples = table.reltuples().unwrap_or(1.0) as f64;
                 let rows = (reltuples * selectivity).max(1.0);
-                let startup_cost = DEFAULT_STARTUP_COST;
 
-                let cpu_index_tuple_cost = pg_sys::cpu_index_tuple_cost;
-                let total_cost = startup_cost + selectivity * reltuples * cpu_index_tuple_cost;
-
-                let cpu_run_cost = {
+                let per_tuple_cost = {
                     // if we think we need scores, we need a much cheaper plan so that Postgres will
                     // prefer it over all the others.
-                    // TODO:  these are curious values that I picked out of thin air and probably need attention
-                    let per_tuple = if ff_cnt > 0.0 { ff_cnt * 0.25 } else { 4.0 };
-                    let cpu_run_cost = pg_sys::cpu_tuple_cost + per_tuple;
-
-                    cpu_run_cost + rows * per_tuple
+                    if is_join || maybe_needs_const_projections {
+                        0.0
+                    } else {
+                        // requires heap access to return fields
+                        pg_sys::cpu_tuple_cost * 200.0
+                    }
                 };
 
-                let (startup_cost, total_cost, cpu_run_cost) =
-                    if is_join || maybe_needs_const_projections {
-                        // NB:  just force smallest costs possible so we'll be used in join and
-                        // other situations where we need const projections
-                        (0.0, 0.0, 0.0)
-                    } else {
-                        (startup_cost, total_cost, cpu_run_cost)
-                    };
+                let startup_cost = if is_join || maybe_needs_const_projections {
+                    0.0
+                } else {
+                    DEFAULT_STARTUP_COST
+                };
+
+                let total_cost = startup_cost + (rows * per_tuple_cost);
 
                 builder = builder.set_rows(rows);
                 builder = builder.set_startup_cost(startup_cost);
-                builder = builder.set_total_cost(total_cost + cpu_run_cost);
+                builder = builder.set_total_cost(total_cost);
                 builder = builder.set_flag(Flags::Projection);
 
                 return Some(builder.build());
@@ -284,17 +282,6 @@ impl CustomScan for PdbScan {
                 .range_table_index()
                 .expect("range table index should have been set");
 
-            {
-                let indexrel = PgRelation::open(builder.custom_state().indexrelid);
-                let heaprel = indexrel
-                    .heap_relation()
-                    .expect("index should belong to a table");
-                let search_index =
-                    open_search_index(&indexrel).expect("should be able to open search index");
-
-                builder.custom_state().which_fast_fields = None;
-            }
-
             // information about if we're sorted by score and our limit
             builder.custom_state().limit = builder.custom_private().limit();
             builder.custom_state().sort_field = builder.custom_private().sort_field();
@@ -305,7 +292,7 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .quals()
                 .expect("should have a Qual structure");
-            builder.custom_state().search_query_input = SearchQueryInput::from(quals);
+            builder.custom_state().search_query_input = SearchQueryInput::from(&quals);
 
             // now build up the var attribute name lookup map
             unsafe fn populate_var_attname_lookup(
@@ -379,11 +366,6 @@ impl CustomScan for PdbScan {
                 builder
                     .custom_state()
                     .assign_exec_method(TopNScanExecState::new(heaprelid, limit, sort_direction));
-            } else if need_snippets {
-                // if snippets are required then the query goes through a normal scan
-                builder
-                    .custom_state()
-                    .assign_exec_method(NormalScanExecState::default());
             } else {
                 builder
                     .custom_state()
@@ -402,24 +384,35 @@ impl CustomScan for PdbScan {
         explainer.add_text("Table", state.custom_state().heaprelname());
         explainer.add_text("Index", state.custom_state().indexrelname());
 
-        if explainer.is_analyze() && explainer.is_verbose() {
+        if explainer.is_analyze() {
             explainer.add_unsigned_integer(
-                "Heap-checked Tuples",
+                "Heap Fetches",
                 state.custom_state().heap_tuple_check_count as u64,
                 None,
             );
-            explainer.add_unsigned_integer(
-                "Virtual Tuples",
-                state.custom_state().virtual_tuple_count as u64,
-                None,
-            );
-            explainer.add_unsigned_integer(
-                "Invisible Tuples",
-                state.custom_state().invisible_tuple_count as u64,
-                None,
-            );
+            if explainer.is_verbose() {
+                explainer.add_unsigned_integer(
+                    "Virtual Tuples",
+                    state.custom_state().virtual_tuple_count as u64,
+                    None,
+                );
+                explainer.add_unsigned_integer(
+                    "Invisible Tuples",
+                    state.custom_state().invisible_tuple_count as u64,
+                    None,
+                );
+            }
         }
 
+        explainer.add_text(
+            "Exec Method",
+            state
+                .custom_state()
+                .exec_method_name()
+                .split("::")
+                .last()
+                .unwrap(),
+        );
         explainer.add_bool("Scores", state.custom_state().need_scores());
         if let (Some(sort_direction), Some(limit)) = (
             state.custom_state().sort_direction,
@@ -461,8 +454,19 @@ impl CustomScan for PdbScan {
             let rte = pg_sys::exec_rt_fetch(state.custom_state().rti, estate);
             assert!(!rte.is_null());
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
-            let heaprel = pg_sys::relation_open(state.custom_state().heaprelid, lockmode);
-            let indexrel = pg_sys::relation_open(state.custom_state().indexrelid, lockmode);
+
+            let (heaprel, indexrel) = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
+                (
+                    pg_sys::RelationIdGetRelation(state.custom_state().heaprelid),
+                    pg_sys::RelationIdGetRelation(state.custom_state().indexrelid),
+                )
+            } else {
+                (
+                    pg_sys::relation_open(state.custom_state().heaprelid, lockmode),
+                    pg_sys::relation_open(state.custom_state().indexrelid, lockmode),
+                )
+            };
+
             state.custom_state_mut().heaprel = Some(heaprel);
             state.custom_state_mut().indexrel = Some(indexrel);
             state.custom_state_mut().lockmode = lockmode;
@@ -552,8 +556,10 @@ impl CustomScan for PdbScan {
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         loop {
+            let exec_method = state.custom_state_mut().exec_method();
+
             // get the next matching document from our search results and look for it in the heap
-            match state.custom_state_mut().exec_method().next() {
+            match exec_method.next(state.custom_state()) {
                 // reached the end of the SearchResults
                 ExecState::Eof => return std::ptr::null_mut(),
 

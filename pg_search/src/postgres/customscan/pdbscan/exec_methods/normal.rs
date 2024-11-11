@@ -24,21 +24,20 @@ use pgrx::pg_sys;
 #[derive(Default)]
 pub struct NormalScanExecState {
     search_results: SearchResults,
+    did_query: bool,
 }
 
 impl ExecMethod for NormalScanExecState {
     fn init(&mut self, state: &PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
         let search_reader = state.search_reader.as_ref().unwrap();
         let query = state.query.as_ref().unwrap();
-        self.search_results = search_reader.search_via_channel(
-            state.need_scores,
-            false,
-            SearchIndex::executor(),
-            query,
-        );
     }
 
-    fn next(&mut self) -> ExecState {
+    fn query(&mut self, state: &PdbScanState) -> bool {
+        self.do_query(state)
+    }
+
+    fn internal_next(&mut self) -> ExecState {
         match self.search_results.next() {
             None => ExecState::Eof,
             Some((scored, doc_address)) => ExecState::RequiresVisibilityCheck {
@@ -47,5 +46,23 @@ impl ExecMethod for NormalScanExecState {
                 doc_address,
             },
         }
+    }
+}
+
+impl NormalScanExecState {
+    #[inline(always)]
+    fn do_query(&mut self, state: &PdbScanState) -> bool {
+        if self.did_query {
+            return false;
+        }
+        self.search_results = state.search_reader.as_ref().unwrap().search_via_channel(
+            state.need_scores(),
+            false,
+            SearchIndex::executor(),
+            state.query.as_ref().unwrap(),
+            state.limit,
+        );
+        self.did_query = true;
+        true
     }
 }

@@ -68,6 +68,7 @@ pub fn search_with_query_input(
             false,
             SearchIndex::executor(),
             &search_index.query(indexrel, &query, &search_reader),
+            None,
         );
         let mut hs = FxHashSet::default();
         for (_, doc_address) in top_docs {

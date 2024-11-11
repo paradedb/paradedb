@@ -31,6 +31,7 @@ pub enum TestTable {
     Orders,
     Parts,
     Deliveries,
+    Customers,
 }
 
 impl Display for TestTable {
@@ -40,6 +41,7 @@ impl Display for TestTable {
             TestTable::Orders => write!(f, "Orders"),
             TestTable::Parts => write!(f, "Parts"),
             TestTable::Deliveries => write!(f, "Deliveries"),
+            TestTable::Customers => write!(f, "Customers"),
         }
     }
 }
@@ -243,6 +245,38 @@ fn create_bm25_test_table(
                                 (
                                     PgOid::BuiltIn(BuiltinOid::TSTZRANGEOID),
                                     record.6.into_datum(),
+                                ),
+                            ]),
+                        )?;
+                    }
+                }
+                // Then in the match statement, add the Customers variant:
+                TestTable::Customers => {
+                    client.update(
+                        &format!(
+                            "CREATE TABLE {} (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                crm_data JSONB
+            )",
+                            full_table_name
+                        ),
+                        None,
+                        None,
+                    )?;
+
+                    for record in mock_customers_data() {
+                        client.update(
+                            &format!(
+                                "INSERT INTO {} (name, crm_data) VALUES ($1, $2)",
+                                full_table_name
+                            ),
+                            Some(1),
+                            Some(vec![
+                                (PgOid::BuiltIn(BuiltinOid::TEXTOID), record.0.into_datum()),
+                                (
+                                    PgOid::BuiltIn(BuiltinOid::JSONBOID),
+                                    JsonB(record.1).into_datum(),
                                 ),
                             ]),
                         )?;
@@ -957,6 +991,104 @@ fn mock_deliveries_data() -> Vec<MockDeliveryRow> {
                 ),
                 Some(TimestampWithTimeZone::from_str("2024-05-01T16:00:00+00:00").unwrap()),
             ),
+        ),
+    ]
+}
+
+#[inline]
+fn mock_customers_data() -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        (
+            "Customer A",
+            json!([{
+                "interaction": "call",
+                "details": {
+                    "subject": "Welcome Call",
+                    "date": "2023-09-01"
+                }
+            }, {
+                "interaction": "email",
+                "details": {
+                    "subject": "Goodbye Email",
+                    "date": "2023-09-02"
+                }
+            }]),
+        ),
+        (
+            "Customer Deep",
+            json!({
+                "level1": {
+                    "level2": [{
+                        "level3": "deep_value",
+                        "extra": "metadata"
+                    }]
+                },
+                "other_data": "some value"
+            }),
+        ),
+        (
+            "Customer B",
+            json!([{
+                "interaction": "sms",
+                "details": {
+                    "subject": "Reminder",
+                    "date": "2023-09-01"
+                }
+            }, {
+                "interaction": "email",
+                "details": {
+                    "subject": "Update",
+                    "date": "2023-09-03"
+                }
+            }]),
+        ),
+        (
+            "Customer C",
+            json!([{
+                "interaction": "call",
+                "details": {
+                    "subject": "Service Call",
+                    "date": "2023-09-04"
+                }
+            }, {
+                "interaction": "sms",
+                "details": {
+                    "subject": "Follow-up",
+                    "date": "2023-09-05"
+                }
+            }]),
+        ),
+        (
+            "Customer D",
+            json!([{
+                "interaction": "email",
+                "details": {
+                    "subject": "Promotion",
+                    "date": "2023-09-06"
+                }
+            }, {
+                "interaction": "sms",
+                "details": {
+                    "subject": "Discount",
+                    "date": "2023-09-07"
+                }
+            }]),
+        ),
+        (
+            "Customer E",
+            json!([{
+                "interaction": "call",
+                "details": {
+                    "subject": "Inquiry",
+                    "date": "2023-09-08"
+                }
+            }, {
+                "interaction": "email",
+                "details": {
+                    "subject": "Notification",
+                    "date": "2023-09-09"
+                }
+            }]),
         ),
     ]
 }

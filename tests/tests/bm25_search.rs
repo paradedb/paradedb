@@ -1174,6 +1174,36 @@ fn json_range(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn test_customers_table(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(
+        table_name => 'customers',
+        schema_name => 'public',
+        table_type => 'Customers'
+    );"
+    .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        table_name => 'customers',
+        schema_name => 'public',
+        index_name => 'customers_idx',
+        key_field => 'id',
+        text_fields => paradedb.field('name'),
+        json_fields => paradedb.field('crm_data')
+    );"
+    .execute(&mut conn);
+
+    // Test querying by name
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM customers WHERE customers @@@ 'name:Deep' ORDER BY id".fetch(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+
+    // Test querying nested JSON data
+    let rows: Vec<(i32,)> = "SELECT id FROM customers WHERE customers @@@ 'crm_data.level1.level2.level3:deep_value' ORDER BY id"
+        .fetch(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+}
+
+#[rstest]
 fn json_array_term(mut conn: PgConnection) {
     r#"
     CREATE TABLE colors (id SERIAL PRIMARY KEY, colors_json JSON, colors_jsonb JSONB);

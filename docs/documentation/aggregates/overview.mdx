@@ -31,6 +31,10 @@ Increasing the number of [parallel workers](/documentation/configuration/paralle
 speedups. For instance, if the host machine has 16 CPUs, `max_worker_processes`, `max_parallel_workers`, and `max_parallel_workers_per_gather`
 should be set to 16.
 
+<Note>
+Remember to restart Postgres in order for `postgresql.conf` changes to take effect.
+</Note>
+
 ### Run `VACUUM`
 
 `VACUUM` updates the table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html),

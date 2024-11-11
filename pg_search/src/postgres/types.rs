@@ -17,6 +17,7 @@
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::range::RangeToTantivyValue;
+use crate::schema::AnyEnum;
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
@@ -28,7 +29,6 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::ffi::CStr;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::num::ParseFloatError;
@@ -256,15 +256,11 @@ impl TantivyValue {
             },
             PgOid::Custom(custom) => {
                 if pgrx::pg_sys::type_is_enum(*custom) {
-                    let mut is_varlena = false;
-                    let mut typ_output: Oid = pgrx::pg_sys::InvalidOid;
-                    pgrx::pg_sys::getTypeOutputInfo(
-                        *custom,
-                        &mut typ_output as *mut Oid,
-                        &mut is_varlena,
+                    let (_, _, ordinal) = pgrx::enum_helper::lookup_enum_by_oid(
+                        pgrx::pg_sys::Oid::from_datum(datum, false)
+                            .ok_or(TantivyValueError::DatumDeref)?,
                     );
-                    let cstring = pgrx::pg_sys::OidOutputFunctionCall(typ_output, datum);
-                    TantivyValue::try_from(CStr::from_ptr(cstring).to_string_lossy().into_owned())
+                    TantivyValue::try_from(ordinal)
                 } else {
                     Err(TantivyValueError::UnsupportedOid(oid.value()))
                 }
@@ -906,6 +902,19 @@ impl TryFrom<TantivyValue> for pgrx::Uuid {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "uuid".to_string(),
             ))
+        }
+    }
+}
+
+impl TryFrom<AnyEnum> for TantivyValue {
+    type Error = TantivyValueError;
+
+    fn try_from(val: AnyEnum) -> Result<Self, Self::Error> {
+        match val.ordinal() {
+            Some(ordinal) => Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+                ordinal.into(),
+            ))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
         }
     }
 }

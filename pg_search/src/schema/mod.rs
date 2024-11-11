@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod anyenum;
 mod document;
 pub mod range;
 
@@ -34,6 +35,7 @@ use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 use crate::query::AsFieldType;
+pub use anyenum::AnyEnum;
 
 /// The id of a field, stored in the index.
 #[derive(Debug, Clone, Display, From, AsRef, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -93,7 +95,7 @@ impl TryFrom<&PgOid> for SearchFieldType {
             },
             PgOid::Custom(custom) => {
                 if unsafe { pgrx::pg_sys::type_is_enum(*custom) } {
-                    Ok(SearchFieldType::Text)
+                    Ok(SearchFieldType::F64)
                 } else {
                     Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid))
                 }

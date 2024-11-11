@@ -21,6 +21,7 @@ use pgrx::{iter::TableIterator, *};
 use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
 use crate::query::{SearchQueryInput, TermInput};
+use crate::schema::AnyEnum;
 use crate::schema::IndexRecordOption;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -576,6 +577,21 @@ macro_rules! term_fn {
     };
 }
 
+#[pg_extern(name = "term", immutable, parallel_safe)]
+pub fn term_anyenum(field: FieldName, value: AnyEnum) -> SearchQueryInput {
+    let tantivy_value = TantivyValue::try_from(value)
+        .expect("value should be a valid TantivyValue representation")
+        .tantivy_schema_value();
+    pgrx::info!("TantivyValue: {:?}", tantivy_value);
+    let is_datetime = matches!(tantivy_value, OwnedValue::Date(_));
+
+    SearchQueryInput::Term {
+        field: Some(field.into_inner()),
+        value: tantivy_value,
+        is_datetime,
+    }
+}
+
 macro_rules! term_fn_unsupported {
     ($func_name:ident, $value_type:ty, $term_type:literal) => {
         #[pg_extern(name = "term", immutable, parallel_safe)]
@@ -610,6 +626,7 @@ term_fn!(time_with_time_zone, pgrx::datum::TimeWithTimeZone);
 term_fn!(timestamp_with_time_zome, pgrx::datum::TimestampWithTimeZone);
 term_fn!(numeric, pgrx::AnyNumeric);
 term_fn!(uuid, pgrx::Uuid);
+// term_fn!(anyenum, AnyEnum);
 term_fn_unsupported!(json, pgrx::Json, "json");
 term_fn_unsupported!(jsonb, pgrx::JsonB, "jsonb");
 term_fn_unsupported!(anyarray, pgrx::AnyArray, "array");

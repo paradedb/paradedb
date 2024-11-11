@@ -746,13 +746,14 @@ fn custom_enum(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('color')
+        text_fields => paradedb.field('description'),
+        numeric_fields => paradedb.field('color')
     )
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
-        "SELECT id, description FROM paradedb.index_config WHERE color @@@ 'red'".fetch(&mut conn);
+        "SELECT id, description FROM paradedb.index_config WHERE id @@@ paradedb.term('color', 'red'::color)".fetch(&mut conn);
 
     assert_eq!(rows, vec![(1, "Item 1".into())]);
 }

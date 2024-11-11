@@ -91,6 +91,13 @@ impl TryFrom<&PgOid> for SearchFieldType {
                 | PgBuiltInOids::TIMETZOID => Ok(SearchFieldType::Date),
                 _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
             },
+            PgOid::Custom(custom) => {
+                if unsafe { pgrx::pg_sys::type_is_enum(*custom) } {
+                    Ok(SearchFieldType::Text)
+                } else {
+                    Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid))
+                }
+            }
             _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
         }
     }

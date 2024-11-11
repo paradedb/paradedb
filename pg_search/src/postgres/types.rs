@@ -28,6 +28,7 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use std::cmp::Ordering;
+use std::ffi::CStr;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::num::ParseFloatError;
@@ -253,6 +254,21 @@ impl TantivyValue {
                 ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
+            PgOid::Custom(custom) => {
+                if pgrx::pg_sys::type_is_enum(*custom) {
+                    let mut is_varlena = false;
+                    let mut typ_output: Oid = pgrx::pg_sys::InvalidOid;
+                    pgrx::pg_sys::getTypeOutputInfo(
+                        *custom,
+                        &mut typ_output as *mut Oid,
+                        &mut is_varlena,
+                    );
+                    let cstring = pgrx::pg_sys::OidOutputFunctionCall(typ_output, datum);
+                    TantivyValue::try_from(CStr::from_ptr(cstring).to_string_lossy().into_owned())
+                } else {
+                    Err(TantivyValueError::UnsupportedOid(oid.value()))
+                }
+            }
             _ => Err(TantivyValueError::InvalidOid),
         }
     }

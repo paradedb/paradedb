@@ -730,3 +730,29 @@ fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
         index_dir
     );
 }
+
+#[rstest]
+fn custom_enum(mut conn: PgConnection) {
+    r#"
+    CREATE TYPE color AS ENUM ('red', 'green', 'blue');
+    CREATE TABLE paradedb.index_config(id INTEGER, description TEXT, color color);
+    INSERT INTO paradedb.index_config VALUES (1, 'Item 1', 'red'), (2, 'Item 2', 'green');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        index_name => 'index_config_index',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('color')
+    )
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String)> =
+        "SELECT id, description FROM paradedb.index_config WHERE color @@@ 'red'".fetch(&mut conn);
+
+    assert_eq!(rows, vec![(1, "Item 1".into())]);
+}

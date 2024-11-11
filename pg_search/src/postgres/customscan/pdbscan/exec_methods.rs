@@ -42,7 +42,25 @@ impl Default for Box<dyn ExecMethod> {
 
 pub trait ExecMethod {
     fn init(&mut self, state: &PdbScanState, cstate: *mut pg_sys::CustomScanState);
-    fn next(&mut self) -> ExecState;
+
+    fn query(&mut self, state: &PdbScanState) -> bool {
+        false
+    }
+
+    fn next(&mut self, state: &PdbScanState) -> ExecState {
+        loop {
+            match self.internal_next() {
+                ExecState::Eof => {
+                    if !self.query(state) {
+                        return ExecState::Eof;
+                    }
+                }
+                other => return other,
+            }
+        }
+    }
+
+    fn internal_next(&mut self) -> ExecState;
 }
 
 struct UnknownScanStyle;
@@ -54,9 +72,9 @@ impl ExecMethod for UnknownScanStyle {
         )
     }
 
-    fn next(&mut self) -> ExecState {
+    fn internal_next(&mut self) -> ExecState {
         unimplemented!(
-            "logic error in pg_search:  `UnknownScanStyle::next()` should never be called"
+            "logic error in pg_search:  `UnknownScanStyle::internal_next()` should never be called"
         )
     }
 }

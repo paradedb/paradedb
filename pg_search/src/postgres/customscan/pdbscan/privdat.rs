@@ -15,11 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::Cardinality;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::builders::custom_path::SortDirection;
-use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
+use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use pgrx::{pg_sys, PgList};
 
 #[derive(Default, Debug)]
@@ -27,7 +26,7 @@ pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
-    restrict_info: Option<*mut pg_sys::List>,
+    quals: Option<*mut pg_sys::List>,
     limit: Option<usize>,
     sort_field: Option<String>,
     sort_direction: Option<SortDirection>,
@@ -64,25 +63,23 @@ impl PrivateData {
         self.range_table_index = Some(rti);
     }
 
-    pub fn set_quals(&mut self, quals: PgList<pg_sys::RestrictInfo>) {
-        self.restrict_info = Some(quals.into_pg())
+    pub fn set_quals(&mut self, quals: Qual) {
+        let serialized: PgList<pg_sys::Node> = quals.into();
+        self.quals = Some(serialized.into_pg().cast())
     }
 
     pub fn set_limit(&mut self, limit: Option<Cardinality>) {
         self.limit = limit.map(|l| l.round() as usize);
     }
 
-    pub fn set_sort_field(&mut self, pathkey: &Option<OrderByStyle>) {
+    pub fn set_sort_info(&mut self, pathkey: &Option<OrderByStyle>) {
         if let Some(style) = pathkey {
             match style {
                 OrderByStyle::Score(_) => {}
                 OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
             }
+            self.sort_direction = Some(style.direction())
         }
-    }
-
-    pub fn set_sort_direction(&mut self, direction: Option<SortDirection>) {
-        self.sort_direction = direction;
     }
 
     pub fn set_var_attname_lookup(&mut self, var_attname_lookup: *mut pg_sys::List) {
@@ -112,16 +109,8 @@ impl PrivateData {
     }
 
     pub fn quals(&self) -> Option<Qual> {
-        unsafe {
-            self.restrict_info.and_then(|ri| {
-                extract_quals(
-                    self.range_table_index()
-                        .expect("rti should be set to get a Qual"),
-                    ri.cast(),
-                    anyelement_query_input_opoid(),
-                )
-            })
-        }
+        self.quals
+            .map(|ri| unsafe { Qual::from(PgList::<pg_sys::Node>::from_pg(ri)) })
     }
 
     pub fn limit(&self) -> Option<usize> {
@@ -147,24 +136,97 @@ impl PrivateData {
 }
 
 #[allow(non_snake_case)]
-mod serialize {
+pub mod serialize {
+    use crate::api::{AsCStr, AsInt};
+    use crate::postgres::customscan::builders::custom_path::SortDirection;
     use crate::postgres::customscan::pdbscan::privdat::PrivateData;
-    use pgrx::pg_sys::AsPgCStr;
+    use pgrx::pg_sys::{AsPgCStr, Node};
     use pgrx::{pg_sys, PgList};
     use std::fmt::Display;
+    use std::str::FromStr;
 
-    pub(super) unsafe fn makeInteger<T: Into<u32>>(input: Option<T>) -> *mut pg_sys::Node {
-        unwrapOrNull(input.map(|i| pg_sys::makeInteger(i.into() as _).cast::<pg_sys::Node>()))
+    pub trait AsValueNode: Sized {
+        fn as_value_node(&self) -> *mut pg_sys::Node;
+
+        fn from_value_node(node: *mut pg_sys::Node) -> Option<Self>;
     }
 
-    pub(super) unsafe fn makeString<T: Display>(input: Option<T>) -> *mut pg_sys::Node {
+    impl AsValueNode for i32 {
+        fn as_value_node(&self) -> *mut Node {
+            unsafe { pg_sys::makeInteger(*self).cast() }
+        }
+
+        fn from_value_node(node: *mut Node) -> Option<Self> {
+            unsafe { node.as_int() }
+        }
+    }
+
+    impl AsValueNode for u32 {
+        fn as_value_node(&self) -> *mut Node {
+            unsafe { makeString(Some(&format!("{self}"))) }
+        }
+
+        fn from_value_node(node: *mut Node) -> Option<Self> {
+            unsafe { Self::from_str(node.as_c_str()?.to_str().ok()?).ok() }
+        }
+    }
+
+    impl AsValueNode for usize {
+        fn as_value_node(&self) -> *mut Node {
+            unsafe { makeString(Some(&format!("{self}"))) }
+        }
+
+        fn from_value_node(node: *mut Node) -> Option<Self> {
+            unsafe { Self::from_str(node.as_c_str()?.to_str().ok()?).ok() }
+        }
+    }
+
+    impl AsValueNode for pg_sys::Oid {
+        fn as_value_node(&self) -> *mut Node {
+            unsafe { makeString(Some(&format!("{}", self.as_u32()))) }
+        }
+        fn from_value_node(node: *mut Node) -> Option<Self> {
+            let as_u32 = unsafe { u32::from_str(node.as_c_str()?.to_str().ok()?).ok() }?;
+            Some(pg_sys::Oid::from(as_u32))
+        }
+    }
+
+    impl AsValueNode for SortDirection {
+        fn as_value_node(&self) -> *mut Node {
+            unsafe {
+                match self {
+                    SortDirection::Asc => makeInteger(Some(0)),
+                    SortDirection::Desc => makeInteger(Some(1)),
+                }
+            }
+        }
+
+        fn from_value_node(node: *mut Node) -> Option<Self> {
+            unsafe {
+                let integer = node.as_int()?;
+                if integer == 0 {
+                    Some(Self::Asc)
+                } else if integer == 1 {
+                    Some(Self::Desc)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub unsafe fn makeInteger<T: AsValueNode>(input: Option<T>) -> *mut pg_sys::Node {
+        unwrapOrNull(input.map(|i| i.as_value_node()))
+    }
+
+    pub unsafe fn makeString<T: Display>(input: Option<T>) -> *mut pg_sys::Node {
         unwrapOrNull(
             input.map(|s| pg_sys::makeString(s.to_string().as_pg_cstr()).cast::<pg_sys::Node>()),
         )
     }
 
     #[allow(dead_code)]
-    pub(super) unsafe fn makeBoolean<T: Into<bool>>(input: Option<T>) -> *mut pg_sys::Node {
+    pub unsafe fn makeBoolean<T: Into<bool>>(input: Option<T>) -> *mut pg_sys::Node {
         #[cfg(any(feature = "pg13", feature = "pg14"))]
         {
             unwrapOrNull(
@@ -189,17 +251,10 @@ mod serialize {
     pub unsafe fn serialize(privdat: PrivateData) -> PgList<pg_sys::Node> {
         let mut ser = PgList::new();
 
-        if privdat.sort_direction.is_none() {
-            assert!(
-                privdat.limit.is_none(),
-                "internal error:  cannot have a limit without also sorting by score"
-            );
-        }
-
         ser.push(makeInteger(privdat.heaprelid));
         ser.push(makeInteger(privdat.indexrelid));
         ser.push(makeInteger(privdat.range_table_index));
-        ser.push(unwrapOrNull(privdat.restrict_info.map(|l| l.cast())));
+        ser.push(unwrapOrNull(privdat.quals.map(|l| l.cast())));
         ser.push(makeString(privdat.limit));
         ser.push(makeString(privdat.sort_field));
         ser.push(makeInteger(privdat.sort_direction));
@@ -213,18 +268,19 @@ mod serialize {
 }
 
 #[allow(non_snake_case)]
-mod deserialize {
-    use crate::api::{AsBool, AsCStr, AsInt};
+pub mod deserialize {
+    use crate::api::{AsBool, AsCStr};
     use crate::nodecast;
+    use crate::postgres::customscan::pdbscan::privdat::serialize::AsValueNode;
     use crate::postgres::customscan::pdbscan::privdat::PrivateData;
     use pgrx::{pg_sys, PgList};
     use std::str::FromStr;
 
-    unsafe fn decodeInteger<T: From<u32>>(node: *mut pg_sys::Node) -> Option<T> {
-        node.as_int().map(|i| (i as u32).into())
+    pub unsafe fn decodeInteger<T: AsValueNode>(node: *mut pg_sys::Node) -> Option<T> {
+        T::from_value_node(node)
     }
 
-    unsafe fn decodeString<T: FromStr>(node: *mut pg_sys::Node) -> Option<T> {
+    pub unsafe fn decodeString<T: FromStr>(node: *mut pg_sys::Node) -> Option<T> {
         node.as_c_str().map(|i| {
             let s = i.to_str().expect("string node should be valid utf8");
             T::from_str(s)
@@ -234,7 +290,7 @@ mod deserialize {
     }
 
     #[allow(dead_code)]
-    unsafe fn decodeBoolean<T: From<bool>>(node: *mut pg_sys::Node) -> Option<T> {
+    pub unsafe fn decodeBoolean<T: From<bool>>(node: *mut pg_sys::Node) -> Option<T> {
         node.as_bool().map(|b| b.into())
     }
 
@@ -244,7 +300,7 @@ mod deserialize {
             heaprelid: input.get_ptr(0).and_then(|n| decodeInteger(n)),
             indexrelid: input.get_ptr(1).and_then(|n| decodeInteger(n)),
             range_table_index: input.get_ptr(2).and_then(|n| decodeInteger(n)),
-            restrict_info: input.get_ptr(3).and_then(|n| nodecast!(List, T_List, n)),
+            quals: input.get_ptr(3).and_then(|n| nodecast!(List, T_List, n)),
             limit: input.get_ptr(4).and_then(|n| decodeString(n)),
             sort_field: input.get_ptr(5).and_then(|n| decodeString(n)),
             sort_direction: input.get_ptr(6).and_then(|n| decodeInteger(n)),

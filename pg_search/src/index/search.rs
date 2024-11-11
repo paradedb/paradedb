@@ -226,6 +226,13 @@ impl SearchIndex {
         Ok(new_self)
     }
 
+    pub fn segment_count(&self) -> usize {
+        self.underlying_index
+            .searchable_segments()
+            .unwrap_or_default()
+            .len()
+    }
+
     pub fn query_parser(&self) -> QueryParser {
         QueryParser::for_index(
             &self.underlying_index,

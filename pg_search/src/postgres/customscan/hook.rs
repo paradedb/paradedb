@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::CustomScan;
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
@@ -51,6 +51,8 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
         };
 
         pg_sys::set_rel_pathlist_hook = Some(__priv_callback::<CS>);
+
+        pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
     }
 }
 
@@ -71,9 +73,19 @@ pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
         }
 
         if let Some(mut path) = CS::callback(CustomPathBuilder::new::<CS>(root, rel, rti, rte)) {
-            let path = PgMemoryContexts::CurrentMemoryContext
+            let forced = path.flags & Flags::Force as u32 != 0;
+            path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
+
+            let custom_path = PgMemoryContexts::CurrentMemoryContext
                 .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
-            pg_sys::add_path(rel, path.cast());
+
+            if forced {
+                // remove all the existing possible paths
+                (*rel).pathlist = std::ptr::null_mut();
+            }
+
+            // add this path for consideration
+            pg_sys::add_path(rel, custom_path.cast());
         }
     }
 }

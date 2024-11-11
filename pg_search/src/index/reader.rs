@@ -78,9 +78,13 @@ pub enum SearchResults {
     TopNByField(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
 
     #[allow(clippy::type_complexity)]
-    Channel(std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>),
+    BufferedChannel(
+        std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>,
+    ),
 
-    SingleSegment(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+    Channel(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
+
+    SingleSegment(vec_collector::FruitStyle),
 }
 
 #[derive(PartialEq, Clone)]
@@ -109,11 +113,14 @@ impl Debug for SearchResults {
             SearchResults::TopNByField(count, iter) => {
                 write!(f, "SearchResults::TopNByField({count}, {:?})", iter.len())
             }
-            SearchResults::Channel(iter) => {
-                write!(f, "SearchResults::FastPath(~{:?})", iter.size_hint())
+            SearchResults::BufferedChannel(iter) => {
+                write!(f, "SearchResults::BufferedChannel(~{:?})", iter.size_hint())
             }
-            SearchResults::SingleSegment(count, iter) => {
-                write!(f, "SearchResults::SingleSegment({count}, {:?})", iter.len())
+            SearchResults::Channel(iter) => {
+                write!(f, "SearchResults::Channel(~{:?})", iter.size_hint())
+            }
+            SearchResults::SingleSegment(iter) => {
+                write!(f, "SearchResults::SingleSegment({:?})", iter.size_hint())
             }
         }
     }
@@ -130,8 +137,9 @@ impl Iterator for SearchResults {
                 .next()
                 .map(|(OrderedScore { score, .. }, doc_address)| (score, doc_address)),
             SearchResults::TopNByField(_, iter) => iter.next(),
+            SearchResults::BufferedChannel(iter) => iter.next(),
             SearchResults::Channel(iter) => iter.next(),
-            SearchResults::SingleSegment(_, iter) => iter.next(),
+            SearchResults::SingleSegment(iter) => iter.next(),
         }
     }
 
@@ -141,22 +149,9 @@ impl Iterator for SearchResults {
             SearchResults::None => (0, Some(0)),
             SearchResults::TopNByScore(_, iter) => iter.size_hint(),
             SearchResults::TopNByField(_, iter) => iter.size_hint(),
+            SearchResults::BufferedChannel(iter) => iter.size_hint(),
             SearchResults::Channel(iter) => iter.size_hint(),
-            SearchResults::SingleSegment(_, iter) => iter.size_hint(),
-        }
-    }
-
-    #[inline]
-    fn count(self) -> usize
-    where
-        Self: Sized,
-    {
-        match self {
-            SearchResults::None => 0,
-            SearchResults::TopNByScore(count, _) => count,
-            SearchResults::TopNByField(count, _) => count,
-            SearchResults::Channel(iter) => iter.count(),
-            SearchResults::SingleSegment(count, _) => count,
+            SearchResults::SingleSegment(iter) => iter.size_hint(),
         }
     }
 }
@@ -167,8 +162,9 @@ impl SearchResults {
             SearchResults::None => Some(0),
             SearchResults::TopNByScore(count, _) => Some(*count),
             SearchResults::TopNByField(count, _) => Some(*count),
+            SearchResults::BufferedChannel(_) => None,
             SearchResults::Channel(_) => None,
-            SearchResults::SingleSegment(count, _) => Some(*count),
+            SearchResults::SingleSegment(_) => None,
         }
     }
 }
@@ -277,36 +273,73 @@ impl SearchIndexReader {
         sort_segments_by_ctid: bool,
         executor: &'static Executor,
         query: &dyn Query,
+        estimated_rows: Option<usize>,
     ) -> SearchResults {
-        let (sender, receiver) = crossbeam::channel::unbounded();
-        let collector =
-            collector::ChannelCollector::new(need_scores, sort_segments_by_ctid, sender);
-        let searcher = self.searcher.clone();
-        let schema = self.schema.schema.clone();
+        let estimated_rows = estimated_rows.unwrap_or(0);
 
-        let owned_query = query.box_clone();
-        std::thread::spawn(move || {
-            searcher
-                .search_with_executor(
-                    &owned_query,
-                    &collector,
-                    executor,
-                    if need_scores {
-                        tantivy::query::EnableScoring::Enabled {
-                            searcher: &searcher,
-                            statistics_provider: &searcher,
-                        }
-                    } else {
-                        tantivy::query::EnableScoring::Disabled {
-                            schema: &schema,
-                            searcher_opt: Some(&searcher),
-                        }
-                    },
-                )
-                .expect("failed to search")
-        });
+        if estimated_rows == 0 || estimated_rows > 5_000 || sort_segments_by_ctid {
+            let (sender, receiver) = crossbeam::channel::unbounded();
+            let collector = buffered_channel::BufferedChannelCollector::new(
+                need_scores,
+                sort_segments_by_ctid,
+                sender,
+            );
+            let searcher = self.searcher.clone();
+            let schema = self.schema.schema.clone();
 
-        SearchResults::Channel(receiver.into_iter().flatten())
+            let owned_query = query.box_clone();
+            std::thread::spawn(move || {
+                searcher
+                    .search_with_executor(
+                        &owned_query,
+                        &collector,
+                        executor,
+                        if need_scores {
+                            tantivy::query::EnableScoring::Enabled {
+                                searcher: &searcher,
+                                statistics_provider: &searcher,
+                            }
+                        } else {
+                            tantivy::query::EnableScoring::Disabled {
+                                schema: &schema,
+                                searcher_opt: Some(&searcher),
+                            }
+                        },
+                    )
+                    .expect("failed to search")
+            });
+
+            SearchResults::BufferedChannel(receiver.into_iter().flatten())
+        } else {
+            let (sender, receiver) = crossbeam::channel::unbounded();
+            let collector = channel::ChannelCollector::new(need_scores, sender);
+            let searcher = self.searcher.clone();
+            let schema = self.schema.schema.clone();
+
+            let owned_query = query.box_clone();
+            std::thread::spawn(move || {
+                searcher
+                    .search_with_executor(
+                        &owned_query,
+                        &collector,
+                        executor,
+                        if need_scores {
+                            tantivy::query::EnableScoring::Enabled {
+                                searcher: &searcher,
+                                statistics_provider: &searcher,
+                            }
+                        } else {
+                            tantivy::query::EnableScoring::Disabled {
+                                schema: &schema,
+                                searcher_opt: Some(&searcher),
+                            }
+                        },
+                    )
+                    .expect("failed to search")
+            });
+
+            SearchResults::Channel(receiver.into_iter())
+        }
     }
 
     /// Search a specific index segment for matching documents.
@@ -339,7 +372,7 @@ impl SearchIndexReader {
         let results = collector
             .collect_segment(weight.as_ref(), segment_ord, segment_reader)
             .expect("single segment collection should succeed");
-        SearchResults::SingleSegment(results.len(), results.into_iter())
+        SearchResults::SingleSegment(results.into_iter())
     }
 
     /// Search the Tantivy index for the "top N" matching documents.
@@ -511,7 +544,7 @@ impl SearchIndexReader {
     }
 }
 
-mod collector {
+mod buffered_channel {
     use crate::index::reader::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::fastfield::Column;
@@ -519,13 +552,13 @@ mod collector {
 
     /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
     /// each segment, in parallel, as tantivy find each doc.
-    pub struct ChannelCollector {
+    pub struct BufferedChannelCollector {
         need_scores: bool,
         sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
         sort_segments_by_ctid: bool,
     }
 
-    impl ChannelCollector {
+    impl BufferedChannelCollector {
         pub fn new(
             need_scores: bool,
             sort_segments_by_ctid: bool,
@@ -539,16 +572,16 @@ mod collector {
         }
     }
 
-    impl Collector for ChannelCollector {
+    impl Collector for BufferedChannelCollector {
         type Fruit = ();
-        type Child = ChannelSegmentCollector;
+        type Child = BufferedChannelSegmentCollector;
 
         fn for_segment(
             &self,
             segment_local_id: SegmentOrdinal,
             segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
-            Ok(ChannelSegmentCollector {
+            Ok(BufferedChannelSegmentCollector {
                 segment_ord: segment_local_id,
                 sender: self.sender.clone(),
                 fruit: Vec::new(),
@@ -569,7 +602,7 @@ mod collector {
         }
     }
 
-    pub struct ChannelSegmentCollector {
+    pub struct BufferedChannelSegmentCollector {
         segment_ord: SegmentOrdinal,
         sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
         fruit: Vec<(SearchIndexScore, DocAddress)>,
@@ -577,7 +610,7 @@ mod collector {
         sort_by_ctid: bool,
     }
 
-    impl SegmentCollector for ChannelSegmentCollector {
+    impl SegmentCollector for BufferedChannelSegmentCollector {
         type Fruit = ();
 
         fn collect(&mut self, doc: DocId, score: Score) {
@@ -586,6 +619,14 @@ mod collector {
                 SearchIndexScore::new(&self.ctid_ff, doc, score),
                 doc_address,
             ))
+        }
+
+        fn collect_block(&mut self, docs: &[DocId]) {
+            self.fruit.extend(docs.iter().map(|doc| {
+                let doc = *doc;
+                let doc_address = DocAddress::new(self.segment_ord, doc);
+                (SearchIndexScore::new(&self.ctid_ff, doc, 0.0), doc_address)
+            }));
         }
 
         fn harvest(mut self) -> Self::Fruit {
@@ -600,11 +641,145 @@ mod collector {
     }
 }
 
+mod channel {
+    use crate::index::reader::SearchIndexScore;
+    use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::fastfield::Column;
+    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
+
+    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
+    /// each segment, in parallel, as tantivy find each doc.
+    pub struct ChannelCollector {
+        need_scores: bool,
+        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+    }
+
+    impl ChannelCollector {
+        pub fn new(
+            need_scores: bool,
+            sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+        ) -> Self {
+            Self {
+                need_scores,
+                sender,
+            }
+        }
+    }
+
+    impl Collector for ChannelCollector {
+        type Fruit = ();
+        type Child = ChannelSegmentCollector;
+
+        fn for_segment(
+            &self,
+            segment_local_id: SegmentOrdinal,
+            segment_reader: &SegmentReader,
+        ) -> tantivy::Result<Self::Child> {
+            Ok(ChannelSegmentCollector {
+                segment_ord: segment_local_id,
+                sender: self.sender.clone(),
+                ctid_ff: segment_reader
+                    .fast_fields()
+                    .u64("ctid")
+                    .expect("ctid should be a u64 fast field"),
+            })
+        }
+
+        fn requires_scoring(&self) -> bool {
+            self.need_scores
+        }
+
+        fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
+            Ok(())
+        }
+    }
+
+    pub struct ChannelSegmentCollector {
+        segment_ord: SegmentOrdinal,
+        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
+        ctid_ff: Column<u64>,
+    }
+
+    impl SegmentCollector for ChannelSegmentCollector {
+        type Fruit = ();
+
+        fn collect(&mut self, doc: DocId, score: Score) {
+            let doc_address = DocAddress::new(self.segment_ord, doc);
+            self.sender
+                .send((
+                    SearchIndexScore::new(&self.ctid_ff, doc, score),
+                    doc_address,
+                ))
+                .ok();
+        }
+
+        fn collect_block(&mut self, docs: &[DocId]) {
+            for doc in docs {
+                let doc = *doc;
+                let doc_address = DocAddress::new(self.segment_ord, doc);
+                if self
+                    .sender
+                    .send((SearchIndexScore::new(&self.ctid_ff, doc, 0.0), doc_address))
+                    .is_err()
+                {
+                    // channel likely closed, so get out
+                    break;
+                }
+            }
+        }
+
+        fn harvest(self) -> Self::Fruit {}
+    }
+}
+
 mod vec_collector {
     use crate::index::reader::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::fastfield::Column;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
+
+    #[derive(Default)]
+    pub enum FruitStyle {
+        #[default]
+        Empty,
+        Individual(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+        Blocks(
+            std::iter::Flatten<
+                std::vec::IntoIter<std::vec::IntoIter<(SearchIndexScore, DocAddress)>>,
+            >,
+        ),
+    }
+
+    impl Iterator for FruitStyle {
+        type Item = (SearchIndexScore, DocAddress);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                FruitStyle::Empty => None,
+                FruitStyle::Individual(iter) => iter.next(),
+                FruitStyle::Blocks(iter) => iter.next(),
+            }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            match self {
+                FruitStyle::Empty => (0, None),
+                FruitStyle::Individual(iter) => iter.size_hint(),
+                FruitStyle::Blocks(iter) => iter.size_hint(),
+            }
+        }
+
+        fn count(self) -> usize
+        where
+            Self: Sized,
+        {
+            match self {
+                FruitStyle::Empty => 0,
+                FruitStyle::Individual(iter) => iter.count(),
+                FruitStyle::Blocks(iter) => iter.count(),
+            }
+        }
+    }
 
     /// A [`Collector`] that collects all matching documents into a [`Vec`].  
     pub struct VecCollector {
@@ -618,7 +793,7 @@ mod vec_collector {
     }
 
     impl Collector for VecCollector {
-        type Fruit = Vec<Vec<(SearchIndexScore, DocAddress)>>;
+        type Fruit = Vec<FruitStyle>;
         type Child = VecSegmentCollector;
 
         fn for_segment(
@@ -628,7 +803,8 @@ mod vec_collector {
         ) -> tantivy::Result<Self::Child> {
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,
-                results: Default::default(),
+                scored: vec![],
+                blocks: vec![],
                 ctid_ff: segment_reader
                     .fast_fields()
                     .u64("ctid")
@@ -651,23 +827,41 @@ mod vec_collector {
 
     pub struct VecSegmentCollector {
         segment_ord: SegmentOrdinal,
-        results: Vec<(SearchIndexScore, DocAddress)>,
+        scored: Vec<(SearchIndexScore, DocAddress)>,
+        blocks: Vec<std::vec::IntoIter<(SearchIndexScore, DocAddress)>>,
         ctid_ff: Column<u64>,
     }
 
     impl SegmentCollector for VecSegmentCollector {
-        type Fruit = Vec<(SearchIndexScore, DocAddress)>;
+        type Fruit = FruitStyle;
 
         fn collect(&mut self, doc: DocId, score: Score) {
             let doc_address = DocAddress::new(self.segment_ord, doc);
-            self.results.push((
+            self.scored.push((
                 SearchIndexScore::new(&self.ctid_ff, doc, score),
                 doc_address,
             ));
         }
 
+        fn collect_block(&mut self, docs: &[DocId]) {
+            self.blocks.push(
+                docs.iter()
+                    .map(|doc| {
+                        let doc = *doc;
+                        let doc_address = DocAddress::new(self.segment_ord, doc);
+                        (SearchIndexScore::new(&self.ctid_ff, doc, 0.0), doc_address)
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter(),
+            );
+        }
+
         fn harvest(self) -> Self::Fruit {
-            self.results
+            if !self.scored.is_empty() {
+                FruitStyle::Individual(self.scored.into_iter())
+            } else {
+                FruitStyle::Blocks(self.blocks.into_iter().flatten())
+            }
         }
     }
 }

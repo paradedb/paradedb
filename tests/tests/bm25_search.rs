@@ -1193,8 +1193,8 @@ fn test_customers_table(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // Test querying by name
-    let rows: Vec<(i32,)> = "SELECT id FROM customers WHERE customers @@@ 'name:Deep' ORDER BY id"
-        .fetch(&mut conn);
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM customers WHERE customers @@@ 'name:Deep' ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
     // Test querying nested JSON data

@@ -19,8 +19,48 @@ WHERE description @@@ 'shoes';
 
 The performance of aggregates over very large result sets (millions of rows or more) is a well-known problem in Postgres.
 
-In ParadeDB enterprise, aggregates over full text search results are drastically accelerated by [fast fields](/documentation/indexing/fast_fields).
+In ParadeDB Enterprise, aggregates over full text search results are drastically accelerated by [fast fields](/documentation/indexing/fast_fields).
 Fast fields are stored in a column-oriented fashion, which makes them much quicker to read and process.
+
+The following steps are necessary to prepare the ParadeDB instance for fast fields.
+
+### Configure Parallel Workers
+
+ParadeDB Enterprise uses Postgres parallel workers. By default, Postgres allows two workers per parallel query.
+Increasing the number of [parallel workers](/documentation/configuration/parallel) allows parallel queries to use all of the available hardware on the host machine and can deliver significant
+speedups. For instance, if the host machine has 16 CPUs, `max_worker_processes`, `max_parallel_workers`, and `max_parallel_workers_per_gather`
+should be set to 16.
+
+### Run `VACUUM`
+
+`VACUUM` updates the table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html),
+which speeds up Postgres' visibility checks. Specifying `INDEX_CLEANUP = false` allows `VACUUM` to run much
+faster over large tables by skipping the cleanup of dead rows in the index.
+
+<Note>
+Make sure to pass the table name, not the index name, to `VACUUM`.
+</Note>
+
+```sql
+VACUUM (INDEX_CLEANUP = false) mock_items;
+```
+
+If the table experiences frequent updates, we recommend configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).
+
+### Run Cold Query
+
+The following query allows Postgres to cache the underlying index files. This is a one-time cold query that will
+**not** be fast, but allows subsequent queries to be fast.
+
+```sql
+SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
+```
+
+<Note>
+Replace `mock_items` with your table name, and `id` with your key field.
+</Note>
+
+### Index Fast Fields
 
 You can check which fields are indexed as fast by running `paradedb.schema`.
 
@@ -111,62 +151,3 @@ GROUP BY description LIMIT 5;
 (7 rows)
 ```
 </Accordion>
-
-## Performance Tuning
-
-In addition to configuring fast fields, there are several other important factors that optimize aggregate performance.
-
-### Parallel Workers
-
-If the table is large enough, ParadeDB can invoke a parallel scan for certain aggregate queries.
-
-```sql
--- This will invoke a parallel scan if mock_items becomes very large
-SELECT COUNT(*) FROM mock_items
-WHERE description @@@ 'shoes';
-```
-
-If a parallel scan was invoked, a `Parallel Index Only Scan` will appear in the query's `EXPLAIN` output.
-
-By default, Postgres allows `2` workers per parallel query. Increasing the number of [parallel workers](/documentation/configuration/parallel)
-allows parallel queries to use all of the available hardware on the host machine and can deliver significant
-speedups.
-
-### Predicates
-
-In order for ParadeDB's fast field optimizations to apply, the full text search `@@@` operator must be present and used for all predicates.
-For instance, the following two queries produce identical results, but the second query will return faster because only `@@@`, not `=`, is used.
-
-```sql
--- Slow query
-SELECT COUNT(*) FROM mock_items
-WHERE description @@@ 'shoes' AND rating = 5;
-
--- Fast query
-SELECT COUNT(*) FROM mock_items
-WHERE id @@@ paradedb.boolean(
-  must => ARRAY[
-    paradedb.term('description', 'shoes'),
-    paradedb.term('rating', 5)
-  ]
-);
-```
-
-Additionally, multiple predicates should be combined into a single `paradedb.boolean` instead of using Postgres `AND`, `OR`, or `NOT`. This is a temporary limitation we expect
-to remove in future releases.
-
-### Regular Vacuums
-
-Over time, a table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html) can become outdated. This can negatively impact aggregate performance by increasing the time it takes to perform visibility checks over individual rows.
-
-Running `VACUUM` over the table updates its visibility map. This can be automated by configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).
-
-```sql
-VACUUM mock_items;
-```
-
-### Text Fast Fields
-
-A known limitation of our underlying search library, Tantivy, is that text fast fields are slower to return than non-text fast fields.
-Future releases will improve the speeds of text fast fields. In the meantime, we recommend using a non-text field for aggregates whenever possible. For instance,
-passing a numeric instead of a text field into `COUNT`.

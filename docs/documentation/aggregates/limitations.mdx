@@ -1,0 +1,34 @@
+---
+title: Limitations
+---
+
+## Filtering
+
+In order for ParadeDB's fast field optimizations to apply, the full text search `@@@` operator must be present and used for all predicates,
+including filters. For instance, the following two queries produce identical results, but the second query will return faster because only `@@@`, not `=`, is used.
+
+```sql
+-- Slow query
+SELECT COUNT(*) FROM mock_items
+WHERE description @@@ 'shoes' AND rating = 5;
+
+-- Fast query
+SELECT COUNT(*) FROM mock_items
+WHERE id @@@ paradedb.boolean(
+  must => ARRAY[
+    paradedb.term('description', 'shoes'),
+    paradedb.term('rating', 5)
+  ]
+);
+```
+
+## Multiple Predicates
+
+Multiple predicates should be combined into a single `paradedb.boolean` instead of using Postgres `AND`, `OR`, or `NOT`. This is a temporary limitation we expect
+to remove in future releases.
+
+## Text Fast Fields
+
+A known limitation of our underlying search library, Tantivy, is that text fast fields are slower to return than non-text fast fields.
+Future releases will improve the speeds of text fast fields. In the meantime, we recommend using a non-text field for aggregates whenever possible. For instance,
+using `COUNT(*)` instead of `COUNT(<text_field>)`.

@@ -110,18 +110,19 @@ GROUP BY rating LIMIT 5;
 ```csv
                                                                                       QUERY PLAN
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=11.53..11.57 rows=2 width=12)
-   ->  GroupAggregate  (cost=11.53..11.57 rows=2 width=12)
+ Limit  (cost=10.01..10.05 rows=2 width=12)
+   ->  GroupAggregate  (cost=10.01..10.05 rows=2 width=12)
          Group Key: rating
-         ->  Sort  (cost=11.53..11.54 rows=2 width=4)
+         ->  Sort  (cost=10.01..10.02 rows=2 width=4)
                Sort Key: rating
-               ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..11.52 rows=2 width=4)
+               ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.00 rows=2 width=4)
                      Table: mock_items
                      Index: search_idx
                      Fast Fields: rating
+                     Exec Method: NumericFastFieldExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"oid":3567455,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+                     Tantivy Query: {"with_index":{"oid":3748196,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+(12 rows)
 ```
 </Accordion>
 

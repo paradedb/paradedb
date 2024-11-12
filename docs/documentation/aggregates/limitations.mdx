@@ -22,11 +22,6 @@ WHERE id @@@ paradedb.boolean(
 );
 ```
 
-## Multiple Predicates
-
-Multiple predicates should be combined into a single `paradedb.boolean` instead of using Postgres `AND`, `OR`, or `NOT`. This is a temporary limitation we expect
-to remove in future releases.
-
 ## Text Fast Fields
 
 A known limitation of our underlying search library, Tantivy, is that text fast fields are slower to return than non-text fast fields.

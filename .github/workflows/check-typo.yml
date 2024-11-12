@@ -18,18 +18,16 @@ jobs:
   check-typo:
     name: Check Typo using codespell
     runs-on: ubicloud-standard-2
+    container:
+      image: codespell-project/codespell:latest
+      credentials:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
     if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
-
-      # To avoid Docker pull rate limits
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       # The `skip` parameter is a total mess, read up before adding.
       # https://github.com/codespell-project/codespell/issues/1915

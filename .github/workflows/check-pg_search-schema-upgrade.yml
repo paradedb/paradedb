@@ -9,8 +9,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - dev
-      - main
+      - main # We only run the extension upgrade test on PRs to `main`, since it's when we do the release
     paths:
       - ".github/workflows/check-pg_search-schema-upgrade.yml"
       - "pg_search/**"

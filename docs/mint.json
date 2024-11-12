@@ -171,7 +171,8 @@
               "group": "Aggregates",
               "pages": [
                 "documentation/aggregates/overview",
-                "documentation/aggregates/common"
+                "documentation/aggregates/common",
+                "documentation/aggregates/limitations"
               ]
             },
             {

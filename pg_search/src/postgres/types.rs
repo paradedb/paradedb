@@ -17,6 +17,7 @@
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::range::RangeToTantivyValue;
+use crate::schema::AnyEnum;
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
@@ -253,6 +254,17 @@ impl TantivyValue {
                 ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
+            PgOid::Custom(custom) => {
+                if pgrx::pg_sys::type_is_enum(*custom) {
+                    let (_, _, ordinal) = pgrx::enum_helper::lookup_enum_by_oid(
+                        pgrx::pg_sys::Oid::from_datum(datum, false)
+                            .ok_or(TantivyValueError::DatumDeref)?,
+                    );
+                    TantivyValue::try_from(ordinal)
+                } else {
+                    Err(TantivyValueError::UnsupportedOid(oid.value()))
+                }
+            }
             _ => Err(TantivyValueError::InvalidOid),
         }
     }
@@ -890,6 +902,19 @@ impl TryFrom<TantivyValue> for pgrx::Uuid {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "uuid".to_string(),
             ))
+        }
+    }
+}
+
+impl TryFrom<AnyEnum> for TantivyValue {
+    type Error = TantivyValueError;
+
+    fn try_from(val: AnyEnum) -> Result<Self, Self::Error> {
+        match val.ordinal() {
+            Some(ordinal) => Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+                ordinal.into(),
+            ))),
+            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
         }
     }
 }

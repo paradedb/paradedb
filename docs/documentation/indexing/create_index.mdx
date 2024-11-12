@@ -268,6 +268,30 @@ CALL paradedb.create_bm25(
   Whether the original value of the field is stored.
 </ParamField>
 
+### Enumerated Types
+
+Custom Postgres [enums](https://www.postgresql.org/docs/current/datatype-enum.html) should be indexed as `numeric_fields`.
+This is because enums are stored as float values in Postgres.
+
+```sql
+CREATE TYPE color AS ENUM ('red', 'green', 'blue');
+ALTER TABLE mock_items ADD COLUMN color color;
+
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  numeric_fields => paradedb.field('color')
+);
+```
+
+Enums should be queried with [term queries](/documentation/advanced/term/term).
+
+<Note>
+If the ordering of the enum is changed with `ADD VALUE ... [ BEFORE | AFTER ]`, the BM25 index should be dropped
+and recreated to account for the new enum ordinal values.
+</Note>
+
 ### Multiple Fields
 
 The `||` operator can be used to index multiple fields.

@@ -21,6 +21,7 @@ use pgrx::{iter::TableIterator, *};
 use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
 use crate::query::{SearchQueryInput, TermInput};
+use crate::schema::AnyEnum;
 use crate::schema::IndexRecordOption;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -574,6 +575,20 @@ macro_rules! term_fn {
             }
         }
     };
+}
+
+#[pg_extern(name = "term", immutable, parallel_safe)]
+pub fn term_anyenum(field: FieldName, value: AnyEnum) -> SearchQueryInput {
+    let tantivy_value = TantivyValue::try_from(value)
+        .expect("value should be a valid TantivyValue representation")
+        .tantivy_schema_value();
+    let is_datetime = matches!(tantivy_value, OwnedValue::Date(_));
+
+    SearchQueryInput::Term {
+        field: Some(field.into_inner()),
+        value: tantivy_value,
+        is_datetime,
+    }
 }
 
 macro_rules! term_fn_unsupported {

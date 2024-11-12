@@ -19,7 +19,6 @@ jobs:
     name: Check Typo using codespell
     runs-on: ubicloud-standard-2
     container:
-      image: codespell-project/codespell:latest
       credentials:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}

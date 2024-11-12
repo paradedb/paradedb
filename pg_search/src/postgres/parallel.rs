@@ -104,8 +104,12 @@ pub fn maybe_init_parallel_scan(
     scan: pg_sys::IndexScanDesc,
     searcher: &tantivy::Searcher,
 ) -> Option<i32> {
-    let state = get_bm25_scan_state(&scan)?;
+    if unsafe { (*scan).parallel_scan.is_null() } {
+        // not a parallel scan, so there's nothing to initialize
+        return None;
+    }
 
+    let state = get_bm25_scan_state(&scan)?;
     let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
     let _mutex = state.lock();
     if worker_number == -1 {

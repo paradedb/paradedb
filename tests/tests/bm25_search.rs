@@ -744,13 +744,16 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let ret = "CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        predicates => 'category = ''Electronics'''
+    let ret = "CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating)
+    WITH (
+        key_field='id',
+        text_fields='{
+            \"description\": {\"tokenizer\": {\"type\": \"en_stem\", \"lowercase\": true, \"remove_long\": 255}},
+            \"category\": {}
+        }',
+        numeric_fields='{\"rating\": {}}',
+        predicates='category = ''Electronics'''
     );"
     .execute_result(&mut conn);
     assert!(ret.is_ok());
@@ -1184,12 +1187,11 @@ fn json_array_term(mut conn: PgConnection) {
     INSERT INTO colors (colors_json, colors_jsonb) VALUES 
         ('["red", "green", "blue"]'::JSON, '["red", "green", "blue"]'::JSONB),
         ('["red", "orange"]'::JSON, '["red", "orange"]'::JSONB);
-    CALL paradedb.create_bm25(
-        table_name => 'colors', 
-        schema_name => 'public', 
-        index_name => 'colors_bm25_index', 
-        key_field => 'id',
-        json_fields => paradedb.field('colors_json') || paradedb.field('colors_jsonb')
+    CREATE INDEX colors_bm25_index ON colors
+    USING bm25 (id, colors_json, colors_jsonb)
+    WITH (
+        key_field='id',
+        json_fields='{"colors_json": {}, "colors_jsonb": {}}'
     );
     "#
     .execute(&mut conn);

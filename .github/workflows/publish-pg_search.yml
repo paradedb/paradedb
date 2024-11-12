@@ -31,6 +31,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
+      credentials:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
     strategy:
       matrix:
         include:

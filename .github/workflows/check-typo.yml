@@ -24,11 +24,14 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      # The `skip` parameter is a total mess, read up before adding.
+      # https://github.com/codespell-project/codespell/issues/1915
       - name: Check Typo using codespell
         uses: codespell-project/actions-codespell@v2
         with:
           check_filenames: true
           ignore_words_file: .codespellignore
-          # The `skip` parameter is a total mess, read up before adding.
-          # https://github.com/codespell-project/codespell/issues/1915
           skip: "Cargo.lock,./tests"
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}

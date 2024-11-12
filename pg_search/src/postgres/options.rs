@@ -19,6 +19,7 @@ use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
+use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::CStr;
 
@@ -311,30 +312,11 @@ impl SearchIndexCreateOptions {
     pub fn get_fields(
         &self,
         heaprel: &PgRelation,
+        index_info: *mut pg_sys::IndexInfo,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
-        // Create a map from column name to column type. We'll use this to verify that index
-        // configurations passed by the user reference the correct types for each column.
-        let name_type_map: HashMap<String, SearchFieldType> = heaprel
-            .tuple_desc()
-            .into_iter()
-            .filter_map(|attribute| {
-                let attname = attribute.name();
-                let attribute_type_oid = attribute.type_oid();
-                let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-                let base_oid = if array_type != pg_sys::InvalidOid {
-                    PgOid::from(array_type)
-                } else {
-                    attribute_type_oid
-                };
-                if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
-                    Some((attname.into(), search_field_type))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let tupdesc = heaprel.tuple_desc();
 
-        [
+        let mut config_by_name = [
             self.text_fields_offset,
             self.numeric_fields_offset,
             self.boolean_fields_offset,
@@ -344,36 +326,73 @@ impl SearchIndexCreateOptions {
         ]
         .into_iter()
         .map(|offset| self.get_str(offset, "".to_string()))
-        .filter(|config| config.is_empty())
+        .filter(|config| !config.is_empty())
         .flat_map(|config| {
-            serde_json::from_str::<Vec<(String, serde_json::Value)>>(&config)
-                .unwrap_or_else(|_| {
-                    panic!("failed to deserialize field config: invalid JSON string: {config}")
-                })
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config)
+                .unwrap_or_else(|err| panic!("error in JSON field config: {err}: {config}"))
                 .into_iter()
         })
-        .map(|(field_name, field_config)| {
-            let field_type = name_type_map
-                .get(&field_name)
-                .expect("must be able to lookup field type by name");
+        .collect::<HashMap<_, _>>();
 
-            (
-                field_name.clone().into(),
-                match field_type {
-                    SearchFieldType::Text => SearchFieldConfig::text_from_json(field_config),
-                    SearchFieldType::I64 => SearchFieldConfig::numeric_from_json(field_config),
-                    SearchFieldType::F64 => SearchFieldConfig::numeric_from_json(field_config),
-                    SearchFieldType::U64 => SearchFieldConfig::numeric_from_json(field_config),
-                    SearchFieldType::Bool => SearchFieldConfig::boolean_from_json(field_config),
-                    SearchFieldType::Json => SearchFieldConfig::json_from_json(field_config),
-                    SearchFieldType::Date => SearchFieldConfig::date_from_json(field_config),
-                    SearchFieldType::Range => SearchFieldConfig::range_from_json(field_config),
-                }
-                .expect("field config should be valid for SearchFieldConfig::{field_name}"),
-                *field_type,
-            )
-        })
-        .collect()
+        let _ = unsafe {
+            let num_attrs = (*index_info).ii_NumIndexAttrs;
+            (0..num_attrs)
+                .into_iter()
+                .map(|i| {
+                    let attr_number = (*index_info).ii_IndexAttrNumbers[i as usize];
+                    let attribute = tupdesc
+                        .get((attr_number - 1) as usize)
+                        .expect("attribute should exist");
+                    let column_name = attribute.name();
+                    let column_type_oid = attribute.type_oid();
+                    (column_name, column_type_oid)
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let num_index_attrs = unsafe { (*index_info).ii_NumIndexAttrs };
+        (0..num_index_attrs)
+            .into_iter()
+            .map(|i| {
+                let attr_number = unsafe { (*index_info).ii_IndexAttrNumbers[i as usize] };
+                let attribute = tupdesc
+                    .get((attr_number - 1) as usize)
+                    .expect("attribute should exist");
+                let column_name = attribute.name();
+                let column_type_oid = attribute.type_oid();
+
+                let array_type = unsafe { pg_sys::get_element_type(column_type_oid.value()) };
+                let base_oid = if array_type != pg_sys::InvalidOid {
+                    PgOid::from(array_type)
+                } else {
+                    column_type_oid
+                };
+
+                let field_type = SearchFieldType::try_from(&base_oid).unwrap_or_else(|err| {
+                    panic!("cannot index column '{column_name}' with type {base_oid:?}: {err}")
+                });
+
+                let field_config = config_by_name
+                    .remove(column_name)
+                    .unwrap_or_else(|| json!({}));
+
+                (
+                    column_name.into(),
+                    match field_type {
+                        SearchFieldType::Text => SearchFieldConfig::text_from_json(field_config),
+                        SearchFieldType::I64 => SearchFieldConfig::numeric_from_json(field_config),
+                        SearchFieldType::F64 => SearchFieldConfig::numeric_from_json(field_config),
+                        SearchFieldType::U64 => SearchFieldConfig::numeric_from_json(field_config),
+                        SearchFieldType::Bool => SearchFieldConfig::boolean_from_json(field_config),
+                        SearchFieldType::Json => SearchFieldConfig::json_from_json(field_config),
+                        SearchFieldType::Date => SearchFieldConfig::date_from_json(field_config),
+                        SearchFieldType::Range => SearchFieldConfig::range_from_json(field_config),
+                    }
+                    .expect("field config should be valid for SearchFieldConfig::{field_name}"),
+                    field_type,
+                )
+            })
+            .collect()
     }
 
     pub fn get_key_field(&self) -> Option<SearchFieldName> {
@@ -487,14 +506,6 @@ pub unsafe fn init() {
         "merge_on_insert".as_pg_cstr(),
         "Merge segments immediately after rows are inserted into the index".as_pg_cstr(),
         true,
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
-    pg_sys::add_string_reloption(
-        RELOPT_KIND_PDB,
-        "fields".as_pg_cstr(),
-        "JSON string specifying how date fields should be indexed".as_pg_cstr(),
-        std::ptr::null(),
-        Some(validate_fields),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }

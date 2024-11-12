@@ -146,7 +146,7 @@ fn quoted_table_name(mut conn: PgConnection) {
     INSERT INTO "Activity" (name, age) VALUES ('Julia', 25);
     CREATE INDEX activity ON "Activity"
     USING bm25 ("key", name) WITH (key_field='key')"#
-    .execute(&mut conn);
+        .execute(&mut conn);
     let row: (i32, String, i32) =
         "SELECT * FROM \"Activity\" WHERE \"Activity\" @@@ 'name:alice' ORDER BY key"
             .fetch_one(&mut conn);
@@ -630,7 +630,6 @@ async fn json_nested_arrays(mut conn: PgConnection) {
 }
 
 #[rstest]
-// // #[ignore = "@@@"]
 fn bm25_partial_index_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

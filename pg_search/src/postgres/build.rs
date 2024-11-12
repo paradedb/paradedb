@@ -104,57 +104,44 @@ pub extern "C" fn ambuild(
         })
         .collect();
 
-    // Parse and validate the index configurations for each column.
-    let text_fields =
-        rdopts
-            .get_text_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Text) => (name, config, *field_type),
-                _ => panic!("'{name}' cannot be indexed as a text field"),
-            });
-
-    let numeric_fields = rdopts
-        .get_numeric_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::U64)
-            | Some(field_type @ SearchFieldType::I64)
-            | Some(field_type @ SearchFieldType::F64) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a numeric field"),
-        });
-
-    let boolean_fields = rdopts
-        .get_boolean_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Bool) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a boolean field"),
-        });
-
-    let json_fields =
-        rdopts
-            .get_json_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Json) => (name, config, *field_type),
-                _ => panic!("'{name}' cannot be indexed as a JSON field"),
-            });
-
-    let range_fields = rdopts.get_range_fields().into_iter().map(|(name, config)| {
-        match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Range) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a range field"),
+    for (name, _) in rdopts.get_text_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Text)) {
+            panic!("'{name}' cannot be indexed as a text field");
         }
-    });
+    }
 
-    let datetime_fields = rdopts
-        .get_datetime_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Date) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a datetime field"),
-        });
+    for (name, _) in rdopts.get_numeric_fields() {
+        if !matches!(
+            name_type_map.get(&name),
+            Some(SearchFieldType::U64 | SearchFieldType::I64 | SearchFieldType::F64)
+        ) {
+            panic!("'{name}' cannot be indexed as a numeric field");
+        }
+    }
+
+    for (name, _) in rdopts.get_boolean_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Bool)) {
+            panic!("'{name}' cannot be indexed as a boolean field");
+        }
+    }
+
+    for (name, _) in rdopts.get_json_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Json)) {
+            panic!("'{name}' cannot be indexed as a JSON field");
+        }
+    }
+
+    for (name, _) in rdopts.get_range_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Range)) {
+            panic!("'{name}' cannot be indexed as a range field");
+        }
+    }
+
+    for (name, _) in rdopts.get_datetime_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Date)) {
+            panic!("'{name}' cannot be indexed as a datetime field");
+        }
+    }
 
     let key_field = rdopts.get_key_field().expect("must specify key field");
     let key_field_type = match name_type_map.get(&key_field) {
@@ -201,12 +188,10 @@ pub extern "C" fn ambuild(
     };
 
     // Concatenate the separate lists of fields.
-    let fields: Vec<_> = text_fields
-        .chain(numeric_fields)
-        .chain(boolean_fields)
-        .chain(json_fields)
-        .chain(range_fields)
-        .chain(datetime_fields)
+    let fields: Vec<_> = rdopts
+        .get_fields(&heap_relation, index_info)
+        .into_iter()
+        .filter(|(name, _, _)| name != &key_field) // Process key_field separately.
         .chain(std::iter::once((
             key_field.clone(),
             key_config,

@@ -37,8 +37,7 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     json_fields jsonb DEFAULT '{}',
     range_fields jsonb DEFAULT '{}',
     datetime_fields jsonb DEFAULT '{}',
-    predicates text DEFAULT '',
-    fields jsonb DEFAULT '{}'
+    predicates text DEFAULT ''
 )
 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ",
@@ -57,7 +56,6 @@ fn create_bm25_jsonb(
     range_fields: JsonB,
     datetime_fields: JsonB,
     predicates: &str,
-    fields: JsonB,
 ) -> Result<()> {
     create_bm25_impl(
         index_name,
@@ -71,7 +69,6 @@ fn create_bm25_jsonb(
         &serde_json::to_string(&range_fields)?,
         &serde_json::to_string(&datetime_fields)?,
         predicates,
-        &serde_json::to_string(&fields)?,
     )
 }
 
@@ -89,7 +86,6 @@ fn create_bm25_impl(
     range_fields: &str,
     datetime_fields: &str,
     predicates: &str,
-    fields: &str,
 ) -> Result<()> {
     let original_client_min_messages =
         Spi::get_one::<String>("SHOW client_min_messages")?.unwrap_or_default();
@@ -138,7 +134,6 @@ fn create_bm25_impl(
         && json_fields == "{}"
         && range_fields == "{}"
         && datetime_fields == "{}"
-        && fields == "{}"
     {
         bail!(
             "no text_fields, numeric_fields, boolean_fields, json_fields, range_fields, datetime_fields, or fields were specified for index {}",
@@ -154,7 +149,6 @@ fn create_bm25_impl(
         json_fields,
         range_fields,
         datetime_fields,
-        fields,
     ] {
         match json5::from_str::<Value>(fields) {
             Ok(obj) => {
@@ -189,7 +183,7 @@ fn create_bm25_impl(
     };
 
     Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}, fields={}) {};",
+        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
         spi::quote_identifier(index_name),
         spi::quote_identifier(schema_name),
         spi::quote_identifier(table_name),
@@ -202,7 +196,6 @@ fn create_bm25_impl(
         spi::quote_literal(json_fields),
         spi::quote_literal(range_fields),
         spi::quote_literal(datetime_fields),
-        spi::quote_literal(fields),
         predicate_where))?;
 
     Spi::run(&format!(

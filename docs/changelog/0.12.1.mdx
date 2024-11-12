@@ -8,6 +8,14 @@ title: 0.12.1
 
 Custom Postgres enums can now be indexed and filtered over.
 
+## Performance Improvements 🚀
+
+### Parallelized Aggregates
+
+ParadeDB Enterprise now has support for parallelized aggregates, which allows any query containing `@@@` and returning
+fast fields to use all of the available hardware. This delivers significant performance improvements. We're seeing 5-10X faster `COUNT`s over
+large result sets (100M+ rows) in our test datasets.
+
 ## Stability Improvements 💪
 
 - Fixed a bug where parallel index scans could return incorrect results.

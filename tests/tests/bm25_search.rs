@@ -645,7 +645,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
-    assert!(ret.is_ok());
+    assert!(ret.is_ok(), "{ret:?}");
 
     // Ensure returned rows match the predicate
     let columns: SimpleProductsTableVec =
@@ -744,19 +744,18 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let ret = "CREATE INDEX search_idx ON mock_items
+    let ret = r#"CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description, category, rating)
     WITH (
         key_field='id',
         text_fields='{
-            \"description\": {\"tokenizer\": {\"type\": \"en_stem\", \"lowercase\": true, \"remove_long\": 255}},
-            \"category\": {}
+            "description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}},
+            "category": {}
         }',
-        numeric_fields='{\"rating\": {}}',
-        where_clause='category = ''Electronics'''
-    );"
+        numeric_fields='{"rating": {}}'
+    ) WHERE category = 'Electronics';"#
     .execute_result(&mut conn);
-    assert!(ret.is_ok());
+    assert!(ret.is_ok(), "{ret:?}");
 
     let rows: Vec<(i32, BigDecimal, String, String, Vector)> = r#"WITH semantic_search AS (
     SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
@@ -883,7 +882,7 @@ fn bm25_partial_index_invalid_statement(mut conn: PgConnection) {
         predicates => 'category = ''Electronics'''
     );"
     .execute_result(&mut conn);
-    assert!(ret.is_ok());
+    assert!(ret.is_ok(), "{ret:?}");
 }
 
 #[rstest]
@@ -892,17 +891,16 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
 
     "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
-    "CREATE INDEX partial_idx ON paradedb.test_partial_index 
+    r#"CREATE INDEX partial_idx ON paradedb.test_partial_index 
     USING bm25 (id, description, category, rating)
     WITH (
         key_field='id',
         text_fields='{
-            \"description\": {\"tokenizer\": {\"type\": \"en_stem\", \"lowercase\": true, \"remove_long\": 255}},
-            \"category\": {}
+            "description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}},
+            "category": {}
         }',
-        numeric_fields='{\"rating\": {}}',
-        where_clause='category = ''Electronics'''
-    );"
+        numeric_fields='{"rating": {}}'
+    ) WHERE category = 'Electronics';"#
     .execute(&mut conn);
     let rows: Vec<(String,)> =
         "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);

@@ -123,11 +123,8 @@ pub extern "C" fn amrescan(
 
         let need_scores = search_query_input.contains_more_like_this();
         let query = search_index.query(&indexrel, &search_query_input, &search_reader);
-        let results = if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-            search_reader.search_segment(need_scores, segment_number, &query)
-        } else if pg_sys::ParallelWorkerNumber > -1 {
-            SearchResults::None
-        } else {
+        let results = if (*scan).parallel_scan.is_null() {
+            // not a parallel scan
             search_reader.search_via_channel(
                 need_scores,
                 !(*scan).xs_want_itup,
@@ -135,6 +132,12 @@ pub extern "C" fn amrescan(
                 &query,
                 None,
             )
+        } else if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
+            // a parallel scan: got a segment to query
+            search_reader.search_segment(need_scores, segment_number, &query)
+        } else {
+            // a parallel scan: no more segments to query
+            SearchResults::None
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;

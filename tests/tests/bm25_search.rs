@@ -753,7 +753,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
             \"category\": {}
         }',
         numeric_fields='{\"rating\": {}}',
-        predicates='category = ''Electronics'''
+        where_clause='category = ''Electronics'''
     );"
     .execute_result(&mut conn);
     assert!(ret.is_ok());
@@ -901,7 +901,7 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
             \"category\": {}
         }',
         numeric_fields='{\"rating\": {}}',
-        predicates='category = ''Electronics'''
+        where_clause='category = ''Electronics'''
     );"
     .execute(&mut conn);
     let rows: Vec<(String,)> =

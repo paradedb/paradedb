@@ -249,9 +249,10 @@ impl SearchIndexCreateOptions {
         serialized: String,
         parser: &dyn Fn(serde_json::Value) -> Result<SearchFieldConfig>,
     ) -> Vec<(SearchFieldName, SearchFieldConfig)> {
-        let config_map: HashMap<String, serde_json::Value> = json5::from_str(&serialized)
-            .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
-
+        let config_map: HashMap<String, serde_json::Value> = serde_json::from_str(&serialized)
+            .unwrap_or_else(|_| {
+                panic!("failed to deserialize field config: invalid JSON string: {serialized}")
+            });
         config_map
             .into_iter()
             .map(|(field_name, field_config)| {
@@ -339,9 +340,14 @@ impl SearchIndexCreateOptions {
             .collect();
 
         let config = self.get_str(self.fields_offset, "".to_string());
+        if config.is_empty() {
+            return Vec::new();
+        }
 
-        let config_map: HashMap<String, serde_json::Value> = json5::from_str(&config)
-            .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
+        let config_map: HashMap<String, serde_json::Value> = serde_json::from_str(&config)
+            .unwrap_or_else(|_| {
+                panic!("failed to deserialize field config: invalid JSON string: {config}")
+            });
 
         config_map
             .into_iter()

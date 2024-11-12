@@ -889,14 +889,16 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
 
     "CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');".execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-        index_name => 'partial_idx',
-        schema_name => 'paradedb',
-        table_name => 'test_partial_index',
-        key_field => 'id',
-        text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem')) || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        predicates => 'category = ''Electronics'''
+    "CREATE INDEX partial_idx ON paradedb.test_partial_index 
+    USING bm25 (id, description, category, rating)
+    WITH (
+        key_field='id',
+        text_fields='{
+            \"description\": {\"tokenizer\": {\"type\": \"en_stem\", \"lowercase\": true, \"remove_long\": 255}},
+            \"category\": {}
+        }',
+        numeric_fields='{\"rating\": {}}',
+        predicates='category = ''Electronics'''
     );"
     .execute(&mut conn);
     let rows: Vec<(String,)> =
@@ -1102,12 +1104,11 @@ fn json_fuzzy_phrase(mut conn: PgConnection) {
 fn json_range(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
         .execute(&mut conn);
-    "CALL paradedb.create_bm25(
-        index_name => 'bm25_search_idx',
-        schema_name => 'paradedb',
-        table_name => 'bm25_search',
-        key_field => 'id',
-        json_fields => paradedb.field('metadata', fast => true)
+    "CREATE INDEX bm25_search_idx ON paradedb.bm25_search
+    USING bm25 (id, metadata)
+    WITH (
+        key_field='id',
+        json_fields='{\"metadata\": {\"fast\": true}}'
     )"
     .execute(&mut conn);
 
@@ -1156,13 +1157,12 @@ fn test_customers_table(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-        table_name => 'customers',
-        schema_name => 'public',
-        index_name => 'customers_idx',
-        key_field => 'id',
-        text_fields => paradedb.field('name'),
-        json_fields => paradedb.field('crm_data')
+    "CREATE INDEX customers_idx ON customers 
+    USING bm25 (id, name, crm_data)
+    WITH (
+        key_field='id',
+        text_fields='{\"name\": {}}',
+        json_fields='{\"crm_data\": {}}'
     );"
     .execute(&mut conn);
 

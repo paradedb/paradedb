@@ -237,12 +237,10 @@ fn boolean_arrays(mut conn: PgConnection) {
     ('{true, true, true}'),
     ('{false, false, false}'),
     ('{true, true, false}');
-    CALL paradedb.create_bm25(
-        index_name => 'example_table_idx',
-        table_name => 'example_table',
-        key_field => 'id',
-        boolean_fields => paradedb.field('bool_array')
-    )"#
+
+    CREATE INDEX example_table_idx ON example_table
+    USING bm25 (id, bool_array) WITH (key_field='id')
+    "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
@@ -271,12 +269,8 @@ fn datetime_arrays(mut conn: PgConnection) {
     (ARRAY['2023-01-01'::DATE, '2023-02-01'::DATE], ARRAY['2023-02-01 12:00:00'::TIMESTAMP, '2023-02-01 13:00:00'::TIMESTAMP]),
     (ARRAY['2023-03-01'::DATE, '2023-04-01'::DATE], ARRAY['2023-04-01 14:00:00'::TIMESTAMP, '2023-04-01 15:00:00'::TIMESTAMP]),
     (ARRAY['2023-05-01'::DATE, '2023-06-01'::DATE], ARRAY['2023-06-01 16:00:00'::TIMESTAMP, '2023-06-01 17:00:00'::TIMESTAMP]);
-    CALL paradedb.create_bm25(
-        index_name => 'example_table_idx',
-        table_name => 'example_table',
-        key_field => 'id',
-        datetime_fields => paradedb.field('date_array') || paradedb.field('timestamp_array')
-    )
+    CREATE INDEX example_table_idx ON example_table
+    USING bm25 (id, date_array, timestamp_array) WITH (key_field='id')
     "#.execute(&mut conn);
 
     let rows: Vec<(i32,)> =
@@ -304,12 +298,7 @@ fn json_arrays(mut conn: PgConnection) {
     (ARRAY['{"name": "Mike", "age": 50}'::JSONB, '{"name": "Lisa", "age": 45}'::JSONB]);"#
         .execute(&mut conn);
 
-    match "CALL paradedb.create_bm25(
-        index_name => 'example_table_idx',
-        table_name => 'example_table',
-        key_field => 'id',
-        json_fields => paradedb.field('json_array')
-    )"
+    match "CREATE INDEX example_table_idx ON example_table USING bm25 (id, json_array) WITH (key_field='id')"
     .execute_result(&mut conn)
     {
         Ok(_) => panic!("json arrays should not yet be supported"),
@@ -336,25 +325,17 @@ fn uuid(mut conn: PgConnection) {
     INSERT INTO uuid_table (random_uuid, some_text) VALUES ('88345d21-7b89-4fd6-87e4-83a4f68dbc3c', 'some text');
     INSERT INTO uuid_table (random_uuid, some_text) VALUES ('40bc9216-66d0-4ae8-87ee-ddb02e3e1b33', 'some text');
     INSERT INTO uuid_table (random_uuid, some_text) VALUES ('02f9789d-4963-47d5-a189-d9c114f5cba4', 'some text');
-    
-    -- Ensure that indexing works with UUID present on table.
-    CALL paradedb.create_bm25(
-    	index_name => 'uuid_table_bm25_index',
-        table_name => 'uuid_table',
-        key_field => 'id',
-        text_fields => paradedb.field('some_text')
-    );
+
+    CREATE INDEX uuid_table_bm25_index ON uuid_table
+    USING bm25 (id, some_text) WITH (key_field='id');   
     
     DROP INDEX uuid_table_bm25_index CASCADE;"#
         .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        index_name => 'uuid_table_bm25_index',
-        table_name => 'uuid_table',
-        key_field => 'id',
-        text_fields => paradedb.field('some_text') || paradedb.field('random_uuid')
-    )"#
+    CREATE INDEX uuid_table_bm25_index ON uuid_table
+    USING bm25 (id, some_text, random_uuid) WITH (key_field='id')   
+    "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
@@ -412,15 +393,15 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
+    CREATE INDEX search_idx
+    ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, metadata, created_at)
+    WITH (
+        key_field='id',
+        text_fields='{"description": {}, "category": {}}',
+        numeric_fields='{"rating": {}}',
+        boolean_fields='{"in_stock": {}}',
+        json_fields='{"metadata": {}}'
     );
 
     CREATE EXTENSION vector;
@@ -483,14 +464,12 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     // We don't want a vacuum to happen and unexpectedly change the size.
     "ALTER TABLE mock_items SET (autovacuum_enabled = false)".execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-            index_name => 'search_idx',
-            schema_name => 'public',
-            table_name => 'mock_items',
-            key_field => 'id',
-            text_fields => paradedb.field('description', tokenizer => paradedb.tokenizer('en_stem'))
-    )"
-    .execute(&mut conn);
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}}}')        
+    "#
+      .execute(&mut conn);
 
     let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx");
     assert!(index_dir_path.exists());

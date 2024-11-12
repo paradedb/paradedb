@@ -1160,13 +1160,13 @@ fn test_customers_table(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
 
-    "CREATE INDEX customers_idx ON customers 
+    r#"CREATE INDEX customers_idx ON customers 
     USING bm25 (id, name, crm_data)
     WITH (
         key_field='id',
-        text_fields='{\"name\": {}}',
-        json_fields='{\"crm_data\": {}}'
-    );"
+        text_fields='{"name": {}}',
+        json_fields='{"crm_data": {}}'
+    );"#
     .execute(&mut conn);
 
     // Test querying by name

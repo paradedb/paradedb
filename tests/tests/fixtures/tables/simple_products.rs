@@ -46,11 +46,18 @@ BEGIN;
     USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
     WITH (
         key_field='id',
-        text_fields='{"description": {}, "category": {}}',
+        text_fields='{
+            "description": {},
+            "category": {}
+        }',
         numeric_fields='{"rating": {}}',
         boolean_fields='{"in_stock": {}}',
         json_fields='{"metadata": {}}',
-        datetime_fields='{"created_at": {}, "last_updated_date": {}, "latest_available_time": {}}'
+        datetime_fields='{
+            "created_at": {},
+            "last_updated_date": {},
+            "latest_available_time": {}
+        }'
     );
 COMMIT;
 "#;

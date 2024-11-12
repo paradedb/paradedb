@@ -732,7 +732,7 @@ fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn custom_enum(mut conn: PgConnection) {
+fn custom_enum_term(mut conn: PgConnection) {
     r#"
     CREATE TYPE color AS ENUM ('red', 'green', 'blue');
     CREATE TABLE paradedb.index_config(id INTEGER, description TEXT, color color);
@@ -754,6 +754,33 @@ fn custom_enum(mut conn: PgConnection) {
 
     let rows: Vec<(i32, String)> =
         "SELECT id, description FROM paradedb.index_config WHERE id @@@ paradedb.term('color', 'red'::color)".fetch(&mut conn);
+
+    assert_eq!(rows, vec![(1, "Item 1".into())]);
+}
+
+#[rstest]
+fn custom_enum_parse(mut conn: PgConnection) {
+    r#"
+    CREATE TYPE color AS ENUM ('red', 'green', 'blue');
+    CREATE TABLE paradedb.index_config(id INTEGER, description TEXT, color color);
+    INSERT INTO paradedb.index_config VALUES (1, 'Item 1', 'red'), (2, 'Item 2', 'green');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        index_name => 'index_config_index',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => paradedb.field('description'),
+        numeric_fields => paradedb.field('color')
+    )
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32, String)> =
+        "SELECT id, description FROM paradedb.index_config WHERE id @@@ paradedb.parse('color:1.0')".fetch(&mut conn);
 
     assert_eq!(rows, vec![(1, "Item 1".into())]);
 }

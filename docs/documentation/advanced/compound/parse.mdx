@@ -188,3 +188,28 @@ WHERE id @@@
 }'::jsonb;
 ```
 </CodeGroup>
+
+## Enumerated Types
+
+To query a custom [enum](/documentation/indexing/create_index#enumerated-types) with `paradedb.parse`, the
+underlying ordinal value must be used.
+
+<CodeGroup>
+```sql Function Syntax
+-- Assume we have indexed an enum called color and 'red' has an ordinal of 1.0
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.parse('color:1.0');
+```
+```sql JSON Syntax
+-- Assume we have indexed an enum called color and 'red' has an ordinal of 1.0
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "parse": {
+        "query_string": "color:1.0"
+    }
+}'::jsonb;
+```
+</CodeGroup>

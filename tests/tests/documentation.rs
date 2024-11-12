@@ -1084,6 +1084,77 @@ fn json_queries(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn custom_enum(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+
+    CREATE TYPE color AS ENUM ('red', 'green', 'blue');
+    ALTER TABLE mock_items ADD COLUMN color color;
+    INSERT INTO mock_items (color) VALUES ('red'), ('green'), ('blue');
+
+    CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => paradedb.field('description') || paradedb.field('category'),
+        numeric_fields => paradedb.field('rating') || paradedb.field('color'),
+        boolean_fields => paradedb.field('in_stock'),
+        datetime_fields => paradedb.field('created_at'),
+        json_fields => paradedb.field('metadata')
+    );
+    "#
+    .execute(&mut conn);
+
+    // Term
+    let rows: Vec<(Option<String>, Option<i32>, Option<String>)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.term('color', 'red'::color);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(Option<String>, Option<i32>, Option<String>)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "term": {
+            "field": "color",
+            "value": 1.0
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    // Parse
+    let rows: Vec<(Option<String>, Option<i32>, Option<String>)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse('color:1.0');
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(Option<String>, Option<i32>, Option<String>)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "parse": {
+            "query_string": "color:1.0"
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+}
+
+#[rstest]
 fn compound_queries(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(

@@ -582,7 +582,6 @@ pub fn term_anyenum(field: FieldName, value: AnyEnum) -> SearchQueryInput {
     let tantivy_value = TantivyValue::try_from(value)
         .expect("value should be a valid TantivyValue representation")
         .tantivy_schema_value();
-    pgrx::info!("TantivyValue: {:?}", tantivy_value);
     let is_datetime = matches!(tantivy_value, OwnedValue::Date(_));
 
     SearchQueryInput::Term {
@@ -626,7 +625,6 @@ term_fn!(time_with_time_zone, pgrx::datum::TimeWithTimeZone);
 term_fn!(timestamp_with_time_zome, pgrx::datum::TimestampWithTimeZone);
 term_fn!(numeric, pgrx::AnyNumeric);
 term_fn!(uuid, pgrx::Uuid);
-// term_fn!(anyenum, AnyEnum);
 term_fn_unsupported!(json, pgrx::Json, "json");
 term_fn_unsupported!(jsonb, pgrx::JsonB, "jsonb");
 term_fn_unsupported!(anyarray, pgrx::AnyArray, "array");

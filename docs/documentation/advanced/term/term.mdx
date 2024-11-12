@@ -55,3 +55,29 @@ WHERE id @@@
 }'::jsonb;
 ```
 </CodeGroup>
+
+## Enumerated Types
+
+`term` can be used to filter over custom Postgres [enums](/documentation/indexing/create_index#enumerated-types)
+if the query term is explicitly cast to the enum type. If JSON syntax is used, the underlying ordinal value of the enum must be used.
+
+<CodeGroup>
+```sql Function Syntax
+-- Assume we have indexed an enum called color
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.term('color', 'red'::color);
+```
+```sql JSON Syntax
+-- Assume we have indexed an enum called color and 'red' has an ordinal of 1.0
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "term": {
+        "field": "color",
+        "value": 1.0
+    }
+}'::jsonb;
+```
+</CodeGroup>

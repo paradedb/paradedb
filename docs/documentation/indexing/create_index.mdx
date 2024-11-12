@@ -283,8 +283,10 @@ CALL paradedb.create_bm25(
 
 ## Choosing a Key Field
 
-The `key_field` option is used to uniquely identify documents within an index and cannot be tokenized. For instance,
-the following configuration is not allowed:
+While the key field can be any unique text, numeric, or datetime value, an integer key field will be the most
+performant. The Postgres `SERIAL` type is an easy way to create a unique integer column.
+
+Additionally, the key field is not intended to be tokenized. For instance, the following configuration is not allowed:
 
 ```sql
 -- This will throw an error

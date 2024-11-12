@@ -144,12 +144,8 @@ fn quoted_table_name(mut conn: PgConnection) {
     INSERT INTO "Activity" (name, age) VALUES ('Hannah', 22);
     INSERT INTO "Activity" (name, age) VALUES ('Ivan', 30);
     INSERT INTO "Activity" (name, age) VALUES ('Julia', 25);
-    CALL paradedb.create_bm25(
-    	index_name => 'activity',
-    	table_name => 'Activity',
-    	key_field => 'key',
-    	text_fields => paradedb.field('name')
-    )"#
+    CREATE INDEX activity ON "Activity"
+    USING bm25 ("key", name) WITH (key_field='key')"#
     .execute(&mut conn);
     let row: (i32, String, i32) =
         "SELECT * FROM \"Activity\" WHERE \"Activity\" @@@ 'name:alice' ORDER BY key"

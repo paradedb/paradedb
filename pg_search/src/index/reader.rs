@@ -278,7 +278,8 @@ impl SearchIndexReader {
         let estimated_rows = estimated_rows.unwrap_or(0);
 
         if estimated_rows == 0 || estimated_rows > 5_000 || sort_segments_by_ctid {
-            let (sender, receiver) = crossbeam::channel::unbounded();
+            let (sender, receiver) =
+                crossbeam::channel::bounded(std::thread::available_parallelism().unwrap().get());
             let collector = buffered_channel::BufferedChannelCollector::new(
                 need_scores,
                 sort_segments_by_ctid,
@@ -618,25 +619,39 @@ mod buffered_channel {
             self.fruit.push((
                 SearchIndexScore::new(&self.ctid_ff, doc, score),
                 doc_address,
-            ))
+            ));
         }
 
         fn collect_block(&mut self, docs: &[DocId]) {
-            self.fruit.extend(docs.iter().map(|doc| {
-                let doc = *doc;
-                let doc_address = DocAddress::new(self.segment_ord, doc);
-                (SearchIndexScore::new(&self.ctid_ff, doc, 0.0), doc_address)
-            }));
-        }
-
-        fn harvest(mut self) -> Self::Fruit {
+            let mut collected = docs
+                .iter()
+                .map(|doc: &DocId| {
+                    let doc = *doc;
+                    let doc_address = DocAddress::new(self.segment_ord, doc);
+                    (SearchIndexScore::new(&self.ctid_ff, doc, 0.0), doc_address)
+                })
+                .collect::<Vec<_>>();
             if self.sort_by_ctid {
-                self.fruit.sort_by_key(|(scored, _)| scored.ctid);
+                collected.sort_unstable_by_key(|(scored, _)| scored.ctid);
             }
 
+            // send the block over the channel right now
             // if send fails that likely means the receiver was dropped so we have nowhere
             // to send the result.  That's okay
-            self.sender.send(self.fruit).ok();
+            self.sender.send(collected).ok();
+        }
+
+        fn harvest(self) -> Self::Fruit {
+            let mut fruit = self.fruit;
+            if !fruit.is_empty() {
+                if self.sort_by_ctid {
+                    fruit.sort_unstable_by_key(|(scored, _)| scored.ctid);
+                }
+
+                // if send fails that likely means the receiver was dropped so we have nowhere
+                // to send the result.  That's okay
+                self.sender.send(fruit).ok();
+            }
         }
     }
 }

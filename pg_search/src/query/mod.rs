@@ -60,7 +60,7 @@ pub enum SearchQueryInput {
     },
     Boost {
         query: Box<SearchQueryInput>,
-        boost: f32,
+        factor: f32,
     },
     ConstScore {
         query: Box<SearchQueryInput>,
@@ -520,9 +520,9 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
-            Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
+            Self::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
                 query.into_tantivy_query(field_lookup, parser, searcher)?,
-                boost,
+                factor,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
                 query.into_tantivy_query(field_lookup, parser, searcher)?,

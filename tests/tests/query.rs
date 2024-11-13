@@ -116,7 +116,7 @@ fn single_queries(mut conn: PgConnection) {
     // Boost
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    paradedb.boost(query => paradedb.all(), boost => 1.5)
+    paradedb.boost(query => paradedb.all(), factor => 1.5)
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);

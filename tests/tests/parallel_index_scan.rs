@@ -20,6 +20,7 @@ mod fixtures;
 use fixtures::db::Query;
 use fixtures::*;
 use rstest::*;
+use serde_json::Value;
 use sqlx::PgConnection;
 
 #[rstest]
@@ -43,6 +44,35 @@ fn index_scan_under_parallel_path(mut conn: PgConnection) {
 
     let count = r#"
         select count(1) from paradedb.bm25_search where description @@@ 'shoes';
+    "#
+    .fetch::<(i64,)>(&mut conn);
+    assert_eq!(count, vec![(3,)]);
+}
+
+#[rstest]
+fn dont_do_parallel_index_scan(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "VACUUM paradedb.bm25_search".execute(&mut conn);
+    "set enable_indexscan to off;".execute(&mut conn);
+    let (plan, ) = "EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) select count(*) from paradedb.bm25_search where description @@@ 'shoes';".fetch_one::<(Value,)>(&mut conn);
+    let plan = plan
+        .pointer("/0/Plan/Plans/0")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    eprintln!("{plan:#?}");
+    pretty_assertions::assert_eq!(
+        plan.get("Node Type"),
+        Some(&Value::String(String::from("Custom Scan")))
+    );
+    pretty_assertions::assert_eq!(
+        plan.get("Virtual Tuples"),
+        Some(&Value::Number(serde_json::Number::from(3)))
+    );
+
+    let count = r#"
+        select count(*) from paradedb.bm25_search where description @@@ 'shoes';
     "#
     .fetch::<(i64,)>(&mut conn);
     assert_eq!(count, vec![(3,)]);

@@ -41,7 +41,7 @@ The following code block demonstrates the various Postgres types that can be com
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) 
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 ```
 
@@ -163,7 +163,7 @@ Next, let's create a BM25 index over the `orders` table.
 
 ```sql
 CREATE INDEX orders_idx ON orders
-USING bm25 (order_id, customer_name) 
+USING bm25 (order_id, customer_name)
 WITH (key_field='order_id');
 ```
 

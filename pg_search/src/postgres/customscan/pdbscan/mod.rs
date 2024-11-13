@@ -570,11 +570,7 @@ impl CustomScan for PdbScan {
                     doc_address,
                 } => {
                     unsafe {
-                        let scanslot = state.scanslot();
-                        let bslot = state.scanslot() as *mut pg_sys::BufferHeapTupleTableSlot;
-
-                        // so we turn it into a TupleTableSlot
-                        let slot = match make_tuple_table_slot(state, ctid, bslot) {
+                        let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
                             Some(slot) => {
                                 state.custom_state_mut().heap_tuple_check_count += 1;
@@ -697,7 +693,7 @@ impl CustomScan for PdbScan {
 /// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
 /// and if it exists return a formed [`TupleTableSlot`].
 #[inline(always)]
-fn make_tuple_table_slot(
+fn check_visibility(
     state: &mut CustomScanStateWrapper<PdbScan>,
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
@@ -705,18 +701,7 @@ fn make_tuple_table_slot(
     state
         .custom_state_mut()
         .visibility_checker()
-        .exec_if_visible(ctid, move |heaprelid, htup, buffer| unsafe {
-            (*bslot).base.base.tts_tableOid = heaprelid;
-            (*bslot).base.tupdata = htup;
-            (*bslot).base.tupdata.t_self = (*htup.t_data).t_ctid;
-
-            // materialize a heap tuple for it
-            pg_sys::ExecStoreBufferHeapTuple(
-                addr_of_mut!((*bslot).base.tupdata),
-                bslot.cast(),
-                buffer,
-            )
-        })
+        .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
 }
 
 unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {

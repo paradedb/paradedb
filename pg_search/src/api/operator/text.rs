@@ -50,6 +50,9 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
             T_SupportRequestSimplify,
             arg.unwrap()?.cast_mut_ptr::<pg_sys::Node>()
         )?;
+        if (*srs).root.is_null() {
+            return None;
+        }
         let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
 
         let lhs = input_args.get_ptr(0)?;

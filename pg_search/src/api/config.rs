@@ -20,33 +20,6 @@ use serde_json::{json, Map, Value};
 
 #[pg_extern(immutable, parallel_safe)]
 #[allow(clippy::too_many_arguments)]
-pub fn field(
-    name: &str,
-    indexed: default!(Option<bool>, "NULL"),
-    stored: default!(Option<bool>, "NULL"),
-    fast: default!(Option<bool>, "NULL"),
-    fieldnorms: default!(Option<bool>, "NULL"),
-    record: default!(Option<String>, "NULL"),
-    expand_dots: default!(Option<bool>, "NULL"),
-    tokenizer: default!(Option<JsonB>, "NULL"),
-    normalizer: default!(Option<String>, "NULL"),
-) -> JsonB {
-    let mut config = Map::new();
-
-    indexed.map(|v| config.insert("indexed".to_string(), Value::Bool(v)));
-    stored.map(|v| config.insert("stored".to_string(), Value::Bool(v)));
-    fast.map(|v| config.insert("fast".to_string(), Value::Bool(v)));
-    fieldnorms.map(|v| config.insert("fieldnorms".to_string(), Value::Bool(v)));
-    record.map(|v| config.insert("record".to_string(), Value::String(v)));
-    expand_dots.map(|v| config.insert("expand_dots".to_string(), Value::Bool(v)));
-    tokenizer.map(|v| config.insert("tokenizer".to_string(), v.0));
-    normalizer.map(|v| config.insert("normalizer".to_string(), Value::String(v)));
-
-    JsonB(json!({ name: config }))
-}
-
-#[pg_extern(immutable, parallel_safe)]
-#[allow(clippy::too_many_arguments)]
 pub fn tokenizer(
     name: &str,
     remove_long: default!(Option<i32>, "255"),
@@ -76,49 +49,4 @@ pub fn tokenizer(
     pattern.map(|v| config.insert("pattern".to_string(), Value::String(v)));
 
     JsonB(json!(config))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_single_field() {
-        let expected = json!({
-            "field1": {
-                "indexed": true,
-                "stored": false,
-                "fast": true,
-                "fieldnorms": false,
-                "record": "position",
-                "expand_dots": true,
-                "tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false, "stemmer": "English"},
-                "normalizer": "lowercase"
-            }
-        });
-
-        let JsonB(actual) = field(
-            "field1",
-            Some(true),
-            Some(false),
-            Some(true),
-            Some(false),
-            Some("position".to_string()),
-            Some(true),
-            Some(tokenizer(
-                "ngram",
-                None,
-                None,
-                Some(4),
-                Some(4),
-                Some(false),
-                None,
-                None,
-                Some("English".to_string()),
-            )),
-            Some("lowercase".to_string()),
-        );
-
-        assert_eq!(expected, actual);
-    }
 }

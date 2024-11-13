@@ -337,7 +337,6 @@ impl SearchIndexCreateOptions {
         let _ = unsafe {
             let num_attrs = (*index_info).ii_NumIndexAttrs;
             (0..num_attrs)
-                .into_iter()
                 .map(|i| {
                     let attr_number = (*index_info).ii_IndexAttrNumbers[i as usize];
                     let attribute = tupdesc
@@ -352,7 +351,6 @@ impl SearchIndexCreateOptions {
 
         let num_index_attrs = unsafe { (*index_info).ii_NumIndexAttrs };
         (0..num_index_attrs)
-            .into_iter()
             .map(|i| {
                 let attr_number = unsafe { (*index_info).ii_IndexAttrNumbers[i as usize] };
                 let attribute = tupdesc

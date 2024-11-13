@@ -15,11 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use pgrx::prelude::*;
-use pgrx::{JsonB, PgRelation, Spi};
-use serde_json::Value;
-use std::collections::HashSet;
+use pgrx::PgRelation;
 
 use crate::index::{SearchFs, SearchIndex, WriterDirectory};
 use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};

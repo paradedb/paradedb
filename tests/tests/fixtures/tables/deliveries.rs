@@ -35,11 +35,7 @@ pub struct DeliveriesTable {
 
 impl DeliveriesTable {
     pub fn setup() -> String {
-        DELIVERIES_TABLE_SETUP.replace("%s", "delivery_id")
-    }
-
-    pub fn setup_with_key_field(key_field: &str) -> String {
-        DELIVERIES_TABLE_SETUP.replace("%s", key_field)
+        DELIVERIES_TABLE_SETUP.into()
     }
 }
 
@@ -50,18 +46,9 @@ BEGIN;
         table_name => 'deliveries',
         table_type => 'Deliveries'
     );
-
-    CALL paradedb.create_bm25(
-        index_name => 'deliveries_idx',
-        table_name => 'deliveries',
-        key_field => '%s',
-        range_fields => 
-            paradedb.field('weights') || 
-            paradedb.field('quantities') || 
-            paradedb.field('prices') || 
-            paradedb.field('ship_dates') ||
-            paradedb.field('facility_arrival_times') ||
-            paradedb.field('delivery_times')
-    );
+   
+    CREATE INDEX deliveries_idx ON deliveries
+    USING bm25 (delivery_id, weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times)
+    WITH (key_field='delivery_id')
 COMMIT;
 "#;

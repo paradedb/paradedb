@@ -33,11 +33,11 @@ fn reltuples_are_set(mut conn: PgConnection) {
     let (reltuples,) = "SELECT reltuples FROM pg_class WHERE oid = 'reltuptest'::regclass::oid"
         .fetch_one::<(f32,)>(&mut conn);
     if reltuples > 0.0 {
-        // I suppose something odd could happen here if an analyze happens in the background?
         panic!("expected reltuples to be <= 0.0.")
     }
 
-    "CALL paradedb.create_bm25(index_name => 'idxreltuptest', table_name => 'reltuptest', key_field => 'x', text_fields => paradedb.field('md5'))".execute(&mut conn);
+    "CREATE INDEX idxreltuptest ON reltuptest USING bm25 (x, md5) WITH (key_field='x')"
+        .execute(&mut conn);
     let (reltuples,) = "SELECT reltuples FROM pg_class WHERE oid = 'reltuptest'::regclass::oid"
         .fetch_one::<(f32,)>(&mut conn);
     assert_eq!(reltuples, 1024.0);

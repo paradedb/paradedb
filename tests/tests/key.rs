@@ -40,12 +40,8 @@ fn boolean_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -89,12 +85,8 @@ fn uuid_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -174,12 +166,8 @@ fn i64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -241,12 +229,8 @@ fn i32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -299,12 +283,8 @@ fn i16_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -357,12 +337,8 @@ fn f32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -415,12 +391,8 @@ fn f64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -473,12 +445,8 @@ fn numeric_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -531,12 +499,8 @@ fn string_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -607,12 +571,8 @@ fn date_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -665,12 +625,8 @@ fn time_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -723,12 +679,8 @@ fn timestamp_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -781,12 +733,8 @@ fn timestamptz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 
@@ -848,12 +796,8 @@ fn timetz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        text_fields => paradedb.field('value', tokenizer => paradedb.tokenizer('ngram', min_gram => 4, max_gram => 4, prefix_only => false))
-    );
+    CREATE INDEX test_index ON test_table USING bm25 (id, value)
+    WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "min_gram": 4, "max_gram": 4, "prefix_only": false}}}');
     "#
     .execute(&mut conn);
 

@@ -28,14 +28,12 @@ use sqlx::PgConnection;
 fn test_icu_arabic_tokenizer(mut conn: PgConnection) {
     IcuArabicPostsTable::setup().execute(&mut conn);
     r#"
-    CALL paradedb.create_bm25(
-	    index_name => 'idx_arabic',
-	    table_name => 'icu_arabic_posts',
-	    key_field => 'id',
-	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
-                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
-                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
-    )"#
+    CREATE INDEX idx_arabic ON icu_arabic_posts 
+    USING bm25 (id, author, title, message)
+    WITH (
+        key_field = 'id', 
+        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+    );"#
     .execute(&mut conn);
 
     let columns: IcuArabicPostsTableVec =
@@ -58,14 +56,12 @@ fn test_icu_arabic_tokenizer(mut conn: PgConnection) {
 fn test_icu_amharic_tokenizer(mut conn: PgConnection) {
     IcuAmharicPostsTable::setup().execute(&mut conn);
     r#"
-    CALL paradedb.create_bm25(
-	    index_name => 'idx_amharic',
-	    table_name => 'icu_amharic_posts',
-	    key_field => 'id',
-	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
-                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
-                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
-    )"#
+    CREATE INDEX idx_amharic ON icu_amharic_posts 
+    USING bm25 (id, author, title, message)
+    WITH (
+        key_field = 'id', 
+        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+    );"#
     .execute(&mut conn);
 
     let columns: IcuAmharicPostsTableVec =
@@ -88,14 +84,12 @@ fn test_icu_amharic_tokenizer(mut conn: PgConnection) {
 fn test_icu_greek_tokenizer(mut conn: PgConnection) {
     IcuGreekPostsTable::setup().execute(&mut conn);
     r#"
-    CALL paradedb.create_bm25(
-	    index_name => 'idx_greek',
-	    table_name => 'icu_greek_posts',
-	    key_field => 'id',
-	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
-                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
-                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
-    )"#
+    CREATE INDEX idx_greek ON icu_greek_posts 
+    USING bm25 (id, author, title, message)
+    WITH (
+        key_field = 'id', 
+        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+    );"#
     .execute(&mut conn);
 
     let columns: IcuGreekPostsTableVec =
@@ -118,14 +112,12 @@ fn test_icu_greek_tokenizer(mut conn: PgConnection) {
 fn test_icu_czech_tokenizer(mut conn: PgConnection) {
     IcuCzechPostsTable::setup().execute(&mut conn);
     r#"
-    CALL paradedb.create_bm25(
-	    index_name => 'idx_czech',
-	    table_name => 'icu_czech_posts',
-	    key_field => 'id',
-	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
-                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
-                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
-    )"#
+    CREATE INDEX idx_czech ON icu_czech_posts 
+    USING bm25 (id, author, title, message)
+    WITH (
+        key_field = 'id', 
+        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+    );"#
     .execute(&mut conn);
 
     let columns: IcuCzechPostsTableVec =
@@ -148,12 +140,12 @@ fn test_icu_czech_tokenizer(mut conn: PgConnection) {
 fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
     IcuCzechPostsTable::setup().execute(&mut conn);
     r#"
-    CALL paradedb.create_bm25(
-	    index_name => 'idx_czech_content',
-	    table_name => 'icu_czech_posts',
-	    key_field => 'id',
-	    text_fields => paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
-    )"#
+    CREATE INDEX idx_czech_content ON icu_czech_posts 
+    USING bm25 (id, message)
+    WITH (
+        key_field = 'id', 
+        text_fields = '{"message": {"tokenizer": "icu"}}'
+    );"#
     .execute(&mut conn);
 
     let columns: IcuCzechPostsTableVec = r#"
@@ -171,14 +163,12 @@ fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
 fn test_icu_snippet(mut conn: PgConnection) {
     IcuArabicPostsTable::setup().execute(&mut conn);
     r#"
-    CALL paradedb.create_bm25(
-	    index_name => 'idx_arabic',
-	    table_name => 'icu_arabic_posts',
-	    key_field => 'id',
-	    text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('icu')) || 
-                       paradedb.field('title', tokenizer => paradedb.tokenizer('icu')) ||
-                       paradedb.field('message', tokenizer => paradedb.tokenizer('icu'))
-    )"#
+    CREATE INDEX idx_arabic ON icu_arabic_posts 
+    USING bm25 (id, author, title, message)
+    WITH (
+        key_field = 'id', 
+        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+    );"#
     .execute(&mut conn);
 
     let columns: Vec<(i32, String)> =

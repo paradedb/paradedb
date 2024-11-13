@@ -32,7 +32,7 @@ fn test_icu_arabic_tokenizer(mut conn: PgConnection) {
     USING bm25 (id, author, title, message)
     WITH (
         key_field = 'id', 
-        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+        text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
     );"#
     .execute(&mut conn);
 
@@ -60,7 +60,7 @@ fn test_icu_amharic_tokenizer(mut conn: PgConnection) {
     USING bm25 (id, author, title, message)
     WITH (
         key_field = 'id', 
-        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+        text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
     );"#
     .execute(&mut conn);
 
@@ -88,7 +88,7 @@ fn test_icu_greek_tokenizer(mut conn: PgConnection) {
     USING bm25 (id, author, title, message)
     WITH (
         key_field = 'id', 
-        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+        text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
     );"#
     .execute(&mut conn);
 
@@ -116,7 +116,7 @@ fn test_icu_czech_tokenizer(mut conn: PgConnection) {
     USING bm25 (id, author, title, message)
     WITH (
         key_field = 'id', 
-        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+        text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
     );"#
     .execute(&mut conn);
 
@@ -144,7 +144,7 @@ fn test_icu_czech_content_tokenizer(mut conn: PgConnection) {
     USING bm25 (id, message)
     WITH (
         key_field = 'id', 
-        text_fields = '{"message": {"tokenizer": "icu"}}'
+        text_fields = '{"message": {"tokenizer": {"type": "icu"}}}'
     );"#
     .execute(&mut conn);
 
@@ -167,7 +167,7 @@ fn test_icu_snippet(mut conn: PgConnection) {
     USING bm25 (id, author, title, message)
     WITH (
         key_field = 'id', 
-        text_fields = '{"author": {"tokenizer": "icu"}, "title": {"tokenizer": "icu"}, "message": {"tokenizer": "icu"}}'
+        text_fields = '{"author": {"tokenizer": {"type": "icu"}}, "title": {"tokenizer": {"type": "icu"}}, "message": {"tokenizer": {"type": "icu"}}}'
     );"#
     .execute(&mut conn);
 

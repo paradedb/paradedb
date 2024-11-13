@@ -209,21 +209,18 @@ async fn test_ephemeral_postgres() -> Result<()> {
     schema.execute(&mut target_conn);
 
     // Create the bm25 index on the description field
-    "CALL paradedb.create_bm25(
-        table_name => 'mock_items',
-        index_name => 'search_idx',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
+    "
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (key_field = 'id');
+
+    "
     .execute(&mut source_conn);
-    "CALL paradedb.create_bm25(
-        table_name => 'mock_items',
-        index_name => 'search_idx',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
+    "
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (key_field = 'id');
+    "
     .execute(&mut target_conn);
 
     // Create publication and subscription for replication
@@ -368,13 +365,11 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     // Create pg_search extension and bm25 index
     "CREATE EXTENSION pg_search".execute(&mut source_conn);
 
-    "CALL paradedb.create_bm25(
-        table_name => 'text_array_table',
-        index_name => 'text_array_table_idx',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('text_array')
-    )"
+    "
+    CREATE INDEX text_array_table_idx ON text_array_table
+    USING bm25 (id, text_array)
+    WITH (key_field = 'id');
+    "
     .execute(&mut source_conn);
 
     // Verify search results before pg_basebackup
@@ -468,13 +463,11 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
     schema.execute(&mut target_conn);
 
     // Create the bm25 index on the description field on the replica
-    "CALL paradedb.create_bm25(
-        table_name => 'mock_items',
-        index_name => 'search_idx',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
+    "
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (key_field = 'id');
+    "
     .execute(&mut target_conn);
 
     // Create subscription on the replica
@@ -570,16 +563,11 @@ async fn test_wal_streaming_replication() -> Result<()> {
 
     assert_eq!(target_count, (41,));
 
-    "CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    )"
+    "
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field = 'id');
+    "
     .execute(&mut source_conn);
 
     thread::sleep(Duration::from_millis(1000));

@@ -40,16 +40,12 @@ fn integer_range(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        numeric_fields => paradedb.field('value_int4') || paradedb.field('value_int8')
-    );
+    CREATE INDEX test_index ON test_table
+    USING bm25 (id, value_int4, value_int8)
+    WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
-    // INT4
     let rows: Vec<(i32, i32)> = r#"
     SELECT id, value_int4 FROM test_table
     WHERE test_table @@@ paradedb.range(field => 'value_int4', range => '[2222,4444]'::int4range)
@@ -83,12 +79,9 @@ fn unbounded_integer_range(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        numeric_fields => paradedb.field('value_int4') || paradedb.field('value_int8')
-    );
+    CREATE INDEX test_index ON test_table
+    USING bm25 (id, value_int4, value_int8)
+    WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -151,12 +144,9 @@ fn float_range(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        numeric_fields => paradedb.field('value_float4') || paradedb.field('value_float8') || paradedb.field('value_numeric')
-    );
+    CREATE INDEX test_index ON test_table
+    USING bm25 (id, value_float4, value_float8, value_numeric)
+    WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -204,14 +194,9 @@ fn datetime_range(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        datetime_fields => paradedb.field('value_date') || 
-                           paradedb.field('value_timestamp') || 
-                           paradedb.field('value_timestamptz')
-    );
+    CREATE INDEX test_index ON test_table
+    USING bm25 (id, value_date, value_timestamp, value_timestamptz)
+    WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 

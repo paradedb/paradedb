@@ -36,7 +36,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     let mut conn1 = database.connection().await;
 
     // Create table once using any of the connections.
-    "CREATE EXTENSION pg_search;
+    r#"CREATE EXTENSION pg_search;
 
     CREATE TABLE concurrent_items (
       id SERIAL PRIMARY KEY,
@@ -45,13 +45,15 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
       created_at TIMESTAMP DEFAULT now()
     );
 
-    CALL paradedb.create_bm25(
-        table_name => 'concurrent_items',
-        index_name => 'concurrent_items_bm25',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    );"
+    CREATE INDEX concurrent_items_bm25 ON public.concurrent_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {}
+        }'
+    );
+    "#
     .execute(&mut conn1);
 
     // Dynamically generate at least 100 rows for each connection
@@ -103,7 +105,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     let mut conn = database.connection().await;
 
     // Create tables and indexes
-    "CREATE EXTENSION pg_search;
+    r#"CREATE EXTENSION pg_search;
     CREATE TABLE index_a (
       id SERIAL PRIMARY KEY,
       content TEXT
@@ -112,20 +114,25 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
       id SERIAL PRIMARY KEY,
       content TEXT
     );
-    CALL paradedb.create_bm25(
-        table_name => 'index_a',
-        index_name => 'index_a_bm25',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('content')
+
+    CREATE INDEX index_a_bm25 ON public.index_a
+    USING bm25 (id, content)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "content": {}
+        }'
     );
-    CALL paradedb.create_bm25(
-        table_name => 'index_b',
-        index_name => 'index_b_bm25',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('content')
-    );"
+
+    CREATE INDEX index_b_bm25 ON public.index_b
+    USING bm25 (id, content)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "content": {}
+        }'
+    );
+    "#
     .execute(&mut conn);
 
     // Create two separate connections

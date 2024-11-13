@@ -309,12 +309,7 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -372,12 +367,7 @@ fn more_like_this_empty(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -414,12 +404,7 @@ fn more_like_this_text(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -450,12 +435,7 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -489,12 +469,7 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -527,12 +502,7 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -566,12 +536,7 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -604,12 +569,7 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -642,12 +602,7 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -679,12 +634,7 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -718,12 +668,7 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -755,12 +700,7 @@ fn more_like_this_date_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -793,12 +733,7 @@ fn more_like_this_time_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -832,12 +767,7 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -871,12 +801,7 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -909,12 +834,7 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_more_like_this_table',
-        index_name => 'test_more_like_this_index',
-        key_field => 'id',
-        text_fields => '{"flavour": {}}'    
-    );
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1015,18 +935,9 @@ fn range_term(mut conn: PgConnection) {
         table_type => 'Deliveries'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'deliveries_idx',
-        table_name => 'deliveries',
-        key_field => 'delivery_id',
-        range_fields => 
-            paradedb.field('weights') || 
-            paradedb.field('quantities') || 
-            paradedb.field('prices') || 
-            paradedb.field('ship_dates') ||
-            paradedb.field('facility_arrival_times') ||
-            paradedb.field('delivery_times')
-    );
+    CREATE INDEX deliveries_idx ON deliveries
+    USING bm25 (delivery_id, weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times)
+    WITH (key_field = 'delivery_id');
     "#
     .execute(&mut conn);
 

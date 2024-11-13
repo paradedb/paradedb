@@ -60,8 +60,17 @@ fn segment_count_correct_after_merge(mut conn: PgConnection) {
         DROP TABLE IF EXISTS test_table;
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
         INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 10000);
-        CALL paradedb.create_bm25(table_name => 'test_table', schema_name => 'public', index_name => 'idxtest_table', key_field => 'id', text_fields => paradedb.field('value'));
-    "#.execute(&mut conn);
+
+        CREATE INDEX idxtest_table ON public.test_table
+        USING bm25 (id, value)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "value": {}
+            }'
+        );
+    "#
+    .execute(&mut conn);
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;

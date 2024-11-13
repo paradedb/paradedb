@@ -45,13 +45,11 @@ fn manual_vacuum(mut conn: PgConnection) {
 
     format!("insert into sadvac (data) select 'this is a test ' || x from generate_series(1, {ROW_COUNT}) x;").execute(&mut conn);
 
-    "call paradedb.create_bm25(
-        index_name => 'idxsadvac',
-        schema_name => 'public',
-        table_name => 'sadvac',
-        key_field => 'id',
-        text_fields => paradedb.field('data', tokenizer => paradedb.tokenizer('default'))
-    );".execute(&mut conn);
+    "
+    CREATE INDEX idxsadvac ON public.sadvac
+    USING bm25 (id, data)
+    WITH (key_field = 'id');
+    ".execute(&mut conn);
     assert_eq!(count_func(&mut conn), ROW_COUNT, "post create index");
 
     "update sadvac set id = id;".execute(&mut conn);

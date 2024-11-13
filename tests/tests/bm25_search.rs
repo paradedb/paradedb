@@ -932,21 +932,27 @@ fn bm25_partial_index_alter_and_drop(mut conn: PgConnection) {
         "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);
     assert_eq!(rows.len(), 0);
 
-    // We need to comment this test out for now, because we've had to change the implementation
-    // of paradedb.drop_bm25 to rely on the index OID, which is used to determine the file path
-    // for the physical index stored on disk.
-    // Unfortunately, we can no longer look up the OID of the index in this situation, because a
-    // DROP COLUMN on a partial index deletes the index relation. So the `drop_bm25` call below
-    // will panic when no index with the name 'partial_idx_bm25_index' can be found.
-    //
-    // CALL drop_bm25 could clean it.
-    // "CALL paradedb.drop_bm25('partial_idx');".execute(&mut conn);
-    // let rows: Vec<(String,)> =
-    //     "SELECT relname FROM pg_class WHERE relname = 'partial_idx_bm25_index';".fetch(&mut conn);
-    // assert_eq!(rows.len(), 0);
-    // let rows: Vec<(String,)> =
-    //     "SELECT nspname FROM pg_namespace WHERE nspname = 'partial_idx';".fetch(&mut conn);
-    // assert_eq!(rows.len(), 0);
+    r#"
+    CREATE INDEX partial_idx ON paradedb.test_partial_index 
+    USING bm25 (id, description, rating)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"tokenizer": {"type": "en_stem", "lowercase": true, "remove_long": 255}}
+        }'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String,)> =
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx';".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    "DROP INDEX paradedb.partial_idx".execute(&mut conn);
+
+    let rows: Vec<(String,)> =
+        "SELECT relname FROM pg_class WHERE relname = 'partial_idx'".fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
 }
 
 #[rstest]

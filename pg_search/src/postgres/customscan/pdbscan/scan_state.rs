@@ -41,6 +41,7 @@ pub struct PdbScanState {
 
     pub search_results: SearchResults,
     pub which_fast_fields: Option<Vec<WhichFastField>>,
+    pub targetlist_len: usize,
 
     pub limit: Option<usize>,
     pub sort_field: Option<String>,

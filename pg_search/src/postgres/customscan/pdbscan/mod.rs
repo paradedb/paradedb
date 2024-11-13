@@ -54,6 +54,7 @@ use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use exec_methods::normal::NormalScanExecState;
 use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
+use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::collections::HashMap;
@@ -281,6 +282,8 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .range_table_index()
                 .expect("range table index should have been set");
+
+            builder.custom_state().targetlist_len = builder.target_list().len();
 
             // information about if we're sorted by score and our limit
             builder.custom_state().limit = builder.custom_private().limit();
@@ -817,5 +820,19 @@ pub fn text_lower_funcoid() -> pg_sys::Oid {
             &[c"pg_catalog.lower(text)".into_datum()],
         )
         .expect("the `pg_catalog.lower(text)` function should exist")
+    }
+}
+
+#[inline(always)]
+pub fn is_block_all_visible(
+    heaprel: pg_sys::Relation,
+    vmbuff: &mut pg_sys::Buffer,
+    ctid: pg_sys::ItemPointerData,
+    heaprelid: pg_sys::Oid,
+) -> bool {
+    unsafe {
+        let blockno = item_pointer_get_block_number(&ctid);
+        let status = pg_sys::visibilitymap_get_status(heaprel, blockno, vmbuff);
+        status != 0
     }
 }

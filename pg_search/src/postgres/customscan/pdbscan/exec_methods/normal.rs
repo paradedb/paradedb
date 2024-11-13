@@ -18,19 +18,56 @@
 use crate::index::reader::SearchResults;
 use crate::index::SearchIndex;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::pg_sys;
 
-#[derive(Default)]
 pub struct NormalScanExecState {
+    can_use_visibility_map: bool,
+    heaprel: pg_sys::Relation,
+    slot: *mut pg_sys::TupleTableSlot,
+    vmbuff: pg_sys::Buffer,
+
     search_results: SearchResults,
+
     did_query: bool,
 }
 
+impl Default for NormalScanExecState {
+    fn default() -> Self {
+        Self {
+            can_use_visibility_map: false,
+            heaprel: std::ptr::null_mut(),
+            slot: std::ptr::null_mut(),
+            vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
+            search_results: SearchResults::None,
+            did_query: false,
+        }
+    }
+}
+
+impl Drop for NormalScanExecState {
+    fn drop(&mut self) {
+        unsafe {
+            if pg_sys::IsTransactionState()
+                && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
+            {
+                pg_sys::ReleaseBuffer(self.vmbuff);
+            }
+        }
+    }
+}
 impl ExecMethod for NormalScanExecState {
-    fn init(&mut self, state: &PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
-        let search_reader = state.search_reader.as_ref().unwrap();
-        let query = state.query.as_ref().unwrap();
+    fn init(&mut self, state: &PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+        unsafe {
+            self.heaprel = state.heaprel.unwrap();
+            self.slot = pg_sys::MakeTupleTableSlot(
+                (*cstate).ss.ps.ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            );
+            self.can_use_visibility_map = state.targetlist_len == 0;
+        }
     }
 
     fn query(&mut self, state: &PdbScanState) -> bool {
@@ -39,7 +76,34 @@ impl ExecMethod for NormalScanExecState {
 
     fn internal_next(&mut self) -> ExecState {
         match self.search_results.next() {
+            // no more rows
             None => ExecState::Eof,
+
+            // we have a row, and we're set up such that we can check it with the visibility map
+            Some((scored, doc_address)) if self.can_use_visibility_map => unsafe {
+                let mut tid = pg_sys::ItemPointerData::default();
+                u64_to_item_pointer(scored.ctid, &mut tid);
+
+                let slot = self.slot;
+                (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+                (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+                (*slot).tts_nvalid = 0;
+
+                if is_block_all_visible(self.heaprel, &mut self.vmbuff, tid, (*self.heaprel).rd_id)
+                {
+                    // everything on this block is visible
+                    ExecState::Virtual { slot }
+                } else {
+                    // not sure about the block visibility so the tuple requires a heap check
+                    ExecState::RequiresVisibilityCheck {
+                        ctid: scored.ctid,
+                        score: scored.bm25,
+                        doc_address,
+                    }
+                }
+            },
+
+            // we have a row, but we can't use the visibility map
             Some((scored, doc_address)) => ExecState::RequiresVisibilityCheck {
                 ctid: scored.ctid,
                 score: scored.bm25,

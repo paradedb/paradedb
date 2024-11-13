@@ -7,11 +7,13 @@ title: Record
 The `record` option specifies how much information is recorded with an indexed field. By default, all fields use `position`.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field('description', record => 'freq')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"record": "freq"}
+    }'
 );
 ```
 

@@ -111,13 +111,8 @@ If you have installed `pg_search` on the primary, you can build a BM25 index ove
 
 ```sql
 -- Skip this if pg_search is not installed on the primary
-CALL paradedb.create_bm25(
-  table_name => 'mock_items',
-  index_name => 'mock_items',
-  schema_name => 'public',
-  key_field => 'id',
-  text_fields => paradedb.field('description')
-);
+CREATE INDEX mock_items_bm25_idx ON public.mock_items
+USING bm25 (id, description) WITH (key_field='id');
 ```
 
 ## Standby Server Setup

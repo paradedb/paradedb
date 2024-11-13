@@ -14,14 +14,13 @@ A `tokenizer` can be provided to any text or JSON field. If no `tokenizer` is sp
 filters out tokens that are larger than 255 bytes, and lowercases all tokens.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field(
-    name => 'description',
-    tokenizer => paradedb.tokenizer('default')
-  )
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default"}}
+    }'
 );
 ```
 
@@ -172,20 +171,20 @@ SELECT * FROM paradedb.tokenize(
   us](mailto:sales@paradedb.com) for access.
 </Info>
 
-ParadeDB supports using multiple tokenizers for the same field within a single BM25 index. This feature allows for more flexible and powerful querying capabilities, enabling you to employ various strategies to match against an index term. You can apply different tokenizers to the same field by using the `alias` parameter in the `paradedb.field` function.
+ParadeDB supports using multiple tokenizers for the same field within a single BM25 index. This feature allows for more flexible and powerful querying capabilities, enabling you to employ various strategies to match against an index term. You can apply different tokenizers to the same field by using the `column` parameter in the `paradedb.field` function.
 
 Here's an example of how to create a BM25 index with multiple tokenizers for the same field:
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  schema_name => 'public',
-  key_field => 'id',
-  text_fields =>
-    paradedb.field('description', tokenizer => paradedb.tokenizer('whitespace')) ||
-    paradedb.field('description', alias => 'description_ngram', tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)) ||
-    paradedb.field('description', alias => 'description_stem', tokenizer => paradedb.tokenizer('default', stemmer => 'English'))
+CREATE INDEX search_idx ON public.mock_items
+USING bm25 (id, description, description_ngram, description_stem)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "whitespace"}},
+        "description_ngram": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false} "column": "description"},
+        "description_stem": {"tokenizer": {"type": "default", "stemmer": "English"}, "column": "description"}}
+    }'
 );
 
 -- Example queries

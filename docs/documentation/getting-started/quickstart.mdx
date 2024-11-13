@@ -40,17 +40,9 @@ Next, let's create a BM25 index called `search_idx` on this table. A BM25 index 
 The following code block demonstrates the various Postgres types that can be combined inside a single index.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field('description') || paradedb.field('category'),
-  numeric_fields => paradedb.field('rating'),
-  boolean_fields => paradedb.field('in_stock'),
-  datetime_fields => paradedb.field('created_at'),
-  json_fields => paradedb.field('metadata'),
-  range_fields => paradedb.field('weight_range')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) 
+WITH (key_field='id');
 ```
 
 <Note>
@@ -170,12 +162,9 @@ SELECT * FROM orders LIMIT 3;
 Next, let's create a BM25 index over the `orders` table.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'orders_idx',
-  table_name => 'orders',
-  key_field => 'order_id',
-  text_fields => paradedb.field('customer_name')
-);
+CREATE INDEX orders_idx ON orders
+USING bm25 (order_id, customer_name) 
+WITH (key_field='order_id');
 ```
 
 The following query searches for rows where `customer_name` matches `Johnson` and `description` matches `shoes`.

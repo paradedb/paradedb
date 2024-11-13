@@ -82,6 +82,12 @@ pub enum SearchResults {
         std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>,
     ),
 
+    #[allow(clippy::type_complexity)]
+    UnscoredBufferedChannel(
+        crossbeam::channel::IntoIter<(SegmentOrdinal, Column<u64>, std::vec::IntoIter<DocId>)>,
+        Option<(SegmentOrdinal, Column<u64>, std::vec::IntoIter<DocId>)>,
+    ),
+
     Channel(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
 
     SingleSegment(vec_collector::FruitStyle),
@@ -116,6 +122,13 @@ impl Debug for SearchResults {
             SearchResults::BufferedChannel(iter) => {
                 write!(f, "SearchResults::BufferedChannel(~{:?})", iter.size_hint())
             }
+            SearchResults::UnscoredBufferedChannel(iter, _) => {
+                write!(
+                    f,
+                    "SearchResults::UnscoredBufferedChannel(~{:?})",
+                    iter.size_hint()
+                )
+            }
             SearchResults::Channel(iter) => {
                 write!(f, "SearchResults::Channel(~{:?})", iter.size_hint())
             }
@@ -138,6 +151,18 @@ impl Iterator for SearchResults {
                 .map(|(OrderedScore { score, .. }, doc_address)| (score, doc_address)),
             SearchResults::TopNByField(_, iter) => iter.next(),
             SearchResults::BufferedChannel(iter) => iter.next(),
+            SearchResults::UnscoredBufferedChannel(iter, buffer) => loop {
+                if buffer.is_none() {
+                    *buffer = Some(iter.next()?);
+                }
+                let (segment_ord, ctid_ff, doc) = buffer.as_mut().unwrap();
+                if let Some(doc) = doc.next() {
+                    let doc_address = DocAddress::new(*segment_ord, doc);
+                    let scored = SearchIndexScore::new(ctid_ff, doc, 0.0);
+                    return Some((scored, doc_address));
+                }
+                *buffer = None;
+            },
             SearchResults::Channel(iter) => iter.next(),
             SearchResults::SingleSegment(iter) => iter.next(),
         }
@@ -150,6 +175,7 @@ impl Iterator for SearchResults {
             SearchResults::TopNByScore(_, iter) => iter.size_hint(),
             SearchResults::TopNByField(_, iter) => iter.size_hint(),
             SearchResults::BufferedChannel(iter) => iter.size_hint(),
+            SearchResults::UnscoredBufferedChannel(iter, _) => iter.size_hint(),
             SearchResults::Channel(iter) => iter.size_hint(),
             SearchResults::SingleSegment(iter) => iter.size_hint(),
         }
@@ -163,6 +189,7 @@ impl SearchResults {
             SearchResults::TopNByScore(count, _) => Some(*count),
             SearchResults::TopNByField(count, _) => Some(*count),
             SearchResults::BufferedChannel(_) => None,
+            SearchResults::UnscoredBufferedChannel(..) => None,
             SearchResults::Channel(_) => None,
             SearchResults::SingleSegment(_) => None,
         }
@@ -278,39 +305,56 @@ impl SearchIndexReader {
         let estimated_rows = estimated_rows.unwrap_or(0);
 
         if estimated_rows == 0 || estimated_rows > 5_000 || sort_segments_by_ctid {
-            let (sender, receiver) =
-                crossbeam::channel::bounded(std::thread::available_parallelism().unwrap().get());
-            let collector = buffered_channel::BufferedChannelCollector::new(
-                need_scores,
-                sort_segments_by_ctid,
-                sender,
-            );
-            let searcher = self.searcher.clone();
-            let schema = self.schema.schema.clone();
-
-            let owned_query = query.box_clone();
-            std::thread::spawn(move || {
-                searcher
-                    .search_with_executor(
-                        &owned_query,
-                        &collector,
-                        executor,
-                        if need_scores {
+            if need_scores {
+                let (sender, receiver) = crossbeam::channel::bounded(
+                    std::thread::available_parallelism().unwrap().get(),
+                );
+                let collector = buffered_channel::BufferedChannelCollector::new(
+                    need_scores,
+                    sort_segments_by_ctid,
+                    sender,
+                );
+                let searcher = self.searcher.clone();
+                let owned_query = query.box_clone();
+                std::thread::spawn(move || {
+                    searcher
+                        .search_with_executor(
+                            &owned_query,
+                            &collector,
+                            executor,
                             tantivy::query::EnableScoring::Enabled {
                                 searcher: &searcher,
                                 statistics_provider: &searcher,
-                            }
-                        } else {
+                            },
+                        )
+                        .expect("failed to search")
+                });
+
+                SearchResults::BufferedChannel(receiver.into_iter().flatten())
+            } else {
+                let (sender, receiver) = crossbeam::channel::unbounded();
+                let collector =
+                    unscored_buffered_channel::UnscoredBufferedChannelCollector::new(sender);
+                let searcher = self.searcher.clone();
+                let schema = self.schema.schema.clone();
+
+                let owned_query = query.box_clone();
+                std::thread::spawn(move || {
+                    searcher
+                        .search_with_executor(
+                            &owned_query,
+                            &collector,
+                            executor,
                             tantivy::query::EnableScoring::Disabled {
                                 schema: &schema,
                                 searcher_opt: Some(&searcher),
-                            }
-                        },
-                    )
-                    .expect("failed to search")
-            });
+                            },
+                        )
+                        .expect("failed to search")
+                });
 
-            SearchResults::BufferedChannel(receiver.into_iter().flatten())
+                SearchResults::UnscoredBufferedChannel(receiver.into_iter(), None)
+            }
         } else {
             let (sender, receiver) = crossbeam::channel::unbounded();
             let collector = channel::ChannelCollector::new(need_scores, sender);
@@ -656,6 +700,100 @@ mod buffered_channel {
     }
 }
 
+mod unscored_buffered_channel {
+    use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::fastfield::Column;
+    use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
+
+    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
+    /// each segment, in parallel, as tantivy find each doc.
+    pub struct UnscoredBufferedChannelCollector {
+        sender:
+            crossbeam::channel::Sender<(SegmentOrdinal, Column<u64>, std::vec::IntoIter<DocId>)>,
+    }
+
+    impl UnscoredBufferedChannelCollector {
+        pub fn new(
+            sender: crossbeam::channel::Sender<(
+                SegmentOrdinal,
+                Column<u64>,
+                std::vec::IntoIter<DocId>,
+            )>,
+        ) -> Self {
+            Self { sender }
+        }
+    }
+
+    impl Collector for UnscoredBufferedChannelCollector {
+        type Fruit = ();
+        type Child = UnscoredBufferedChannelSegmentCollector;
+
+        fn for_segment(
+            &self,
+            segment_local_id: SegmentOrdinal,
+            segment_reader: &SegmentReader,
+        ) -> tantivy::Result<Self::Child> {
+            Ok(UnscoredBufferedChannelSegmentCollector {
+                segment_ord: segment_local_id,
+                sender: self.sender.clone(),
+                fruit: Vec::new(),
+                ctid_ff: segment_reader
+                    .fast_fields()
+                    .u64("ctid")
+                    .expect("ctid should be a u64 fast field"),
+            })
+        }
+
+        fn requires_scoring(&self) -> bool {
+            false
+        }
+
+        fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
+            Ok(())
+        }
+    }
+
+    pub struct UnscoredBufferedChannelSegmentCollector {
+        segment_ord: SegmentOrdinal,
+        sender:
+            crossbeam::channel::Sender<(SegmentOrdinal, Column<u64>, std::vec::IntoIter<DocId>)>,
+        fruit: Vec<DocId>,
+        ctid_ff: Column<u64>,
+    }
+
+    impl SegmentCollector for UnscoredBufferedChannelSegmentCollector {
+        type Fruit = ();
+
+        fn collect(&mut self, doc: DocId, _score: Score) {
+            self.fruit.push(doc);
+        }
+
+        #[allow(clippy::unnecessary_to_owned)]
+        fn collect_block(&mut self, docs: &[DocId]) {
+            // send the block over the channel right now
+            // if send fails that likely means the receiver was dropped so we have nowhere
+            // to send the result.  That's okay
+            self.sender
+                .send((
+                    self.segment_ord,
+                    self.ctid_ff.clone(),
+                    docs.to_vec().into_iter(),
+                ))
+                .ok();
+        }
+
+        fn harvest(self) -> Self::Fruit {
+            if !self.fruit.is_empty() {
+                // if send fails that likely means the receiver was dropped so we have nowhere
+                // to send the result.  That's okay
+                self.sender
+                    .send((self.segment_ord, self.ctid_ff, self.fruit.into_iter()))
+                    .ok();
+            }
+        }
+    }
+}
+
 mod channel {
     use crate::index::reader::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
@@ -757,11 +895,16 @@ mod vec_collector {
     pub enum FruitStyle {
         #[default]
         Empty,
-        Individual(std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+        Scored(
+            SegmentOrdinal,
+            Column<u64>,
+            std::vec::IntoIter<DocId>,
+            std::vec::IntoIter<Score>,
+        ),
         Blocks(
-            std::iter::Flatten<
-                std::vec::IntoIter<std::vec::IntoIter<(SearchIndexScore, DocAddress)>>,
-            >,
+            SegmentOrdinal,
+            Column<u64>,
+            std::iter::Flatten<std::vec::IntoIter<std::vec::IntoIter<DocId>>>,
         ),
     }
 
@@ -771,16 +914,26 @@ mod vec_collector {
         fn next(&mut self) -> Option<Self::Item> {
             match self {
                 FruitStyle::Empty => None,
-                FruitStyle::Individual(iter) => iter.next(),
-                FruitStyle::Blocks(iter) => iter.next(),
+                FruitStyle::Scored(segment_ord, ctid, doc, score) => {
+                    let doc = doc.next()?;
+                    let doc_address = DocAddress::new(*segment_ord, doc);
+                    let scored = SearchIndexScore::new(ctid, doc, score.next()?);
+                    Some((scored, doc_address))
+                }
+                FruitStyle::Blocks(segment_ord, ctid, doc) => {
+                    let doc = doc.next()?;
+                    let doc_address = DocAddress::new(*segment_ord, doc);
+                    let scored = SearchIndexScore::new(ctid, doc, 0.0);
+                    Some((scored, doc_address))
+                }
             }
         }
 
         fn size_hint(&self) -> (usize, Option<usize>) {
             match self {
                 FruitStyle::Empty => (0, None),
-                FruitStyle::Individual(iter) => iter.size_hint(),
-                FruitStyle::Blocks(iter) => iter.size_hint(),
+                FruitStyle::Scored(_, _, iter, _) => iter.size_hint(),
+                FruitStyle::Blocks(_, _, iter) => iter.size_hint(),
             }
         }
 
@@ -790,13 +943,13 @@ mod vec_collector {
         {
             match self {
                 FruitStyle::Empty => 0,
-                FruitStyle::Individual(iter) => iter.count(),
-                FruitStyle::Blocks(iter) => iter.count(),
+                FruitStyle::Scored(_, _, iter, _) => iter.count(),
+                FruitStyle::Blocks(_, _, iter) => iter.count(),
             }
         }
     }
 
-    /// A [`Collector`] that collects all matching documents into a [`Vec`].  
+    /// A [`Collector`] that collects all matching documents into a [`Vec`].
     pub struct VecCollector {
         need_scores: bool,
     }
@@ -818,7 +971,7 @@ mod vec_collector {
         ) -> tantivy::Result<Self::Child> {
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,
-                scored: vec![],
+                scored: (vec![], vec![]),
                 blocks: vec![],
                 ctid_ff: segment_reader
                     .fast_fields()
@@ -842,8 +995,8 @@ mod vec_collector {
 
     pub struct VecSegmentCollector {
         segment_ord: SegmentOrdinal,
-        scored: Vec<(SearchIndexScore, DocAddress)>,
-        blocks: Vec<std::vec::IntoIter<(SearchIndexScore, DocAddress)>>,
+        scored: (Vec<DocId>, Vec<Score>),
+        blocks: Vec<std::vec::IntoIter<DocId>>,
         ctid_ff: Column<u64>,
     }
 
@@ -851,31 +1004,32 @@ mod vec_collector {
         type Fruit = FruitStyle;
 
         fn collect(&mut self, doc: DocId, score: Score) {
-            let doc_address = DocAddress::new(self.segment_ord, doc);
-            self.scored.push((
-                SearchIndexScore::new(&self.ctid_ff, doc, score),
-                doc_address,
-            ));
+            self.scored.0.push(doc);
+            self.scored.1.push(score);
         }
 
+        #[allow(clippy::unnecessary_to_owned)]
         fn collect_block(&mut self, docs: &[DocId]) {
-            self.blocks.push(
-                docs.iter()
-                    .map(|doc| {
-                        let doc = *doc;
-                        let doc_address = DocAddress::new(self.segment_ord, doc);
-                        (SearchIndexScore::new(&self.ctid_ff, doc, 0.0), doc_address)
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter(),
-            );
+            self.blocks.push(docs.to_vec().into_iter());
         }
 
-        fn harvest(self) -> Self::Fruit {
-            if !self.scored.is_empty() {
-                FruitStyle::Individual(self.scored.into_iter())
+        fn harvest(mut self) -> Self::Fruit {
+            if !self.blocks.is_empty() {
+                if !self.scored.0.is_empty() {
+                    self.blocks.push(self.scored.0.into_iter());
+                }
+                FruitStyle::Blocks(
+                    self.segment_ord,
+                    self.ctid_ff,
+                    self.blocks.into_iter().flatten(),
+                )
             } else {
-                FruitStyle::Blocks(self.blocks.into_iter().flatten())
+                FruitStyle::Scored(
+                    self.segment_ord,
+                    self.ctid_ff,
+                    self.scored.0.into_iter(),
+                    self.scored.1.into_iter(),
+                )
             }
         }
     }

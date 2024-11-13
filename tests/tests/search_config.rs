@@ -399,7 +399,6 @@ fn regex_tokenizer_config(mut conn: PgConnection) {
 #[rstest]
 fn language_stem_tokenizer_deprecated(mut conn: PgConnection) {
     for (language, data, author_query, title_query, message_query) in LANGUAGES {
-        // Prepare test data setup for each language
         let language_str = language_to_str(language);
         let setup_query = format!(
             r#"
@@ -412,14 +411,13 @@ fn language_stem_tokenizer_deprecated(mut conn: PgConnection) {
             );
             INSERT INTO test_table (author, title, message)
             VALUES {};
-            CALL paradedb.create_bm25(
-                index_name => 'stem_test',
-                table_name => 'test_table',
-                key_field => 'id',
-                text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('stem', language => '{}'), record => 'position') ||
-                               paradedb.field('title', tokenizer => paradedb.tokenizer('stem', language => '{}'), record => 'position') ||
-                               paradedb.field('message', tokenizer => paradedb.tokenizer('stem', language => '{}'), record => 'position')
-            );"#,
+            CREATE INDEX stem_test ON test_table
+                USING bm25 (id, author, title, message)
+                WITH (key_field='id', text_fields='{{
+                    "author": {{"tokenizer": {{"type": "stem", "language": "{}"}}}},
+                    "title": {{"tokenizer": {{"type": "stem", "language": "{}"}}}},
+                    "message": {{"tokenizer": {{"type": "stem", "language": "{}"}}}}
+                }}');"#,
             data, language_str, language_str, language_str
         );
 
@@ -458,7 +456,6 @@ fn language_stem_tokenizer_deprecated(mut conn: PgConnection) {
 #[rstest]
 fn language_stem_filter(mut conn: PgConnection) {
     for (language, data, author_query, title_query, message_query) in LANGUAGES {
-        // Prepare test data setup for each language
         let language_str = language_to_str(language);
         let setup_query = format!(
             r#"
@@ -471,14 +468,13 @@ fn language_stem_filter(mut conn: PgConnection) {
             );
             INSERT INTO test_table (author, title, message)
             VALUES {};
-            CALL paradedb.create_bm25(
-                index_name => 'stem_test',
-                table_name => 'test_table',
-                key_field => 'id',
-                text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('default', stemmer => '{}'), record => 'position') ||
-                               paradedb.field('title', tokenizer => paradedb.tokenizer('default', stemmer => '{}'), record => 'position') ||
-                               paradedb.field('message', tokenizer => paradedb.tokenizer('default', stemmer => '{}'), record => 'position')
-            );"#,
+            CREATE INDEX stem_test ON test_table
+                USING bm25 (id, author, title, message)
+                WITH (key_field='id', text_fields='{{
+                    "author": {{"tokenizer": {{"type": "default", "stemmer": "{}"}}}},
+                    "title": {{"tokenizer": {{"type": "default", "stemmer": "{}"}}}},
+                    "message": {{"tokenizer": {{"type": "default", "stemmer": "{}"}}}}
+                }}');"#,
             data, language_str, language_str, language_str
         );
 

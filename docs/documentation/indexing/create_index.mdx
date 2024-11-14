@@ -261,12 +261,9 @@ This is because enums are stored as float values in Postgres.
 CREATE TYPE color AS ENUM ('red', 'green', 'blue');
 ALTER TABLE mock_items ADD COLUMN color color;
 
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  numeric_fields => paradedb.field('color')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, color, in_stock, created_at, metadata)
+WITH (key_field='id');
 ```
 
 Enums should be queried with [term queries](/documentation/advanced/term/term).

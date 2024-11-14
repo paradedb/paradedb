@@ -611,14 +611,9 @@ fn custom_enum_term(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description'),
-        numeric_fields => paradedb.field('color')
-    )
+    CREATE INDEX index_config_index ON paradedb.index_config
+    USING bm25 (id, description, color)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -638,14 +633,9 @@ fn custom_enum_parse(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description'),
-        numeric_fields => paradedb.field('color')
-    )
+    CREATE INDEX index_config_index ON paradedb.index_config
+    USING bm25 (id, description, color)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 

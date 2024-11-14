@@ -1055,16 +1055,9 @@ fn custom_enum(mut conn: PgConnection) {
     ALTER TABLE mock_items ADD COLUMN color color;
     INSERT INTO mock_items (color) VALUES ('red'), ('green'), ('blue');
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating') || paradedb.field('color'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, color, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 

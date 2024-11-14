@@ -178,8 +178,12 @@ pub async fn bench_eslogs_build_search_index(
     index: String,
     url: String,
 ) -> Result<()> {
-    let drop_query =
-        format!("CREATE EXTENSION IF NOT EXISTS pg_search; DROP INDEX IF EXISTS '{index}';");
+    let drop_query = format!(
+        "
+            CREATE EXTENSION IF NOT EXISTS pg_search;
+            DROP INDEX IF EXISTS {index};
+        "
+    );
 
     let create_query = format!(
         r#"

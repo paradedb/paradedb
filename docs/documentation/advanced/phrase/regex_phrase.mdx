@@ -1,0 +1,68 @@
+---
+title: Regex Phrase
+---
+
+## Basic Usage
+
+`regex_phrase` is to matches a specific sequence of regex queries. It is similar to `phrase` but allows for more flexibility in the query.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.regex_phrase('description', ARRAY['.*nning', '.*oes']);
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "regex_phrase": {
+        "field": "description",
+        "values": [".*nning", ".*oes"]
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8" />
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="phrases" required>
+  An `ARRAY` of regex queries that the search is looking to match.
+</ParamField>
+<ParamField body="slop" default={0}>
+  A slop of `0` requires the terms to appear exactly as they are in the phrase
+  and adjacent to each other. Higher slop values allow for more distance between
+  the terms.
+</ParamField>
+<ParamField body="max_expansions">
+  Limits the number of term variations that the prefix can expand to during the
+  search. This helps in controlling the breadth of the search by setting a cap
+  on how many different terms the prefix can match.
+</ParamField>
+
+Setting slop equal to `n` allows `n` terms to come in between the terms in the phrase.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.regex_phrase('description', ARRAY['.*eek', 'shoes'], slop => 1, max_expansion => 10);
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "regex_phrase": {
+        "field": "description",
+        "values": [",*eek", "shoes"],
+        "slop": 1
+        "max_expansion": 10
+    }
+}'::jsonb;
+```
+</CodeGroup>

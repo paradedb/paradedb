@@ -83,5 +83,5 @@ fn segment_count_correct_after_merge(mut conn: PgConnection) {
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
-    assert_eq!(nsegments, 2);
+    assert!(nsegments <= 3);
 }

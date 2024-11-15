@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-paradedb"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "anyhow",
  "async-std",
@@ -3112,7 +3112,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4806,7 +4806,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "anyhow",
  "approx",
@@ -4944,7 +4944,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "anyhow",
  "lindera-core",

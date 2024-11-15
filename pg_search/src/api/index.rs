@@ -160,10 +160,10 @@ pub fn boolean_singles(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn boost(boost: f32, query: SearchQueryInput) -> SearchQueryInput {
+pub fn boost(factor: f32, query: SearchQueryInput) -> SearchQueryInput {
     SearchQueryInput::Boost {
         query: Box::new(query),
-        boost,
+        factor,
     }
 }
 

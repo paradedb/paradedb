@@ -121,7 +121,7 @@ fn single_queries(mut conn: PgConnection) {
     // Boost
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
-    '{"boost": {"query": {"all": null}, "boost": 1.5}}'::jsonb
+    '{"boost": {"query": {"all": null}, "factor": 1.5}}'::jsonb
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
@@ -273,7 +273,7 @@ fn single_queries_jsonb_build_object(mut conn: PgConnection) {
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 
     jsonb_build_object('boost', jsonb_build_object(
         'query', jsonb_build_object('all', null),
-        'boost', 1.5)) ORDER BY id"#
+        'factor', 1.5)) ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 

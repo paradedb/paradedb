@@ -1128,7 +1128,7 @@ fn compound_queries(mut conn: PgConnection) {
     FROM mock_items
     WHERE id @@@ paradedb.boolean(
         should => ARRAY[
-            paradedb.boost(query => paradedb.term('description', 'shoes'), boost => 2.0),
+            paradedb.boost(query => paradedb.term('description', 'shoes'), factor => 2.0),
             paradedb.term('description', 'running')
         ]
     );
@@ -1143,7 +1143,7 @@ fn compound_queries(mut conn: PgConnection) {
     '{
         "boolean": {
             "should": [
-                {"boost": {"query": {"term": {"field": "description", "value": "shoes"}}, "boost": 2.0}},
+                {"boost": {"query": {"term": {"field": "description", "value": "shoes"}}, "factor": 2.0}},
                 {"term": {"field": "description", "value": "running"}}
             ]
         }
@@ -1239,7 +1239,7 @@ fn compound_queries(mut conn: PgConnection) {
         "boolean": {
             "should": [
                 {"term": {"field": "description", "value": "shoes"}},
-                {"boost": {"boost": 2.0, "query": {"term": {"field": "description", "value": "running"}}}}
+                {"boost": {"factor": 2.0, "query": {"term": {"field": "description", "value": "running"}}}}
             ]
         }
     }'::jsonb;

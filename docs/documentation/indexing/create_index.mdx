@@ -7,17 +7,9 @@ title: Create an Index
 The following code block creates a [BM25 index](/documentation/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field('description') || paradedb.field('category'),
-  numeric_fields => paradedb.field('rating'),
-  boolean_fields => paradedb.field('in_stock'),
-  datetime_fields => paradedb.field('created_at'),
-  json_fields => paradedb.field('metadata'),
-  range_fields => paradedb.field('weight_range')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
 ```
 
 <ParamField body="index_name" required>
@@ -68,11 +60,13 @@ ORDER BY id;
 Columns of type `VARCHAR`, `TEXT`, `UUID`, and their corresponding array types can be indexed as text fields.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field('description', indexed => true)
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {"indexed": true}
+    }'
 );
 ```
 
@@ -115,11 +109,13 @@ Columns of type `SMALLINT`, `INTEGER`, `BIGINT`, `OID`, `REAL`, `DOUBLE PRECISIO
 as `numeric_fields`. The main reason to index a numeric field is if it is used for filtering or aggregations as part of the search query.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  numeric_fields => paradedb.field('rating', indexed => true)
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, rating)
+WITH (
+    key_field = 'id',
+    numeric_fields = '{
+        "rating": {"indexed": true}
+    }'
 );
 ```
 
@@ -144,12 +140,9 @@ Columns of type `BOOLEAN` and `BOOLEAN[]` can be indexed as `boolean_fields`. In
 it is used for filtering as part of the search query.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  boolean_fields => paradedb.field('in_stock')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, in_stock)
+WITH (key_field = 'id');
 ```
 
 `paradedb.field` accepts several configuration options for boolean fields:
@@ -173,12 +166,9 @@ Columns of type `JSON` and `JSONB` can be indexed as `json_fields`. Once indexed
 performed on nested text fields within JSON values.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  json_fields => paradedb.field('metadata')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, metadata)
+WITH (key_field = 'id');
 ```
 
 `paradedb.field` accepts several configuration options for JSON fields:
@@ -217,12 +207,9 @@ Columns of type `DATE`, `TIMESTAMP`, `TIMESTAMPTZ`, `TIME`, `TIMETZ`, and their 
 Indexing a datetime field is useful if it is used for filtering as part of the search query.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  datetime_fields => paradedb.field('created_at')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, created_at)
+WITH (key_field = 'id');
 ```
 
 `paradedb.field` accepts several configuration options for boolean fields:
@@ -256,12 +243,9 @@ Columns of type `int4range`, `int8range`, `numrange`, `tsrange`, and `tstzrange`
 The [range term](/documentation/advanced/term/range_term) query is used to filter over these fields.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  range_fields => paradedb.field('weight_range')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, weight_range)
+WITH (key_field = 'id');
 ```
 
 <ParamField body="stored" default={true}>
@@ -277,12 +261,9 @@ This is because enums are stored as float values in Postgres.
 CREATE TYPE color AS ENUM ('red', 'green', 'blue');
 ALTER TABLE mock_items ADD COLUMN color color;
 
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  numeric_fields => paradedb.field('color')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, color, in_stock, created_at, metadata)
+WITH (key_field='id');
 ```
 
 Enums should be queried with [term queries](/documentation/advanced/term/term).
@@ -297,12 +278,9 @@ and recreated to account for the new enum ordinal values.
 The `||` operator can be used to index multiple fields.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field('description') || paradedb.field('category')
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category)
+WITH (key_field = 'id');
 ```
 
 ## Choosing a Key Field
@@ -314,35 +292,7 @@ Additionally, the key field is not intended to be tokenized. For instance, the f
 
 ```sql
 -- This will throw an error
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'description',
-  text_fields => paradedb.field('description')
-);
-```
-
-## Legacy Syntax
-
-The `paradedb.field` and `paradedb.tokenizer` functions were introduced in `0.8.6`. These functions are
-syntactic sugar for generating `JSONB`. Users that prefer the old syntax can still pass `jsonb` into `_fields`.
-
-```sql
--- These two queries are equivalent
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => '{"description": {"tokenizer": {"type": "default"}}}'
-);
-
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  text_fields => paradedb.field(
-    'description',
-    tokenizer => paradedb.tokenizer('default')
-  )
-);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (description)
+WITH (key_field = 'description');
 ```

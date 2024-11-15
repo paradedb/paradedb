@@ -50,17 +50,10 @@ fn quickstart(mut conn: PgConnection) {
     );
 
     r#"
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata'),
-        range_fields => paradedb.field('weight_range')
-    )"#
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) 
+    WITH (key_field='id');
+    "#
     .execute(&mut conn);
 
     let rows: Vec<(String, i32, String)> = r#"
@@ -116,12 +109,10 @@ fn quickstart(mut conn: PgConnection) {
     FOREIGN KEY (product_id)
     REFERENCES mock_items(id);
 
-    CALL paradedb.create_bm25(
-        index_name => 'orders_idx',
-        table_name => 'orders',
-        key_field => 'order_id',
-        text_fields => paradedb.field('customer_name')
-    );"#
+    CREATE INDEX orders_idx ON orders
+    USING bm25 (order_id, customer_name) 
+    WITH (key_field='order_id');
+    "#
     .execute(&mut conn);
 
     let rows: Vec<(i32, i32, i32, BigDecimal, String)> = r#"
@@ -227,16 +218,9 @@ fn full_text_search(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -421,12 +405,10 @@ fn full_text_search(mut conn: PgConnection) {
     FOREIGN KEY (product_id)
     REFERENCES mock_items(id);
 
-    CALL paradedb.create_bm25(
-        index_name => 'orders_idx',
-        table_name => 'orders',
-        key_field => 'order_id',
-        text_fields => paradedb.field('customer_name')
-    );"#
+    CREATE INDEX orders_idx ON orders
+    USING bm25 (order_id, customer_name)
+    WITH (key_field='order_id');
+    "#
     .execute(&mut conn);
 
     let rows: Vec<(i32, f32)> = r#"
@@ -552,17 +534,9 @@ fn term_level_queries(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata'),
-        range_fields => paradedb.field('weight_range')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -975,16 +949,9 @@ fn phrase_level_queries(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1032,16 +999,9 @@ fn json_queries(mut conn: PgConnection) {
     WHERE id = 2;
 
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata', fast => true)
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id', json_fields='{"metadata": {"fast": true}}');
     "#
     .execute(&mut conn);
 
@@ -1096,16 +1056,9 @@ fn custom_enum(mut conn: PgConnection) {
     ALTER TABLE mock_items ADD COLUMN color color;
     INSERT INTO mock_items (color) VALUES ('red'), ('green'), ('blue');
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating') || paradedb.field('color'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, color, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1163,16 +1116,9 @@ fn compound_queries(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1570,16 +1516,9 @@ fn specialized_queries(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1647,16 +1586,9 @@ fn autocomplete(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1713,16 +1645,12 @@ fn autocomplete(mut conn: PgConnection) {
     assert_eq!(rows, expected);
 
     r#"
-    CALL paradedb.drop_bm25('search_idx');
-    CALL paradedb.create_bm25(
-        index_name => 'ngrams_idx',
-        schema_name => 'public',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field(
-            'description',
-            tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)
-        )
+    DROP INDEX search_idx;
+    CREATE INDEX ngrams_idx ON public.mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field='id',
+        text_fields='{"description": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}}}'
     );
     "#
     .execute(&mut conn);
@@ -1757,16 +1685,9 @@ fn hybrid_search(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id');
 
     CREATE EXTENSION vector;
     ALTER TABLE mock_items ADD COLUMN embedding vector(3);
@@ -1878,16 +1799,9 @@ fn schema(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -1916,16 +1830,9 @@ fn index_size(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
-    );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 

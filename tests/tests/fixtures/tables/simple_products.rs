@@ -33,11 +33,7 @@ pub struct SimpleProductsTable {
 
 impl SimpleProductsTable {
     pub fn setup() -> String {
-        SIMPLE_PRODUCTS_TABLE_SETUP.replace("%s", "id")
-    }
-
-    pub fn setup_with_key_field(key_field: &str) -> String {
-        SIMPLE_PRODUCTS_TABLE_SETUP.replace("%s", key_field)
+        SIMPLE_PRODUCTS_TABLE_SETUP.into()
     }
 }
 
@@ -45,16 +41,23 @@ static SIMPLE_PRODUCTS_TABLE_SETUP: &str = r#"
 BEGIN;
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
-    CALL paradedb.create_bm25(
-    	index_name => 'bm25_search_bm25_index',
-        table_name => 'bm25_search',
-    	schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-    	numeric_fields => paradedb.field('rating'),
-    	boolean_fields => paradedb.field('in_stock'),
-    	json_fields => paradedb.field('metadata'),
-        datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date') || paradedb.field('latest_available_time')        
+    CREATE INDEX bm25_search_bm25_index
+    ON paradedb.bm25_search
+    USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {},
+            "category": {}
+        }',
+        numeric_fields='{"rating": {}}',
+        boolean_fields='{"in_stock": {}}',
+        json_fields='{"metadata": {}}',
+        datetime_fields='{
+            "created_at": {},
+            "last_updated_date": {},
+            "latest_available_time": {}
+        }'
     );
 COMMIT;
 "#;

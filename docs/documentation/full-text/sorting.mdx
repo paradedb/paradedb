@@ -86,13 +86,13 @@ If the `lowercase` [normalizer](/documentation/indexing/fast_fields#normalizers)
 can be pushed down.
 
 ```sql
-CALL paradedb.create_bm25(
-    index_name => 'search_idx',
-    table_name => 'mock_items',
-    key_field => 'id',
-    text_fields =>
-        paradedb.field('description') ||
-        paradedb.field('category', fast => true, normalizer => 'lowercase')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category)
+WITH (
+    key_field='id',
+    text_fields='{
+        "category": {"fast": true, "normalizer": "lowercase"}
+    }'
 );
 
 -- category uses normalizer = lowercase, so lower(category) can be pushed down

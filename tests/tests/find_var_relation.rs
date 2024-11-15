@@ -27,12 +27,10 @@ fn test_subselect(mut conn: PgConnection) {
     r#"
         CREATE TABLE test_subselect(id serial8, t text);
         INSERT INTO test_subselect(t) VALUES ('this is a test');
-        CALL paradedb.create_bm25(
-            index_name => 'test_subselect_idx',
-            table_name => 'test_subselect',
-            key_field => 'id',
-            text_fields => paradedb.field('t')
-        );
+
+        CREATE INDEX test_subselect_idx ON test_subselect
+        USING bm25 (id, t)
+        WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -49,12 +47,10 @@ fn test_cte(mut conn: PgConnection) {
         CREATE TABLE test_cte(id serial8, t text);
         INSERT INTO test_cte(t) VALUES ('beer wine cheese');
         INSERT INTO test_cte(t) VALUES ('beer cheese');
-        CALL paradedb.create_bm25(
-            index_name => 'test_cte_idx',
-            table_name => 'test_cte',
-            key_field => 'id',
-            text_fields => paradedb.field('t')
-        );
+
+        CREATE INDEX test_cte_idx ON test_cte
+        USING bm25 (id, t)
+        WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -72,12 +68,10 @@ fn test_cte2(mut conn: PgConnection) {
         CREATE TABLE test_cte(id serial8, t text);
         INSERT INTO test_cte(t) VALUES ('beer wine cheese');
         INSERT INTO test_cte(t) VALUES ('beer cheese');
-        CALL paradedb.create_bm25(
-            index_name => 'test_cte_idx',
-            table_name => 'test_cte',
-            key_field => 'id',
-            text_fields => paradedb.field('t')
-        );
+
+        CREATE INDEX test_cte_idx ON test_cte
+        USING bm25 (id, t)
+        WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
@@ -93,12 +87,10 @@ fn test_plain_relation(mut conn: PgConnection) {
     r#"
         CREATE TABLE test_plain_relation(id serial8, t text);
         INSERT INTO test_plain_relation(t) VALUES ('beer wine cheese');
-        CALL paradedb.create_bm25(
-            index_name => 'test_plain_relation_idx',
-            table_name => 'test_plain_relation',
-            key_field => 'id',
-            text_fields => paradedb.field('t')
-        );
+
+        CREATE INDEX test_plain_relation_idx ON test_plain_relation
+        USING bm25 (id, t)
+        WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 

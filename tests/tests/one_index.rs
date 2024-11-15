@@ -15,24 +15,16 @@ fn only_one_index_allowed(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-            index_name => 'index_one',
-            schema_name => 'public',
-            table_name => 'mock_items',
-            key_field => 'id',
-            text_fields => paradedb.field('description')
-    );
+    CREATE INDEX index_one ON public.mock_items
+    USING bm25 (id, description)
+    WITH (key_field = 'id');
     "#
     .execute(&mut conn);
 
     match r#"
-    CALL paradedb.create_bm25(
-            index_name => 'index_two',
-            schema_name => 'public',
-            table_name => 'mock_items',
-            key_field => 'id',
-            text_fields => paradedb.field('description')
-    );
+    CREATE INDEX index_two ON public.mock_items
+    USING bm25 (id, description)
+    WITH (key_field = 'id');
     "#
     .execute_result(&mut conn)
     {

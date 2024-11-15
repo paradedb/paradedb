@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Tests for ParadeDB's Custom Scan implementation
-
+// Tests for ParadeDB's Custom Scan implementation
 mod fixtures;
 
 use fixtures::*;
@@ -227,45 +226,34 @@ where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
 #[rstest]
 fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     r#"
-CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
-CALL paradedb.create_bm25(
-    	index_name => 'search_idx',
-        table_name => 'mock_items',
-    	schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-    	numeric_fields => paradedb.field('rating'),
-    	boolean_fields => paradedb.field('in_stock'),
-    	json_fields => paradedb.field('metadata'),
-        datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date') || paradedb.field('latest_available_time'));
+    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
 
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+    WITH (key_field='id');
 
-CALL paradedb.create_bm25_test_table(
-  schema_name => 'public',
-  table_name => 'orders',
-  table_type => 'Orders'
-);
-CALL paradedb.create_bm25(
-  index_name => 'orders_idx',
-  table_name => 'orders',
-  key_field => 'order_id',
-  text_fields => paradedb.field('customer_name')
-);
-
-ALTER TABLE orders
-ADD CONSTRAINT foreign_key_product_id
-FOREIGN KEY (product_id)
-REFERENCES mock_items(id);   
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'orders',
+      table_type => 'Orders'
+    );
+    ALTER TABLE orders
+    ADD CONSTRAINT foreign_key_product_id
+    FOREIGN KEY (product_id)
+    REFERENCES mock_items(id);   
+        
+    CREATE INDEX orders_idx ON orders
+    USING bm25 (order_id, customer_name)
+    WITH (key_field='order_id');
     "#.execute(&mut conn);
 
     // this one doesn't plan a custom scan at all, so scores come back as NaN
-    let result = r#"
-SELECT o.order_id, m.description, paradedb.score(o.order_id) + paradedb.score(m.id) as score
-FROM orders o
-JOIN mock_items m ON o.product_id = m.id
-WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes'
-ORDER BY order_id
-LIMIT 1;"#
+    let result = "
+        SELECT o.order_id, m.description, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+        FROM orders o JOIN mock_items m ON o.product_id = m.id
+        WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes'
+        ORDER BY order_id
+        LIMIT 1"
         .fetch_one::<(i32, String, f32)>(&mut conn);
     assert_eq!(result, (3, "Sleek running shoes".into(), 5.406531));
 }
@@ -273,39 +261,30 @@ LIMIT 1;"#
 #[rustfmt::skip]
 #[rstest]
 fn join_issue_1776(mut conn: PgConnection) {
-    r#"CALL paradedb.create_bm25_test_table(
+    r#"
+    CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name => 'mock_items'
         );
         
-        CALL paradedb.create_bm25(
-          index_name => 'search_idx',
-          table_name => 'mock_items',
-          key_field => 'id',
-          text_fields => paradedb.field('description') || paradedb.field('category'),
-          numeric_fields => paradedb.field('rating'),
-          boolean_fields => paradedb.field('in_stock'),
-          datetime_fields => paradedb.field('created_at'),
-          json_fields => paradedb.field('metadata')
-        );
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, metadata, created_at)
+    WITH (key_field='id');
         
-        CALL paradedb.create_bm25_test_table(
+    CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name => 'orders',
           table_type => 'Orders'
         );
         
-        ALTER TABLE orders
-        ADD CONSTRAINT foreign_key_product_id
-        FOREIGN KEY (product_id)
-        REFERENCES mock_items(id);
-        
-        CALL paradedb.create_bm25(
-          index_name => 'orders_idx',
-          table_name => 'orders',
-          key_field => 'order_id',
-          text_fields => paradedb.field('customer_name')
-        );
+    ALTER TABLE orders
+    ADD CONSTRAINT foreign_key_product_id
+    FOREIGN KEY (product_id)
+    REFERENCES mock_items(id);
+    
+    CREATE INDEX orders_idx ON orders
+    USING bm25 (order_id, customer_name)
+    WITH (key_field='order_id');
     "#
     .execute(&mut conn);
 
@@ -326,39 +305,30 @@ fn join_issue_1776(mut conn: PgConnection) {
 #[rustfmt::skip]
 #[rstest]
 fn join_issue_1826(mut conn: PgConnection) {
-    r#"CALL paradedb.create_bm25_test_table(
+    r#"
+    CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name => 'mock_items'
         );
-        
-        CALL paradedb.create_bm25(
-          index_name => 'search_idx',
-          table_name => 'mock_items',
-          key_field => 'id',
-          text_fields => paradedb.field('description') || paradedb.field('category'),
-          numeric_fields => paradedb.field('rating'),
-          boolean_fields => paradedb.field('in_stock'),
-          datetime_fields => paradedb.field('created_at'),
-          json_fields => paradedb.field('metadata')
-        );
-        
-        CALL paradedb.create_bm25_test_table(
+
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, metadata, created_at)
+    WITH (key_field='id');
+
+    CALL paradedb.create_bm25_test_table(
           schema_name => 'public',
           table_name => 'orders',
           table_type => 'Orders'
         );
         
-        ALTER TABLE orders
-        ADD CONSTRAINT foreign_key_product_id
-        FOREIGN KEY (product_id)
-        REFERENCES mock_items(id);
-        
-        CALL paradedb.create_bm25(
-          index_name => 'orders_idx',
-          table_name => 'orders',
-          key_field => 'order_id',
-          text_fields => paradedb.field('customer_name')
-        );
+    ALTER TABLE orders
+    ADD CONSTRAINT foreign_key_product_id
+    FOREIGN KEY (product_id)
+    REFERENCES mock_items(id);
+    
+    CREATE INDEX orders_idx ON orders
+    USING bm25 (order_id, customer_name)
+    WITH (key_field='order_id');
     "#
     .execute(&mut conn);
 
@@ -374,8 +344,6 @@ fn join_issue_1826(mut conn: PgConnection) {
     assert_eq!(results[0], (3, "Sleek running shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
 }
 
-/// tests that an ERROR raised in the middle of executing a our custom scan doesn't leave open
-/// tantivy file handles
 #[rstest]
 fn leaky_file_handles(mut conn: PgConnection) {
     r#"

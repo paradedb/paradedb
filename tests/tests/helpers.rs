@@ -22,6 +22,7 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use serde_json::json;
 use sqlx::PgConnection;
 
 #[rstest]
@@ -127,4 +128,103 @@ fn list_tokenizers(mut conn: PgConnection) {
             ]
         );
     }
+}
+
+use serde_json::Value;
+
+#[rstest]
+fn test_field_basic(mut conn: PgConnection) {
+    let row = r#"
+        SELECT paradedb.field(
+            'title', 
+            indexed => true, 
+            stored => true, 
+            fast => false, 
+            fieldnorms => true, 
+            record => 'single', 
+            expand_dots => false, 
+            tokenizer => '{"type":"default"}'::jsonb, 
+            normalizer => 'lowercase'
+        )::text;
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    let result_json: Value = serde_json::from_str(&row.0).unwrap();
+    let expected_json = json!({
+        "title": {
+            "indexed": true,
+            "stored": true,
+            "fast": false,
+            "fieldnorms": true,
+            "record": "single",
+            "expand_dots": false,
+            "tokenizer": {"type": "default"},
+            "normalizer": "lowercase"
+        }
+    });
+
+    assert_eq!(result_json, expected_json);
+}
+
+#[rstest]
+fn test_field_optional_values(mut conn: PgConnection) {
+    let row = r#"
+        SELECT paradedb.field('description')::text;
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    let result_json: Value = serde_json::from_str(&row.0).unwrap();
+    let expected_json = json!({
+        "description": {}
+    });
+
+    assert_eq!(result_json, expected_json);
+}
+
+#[rstest]
+fn test_format_create_index_basic(mut conn: PgConnection) {
+    let row = r#"
+        SELECT paradedb.format_create_index(
+            'my_index', 
+            'my_table', 
+            'id', 
+            'public', 
+            '{"title": true}'::jsonb, 
+            '{"price": true}'::jsonb, 
+            '{"is_available": true}'::jsonb, 
+            '{"details": true}'::jsonb, 
+            '{"price_range": true}'::jsonb, 
+            '{"published_date": true}'::jsonb, 
+            'price > 0'
+        );
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    let expected = r#"CREATE INDEX my_index ON public.my_table USING bm25 (id, details, is_available, price, price_range, published_date, title) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{"price":true}', boolean_fields='{"is_available":true}', json_fields='{"details":true}', range_fields='{"price_range":true}', datetime_fields='{"published_date":true}') WHERE price > 0;"#;
+
+    assert_eq!(row.0, expected);
+}
+
+#[rstest]
+fn test_format_create_index_no_predicate(mut conn: PgConnection) {
+    let row = r#"
+        SELECT paradedb.format_create_index(
+            'another_index', 
+            'products', 
+            'product_id', 
+            'inventory', 
+            '{"name": true}'::jsonb, 
+            '{}'::jsonb, 
+            '{}'::jsonb, 
+            '{}'::jsonb, 
+            '{}'::jsonb, 
+            '{}'::jsonb, 
+            ''
+        );
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    let expected = r#"CREATE INDEX another_index ON inventory.products USING bm25 (product_id, name) WITH (key_field='product_id', text_fields='{"name":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"#;
+
+    assert_eq!(row.0, expected);
 }

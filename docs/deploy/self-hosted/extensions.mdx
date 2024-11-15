@@ -35,7 +35,7 @@ ParadeDB provides prebuilt binaries for our extensions on
 - Ubuntu 22.04 and 24.04
 - Red Hat Enterprise Linux 8 and 9
 
-Postgres 14, 15 and 16 on both `amd64 (x86_64)` and `arm64` are available. If you are using a different version of Postgres or a different operating system, you will need to build the extensions from source.
+Postgres 14, 15, 16, and 17 on both `amd64 (x86_64)` and `arm64` are available. If you are using a different version of Postgres or a different operating system, you will need to build the extensions from source.
 
 ### pg_search
 
@@ -43,38 +43,38 @@ The prebuilt releases can be found in [GitHub Releases](https://github.com/parad
 
 <Note>
   You can replace `0.12.2` with the `pg_search` version you wish to install and
-  `16` with the version of Postgres you are using.
+  `17` with the version of Postgres you are using.
 </Note>
 
 <CodeGroup>
 
 ```bash Ubuntu 24.04
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/postgresql-16-pg-search_0.12.2-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/postgresql-17-pg-search_0.12.2-1PARADEDB-noble_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash Ubuntu 22.04
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/postgresql-16-pg-search_0.12.2-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_search.deb
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/postgresql-17-pg-search_0.12.2-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash Debian 12
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/postgresql-16-pg-search_0.12.2-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/postgresql-17-pg-search_0.12.2-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_search.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash RHEL 9
 # Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/pg_search_16-0.12.2-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/pg_search_17-0.12.2-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 
 ```bash RHEL 8
 # Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/pg_search_16-0.12.2-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_search.rpm
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.12.2/pg_search_17-0.12.2-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 
@@ -86,38 +86,38 @@ The prebuilt releases can be found in [GitHub Releases](https://github.com/parad
 
 <Note>
   You can replace `0.2.3` with the `pg_analytics` version you wish to install
-  and `16` with the version of Postgres you are using.
+  and `17` with the version of Postgres you are using.
 </Note>
 
 <CodeGroup>
 
 ```bash Ubuntu 24.04
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/postgresql-16-pg-analytics_0.2.3-1PARADEDB-noble_amd64.deb" -o /tmp/pg_analytics.deb
+curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/postgresql-17-pg-analytics_0.2.3-1PARADEDB-noble_amd64.deb" -o /tmp/pg_analytics.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash Ubuntu 22.04
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/postgresql-16-pg-analytics_0.2.3-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_analytics.deb
+curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/postgresql-17-pg-analytics_0.2.3-1PARADEDB-jammy_amd64.deb" -o /tmp/pg_analytics.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash Debian 12
 # Available arch versions are amd64, arm64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/postgresql-16-pg-analytics_0.2.3-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_analytics.deb
+curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/postgresql-17-pg-analytics_0.2.3-1PARADEDB-bookworm_amd64.deb" -o /tmp/pg_analytics.deb
 sudo apt-get install -y /tmp/*.deb
 ```
 
 ```bash RHEL 9
 # Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/pg_analytics_16-0.2.3-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_analytics.rpm
+curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/pg_analytics_17-0.2.3-1PARADEDB.el9.x86_64.rpm" -o /tmp/pg_analytics.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 
 ```bash RHEL 8
 # Available arch versions are x86_64, aarch64
-curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/pg_analytics_16-0.2.3-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_analytics.rpm
+curl -L "https://github.com/paradedb/pg_analytics/releases/download/v0.2.3/pg_analytics_17-0.2.3-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_analytics.rpm
 sudo dnf install -y /tmp/*.rpm
 ```
 

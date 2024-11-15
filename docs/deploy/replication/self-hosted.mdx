@@ -128,10 +128,10 @@ replication consists of two steps:
 You should run `pg_basebackup` on your standby server to create a physical byte-for-byte replica of your primary cluster. The `--pgdata` directory specifies the where the standby cluster will be created. The directory must exist, and must be empty.
 
 ```bash
-mkdir -p /var/lib/postgresql/16/main
+mkdir -p /var/lib/postgresql/17/main
 
-pg_basebackup --create-slot --slot standby1 --host 192.168.0.30 --pgdata /var/lib/postgresql/16/main --progress --username replicator --write-recovery-conf
-pg_basebackup --create-slot --slot standby2 --host 192.168.0.30 --pgdata /var/lib/postgresql/16/main --progress --username replicator --write-recovery-conf
+pg_basebackup --create-slot --slot standby1 --host 192.168.0.30 --pgdata /var/lib/postgresql/17/main --progress --username replicator --write-recovery-conf
+pg_basebackup --create-slot --slot standby2 --host 192.168.0.30 --pgdata /var/lib/postgresql/17/main --progress --username replicator --write-recovery-conf
 ```
 
 ### Start PostgreSQL on Standby Server

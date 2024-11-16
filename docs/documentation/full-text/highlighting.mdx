@@ -46,3 +46,24 @@ FROM mock_items
 WHERE description @@@ 'shoes'
 LIMIT 5;
 ```
+
+## Snippet Positions
+
+`paradedb.snippet_positions(<column>)` is used to return the start position and length of the highlighted snippet.
+
+```sql
+SELECT id, paradedb.snippet_positions(description)
+FROM mock_items
+WHERE description @@@ 'shoes'
+LIMIT 5;
+```
+
+<ParamField body="start_tag" default="<b>">
+  The leading indicator around the highlighted region.
+</ParamField>
+<ParamField body="end_tag" default="</b>">
+  The trailing indicator around the highlighted region.
+</ParamField>
+<ParamField body="max_num_chars" default={150}>
+  Max number of characters for a highlighted fragment.
+</ParamField>

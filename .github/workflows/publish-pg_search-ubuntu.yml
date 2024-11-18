@@ -36,50 +36,50 @@ jobs:
           - runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 14
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 14
             arch: arm64
           - runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 15
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 15
             arch: arm64
           - runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 16
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 16
             arch: arm64
           - runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 17
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 17
             arch: arm64
           # Ubuntu 24.04
           - runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 14
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 14
             arch: arm64
           - runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 15
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 15
             arch: arm64
           - runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 16
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 16
             arch: arm64
           - runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 17
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 17
             arch: arm64
 

@@ -1,6 +1,6 @@
-# workflows/publish-pg_search-debian.yml
+# workflows/publish-pg_search-ubuntu.yml
 #
-# Publish pg_search (Debian)
+# Publish pg_search (Ubuntu)
 # Build and publish the pg_search extension as .deb to GitHub Releases.
 
 name: Publish pg_search
@@ -17,7 +17,7 @@ on:
         default: ""
 
 concurrency:
-  group: publish-pg_search-debian-${{ github.head_ref || github.ref }}
+  group: publish-pg_search-ubuntu-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 # Used by actions/attest-build-provenance to sign the builds
@@ -27,44 +27,59 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    container:
-      image: ${{ matrix.image }}
     strategy:
       matrix:
         include:
-          # Debian 12
+          # Ubuntu 22.04
           - runner: ubicloud-standard-8
-            image: debian:12-slim
             pg_version: 14
             arch: amd64
           - runner: ubicloud-standard-4-arm
-            image: debian:12-slim
             pg_version: 14
             arch: arm64
           - runner: ubicloud-standard-8
-            image: debian:12-slim
             pg_version: 15
             arch: amd64
           - runner: ubicloud-standard-4-arm
-            image: debian:12-slim
             pg_version: 15
             arch: arm64
           - runner: ubicloud-standard-8
-            image: debian:12-slim
             pg_version: 16
             arch: amd64
           - runner: ubicloud-standard-4-arm
-            image: debian:12-slim
             pg_version: 16
             arch: arm64
           - runner: ubicloud-standard-8
-            image: debian:12-slim
             pg_version: 17
             arch: amd64
           - runner: ubicloud-standard-4-arm
-            image: debian:12-slim
+            pg_version: 17
+            arch: arm64
+          # Ubuntu 24.04
+          - runner: ubicloud-standard-8
+            pg_version: 14
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            pg_version: 14
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 15
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            pg_version: 15
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 16
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            pg_version: 16
+            arch: arm64
+          - runner: ubicloud-standard-8
+            pg_version: 17
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
             pg_version: 17
             arch: arm64
 
@@ -78,10 +93,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Retrieve OS & GitHub Tag Versions
         id: version
-        shell: bash
         run: |
           if [ -z "${{ github.event.inputs.version }}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
@@ -131,10 +144,8 @@ jobs:
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search/
-        shell: bash
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH

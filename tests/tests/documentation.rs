@@ -444,7 +444,7 @@ fn full_text_search(mut conn: PgConnection) {
     assert!(rows[0].1.contains("</i>"));
 
     let rows: Vec<(i32, [i32; 2])> = r#"
-    SELECT id, paradedb.snippet_positions(description, start_tag => '<i>', end_tag => '</i>')
+    SELECT id, paradedb.snippet_positions(description)
     FROM mock_items
     WHERE description @@@ 'shoes'
     ORDER BY id

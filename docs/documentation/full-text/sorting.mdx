@@ -4,8 +4,7 @@ title: Sorting
 
 ## Order by Relevance
 
-The `score` column returned by [`paradedb.score`](/documentation/full-text/scoring) can be used to sort results by
-BM25 relevance.
+You can use the `score` column from [`paradedb.score`](/documentation/full-text/scoring) to sort results by BM25 relevance.
 
 ```sql
 SELECT description, rating, category, paradedb.score(id)
@@ -17,7 +16,7 @@ LIMIT 5;
 
 ## Order by Field
 
-The result set can be ordered by any field in `ASC` or `DESC` order. By default, Postgres orders by `ASC`.
+You can sort the result set by any field in `ASC` or `DESC` order. By default, Postgres orders by `ASC`.
 
 ```sql
 SELECT description, rating, category
@@ -29,8 +28,7 @@ LIMIT 5;
 
 ## Tiebreaking
 
-Postgres can `ORDER BY` multiple columns to break ties in BM25 scores. In the following query, rows with the same
-`score` will be sorted by `rating` in descending order.
+To break ties in BM25 scores, Postgres can use `ORDER BY` with multiple columns. In this query, it sorts rows with the same `score` by `rating` in descending order:
 
 ```sql
 SELECT description, rating, category, paradedb.score(id)
@@ -42,12 +40,9 @@ LIMIT 5;
 
 ## Fast Ordering
 
-An `ORDER BY...LIMIT` over a single [text](/documentation/indexing/create_index#text-fields), [numeric](/documentation/indexing/create_index#numeric-fields),
-[datetime](/documentation/indexing/create_index#datetime-fields), or [boolean](/documentation/indexing/create_index#boolean-fields) field is automatically "pushed down"
-to the BM25 index if the `ORDER BY` field is indexed as [fast](/documentation/indexing/fast_fields). This makes these queries significantly faster.
+ParadeDB automatically pushes down `ORDER BY...LIMIT` operations on a single [text](/documentation/indexing/create_index#text-fields), [numeric](/documentation/indexing/create_index#numeric-fields), [datetime](/documentation/indexing/create_index#datetime-fields), or [boolean](/documentation/indexing/create_index#boolean-fields) field to the BM25 index if you index the `ORDER BY` field as [fast](/documentation/indexing/fast_fields). This makes these queries much faster.
 
-You can verify if an `ORDER BY...LIMIT` was pushed down by running `EXPLAIN` on the query. If pushdown occurred, a `Custom Scan` with a
-`Sort Field` will appear in the query plan.
+You can run `EXPLAIN` on a query to check if ParadeDB pushed down an `ORDER BY...LIMIT` operation. If it did, a `Custom Scan` section with a `Sort Field` entry appears in the query plan.
 
 ```sql
 -- Pushdown may not occur over very small tables
@@ -80,10 +75,9 @@ LIMIT 5;
 
 ### Ordering by Text Field
 
-If a fast text field is indexed with the `raw` [normalizer](/documentation/indexing/fast_fields#normalizers), `ORDER BY <text_field> LIMIT` can be pushed down.
+If you index a fast text field with the `raw` [normalizer](/documentation/indexing/fast_fields#normalizers), ParadeDB can push down `ORDER BY <text_field> LIMIT` operations.
 
-If the `lowercase` [normalizer](/documentation/indexing/fast_fields#normalizers) is used, then `ORDER BY lower(<text_field>) LIMIT` (but not `ORDER BY <text_field> LIMIT`)
-can be pushed down.
+If you use the `lowercase` [normalizer](/documentation/indexing/fast_fields#normalizers), ParadeDB can push down `ORDER BY lower(<text_field>) LIMIT` (but not `ORDER BY <text_field> LIMIT`).
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -121,9 +115,9 @@ LIMIT 5;
 </Accordion>
 
 <Note>
-Not all `ORDER BY`s are pushed down. The following queries are not pushed down:
+ParadeDB does not push down all `ORDER BY` operations. It does not push down these queries:
 
-1. `ORDER BY`s over multiple fields for tiebreaking.
-2. Using `paradedb.score` with an `ORDER BY` over another field.
-3. `ORDER BY` without a `LIMIT`.
+- `ORDER BY` operations over multiple fields for tiebreaking
+- `paradedb.score` with an `ORDER BY` operation over another field
+- `ORDER BY` operations without `LIMIT`
 </Note>

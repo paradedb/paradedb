@@ -52,7 +52,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         assert!(vars.len() == 1, "function is improperly defined or called");
         let var = vars.pop().unwrap();
 
-        let phrels = pg_sys::bms_make_singleton((*var).varno);
+        let phrels = pg_sys::bms_make_singleton((*var).varno as _);
         let phv = pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
             #[allow(improper_ctypes)]
             #[rustfmt::skip]
@@ -69,7 +69,10 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
         // copy these properties up from the Var to its placeholder
         (*phv).phlevelsup = (*var).varlevelsup;
-        (*phv).phnullingrels = (*var).varnullingrels;
+        #[cfg(not(any(feature = "pg13", feature = "pg14", feature = "pg15")))]
+        {
+            (*phv).phnullingrels = (*var).varnullingrels;
+        }
 
         return ReturnedNodePointer(NonNull::new(phv.cast()));
     }

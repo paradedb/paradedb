@@ -395,3 +395,35 @@ fn leaky_file_handles(mut conn: PgConnection) {
         assert!(!tantivy_files_still_open(pid));
     }
 }
+
+#[rustfmt::skip]
+#[rstest]
+fn cte_issue_1951(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE t
+        (
+            id   SERIAL,
+            data TEXT
+        );
+        
+        CREATE TABLE s
+        (
+            id   SERIAL,
+            data TEXT
+        );
+        
+        create index idxt on t using bm25 (id, data) with (key_field = id);
+        create index idxs on s using bm25 (id, data) with (key_field = id);    
+    "#.execute(&mut conn);
+    
+    let results = r#"
+        with cte as (
+        select id, 1 as score from t
+        where data @@@ 'query' 
+        limit 1)
+        select cte.id from s
+        right join cte on cte.id = s.id
+        order by cte.score desc;    
+    "#.fetch_result::<(i32, i32)>(&mut conn).expect("query failed");
+    assert!(results.is_empty());
+}

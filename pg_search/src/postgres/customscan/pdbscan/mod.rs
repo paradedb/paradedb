@@ -774,6 +774,9 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 }
             } else if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let (heaprelid, attno, _) = find_var_relation(var, root);
+                if heaprelid == pg_sys::Oid::INVALID {
+                    return None;
+                }
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {

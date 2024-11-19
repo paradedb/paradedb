@@ -17,13 +17,23 @@
 
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{direct_function_call, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum, PgList};
+use pgrx::{
+    direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum, PgList,
+};
 use std::ptr::addr_of_mut;
 
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
     None
 }
+
+extension_sql!(
+    r#"
+ALTER FUNCTION score SUPPORT placeholder_support;
+"#,
+    name = "score_placeholder",
+    requires = [score_from_relation, placeholder_support]
+);
 
 pub fn score_funcoid() -> pg_sys::Oid {
     unsafe {

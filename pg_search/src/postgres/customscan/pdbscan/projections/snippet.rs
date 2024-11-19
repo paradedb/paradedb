@@ -18,8 +18,8 @@
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
-    default, direct_function_call, pg_extern, pg_guard, pg_sys, AnyElement, FromDatum, IntoDatum,
-    PgList,
+    default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
+    FromDatum, IntoDatum, PgList,
 };
 use std::collections::HashMap;
 use std::ptr::addr_of_mut;
@@ -44,6 +44,14 @@ fn snippet_from_relation(
 ) -> Option<String> {
     None
 }
+
+extension_sql!(
+    r#"
+ALTER FUNCTION snippet SUPPORT placeholder_support;
+"#,
+    name = "snippet_placeholder",
+    requires = [snippet_from_relation, placeholder_support]
+);
 
 pub fn snippet_funcoid() -> pg_sys::Oid {
     unsafe {

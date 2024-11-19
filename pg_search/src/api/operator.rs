@@ -19,21 +19,23 @@ mod searchqueryinput;
 mod text;
 
 use crate::api::index::{fieldname_typoid, FieldName};
+use crate::nodecast;
 use crate::postgres::index::open_search_index;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
+use pgrx::pg_sys::expression_tree_walker;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
 use pgrx::*;
 use std::ffi::CStr;
-use std::ptr::NonNull;
+use std::ptr::{addr_of_mut, NonNull};
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct ReturnedNodePointer(Option<NonNull<pg_sys::Node>>);
+pub struct ReturnedNodePointer(pub Option<NonNull<pg_sys::Node>>);
 
 unsafe impl BoxRet for ReturnedNodePointer {
     unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> Datum<'fcx> {
@@ -402,6 +404,32 @@ pub unsafe fn find_var_relation(
         }
         _ => panic!("unsupported RTEKind: {}", (*rte).rtekind),
     }
+}
+
+/// Find all the Vars referenced in the specified node
+pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
+    #[pg_guard]
+    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            let data = data.cast::<Data>();
+            (*data).vars.push(var);
+        }
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Data {
+        vars: Vec<*mut pg_sys::Var>,
+    }
+
+    let mut data = Data { vars: Vec::new() };
+
+    walker(node, addr_of_mut!(data).cast());
+    data.vars
 }
 
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`

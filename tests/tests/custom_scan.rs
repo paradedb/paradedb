@@ -412,6 +412,9 @@ fn cte_issue_1951(mut conn: PgConnection) {
             data TEXT
         );
         
+        insert into t (id, data) select x, md5(x::text) || ' query' from generate_series(1, 100) x;
+        insert into s (id, data) select x, md5(x::text) from generate_series(1, 100) x;
+        
         create index idxt on t using bm25 (id, data) with (key_field = id);
         create index idxs on s using bm25 (id, data) with (key_field = id);    
     "#.execute(&mut conn);
@@ -424,6 +427,6 @@ fn cte_issue_1951(mut conn: PgConnection) {
         select cte.id from s
         right join cte on cte.id = s.id
         order by cte.score desc;    
-    "#.fetch_result::<(i32, i32)>(&mut conn).expect("query failed");
-    assert!(results.is_empty());
+    "#.fetch_result::<(i32, )>(&mut conn).expect("query failed");
+    assert_eq!(results.len(), 1);
 }

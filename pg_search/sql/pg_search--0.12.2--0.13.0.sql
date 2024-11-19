@@ -22,3 +22,24 @@ LANGUAGE c AS 'MODULE_PATHNAME', 'format_create_index_wrapper';
 
 DROP FUNCTION IF EXISTS boost(boost pg_catalog.float4, query searchqueryinput);
 CREATE OR REPLACE FUNCTION boost(factor pg_catalog.float4, query searchqueryinput) RETURNS searchqueryinput AS 'MODULE_PATHNAME', 'boost_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE STRICT;
+
+-- pg_search/src/postgres/customscan/pdbscan/projections/mod.rs:31
+-- pg_search::postgres::customscan::pdbscan::projections::placeholder_support
+CREATE  FUNCTION "placeholder_support"(
+    "arg" internal /* pgrx::datum::internal::Internal */
+) RETURNS internal /* pg_search::api::operator::ReturnedNodePointer */
+    IMMUTABLE PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'placeholder_support_wrapper';
+
+-- pg_search/src/postgres/customscan/pdbscan/projections/score.rs:30
+-- requires:
+--   score_from_relation
+--   placeholder_support
+ALTER FUNCTION score SUPPORT placeholder_support;
+
+-- pg_search/src/postgres/customscan/pdbscan/projections/snippet.rs:48
+-- requires:
+--   snippet_from_relation
+--   placeholder_support
+ALTER FUNCTION snippet SUPPORT placeholder_support;

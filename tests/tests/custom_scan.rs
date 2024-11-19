@@ -258,6 +258,38 @@ fn add_scores_across_joins_issue1753(mut conn: PgConnection) {
     assert_eq!(result, (3, "Sleek running shoes".into(), 5.406531));
 }
 
+#[rstest]
+fn scores_survive_joins(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'a', schema_name => 'public');
+    CALL paradedb.create_bm25_test_table(table_name => 'b', schema_name => 'public');
+    CALL paradedb.create_bm25_test_table(table_name => 'c', schema_name => 'public');
+
+    CREATE INDEX idxa ON a USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
+    CREATE INDEX idxb ON b USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
+    CREATE INDEX idxc ON c USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time) WITH (key_field='id');
+    "#.execute(&mut conn);
+
+    // this one doesn't plan a custom scan at all, so scores come back as NaN
+    let result = r#"
+        SELECT a.description, paradedb.score(a.id)
+        FROM a
+        join b on a.id = b.id
+        join c on a.id = c.id
+        WHERE a.description @@@ 'shoes'
+        ORDER BY a.description;"#
+        .fetch_result::<(String, f32)>(&mut conn)
+        .expect("query failed");
+    assert_eq!(
+        result,
+        vec![
+            ("Generic shoes".into(), 2.8772602),
+            ("Sleek running shoes".into(), 2.4849067),
+            ("White jogging shoes".into(), 2.4849067),
+        ]
+    );
+}
+
 #[rustfmt::skip]
 #[rstest]
 fn join_issue_1776(mut conn: PgConnection) {

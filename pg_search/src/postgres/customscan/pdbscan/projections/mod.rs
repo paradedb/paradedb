@@ -18,14 +18,67 @@
 pub mod score;
 pub mod snippet;
 
+use crate::api::operator::{find_vars, ReturnedNodePointer};
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::projections::snippet::{snippet_funcoid, SnippetInfo};
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{pg_guard, pg_sys, PgList};
+use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};
 use std::collections::HashMap;
-use std::ptr::addr_of_mut;
+use std::ptr::{addr_of_mut, NonNull};
 use tantivy::snippet::SnippetGenerator;
+
+#[pg_extern(immutable, parallel_safe)]
+pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
+    // we will "simply" calls to `paradedb.score(<anyelement>)` by wrapping (a copy of) its `FuncExpr`
+    // node in a `PlaceHolderVar`.  This ensures that Postgres won't lose the scores when they're
+    // emitted by our custom scan from underneath JOIN nodes (Hash Join, Merge Join, etc).
+    if let Some(srs) = nodecast!(
+        SupportRequestSimplify,
+        T_SupportRequestSimplify,
+        arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>()
+    ) {
+        if (*srs).root.is_null() {
+            return ReturnedNodePointer(None);
+        }
+
+        if !(*(*srs).root).hasJoinRTEs {
+            // however, if the query does not do joins, then using a `PlaceHolderVar` will lead
+            // to a crash -- it wouldn't provide any additional value anyways
+            return ReturnedNodePointer(None);
+        }
+
+        let mut vars = find_vars((*srs).fcall.cast());
+        assert!(vars.len() == 1, "function is improperly defined or called");
+        let var = vars.pop().unwrap();
+
+        let phrels = pg_sys::bms_make_singleton((*var).varno as _);
+        let phv = pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
+            #[allow(improper_ctypes)]
+            #[rustfmt::skip]
+            extern "C" {
+                fn make_placeholder_expr(root: *mut pg_sys::PlannerInfo, expr: *mut pg_sys::Expr, phrels: pg_sys::Relids) -> *mut pg_sys::PlaceHolderVar;
+            }
+
+            make_placeholder_expr(
+                (*srs).root,
+                pg_sys::copyObjectImpl((*srs).fcall.cast()).cast(),
+                phrels,
+            )
+        });
+
+        // copy these properties up from the Var to its placeholder
+        (*phv).phlevelsup = (*var).varlevelsup;
+        #[cfg(not(any(feature = "pg13", feature = "pg14", feature = "pg15")))]
+        {
+            (*phv).phnullingrels = (*var).varnullingrels;
+        }
+
+        return ReturnedNodePointer(NonNull::new(phv.cast()));
+    }
+
+    ReturnedNodePointer(None)
+}
 
 pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     #[pg_guard]

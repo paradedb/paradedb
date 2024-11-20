@@ -133,6 +133,15 @@ unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
 
 #[pg_extern]
 pub unsafe fn index_fields(index: PgRelation) -> JsonB {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index.rd_options.is_null() {
         unsafe { PgBox::from_pg(index.rd_options as *mut SearchIndexCreateOptions) }
     } else {

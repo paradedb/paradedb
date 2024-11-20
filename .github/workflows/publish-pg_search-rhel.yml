@@ -7,8 +7,6 @@ name: Publish pg_search (Red Hat)
 
 on:
   push:
-    branches:
-      - phil/macos-binaries # TODO: Remove once done testing
     tags:
       - "v*"
   workflow_dispatch:
@@ -251,7 +249,7 @@ jobs:
           %changelog
           * ${{ steps.version.outputs.current_date }} ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
           - Latest RPM Release
-          * Thu Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
+          * Sat Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
           - Initial RPM Release
           EOF
 
@@ -271,12 +269,11 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      # TODO: Uncomment once done testing
-      # - name: Upload pg_search .rpm to GitHub Release
-      #   uses: shogo82148/actions-upload-release-asset@v1
-      #   with:
-      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
-      #     asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
-      #     asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
-      #     overwrite: true
+      - name: Upload pg_search .rpm to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          overwrite: true

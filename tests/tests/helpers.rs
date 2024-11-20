@@ -22,7 +22,6 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use serde_json::json;
 use sqlx::PgConnection;
 
 #[rstest]
@@ -130,77 +129,26 @@ fn list_tokenizers(mut conn: PgConnection) {
     }
 }
 
-use serde_json::Value;
-
 #[rstest]
-fn test_field_basic(mut conn: PgConnection) {
+fn test_format_create_bm25_basic(mut conn: PgConnection) {
     let row = r#"
-        SELECT paradedb.field(
-            'title', 
-            indexed => true, 
-            stored => true, 
-            fast => false, 
-            fieldnorms => true, 
-            record => 'single', 
-            expand_dots => false, 
-            tokenizer => '{"type":"default"}'::jsonb, 
-            normalizer => 'lowercase'
-        )::text;
-    "#
-    .fetch_one::<(String,)>(&mut conn);
-
-    let result_json: Value = serde_json::from_str(&row.0).unwrap();
-    let expected_json = json!({
-        "title": {
-            "indexed": true,
-            "stored": true,
-            "fast": false,
-            "fieldnorms": true,
-            "record": "single",
-            "expand_dots": false,
-            "tokenizer": {"type": "default"},
-            "normalizer": "lowercase"
-        }
-    });
-
-    assert_eq!(result_json, expected_json);
-}
-
-#[rstest]
-fn test_field_optional_values(mut conn: PgConnection) {
-    let row = r#"
-        SELECT paradedb.field('description')::text;
-    "#
-    .fetch_one::<(String,)>(&mut conn);
-
-    let result_json: Value = serde_json::from_str(&row.0).unwrap();
-    let expected_json = json!({
-        "description": {}
-    });
-
-    assert_eq!(result_json, expected_json);
-}
-
-#[rstest]
-fn test_format_create_index_basic(mut conn: PgConnection) {
-    let row = r#"
-        SELECT paradedb.format_create_index(
-            'my_index', 
-            'my_table', 
-            'id', 
-            'public', 
+        SELECT paradedb.format_create_bm25(
+            'my_index'::text, 
+            'my_table'::text, 
+            'id'::text, 
+            'public'::text, 
             '{"title": true}'::jsonb, 
             '{"price": true}'::jsonb, 
             '{"is_available": true}'::jsonb, 
             '{"details": true}'::jsonb, 
             '{"price_range": true}'::jsonb, 
             '{"published_date": true}'::jsonb, 
-            'price > 0'
+            'price > 0'::text
         );
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r#"CREATE INDEX my_index ON public.my_table USING bm25 (id, details, is_available, price, price_range, published_date, title) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{"price":true}', boolean_fields='{"is_available":true}', json_fields='{"details":true}', range_fields='{"price_range":true}', datetime_fields='{"published_date":true}') WHERE price > 0;"#;
+    let expected = r##"CREATE INDEX my_index ON public.my_table USING bm25 (id, id, title, price, is_available, details, price_range, published_date) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{"price":true}', boolean_fields='{"is_available":true}', json_fields='{"details":true}', range_fields='{"price_range":true}', datetime_fields='{"published_date":true}') WHERE price > 0;"##;
 
     assert_eq!(row.0, expected);
 }
@@ -208,7 +156,7 @@ fn test_format_create_index_basic(mut conn: PgConnection) {
 #[rstest]
 fn test_format_create_index_no_predicate(mut conn: PgConnection) {
     let row = r#"
-        SELECT paradedb.format_create_index(
+        SELECT paradedb.format_create_bm25(
             'another_index', 
             'products', 
             'product_id', 
@@ -224,7 +172,236 @@ fn test_format_create_index_no_predicate(mut conn: PgConnection) {
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r#"CREATE INDEX another_index ON inventory.products USING bm25 (product_id, name) WITH (key_field='product_id', text_fields='{"name":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"#;
+    let expected = r##"CREATE INDEX another_index ON inventory.products USING bm25 (product_id, product_id, name) WITH (key_field='product_id', text_fields='{"name":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"##;
 
     assert_eq!(row.0, expected);
+}
+
+#[rstest]
+fn test_format_bm25_basic(mut conn: PgConnection) {
+    let row = r#"
+        SELECT paradedb.format_create_bm25(
+            'my_search_idx',
+            'articles',
+            'id',
+            'public',
+            '{"title": true, "content": true}'::jsonb,
+            '{"rating": true}'::jsonb,
+            '{"published": true}'::jsonb,
+            '{"metadata": true}'::jsonb,
+            '{"price_range": true}'::jsonb,
+            '{"created_at": true}'::jsonb,
+            'rating > 3'
+        );
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    let expected = r##"CREATE INDEX my_search_idx ON public.articles USING bm25 (id, id, content, title, rating, published, metadata, price_range, created_at) WITH (key_field='id', text_fields='{"content":true,"title":true}', numeric_fields='{"rating":true}', boolean_fields='{"published":true}', json_fields='{"metadata":true}', range_fields='{"price_range":true}', datetime_fields='{"created_at":true}') WHERE rating > 3;"##;
+
+    assert_eq!(row.0, expected);
+}
+
+#[rstest]
+fn test_format_bm25_empty_fields(mut conn: PgConnection) {
+    let row = r#"
+        SELECT paradedb.format_create_bm25(
+            'minimal_idx',
+            'simple_table',
+            'id',
+            'public',
+            '{"title": true}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            ''
+        );
+    "#
+    .fetch_one::<(String,)>(&mut conn);
+
+    let expected = r#"CREATE INDEX minimal_idx ON public.simple_table USING bm25 (id, id, title) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"#;
+
+    assert_eq!(row.0, expected);
+}
+
+#[rstest]
+fn test_format_bm25_invalid_json(mut conn: PgConnection) {
+    let res = r#"
+        SELECT paradedb.format_bm25(
+            'bad_idx',
+            'test_table',
+            'id',
+            'public',
+            'invalid json',
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            '{}'::jsonb,
+            ''
+        );
+    "#
+    .execute_result(&mut conn);
+
+    assert!(res.is_err());
+    assert!(res.is_err());
+    assert!(res
+        .unwrap_err()
+        .to_string()
+        .contains("error returned from database"));
+}
+
+#[rstest]
+fn test_index_fields(mut conn: PgConnection) {
+    // First create a test table and index
+    r#"
+        CREATE TABLE test_fields (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            price NUMERIC,
+            in_stock BOOLEAN,
+            metadata JSONB,
+            price_range INT8RANGE,
+            created_at TIMESTAMP
+        );
+    "#
+    .execute_result(&mut conn)
+    .unwrap();
+
+    r#"
+        CREATE INDEX idx_test_fields ON test_fields USING bm25 (
+            id, title, price, in_stock, metadata, price_range, created_at
+        ) WITH (
+            key_field='id',
+            text_fields='{"title": {"fast": true}}',
+            numeric_fields='{"price": {}}',
+            boolean_fields='{"in_stock": {}}',
+            json_fields='{"metadata": {}}',
+            range_fields='{"price_range": {}}',
+            datetime_fields='{"created_at": {}}'
+        );
+    "#
+    .execute_result(&mut conn)
+    .unwrap();
+
+    // Get the index fields
+    let row: (serde_json::Value,) = r#"
+        SELECT paradedb.index_fields('idx_test_fields')::jsonb;
+    "#
+    .fetch_one(&mut conn);
+
+    // Verify all fields are present with correct configurations
+    let fields = row.0.as_object().unwrap();
+
+    // Check key field (id)
+    assert!(fields.contains_key("id"));
+    let id_config = fields.get("id").unwrap().get("Numeric").unwrap();
+    assert_eq!(id_config.get("indexed").unwrap(), true);
+    assert_eq!(id_config.get("fast").unwrap(), true);
+    assert_eq!(id_config.get("stored").unwrap(), true);
+
+    // Check text field (title)
+    assert!(fields.contains_key("title"));
+    let title_config = fields
+        .get("title")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("Text")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    assert_eq!(
+        title_config.get("indexed").unwrap().as_bool().unwrap(),
+        true
+    );
+    assert_eq!(title_config.get("stored").unwrap().as_bool().unwrap(), true);
+
+    // Check numeric field (price)
+    assert!(fields.contains_key("price"));
+    let price_config = fields
+        .get("price")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("Numeric")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    assert_eq!(
+        price_config.get("indexed").unwrap().as_bool().unwrap(),
+        true
+    );
+    assert_eq!(price_config.get("fast").unwrap().as_bool().unwrap(), true);
+
+    // Check boolean field (in_stock)
+    assert!(fields.contains_key("in_stock"));
+    let stock_config = fields
+        .get("in_stock")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("Boolean")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    assert_eq!(
+        stock_config.get("indexed").unwrap().as_bool().unwrap(),
+        true
+    );
+    assert_eq!(stock_config.get("stored").unwrap().as_bool().unwrap(), true);
+
+    // Check JSON field (metadata)
+    assert!(fields.contains_key("metadata"));
+    let metadata_config = fields
+        .get("metadata")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("Json")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    assert_eq!(
+        metadata_config.get("indexed").unwrap().as_bool().unwrap(),
+        true
+    );
+    assert_eq!(
+        metadata_config.get("stored").unwrap().as_bool().unwrap(),
+        true
+    );
+
+    // Check range field (price_range)
+    assert!(fields.contains_key("price_range"));
+    let range_config = fields
+        .get("price_range")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("Range")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    assert_eq!(range_config.get("stored").unwrap().as_bool().unwrap(), true);
+
+    // Check datetime field (created_at)
+    assert!(fields.contains_key("created_at"));
+    let date_config = fields
+        .get("created_at")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("Date")
+        .unwrap()
+        .as_object()
+        .unwrap();
+    assert_eq!(date_config.get("indexed").unwrap().as_bool().unwrap(), true);
+    assert_eq!(date_config.get("stored").unwrap().as_bool().unwrap(), true);
+
+    // Check ctid field is present
+    assert!(fields.contains_key("ctid"));
+
+    // Cleanup
+    r#"DROP TABLE test_fields CASCADE;"#.execute_result(&mut conn).unwrap();
 }

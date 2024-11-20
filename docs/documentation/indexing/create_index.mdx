@@ -70,7 +70,7 @@ WITH (
 );
 ```
 
-`paradedb.field` accepts the following configuration options for text fields:
+`CREATE INDEX` accepts the following configuration options for `text_fields`:
 
 <ParamField body="indexed" default={true}>
   Whether the field is indexed. Must be `true` in order for the field to be
@@ -119,7 +119,7 @@ WITH (
 );
 ```
 
-`paradedb.field` accepts the following configuration options numeric fields:
+`CREATE INDEX` accepts the following configuration options `numeric_fields`:
 
 <ParamField body="indexed" default={true}>
   Whether the field is indexed. Must be `true` in order for the field to be
@@ -145,7 +145,7 @@ USING bm25 (id, in_stock)
 WITH (key_field = 'id');
 ```
 
-`paradedb.field` accepts several configuration options for boolean fields:
+`CREATE_INDEX` accepts several configuration options for `boolean_fields`:
 
 <ParamField body="indexed" default={true}>
   Whether the field is indexed. Must be `true` in order for the field to be
@@ -171,7 +171,7 @@ USING bm25 (id, metadata)
 WITH (key_field = 'id');
 ```
 
-`paradedb.field` accepts several configuration options for JSON fields:
+`CREATE INDEX` accepts several configuration options for `json_fields`:
 
 <ParamField body="indexed" default={true}>
   Whether the field is indexed. Must be `true` in order for the field to be tokenized and
@@ -216,7 +216,7 @@ USING bm25 (id, created_at)
 WITH (key_field = 'id');
 ```
 
-`paradedb.field` accepts several configuration options for boolean fields:
+`CREATE INDEX` accepts several configuration options for `boolean_fields`:
 
 <ParamField body="indexed" default={true}>
   Whether the field is indexed. Must be `true` in order for the field to be

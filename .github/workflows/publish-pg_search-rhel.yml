@@ -173,17 +173,15 @@ jobs:
           echo "OS Version: $OS_VERSION"
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
+          # Retrieve the current date for the changelog
+          CURRENT_DATE=$(LC_TIME=C date +"%a %b %d %Y")
+          echo "Current Date: $CURRENT_DATE"
+          echo "current_date=$CURRENT_DATE" >> $GITHUB_OUTPUT
+
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         run: |
-          # Determine RHEL version to retrieve the correct repositories
-          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
-            RHEL_VERSION=8
-          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
-            RHEL_VERSION=9
-          else
-            echo "Unsupported RHEL version"
-            exit 1
-          fi
+          # Extract RHEL version from the image name
+          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
 
           # Install the repository RPM:
           sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
@@ -216,9 +214,6 @@ jobs:
 
       - name: Create .rpm Package
         run: |
-          # Set the current date for the changelog
-          CURRENT_DATE=$(date +"%a %b %d %Y")
-
           echo "Configuring RPM build environment..."
           rpmdev-setuptree
 
@@ -254,7 +249,7 @@ jobs:
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
 
           %changelog
-          * $CURRENT_DATE ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
+          * ${{ steps.version.outputs.current_date }} ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
           - Latest RPM Release
           * Thu Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
           - Initial RPM Release

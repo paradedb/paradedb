@@ -36,6 +36,7 @@ use crate::schema::SearchFieldConfig;
 use crate::schema::SearchFieldName;
 use crate::schema::SearchFieldType;
 
+#[allow(clippy::too_many_arguments)]
 #[pg_extern]
 fn format_create_bm25(
     index_name: &str,

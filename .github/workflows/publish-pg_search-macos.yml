@@ -146,7 +146,7 @@ jobs:
           mkdir -p ${package_dir}${share_path}
 
           # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
-          if [ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]; then
+          if [[ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]]; then
             cp archive/*.dylib ${package_dir}${lib_path}
           else
             cp archive/*.so ${package_dir}${lib_path}

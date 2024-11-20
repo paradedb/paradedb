@@ -7,6 +7,8 @@ name: Publish pg_search (macOS)
 
 on:
   push:
+    branches:
+      - phil/macos-binaries # TODO: Remove once done testing
     tags:
       - "v*"
   workflow_dispatch:
@@ -147,11 +149,12 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      - name: Upload pg_search .pkg to GitHub Release
-        uses: shogo82148/actions-upload-release-asset@v1
-        with:
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
-          asset_name: pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
-          overwrite: true
+      # TODO: Uncomment once done testing
+      # - name: Upload pg_search .pkg to GitHub Release
+      #   uses: shogo82148/actions-upload-release-asset@v1
+      #   with:
+      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
+      #     asset_path: ./pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
+      #     asset_name: pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
+      #     overwrite: true

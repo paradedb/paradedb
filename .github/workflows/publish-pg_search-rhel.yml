@@ -7,6 +7,8 @@ name: Publish pg_search
 
 on:
   push:
+    branches:
+      - phil/macos-binaries # TODO: Remove once done testing
     tags:
       - "v*"
   workflow_dispatch:
@@ -108,7 +110,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Install RHEL Dependencies
+      - name: Install Dependencies
         run: |
           # Determine RHEL version to retrieve the correct repositories
           if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
@@ -183,15 +185,7 @@ jobs:
             DISTRO=$(cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '"')
             RELEASE=$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)
           fi
-          if [ "$DISTRO" = "ubuntu" ]; then
-            OS_VERSION="$RELEASE"
-          elif [ "$DISTRO" = "debian" ]; then
-            OS_VERSION="$RELEASE"
-          elif [ "$DISTRO" = "rhel" ]; then
-            OS_VERSION="el$RELEASE"
-          else
-            OS_VERSION="$DISTRO-$RELEASE"
-          fi
+          OS_VERSION="el$RELEASE"
           echo "OS Version: $OS_VERSION"
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
@@ -305,11 +299,12 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      - name: Upload pg_search .rpm to GitHub Release
-        uses: shogo82148/actions-upload-release-asset@v1
-        with:
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
-          asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
-          overwrite: true
+      # TODO: Uncomment once done testing
+      # - name: Upload pg_search .rpm to GitHub Release
+      #   uses: shogo82148/actions-upload-release-asset@v1
+      #   with:
+      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
+      #     asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+      #     asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+      #     overwrite: true

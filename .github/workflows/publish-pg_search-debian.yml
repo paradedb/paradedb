@@ -7,6 +7,8 @@ name: Publish pg_search
 
 on:
   push:
+    branches:
+      - phil/macos-binaries # TODO: Remove once done testing
     tags:
       - "v*"
   workflow_dispatch:
@@ -103,15 +105,7 @@ jobs:
             DISTRO=$(cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '"')
             RELEASE=$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)
           fi
-          if [ "$DISTRO" = "ubuntu" ]; then
-            OS_VERSION="$RELEASE"
-          elif [ "$DISTRO" = "debian" ]; then
-            OS_VERSION="$RELEASE"
-          elif [ "$DISTRO" = "rhel" ]; then
-            OS_VERSION="el$RELEASE"
-          else
-            OS_VERSION="$DISTRO-$RELEASE"
-          fi
+          OS_VERSION="$RELEASE"
           echo "OS Version: $OS_VERSION"
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
@@ -188,11 +182,12 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      - name: Upload pg_search .deb to GitHub Release
-        uses: shogo82148/actions-upload-release-asset@v1
-        with:
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-          asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
-          overwrite: true
+      # TODO: Uncomment once done testing
+      # - name: Upload pg_search .deb to GitHub Release
+      #   uses: shogo82148/actions-upload-release-asset@v1
+      #   with:
+      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
+      #     asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+      #     asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
+      #     overwrite: true

@@ -1,11 +1,11 @@
-# workflows/publish-paradedb.yml
+# workflows/publish-paradedb-docker.yml
 #
-# Publish ParadeDB
+# Publish ParadeDB (Docker)
 # Publish ParadeDB as a Docker image to Docker Hub and as a Helm Chart to paradedb.github.io via our
 # `paradedb/charts` repository. This workflow only runs after a GitHub Release gets created, which
 # happens once we merge to `main`.
 
-name: Publish ParadeDB
+name: Publish ParadeDB (Docker)
 
 on:
   push:
@@ -19,7 +19,7 @@ on:
         default: ""
 
 concurrency:
-  group: publish-paradedb-${{ github.head_ref || github.ref }}
+  group: publish-paradedb-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 # Used by actions/attest-build-provenance to sign the builds

@@ -169,6 +169,7 @@ pub extern "C" fn ambuild(
             indexed: true,
             fast: true,
             stored: true,
+            fieldnorms: false,
             expand_dots: false,
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,

@@ -131,6 +131,8 @@ pub enum SearchFieldConfig {
         #[serde(default = "default_as_true")]
         stored: bool,
         #[serde(default = "default_as_true")]
+        fieldnorms: bool,
+        #[serde(default = "default_as_true")]
         expand_dots: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
@@ -278,10 +280,18 @@ impl SearchFieldConfig {
             None => Ok(SearchNormalizer::Raw),
         }?;
 
+        let fieldnorms = match obj.get("fieldnorms") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fieldnorms' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
         Ok(SearchFieldConfig::Json {
             indexed,
             fast,
             stored,
+            fieldnorms,
             expand_dots,
             tokenizer,
             record,
@@ -504,6 +514,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 indexed,
                 fast,
                 stored,
+                fieldnorms,
                 expand_dots,
                 tokenizer,
                 record,
@@ -521,6 +532,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 if indexed {
                     let text_field_indexing = TextFieldIndexing::default()
                         .set_index_option(record.into())
+                        .set_fieldnorms(fieldnorms)
                         .set_tokenizer(&tokenizer.name());
 
                     json_options = json_options.set_indexing_options(text_field_indexing);

@@ -180,6 +180,10 @@ WITH (key_field = 'id');
 <ParamField body="stored" default={true}>
   Whether the original value of the field is stored.
 </ParamField>
+<ParamField body="fieldnorms" default={true}>
+  Fieldnorms store information about the length of the text field. Must be
+  `true` to calculate the BM25 score.
+</ParamField>
 <ParamField body="fast" default={false}>
   Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
   Fast fields are also useful for accelerated scoring and filtering.

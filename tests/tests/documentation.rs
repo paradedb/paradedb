@@ -973,10 +973,25 @@ fn phrase_level_queries(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
+    // Test both function and JSON syntax for phrase_prefix
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
     WHERE id @@@ paradedb.phrase_prefix('description', ARRAY['running', 'sh'])
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "phrase_prefix": {
+            "field": "description",
+            "phrases": ["running", "sh"]
+        }
+    }'::jsonb
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -1278,6 +1293,7 @@ fn compound_queries(mut conn: PgConnection) {
     assert_eq!(rows.len(), 3);
 
     // Disjunction max
+    // Test both function and JSON syntax for disjunction_max
     let rows: Vec<(String, i32, String, f32)> = r#"
     SELECT description, rating, category, paradedb.score(id)
     FROM mock_items
@@ -1285,6 +1301,22 @@ fn compound_queries(mut conn: PgConnection) {
       paradedb.term('description', 'shoes'),
       paradedb.term('description', 'running')
     ]);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(String, i32, String, f32)> = r#"
+    SELECT description, rating, category, paradedb.score(id)
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "disjunction_max": {
+            "disjuncts": [
+                {"term": {"field": "description", "value": "shoes"}},
+                {"term": {"field": "description", "value": "running"}}
+            ]
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);

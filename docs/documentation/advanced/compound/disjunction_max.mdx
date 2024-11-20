@@ -21,7 +21,7 @@ FROM mock_items
 WHERE id @@@
 '{
     "disjunction_max": {
-        "queries": [
+        "disjuncts": [
             {"term": {"field": "description", "value": "shoes"}},
             {"term": {"field": "description", "value": "running"}}
         ]

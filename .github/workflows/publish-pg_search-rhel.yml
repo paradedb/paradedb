@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
@@ -38,68 +38,84 @@ jobs:
       matrix:
         include:
           # Red Hat Enterprise Linux 8
-          - runner: ubicloud-standard-8
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-8
             image: redhat/ubi8:latest
             pg_version: 14
             arch: x86_64
-          - runner: ubicloud-standard-4-arm
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-4-arm
             image: redhat/ubi8:latest
             pg_version: 14
             arch: aarch64
-          - runner: ubicloud-standard-8
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-8
             image: redhat/ubi8:latest
             pg_version: 15
             arch: x86_64
-          - runner: ubicloud-standard-4-arm
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-4-arm
             image: redhat/ubi8:latest
             pg_version: 15
             arch: aarch64
-          - runner: ubicloud-standard-8
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-8
             image: redhat/ubi8:latest
             pg_version: 16
             arch: x86_64
-          - runner: ubicloud-standard-4-arm
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-4-arm
             image: redhat/ubi8:latest
             pg_version: 16
             arch: aarch64
-          - runner: ubicloud-standard-8
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-8
             image: redhat/ubi8:latest
             pg_version: 17
             arch: x86_64
-          - runner: ubicloud-standard-4-arm
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-4-arm
             image: redhat/ubi8:latest
             pg_version: 17
             arch: aarch64
           # Red Hat Enterprise Linux 9
-          - runner: ubicloud-standard-8
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
             image: redhat/ubi9:latest
             pg_version: 14
             arch: x86_64
-          - runner: ubicloud-standard-4-arm
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 14
             arch: aarch64
-          - runner: ubicloud-standard-8
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
             image: redhat/ubi9:latest
             pg_version: 15
             arch: x86_64
-          - runner: ubicloud-standard-4-arm
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 15
             arch: aarch64
-          - runner: ubicloud-standard-8
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
             image: redhat/ubi9:latest
             pg_version: 16
             arch: x86_64
-          - runner: ubicloud-standard-4-arm
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 16
             arch: aarch64
-          - runner: ubicloud-standard-8
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
             image: redhat/ubi9:latest
             pg_version: 17
             arch: x86_64
-          - runner: ubicloud-standard-4-arm
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 17
             arch: aarch64

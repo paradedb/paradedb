@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.runner }} arm64
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} arm64
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -37,27 +37,38 @@ jobs:
           # macOS 14 and 15 are arm-only (M1)
           # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
           # macOS 14 (Sonoma)
-          - runner: macos-14
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
             pg_version: 14
-          - runner: macos-14
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
             pg_version: 15
-          - runner: macos-14
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
             pg_version: 16
-          - runner: macos-14
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
             pg_version: 17
           # macOS 15 (Sequoia)
-          - runner: macos-15
+          - name: macOS 15 (Sequoia)
+            runner: macos-15
             pg_version: 14
-          - runner: macos-15
+          - name: macOS 15 (Sequoia)
+            runner: macos-15
             pg_version: 15
-          - runner: macos-15
+          - name: macOS 15 (Sequoia)
+            runner: macos-15
             pg_version: 16
-          - runner: macos-15
+          - name: macOS 15 (Sequoia)
+            runner: macos-15
             pg_version: 17
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: brew install icu4c
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version

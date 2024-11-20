@@ -27,14 +27,14 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on Debian 12 (Bookworm) ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
     strategy:
       matrix:
         include:
-          # Debian 12
+          # Debian 12 (Bookworm)
           - runner: ubicloud-standard-8
             image: debian:12-slim
             pg_version: 14

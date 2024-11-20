@@ -27,84 +27,108 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.runner }} ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           # Ubuntu 20.04
-          - runner: ubicloud-standard-8-ubuntu-2004
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-8-ubuntu-2004
             pg_version: 14
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2004
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-4-arm-ubuntu-2004
             pg_version: 14
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2004
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-8-ubuntu-2004
             pg_version: 15
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2004
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-4-arm-ubuntu-2004
             pg_version: 15
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2004
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-8-ubuntu-2004
             pg_version: 16
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2004
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-4-arm-ubuntu-2004
             pg_version: 16
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2004
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-8-ubuntu-2004
             pg_version: 17
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2004
+          - name: Ubuntu 20.04 (Focal)
+            runner: ubicloud-standard-4-arm-ubuntu-2004
             pg_version: 17
             arch: arm64
           # Ubuntu 22.04
-          - runner: ubicloud-standard-8-ubuntu-2204
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 14
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2204
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 14
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2204
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 15
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2204
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 15
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2204
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 16
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2204
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 16
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2204
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-8-ubuntu-2204
             pg_version: 17
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2204
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-4-arm-ubuntu-2204
             pg_version: 17
             arch: arm64
           # Ubuntu 24.04
-          - runner: ubicloud-standard-8-ubuntu-2404
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 14
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2404
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 14
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2404
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 15
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2404
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 15
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2404
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 16
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2404
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 16
             arch: arm64
-          - runner: ubicloud-standard-8-ubuntu-2404
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-8-ubuntu-2404
             pg_version: 17
             arch: amd64
-          - runner: ubicloud-standard-4-arm-ubuntu-2404
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-4-arm-ubuntu-2404
             pg_version: 17
             arch: arm64
 

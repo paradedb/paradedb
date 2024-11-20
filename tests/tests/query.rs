@@ -209,6 +209,27 @@ fn single_queries(mut conn: PgConnection) {
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);
 
+    // Test regex anchors
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+        field => 'description',
+        pattern => '^running'
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(
+        columns.len(),
+        1,
+        "start anchor ^ should match exactly one item"
+    );
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+        field => 'description',
+        pattern => 'keyboard$'
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 2, "end anchor $ should match two items");
+
     // Term
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search

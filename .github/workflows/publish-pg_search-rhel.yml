@@ -254,10 +254,10 @@ jobs:
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
 
           %changelog
-          * Thu Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
-          - Initial RPM Release
           * $CURRENT_DATE ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
           - Latest RPM Release
+          * Thu Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
+          - Initial RPM Release
           EOF
 
           echo "Copying pg_search binaries to RPM build directory..."

@@ -7,8 +7,6 @@ name: Publish pg_search (Debian)
 
 on:
   push:
-    branches:
-      - phil/macos-binaries # TODO: Remove once done testing
     tags:
       - "v*"
   workflow_dispatch:
@@ -174,12 +172,11 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      # TODO: Uncomment once done testing
-      # - name: Upload pg_search .deb to GitHub Release
-      #   uses: shogo82148/actions-upload-release-asset@v1
-      #   with:
-      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
-      #     asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-      #     asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
-      #     overwrite: true
+      - name: Upload pg_search .deb to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
+          overwrite: true

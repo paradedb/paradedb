@@ -29,15 +29,21 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.runner }} ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.runner }} ${{ env.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        # macOS 14 and 15 are arm-only (M!)
-        # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
-        - runner: [macos-14, macos-15]
-          pg_version: [14, 15, 16, 17]
-          arch: arm64
+        include:
+          # macOS 14 and 15 are arm-only (M1)
+          # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+          # macOS 14 (Sonoma)
+          - runner: macos-14
+            pg_version: [14, 15, 16, 17]
+          # macOS 15 (Sequoia)
+          - runner: macos-15
+            pg_version: [14, 15, 16, 17]
+      env:
+        arch: arm64
 
     steps:
       - name: Checkout code
@@ -62,8 +68,13 @@ jobs:
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
           OS_VERSION=$(sw_vers -productVersion)
-          echo "OS Version: $OS_VERSION"
-          echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
+          case $OS_VERSION in
+              15.*) OS_NAME="sequoia" ;;
+              14.*) OS_NAME="sonoma" ;;
+              *) exit 1 ;;
+          esac
+          echo "OS Version: $OS_NAME"
+          echo "os_version=$OS_NAME" >> $GITHUB_OUTPUT
 
       - name: Install PostgreSQL
         run: |
@@ -105,7 +116,7 @@ jobs:
           # Variables for directory structure and versioning
           pg_version=${{ matrix.pg_version }}
           tag_version=${{ steps.version.outputs.tag_version }}
-          package_dir="pg_search-${tag_version}-${{ matrix.arch }}-pg${pg_version}"
+          package_dir="pg_search-${tag_version}-${{ env.arch }}-pg${pg_version}"
 
           # Define Homebrew PostgreSQL paths
           brew_pg_path="/opt/homebrew/opt/postgresql@${pg_version}"
@@ -119,12 +130,9 @@ jobs:
           # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
           if [ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]; then
             cp archive/*.dylib ${package_dir}${lib_path}
-          elif [ "${{ matrix.pg_version }}" == "14" || "${{ matrix.pg_version }}" == "15"; then
-            cp archive/*.so ${package_dir}${lib_path}
           else
-            echo "Unsupported PostgreSQL version: ${{ matrix.pg_version }}"
-            exit 1
-          fi          
+            cp archive/*.so ${package_dir}${lib_path}
+          fi
           cp archive/*.control ${package_dir}${share_path}
           cp archive/*.sql ${package_dir}${share_path}
 
@@ -133,12 +141,12 @@ jobs:
                   --identifier com.paradedb.pg_search \
                   --version ${tag_version} \
                   --install-location /opt/homebrew/opt/postgresql${pg_version} \
-                  postgresql-${{ matrix.pg_version }}-pg_search--${tag_version}.${{ matrix.arch }}_sequoia.pkg
+                  postgresql-${{ matrix.pg_version }}-pg_search--${tag_version}.${{ env.arch }}_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
+          subject-path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ env.arch }}_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -150,6 +158,6 @@ jobs:
       #   with:
       #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
       #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
-      #     asset_path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
-      #     asset_name: postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
+      #     asset_path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ env.arch }}_${{ steps.version.outputs.os_version }}.pkg
+      #     asset_name: postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ env.arch }}_${{ steps.version.outputs.os_version }}.pkg
       #     overwrite: true

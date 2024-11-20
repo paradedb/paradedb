@@ -29,18 +29,21 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on macOS ${{ matrix.arch }}
-    runs-on: macos-15
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.runner }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        pg_version: [14, 15, 16, 17]
-        arch: [arm64]
+        # macOS 14 and 15 are arm-only (M!)
+        # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+        - runner: [macos-14, macos-15]
+          pg_version: [14, 15, 16, 17]
+          arch: arm64
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install macOS Dependencies
+      - name: Install Dependencies
         run: brew install icu4c
 
       - name: Retrieve OS & GitHub Tag Versions
@@ -66,18 +69,13 @@ jobs:
         run: |
           brew install postgresql@${{ matrix.pg_version }}
           brew services start postgresql@${{ matrix.pg_version }}
-          if [ "${{ matrix.arch }}" == "arm64" ]; then
-            echo "/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-          else
-            echo "/usr/local/opt/postgresql@${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-          fi
+          echo "/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/
         run: |
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-          echo "Extracted pgrx version: $version"
           echo version=$version >> $GITHUB_OUTPUT
 
       - name: Install pgrx
@@ -86,25 +84,15 @@ jobs:
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search/
         run: |
-          if [ "${{ matrix.arch }}" == "arm64" ]; then
-            PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
-          else
-            PG_CONFIG_PATH="/usr/local/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
-          fi
+          PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
         run: |
-          if [ "${{ matrix.arch }}" == "arm64" ]; then
-            PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
-            export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
-            export PATH="/opt/homebrew/bin:$PATH"
-          else
-            PG_CONFIG_PATH="/usr/local/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
-            export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig"
-            export PATH="/usr/local/bin:$PATH"
-          fi
+          PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
+          export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
+          export PATH="/opt/homebrew/bin:$PATH"
           cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 
       - name: Create .pkg Package
@@ -128,8 +116,15 @@ jobs:
           mkdir -p ${package_dir}${lib_path}
           mkdir -p ${package_dir}${share_path}
 
-          # Copy files into the directory structure
-          cp archive/*.so ${package_dir}${lib_path}
+          # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
+          if [ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]; then
+            cp archive/*.dylib ${package_dir}${lib_path}
+          elif [ "${{ matrix.pg_version }}" == "14" || "${{ matrix.pg_version }}" == "15"; then
+            cp archive/*.so ${package_dir}${lib_path}
+          else
+            echo "Unsupported PostgreSQL version: ${{ matrix.pg_version }}"
+            exit 1
+          fi          
           cp archive/*.control ${package_dir}${share_path}
           cp archive/*.sql ${package_dir}${share_path}
 
@@ -138,12 +133,12 @@ jobs:
                   --identifier com.paradedb.pg_search \
                   --version ${tag_version} \
                   --install-location /opt/homebrew/opt/postgresql${pg_version} \
-                  pg_search--${tag_version}.${{ matrix.arch }}_sequoia.pkg
+                  postgresql-${{ matrix.pg_version }}-pg_search--${tag_version}.${{ matrix.arch }}_sequoia.pkg
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: ./pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
+          subject-path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -155,6 +150,6 @@ jobs:
       #   with:
       #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
       #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
-      #     asset_path: ./pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
-      #     asset_name: pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
+      #     asset_path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
+      #     asset_name: postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.${{ matrix.arch }}_sequoia.pkg
       #     overwrite: true

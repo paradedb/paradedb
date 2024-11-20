@@ -3,7 +3,7 @@
 # Publish pg_search (Ubuntu)
 # Build and publish the pg_search extension as .deb to GitHub Releases.
 
-name: Publish pg_search
+name: Publish pg_search (Ubuntu)
 
 on:
   push:
@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.runner }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -115,7 +115,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
+        run: sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -136,14 +136,7 @@ jobs:
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
-          if [ -x "$(command -v lsb_release)" ]; then
-            DISTRO=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
-            RELEASE=$(lsb_release -cs)
-          else
-            DISTRO=$(cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '"')
-            RELEASE=$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)
-          fi
-          OS_VERSION="$RELEASE"
+          OS_VERSION="$(lsb_release -cs)"
           echo "OS Version: $OS_VERSION"
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
@@ -201,7 +194,7 @@ jobs:
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
           echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: Full-text search for PostgreSQL using BM25' >> $CONTROL_FILE
+          echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
 
           # Create .deb package
           sudo chown -R root:root ${package_dir}

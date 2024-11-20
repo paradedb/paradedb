@@ -3,7 +3,7 @@
 # Publish pg_search (Debian)
 # Build and publish the pg_search extension as .deb to GitHub Releases.
 
-name: Publish pg_search
+name: Publish pg_search (Debian)
 
 on:
   push:
@@ -80,7 +80,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
+      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, since
+      # /bin/sh does not support the `[[` syntax.
       - name: Retrieve OS & GitHub Tag Versions
         id: version
         shell: bash
@@ -98,14 +99,7 @@ jobs:
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
-          if [ -x "$(command -v lsb_release)" ]; then
-            DISTRO=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
-            RELEASE=$(lsb_release -cs)
-          else
-            DISTRO=$(cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '"')
-            RELEASE=$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)
-          fi
-          OS_VERSION="$RELEASE"
+          OS_VERSION="$(lsb_release -cs)"
           echo "OS Version: $OS_VERSION"
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
@@ -125,10 +119,8 @@ jobs:
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search/
-        shell: bash
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
@@ -165,7 +157,7 @@ jobs:
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
           echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: Full-text search for PostgreSQL using BM25' >> $CONTROL_FILE
+          echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
 
           # Create .deb package
           sudo chown -R root:root ${package_dir}

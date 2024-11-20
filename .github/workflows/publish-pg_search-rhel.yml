@@ -3,7 +3,7 @@
 # Publish pg_search (Red Hat)
 # Build and publish the pg_search extension as .rpm to GitHub Releases.
 
-name: Publish pg_search
+name: Publish pg_search (Red Hat)
 
 on:
   push:
@@ -43,68 +43,68 @@ jobs:
           - runner: ubicloud-standard-8
             image: redhat/ubi8:latest
             pg_version: 14
-            arch: amd64
+            arch: x86_64
           - runner: ubicloud-standard-4-arm
             image: redhat/ubi8:latest
             pg_version: 14
-            arch: arm64
+            arch: aarch64
           - runner: ubicloud-standard-8
             image: redhat/ubi8:latest
             pg_version: 15
-            arch: amd64
+            arch: x86_64
           - runner: ubicloud-standard-4-arm
             image: redhat/ubi8:latest
             pg_version: 15
-            arch: arm64
+            arch: aarch64
           - runner: ubicloud-standard-8
             image: redhat/ubi8:latest
             pg_version: 16
-            arch: amd64
+            arch: x86_64
           - runner: ubicloud-standard-4-arm
             image: redhat/ubi8:latest
             pg_version: 16
-            arch: arm64
+            arch: aarch64
           - runner: ubicloud-standard-8
             image: redhat/ubi8:latest
             pg_version: 17
-            arch: amd64
+            arch: x86_64
           - runner: ubicloud-standard-4-arm
             image: redhat/ubi8:latest
             pg_version: 17
-            arch: arm64
+            arch: aarch64
           # Red Hat Enterprise Linux 9
           - runner: ubicloud-standard-8
             image: redhat/ubi9:latest
             pg_version: 14
-            arch: amd64
+            arch: x86_64
           - runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 14
-            arch: arm64
+            arch: aarch64
           - runner: ubicloud-standard-8
             image: redhat/ubi9:latest
             pg_version: 15
-            arch: amd64
+            arch: x86_64
           - runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 15
-            arch: arm64
+            arch: aarch64
           - runner: ubicloud-standard-8
             image: redhat/ubi9:latest
             pg_version: 16
-            arch: amd64
+            arch: x86_64
           - runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 16
-            arch: arm64
+            arch: aarch64
           - runner: ubicloud-standard-8
             image: redhat/ubi9:latest
             pg_version: 17
-            arch: amd64
+            arch: x86_64
           - runner: ubicloud-standard-4-arm
             image: redhat/ubi9:latest
             pg_version: 17
-            arch: arm64
+            arch: aarch64
 
     steps:
       - name: Checkout Git Repository
@@ -112,15 +112,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # Determine RHEL version to retrieve the correct repositories
-          if [ "${{ matrix.image }}" == "redhat/ubi8:latest" ]; then
-            RHEL_VERSION=8
-          elif [ "${{ matrix.image }}" == "redhat/ubi9:latest" ]; then
-            RHEL_VERSION=9
-          else
-            echo "Unsupported RHEL version"
-            exit 1
-          fi
+          # Extract RHEL version from the image name
+          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
 
           # Install dependencies
           dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build
@@ -160,10 +153,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which doesn't support the `[[` syntax
       - name: Retrieve OS & GitHub Tag Versions
         id: version
-        shell: bash
         run: |
           if [ -z "${{ github.event.inputs.version }}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
@@ -178,28 +169,9 @@ jobs:
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
-          if [ -x "$(command -v lsb_release)" ]; then
-            DISTRO=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
-            RELEASE=$(lsb_release -cs)
-          else
-            DISTRO=$(cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '"')
-            RELEASE=$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)
-          fi
-          OS_VERSION="el$RELEASE"
+          OS_VERSION="el$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)"
           echo "OS Version: $OS_VERSION"
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
-
-          # RHEL uses different architecture and OS naming conventions when packaging via rpmbuid. We need to
-          # retrieve those as well to programmatically retrieve and upload the correct RPM package
-          if [[ "${{ matrix.image }}" == "redhat/ubi8:latest" || "${{ matrix.image }}" == "redhat/ubi9:latest" ]]; then
-            if [ "${{ matrix.arch }}" == "amd64" ]; then
-              ARCH=x86_64
-            else
-              ARCH=aarch64
-            fi
-            echo "RPM Arch: $ARCH"
-            echo "rpm_arch=$ARCH" >> $GITHUB_OUTPUT
-          fi
 
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         run: |
@@ -214,7 +186,7 @@ jobs:
           fi
 
           # Install the repository RPM:
-          sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ steps.version.outputs.rpm_arch }}/pgdg-redhat-repo-latest.noarch.rpm
+          sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
 
           # Disable the built-in PostgreSQL module:
           sudo dnf -qy module disable postgresql
@@ -244,6 +216,9 @@ jobs:
 
       - name: Create .rpm Package
         run: |
+          # Set the current date for the changelog
+          CURRENT_DATE=$(date +"%a %b %d %Y")
+
           echo "Configuring RPM build environment..."
           rpmdev-setuptree
 
@@ -279,8 +254,10 @@ jobs:
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
 
           %changelog
-          * Thu Jun 6 2024 ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
+          * Thu Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
           - Initial RPM Release
+          * $CURRENT_DATE ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
+          - Latest RPM Release
           EOF
 
           echo "Copying pg_search binaries to RPM build directory..."
@@ -293,7 +270,7 @@ jobs:
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: |
-            ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+            ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -305,6 +282,6 @@ jobs:
       #   with:
       #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
       #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
-      #     asset_path: ~/rpmbuild/RPMS/${{ steps.version.outputs.rpm_arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
-      #     asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ steps.version.outputs.rpm_arch }}.rpm
+      #     asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+      #     asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
       #     overwrite: true

@@ -235,7 +235,7 @@ unsafe fn make_search_query_input_opexpr_node(
         let search_query_input_const = pg_sys::makeConst(
             searchqueryinput_typoid(),
             -1,
-            pg_sys::DEFAULT_COLLATION_OID,
+            pg_sys::Oid::INVALID,
             -1,
             wrapped_query.into_datum().unwrap(),
             false,
@@ -293,7 +293,7 @@ unsafe fn make_search_query_input_opexpr_node(
             parse_with_field_procoid(),
             searchqueryinput_typoid(),
             parse_with_field_args.into_pg(),
-            pg_sys::DEFAULT_COLLATION_OID,
+            pg_sys::Oid::INVALID,
             pg_sys::DEFAULT_COLLATION_OID,
             pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
         );
@@ -307,7 +307,7 @@ unsafe fn make_search_query_input_opexpr_node(
     }
 
     newopexpr.opresulttype = pg_sys::BOOLOID;
-    newopexpr.opcollid = pg_sys::DEFAULT_COLLATION_OID;
+    newopexpr.opcollid = pg_sys::Oid::INVALID;
     newopexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
     newopexpr.location = (*(*srs).fcall).location;
 

@@ -202,7 +202,7 @@ pub unsafe fn inject_placeholders(
                             let const_ = pg_sys::makeConst(
                                 pg_sys::TEXTOID,
                                 -1,
-                                pg_sys::DEFAULT_COLLATION_OID,
+                                pg_sys::Oid::INVALID,
                                 -1,
                                 pg_sys::Datum::null(),
                                 true,

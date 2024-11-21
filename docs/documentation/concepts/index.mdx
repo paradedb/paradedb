@@ -23,7 +23,7 @@ Once this index is created, it automatically stays in sync with the underlying t
 
 ## Segment
 
-A BM25 index is made up of many segments. Each segment stores a small part of the index. A segment is analagous to an ElasticSearch shard,
+A BM25 index is made up of many segments. Each segment stores a small part of the index. A segment is analogous to an ElasticSearch shard,
 with the caveat that all segments are stored on the same Postgres node.
 
 Every atomic insert or update creates a new segment. Because having too many (or too few) segments can negatively impact performance, ParadeDB tries to

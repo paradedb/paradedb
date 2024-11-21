@@ -228,7 +228,7 @@ fn test_format_bm25_empty_fields(mut conn: PgConnection) {
 #[rstest]
 fn test_format_bm25_invalid_json(mut conn: PgConnection) {
     let res = r#"
-        SELECT paradedb.format_bm25(
+        SELECT paradedb.format_create_bm25(
             'bad_idx',
             'test_table',
             'id',

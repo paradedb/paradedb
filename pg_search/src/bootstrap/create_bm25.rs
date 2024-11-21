@@ -28,8 +28,8 @@ use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::SearchNormalizer;
 use tokenizers::SearchTokenizer;
 
-use crate::index::{SearchFs, SearchIndex, WriterDirectory};
-use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
+use crate::index::SearchIndex;
+use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::schema::IndexRecordOption;
 use crate::schema::SearchFieldConfig;
@@ -98,20 +98,13 @@ fn format_create_bm25(
         spi::quote_identifier(key_field),
         column_names_csv,
         spi::quote_literal(key_field),
-        spi::quote_literal(text_fields),
-        spi::quote_literal(numeric_fields),
-        spi::quote_literal(boolean_fields),
-        spi::quote_literal(json_fields),
-        spi::quote_literal(range_fields),
-        spi::quote_literal(datetime_fields),
-        predicate_where))?;
-
-    Spi::run(&format!(
-        "SET client_min_messages TO {}",
-        spi::quote_literal(original_client_min_messages)
-    ))?;
-
-    Ok(())
+        spi::quote_literal(&serde_json::to_string(&text_fields)?),
+        spi::quote_literal(&serde_json::to_string(&numeric_fields)?),
+        spi::quote_literal(&serde_json::to_string(&boolean_fields)?),
+        spi::quote_literal(&serde_json::to_string(&json_fields)?),
+        spi::quote_literal(&serde_json::to_string(&range_fields)?),
+        spi::quote_literal(&serde_json::to_string(&datetime_fields)?),
+        predicate_where))
 }
 
 #[pg_extern]

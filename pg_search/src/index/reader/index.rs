@@ -468,8 +468,7 @@ pub fn search_via_channel(
     let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
     let (response_sender, response_receiver) = crossbeam::channel::unbounded::<ChannelResponse>();
 
-    let collector =
-        collector::ChannelCollector::new(need_scores, sort_segments_by_ctid, search_sender);
+    let collector = channel::ChannelCollector::new(need_scores, search_sender);
 
     let owned_query = query.box_clone();
     std::thread::spawn(move || {
@@ -516,11 +515,11 @@ pub fn search_via_channel(
     let _ = handler.receive_blocking(Some(|_| false)).unwrap();
 
     unsafe { pgrx::pg_sys::UnlockReleaseBuffer(lock) };
-    SearchResults::Channel(search_receiver.into_iter().flatten())
+    SearchResults::Channel(search_receiver.into_iter())
 }
 
 mod buffered_channel {
-    use crate::index::reader::SearchIndexScore;
+    use crate::index::reader::index::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::fastfield::Column;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
@@ -725,7 +724,7 @@ mod unscored_buffered_channel {
 }
 
 mod channel {
-    use crate::index::reader::SearchIndexScore;
+    use crate::index::reader::index::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::fastfield::Column;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};

@@ -125,13 +125,12 @@ pub extern "C" fn amrescan(
         let query = search_index.query(&indexrel, &search_query_input, &search_reader);
         let results = if (*scan).parallel_scan.is_null() {
             // not a parallel scan
-            search_reader.search_via_channel(
+            search_via_channel(
                 (*(*scan).indexRelation).rd_id,
                 need_scores,
                 !(*scan).xs_want_itup,
                 SearchIndex::executor(),
                 &query,
-                None,
             )
         } else if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
             // a parallel scan: got a segment to query

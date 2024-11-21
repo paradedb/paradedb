@@ -131,37 +131,67 @@ fn list_tokenizers(mut conn: PgConnection) {
 
 #[rstest]
 fn test_format_create_bm25_basic(mut conn: PgConnection) {
-    let row = r#"
+    // First create test table
+    r#"
+        CREATE TABLE public.my_table (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            price NUMERIC,
+            is_available BOOLEAN,
+            details JSONB,
+            price_range INT8RANGE,
+            published_date TIMESTAMP
+        );
+    "#
+    .execute(&mut conn);
+
+    // Get the CREATE INDEX statement
+    let sql = r#"
         SELECT paradedb.format_create_bm25(
             'my_index'::text, 
             'my_table'::text, 
             'id'::text, 
             'public'::text, 
-            '{"title": true}'::jsonb, 
-            '{"price": true}'::jsonb, 
-            '{"is_available": true}'::jsonb, 
-            '{"details": true}'::jsonb, 
-            '{"price_range": true}'::jsonb, 
-            '{"published_date": true}'::jsonb, 
+            '{"title": {}}'::jsonb, 
+            '{"price": {}}'::jsonb, 
+            '{"is_available": {}}'::jsonb, 
+            '{"details": {}}'::jsonb, 
+            '{"price_range": {}}'::jsonb, 
+            '{"published_date": {}}'::jsonb, 
             'price > 0'::text
         );
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r##"CREATE INDEX my_index ON public.my_table USING bm25 (id, id, title, price, is_available, details, price_range, published_date) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{"price":true}', boolean_fields='{"is_available":true}', json_fields='{"details":true}', range_fields='{"price_range":true}', datetime_fields='{"published_date":true}') WHERE price > 0;"##;
+    // Execute the CREATE INDEX statement
+    sql.0.execute(&mut conn);
 
-    assert_eq!(row.0, expected);
+    // Cleanup
+    r#"DROP TABLE public.my_table CASCADE;"#.execute_result(&mut conn).unwrap();
 }
 
 #[rstest]
 fn test_format_create_index_no_predicate(mut conn: PgConnection) {
-    let row = r#"
+    // Create schema and test table
+    r#"CREATE SCHEMA IF NOT EXISTS inventory;"#.execute_result(&mut conn).unwrap();
+
+    r#"
+        CREATE TABLE inventory.products (
+            product_id INTEGER PRIMARY KEY,
+            name TEXT
+        );
+    "#
+    .execute_result(&mut conn)
+    .unwrap();
+
+    // Get and execute CREATE INDEX statement
+    let sql = r#"
         SELECT paradedb.format_create_bm25(
             'another_index', 
             'products', 
             'product_id', 
             'inventory', 
-            '{"name": true}'::jsonb, 
+            '{"name": {}}'::jsonb, 
             '{}'::jsonb, 
             '{}'::jsonb, 
             '{}'::jsonb, 
@@ -172,44 +202,74 @@ fn test_format_create_index_no_predicate(mut conn: PgConnection) {
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r##"CREATE INDEX another_index ON inventory.products USING bm25 (product_id, product_id, name) WITH (key_field='product_id', text_fields='{"name":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"##;
+    sql.0.execute(&mut conn);
 
-    assert_eq!(row.0, expected);
+    // Cleanup
+    r#"DROP TABLE inventory.products CASCADE;"#.execute_result(&mut conn).unwrap();
+    r#"DROP SCHEMA inventory CASCADE;"#.execute_result(&mut conn).unwrap();
 }
 
 #[rstest]
 fn test_format_bm25_basic(mut conn: PgConnection) {
-    let row = r#"
+    // Create test table
+    r#"
+        CREATE TABLE public.articles (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            content TEXT,
+            rating NUMERIC,
+            published BOOLEAN,
+            metadata JSONB,
+            price_range INT8RANGE,
+            created_at TIMESTAMP
+        );
+    "#
+    .execute_result(&mut conn)
+    .unwrap();
+
+    // Get and execute CREATE INDEX statement
+    let sql = r#"
         SELECT paradedb.format_create_bm25(
             'my_search_idx',
             'articles',
             'id',
             'public',
-            '{"title": true, "content": true}'::jsonb,
-            '{"rating": true}'::jsonb,
-            '{"published": true}'::jsonb,
-            '{"metadata": true}'::jsonb,
-            '{"price_range": true}'::jsonb,
-            '{"created_at": true}'::jsonb,
+            '{"title": {}, "content": {}}'::jsonb,
+            '{"rating": {}}'::jsonb,
+            '{"published": {}}'::jsonb,
+            '{"metadata": {}}'::jsonb,
+            '{"price_range": {}}'::jsonb,
+            '{"created_at": {}}'::jsonb,
             'rating > 3'
         );
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r##"CREATE INDEX my_search_idx ON public.articles USING bm25 (id, id, content, title, rating, published, metadata, price_range, created_at) WITH (key_field='id', text_fields='{"content":true,"title":true}', numeric_fields='{"rating":true}', boolean_fields='{"published":true}', json_fields='{"metadata":true}', range_fields='{"price_range":true}', datetime_fields='{"created_at":true}') WHERE rating > 3;"##;
+    sql.0.execute_result(&mut conn).unwrap();
 
-    assert_eq!(row.0, expected);
+    // Cleanup
+    r#"DROP TABLE public.articles CASCADE;"#.execute_result(&mut conn).unwrap();
 }
 
 #[rstest]
 fn test_format_bm25_empty_fields(mut conn: PgConnection) {
-    let row = r#"
+    // Create test table
+    r#"
+        CREATE TABLE public.simple_table (
+            id INTEGER PRIMARY KEY,
+            title TEXT
+        );
+    "#
+    .execute(&mut conn);
+
+    // Get and execute CREATE INDEX statement
+    let sql = r#"
         SELECT paradedb.format_create_bm25(
             'minimal_idx',
             'simple_table',
             'id',
             'public',
-            '{"title": true}'::jsonb,
+            '{"title": {}}'::jsonb,
             '{}'::jsonb,
             '{}'::jsonb,
             '{}'::jsonb,
@@ -220,15 +280,17 @@ fn test_format_bm25_empty_fields(mut conn: PgConnection) {
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r#"CREATE INDEX minimal_idx ON public.simple_table USING bm25 (id, id, title) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"#;
+    // Ensure the result can be executed.
+    sql.0.execute(&mut conn);
 
-    assert_eq!(row.0, expected);
+    // Cleanup
+    r#"DROP TABLE public.simple_table CASCADE;"#.execute(&mut conn);
 }
 
 #[rstest]
 fn test_format_bm25_invalid_json(mut conn: PgConnection) {
     let res = r#"
-        SELECT paradedb.format_bm25(
+        SELECT paradedb.format_create_bm25(
             'bad_idx',
             'test_table',
             'id',
@@ -266,8 +328,7 @@ fn test_index_fields(mut conn: PgConnection) {
             created_at TIMESTAMP
         );
     "#
-    .execute_result(&mut conn)
-    .unwrap();
+    .execute(&mut conn);
 
     r#"
         CREATE INDEX idx_test_fields ON test_fields USING bm25 (
@@ -282,8 +343,7 @@ fn test_index_fields(mut conn: PgConnection) {
             datetime_fields='{"created_at": {}}'
         );
     "#
-    .execute_result(&mut conn)
-    .unwrap();
+    .execute(&mut conn);
 
     // Get the index fields
     let row: (serde_json::Value,) = r#"
@@ -403,5 +463,5 @@ fn test_index_fields(mut conn: PgConnection) {
     assert!(fields.contains_key("ctid"));
 
     // Cleanup
-    r#"DROP TABLE test_fields CASCADE;"#.execute_result(&mut conn).unwrap();
+    r#"DROP TABLE test_fields CASCADE;"#.execute(&mut conn);
 }

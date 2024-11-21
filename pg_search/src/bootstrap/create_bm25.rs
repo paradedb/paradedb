@@ -74,6 +74,7 @@ fn format_create_bm25(
     let column_names_csv = column_names
         .clone()
         .into_iter()
+        .filter(|name| name != key_field)
         .collect::<Vec<String>>()
         .join(", ");
 

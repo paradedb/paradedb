@@ -122,6 +122,8 @@ pub enum SearchFieldConfig {
         record: IndexRecordOption,
         #[serde(default)]
         normalizer: SearchNormalizer,
+        #[serde(default)]
+        column: Option<String>,
     },
     Json {
         #[serde(default = "default_as_true")]
@@ -140,10 +142,14 @@ pub enum SearchFieldConfig {
         record: IndexRecordOption,
         #[serde(default)]
         normalizer: SearchNormalizer,
+        #[serde(default)]
+        column: Option<String>,
     },
     Range {
         #[serde(default = "default_as_true")]
         stored: bool,
+        #[serde(default)]
+        column: Option<String>,
     },
     Numeric {
         #[serde(default = "default_as_true")]
@@ -152,6 +158,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         stored: bool,
+        #[serde(default)]
+        column: Option<String>,
     },
     Boolean {
         #[serde(default = "default_as_true")]
@@ -160,6 +168,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         stored: bool,
+        #[serde(default)]
+        column: Option<String>,
     },
     Date {
         #[serde(default = "default_as_true")]
@@ -168,6 +178,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_true")]
         stored: bool,
+        #[serde(default)]
+        column: Option<String>,
     },
     Ctid,
 }
@@ -229,6 +241,7 @@ impl SearchFieldConfig {
             tokenizer,
             record,
             normalizer,
+            column: None,
         })
     }
 
@@ -296,6 +309,7 @@ impl SearchFieldConfig {
             tokenizer,
             record,
             normalizer,
+            column: None,
         })
     }
 
@@ -311,7 +325,10 @@ impl SearchFieldConfig {
             None => Ok(true),
         }?;
 
-        Ok(SearchFieldConfig::Range { stored })
+        Ok(SearchFieldConfig::Range {
+            stored,
+            column: None,
+        })
     }
 
     pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
@@ -344,6 +361,7 @@ impl SearchFieldConfig {
             indexed,
             fast,
             stored,
+            column: None,
         })
     }
 
@@ -377,6 +395,7 @@ impl SearchFieldConfig {
             indexed,
             fast,
             stored,
+            column: None,
         })
     }
 
@@ -410,6 +429,7 @@ impl SearchFieldConfig {
             indexed,
             fast,
             stored,
+            column: None,
         })
     }
 }
@@ -453,6 +473,7 @@ impl From<SearchFieldConfig> for TextOptions {
                 tokenizer,
                 record,
                 normalizer,
+                ..
             } => {
                 if stored {
                     text_options = text_options.set_stored();
@@ -483,9 +504,10 @@ impl From<SearchFieldConfig> for NumericOptions {
                 indexed,
                 fast,
                 stored,
+                ..
             }
             // Following the example of Quickwit, which uses NumericOptions for boolean options.
-            | SearchFieldConfig::Boolean { indexed, fast, stored } => {
+            | SearchFieldConfig::Boolean { indexed, fast, stored, .. } => {
                 if stored {
                     numeric_options = numeric_options.set_stored();
                 }
@@ -519,6 +541,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 tokenizer,
                 record,
                 normalizer,
+                ..
             } => {
                 if stored {
                     json_options = json_options.set_stored();
@@ -538,7 +561,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                     json_options = json_options.set_indexing_options(text_field_indexing);
                 }
             }
-            SearchFieldConfig::Range { stored } => {
+            SearchFieldConfig::Range { stored, .. } => {
                 if stored {
                     json_options = json_options.set_stored();
                 }
@@ -564,6 +587,7 @@ impl From<SearchFieldConfig> for DateOptions {
                 indexed,
                 fast,
                 stored,
+                ..
             } => {
                 if stored {
                     date_options = date_options.set_stored();
@@ -915,6 +939,7 @@ mod tests {
                 indexed: true,
                 fast: true,
                 stored: true,
+                column: None,
             },
             SearchFieldType::U64,
         )];

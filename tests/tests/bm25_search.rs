@@ -1404,7 +1404,6 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "figure out multiple tokenizers"]
 fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
     // Create the table
     "CREATE TABLE product_reviews (

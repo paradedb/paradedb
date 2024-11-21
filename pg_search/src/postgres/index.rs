@@ -57,6 +57,9 @@ pub fn open_search_index(
 type Fields = Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>;
 type KeyFieldIndex = usize;
 pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex) {
+    let heap_relation = index_relation
+        .heap_relation()
+        .expect("index should belong to a heap");
     let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
     } else {
@@ -66,7 +69,7 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
 
     // Create a map from column name to column type. We'll use this to verify that index
     // configurations passed by the user reference the correct types for each column.
-    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = index_relation
+    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heap_relation
         .tuple_desc()
         .into_iter()
         .filter_map(|attribute| {
@@ -86,57 +89,44 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
         })
         .collect();
 
-    // Parse and validate the index configurations for each column.
-    let text_fields =
-        rdopts
-            .get_text_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Text) => (name, config, *field_type),
-                _ => panic!("'{name}' cannot be indexed as a text field"),
-            });
-
-    let numeric_fields = rdopts
-        .get_numeric_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::U64)
-            | Some(field_type @ SearchFieldType::I64)
-            | Some(field_type @ SearchFieldType::F64) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a numeric field"),
-        });
-
-    let boolean_fields = rdopts
-        .get_boolean_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Bool) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a boolean field"),
-        });
-
-    let json_fields =
-        rdopts
-            .get_json_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Json) => (name, config, *field_type),
-                _ => panic!("'{name}' cannot be indexed as a JSON field"),
-            });
-
-    let range_fields = rdopts.get_range_fields().into_iter().map(|(name, config)| {
-        match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Range) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a range field"),
+    for (name, _) in rdopts.get_text_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Text)) {
+            panic!("'{name}' cannot be indexed as a text field");
         }
-    });
+    }
 
-    let datetime_fields = rdopts
-        .get_datetime_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Date) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a datetime field"),
-        });
+    for (name, _) in rdopts.get_numeric_fields() {
+        if !matches!(
+            name_type_map.get(&name),
+            Some(SearchFieldType::U64 | SearchFieldType::I64 | SearchFieldType::F64)
+        ) {
+            panic!("'{name}' cannot be indexed as a numeric field");
+        }
+    }
+
+    for (name, _) in rdopts.get_boolean_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Bool)) {
+            panic!("'{name}' cannot be indexed as a boolean field");
+        }
+    }
+
+    for (name, _) in rdopts.get_json_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Json)) {
+            panic!("'{name}' cannot be indexed as a JSON field");
+        }
+    }
+
+    for (name, _) in rdopts.get_range_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Range)) {
+            panic!("'{name}' cannot be indexed as a range field");
+        }
+    }
+
+    for (name, _) in rdopts.get_datetime_fields() {
+        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Date)) {
+            panic!("'{name}' cannot be indexed as a datetime field");
+        }
+    }
 
     let key_field = rdopts.get_key_field().expect("must specify key field");
     let key_field_type = match name_type_map.get(&key_field) {
@@ -164,11 +154,11 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
             indexed: true,
             fast: true,
             stored: true,
+            fieldnorms: false,
             expand_dots: false,
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
-            fieldnorms: true
         },
         SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
@@ -184,12 +174,11 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
     };
 
     // Concatenate the separate lists of fields.
-    let fields: Vec<_> = text_fields
-        .chain(numeric_fields)
-        .chain(boolean_fields)
-        .chain(json_fields)
-        .chain(range_fields)
-        .chain(datetime_fields)
+    let index_info = unsafe { pg_sys::BuildIndexInfo(index_relation.as_ptr()) };
+    let fields: Vec<_> = rdopts
+        .get_fields(&heap_relation, index_info)
+        .into_iter()
+        .filter(|(name, _, _)| name != &key_field) // Process key_field separately.
         .chain(std::iter::once((
             key_field.clone(),
             key_config,
@@ -208,6 +197,5 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
         .iter()
         .position(|(name, _, _)| name == &key_field)
         .expect("key field not found in columns"); // key field is already validated by now.
-
     (fields, key_field_index)
 }

@@ -231,7 +231,7 @@ WITH (
 );
 ```
 
-`CREATE INDEX` accepts several configuration options for `boolean_fields`:
+`CREATE INDEX` accepts several configuration options for `datetime_fields`:
 
 <Accordion title="Advanced Options">
   <ParamField body="indexed" default={true}>
@@ -263,6 +263,8 @@ WITH (
   }'
 );
 ```
+
+`CREATE INDEX` accepts several configuration options for `range_fields`:
 
 <Accordion title="Advanced Options">
   <ParamField body="stored" default={true}>

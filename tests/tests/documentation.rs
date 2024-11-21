@@ -1874,3 +1874,415 @@ fn index_size(mut conn: PgConnection) {
 
     assert!(size > 0);
 }
+
+#[rstest]
+fn field_configuration(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+            },
+            "category": {
+                "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "fast": true,
+            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, metadata)
+    WITH (
+    key_field = 'id',
+    json_fields = '{
+        "metadata": {
+        "fast": true
+        }
+    }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, rating)
+    WITH (
+        key_field = 'id',
+        numeric_fields = '{
+            "rating": {"fast": true}
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, in_stock)
+    WITH (
+    key_field = 'id',
+    boolean_fields = '{
+        "in_stock": {"fast": true}
+    }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, created_at)
+    WITH (
+    key_field = 'id',
+    datetime_fields = '{
+        "created_at": {"fast": true}
+    }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, weight_range)
+    WITH (
+    key_field = 'id',
+    range_fields = '{
+        "weight_range": {"stored": true}
+    }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+}
+
+#[rstest]
+fn available_tokenizers(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"tokenizer": {"type": "whitespace"}}
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "default"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "whitespace"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "raw"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "regex", "pattern": "\\W+"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "source_code"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "chinese_compatible"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "chinese_lindera"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    if cfg!(feature = "icu") {
+        r#"
+        CREATE INDEX search_idx ON mock_items
+        USING bm25 (id, description)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "description": {
+                "tokenizer": {"type": "icu"}
+                }
+            }'
+        );
+        DROP INDEX search_idx;
+        "#
+        .execute(&mut conn);
+    }
+
+    r#"
+    SELECT * FROM paradedb.tokenizers();
+    "#
+    .execute(&mut conn);
+
+    r#"
+    SELECT * FROM paradedb.tokenize(
+    paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false),
+    'keyboard'
+    );
+    "#
+    .execute(&mut conn);
+}
+
+#[rstest]
+fn token_filters(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"tokenizer": {"type": "default", "stemmer": "English"}}
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"tokenizer": {"type": "default", "remove_long": 255}}
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"tokenizer": {"type": "default", "lowercase": false}}
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+}
+
+#[rstest]
+fn fast_fields(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, rating)
+    WITH (
+        key_field = 'id',
+        text_fields ='{
+            "description": {"fast": true}
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, category)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "category": {"fast": true, "normalizer": "raw"}
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+}
+
+#[rstest]
+fn record(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"record": "freq"}
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+}

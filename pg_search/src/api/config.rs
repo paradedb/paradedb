@@ -15,9 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
-
-use anyhow::Result;
 use pgrx::*;
 use serde_json::{json, Map, Value};
 
@@ -79,86 +76,4 @@ pub fn tokenizer(
     pattern.map(|v| config.insert("pattern".to_string(), Value::String(v)));
 
     JsonB(json!(config))
-}
-
-#[pg_extern(
-    sql = "
-CREATE OR REPLACE FUNCTION paradedb.format_create_index(
-    index_name text DEFAULT '',
-    table_name text DEFAULT '',
-    key_field text DEFAULT '',
-    schema_name text DEFAULT CURRENT_SCHEMA,
-    text_fields jsonb DEFAULT '{}',
-    numeric_fields jsonb DEFAULT '{}',
-    boolean_fields jsonb DEFAULT '{}',
-    json_fields jsonb DEFAULT '{}',
-    range_fields jsonb DEFAULT '{}',
-    datetime_fields jsonb DEFAULT '{}',
-    predicates text DEFAULT ''
-)
-RETURNS text
-LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-",
-    name = "format_create_index"
-)]
-#[allow(clippy::too_many_arguments)]
-fn format_create_index(
-    index_name: &str,
-    table_name: &str,
-    key_field: &str,
-    schema_name: &str,
-    text_fields: JsonB,
-    numeric_fields: JsonB,
-    boolean_fields: JsonB,
-    json_fields: JsonB,
-    range_fields: JsonB,
-    datetime_fields: JsonB,
-    predicates: &str,
-) -> Result<String> {
-    let mut column_names_set = HashSet::new();
-    for jsonb in [
-        &text_fields,
-        &numeric_fields,
-        &boolean_fields,
-        &json_fields,
-        &range_fields,
-        &datetime_fields,
-    ] {
-        if let Value::Object(ref map) = jsonb.0 {
-            for key in map.keys() {
-                column_names_set.insert(spi::quote_identifier(key.clone()));
-            }
-        }
-    }
-
-    let mut column_names = column_names_set.into_iter().collect::<Vec<_>>();
-    column_names.sort();
-
-    let column_names_csv = column_names
-        .clone()
-        .into_iter()
-        .collect::<Vec<String>>()
-        .join(", ");
-
-    let predicate_where = if !predicates.is_empty() {
-        format!("WHERE {}", predicates)
-    } else {
-        "".to_string()
-    };
-
-    Ok(format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
-        spi::quote_identifier(index_name),
-        spi::quote_identifier(schema_name),
-        spi::quote_identifier(table_name),
-        spi::quote_identifier(key_field),
-        column_names_csv,
-        spi::quote_literal(key_field),
-        spi::quote_literal(text_fields.0.to_string()),
-        spi::quote_literal(numeric_fields.0.to_string()),
-        spi::quote_literal(boolean_fields.0.to_string()),
-        spi::quote_literal(json_fields.0.to_string()),
-        spi::quote_literal(range_fields.0.to_string()),
-        spi::quote_literal(datetime_fields.0.to_string()),
-        predicate_where))
 }

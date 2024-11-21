@@ -148,7 +148,7 @@ fn test_format_create_bm25_basic(mut conn: PgConnection) {
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r##"CREATE INDEX my_index ON public.my_table USING bm25 (id, id, title, price, is_available, details, price_range, published_date) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{"price":true}', boolean_fields='{"is_available":true}', json_fields='{"details":true}', range_fields='{"price_range":true}', datetime_fields='{"published_date":true}') WHERE price > 0;"##;
+    let expected = r##"CREATE INDEX my_index ON public.my_table USING bm25 (id, title, price, is_available, details, price_range, published_date) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{"price":true}', boolean_fields='{"is_available":true}', json_fields='{"details":true}', range_fields='{"price_range":true}', datetime_fields='{"published_date":true}') WHERE price > 0;"##;
 
     assert_eq!(row.0, expected);
 }
@@ -172,7 +172,7 @@ fn test_format_create_index_no_predicate(mut conn: PgConnection) {
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r##"CREATE INDEX another_index ON inventory.products USING bm25 (product_id, product_id, name) WITH (key_field='product_id', text_fields='{"name":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"##;
+    let expected = r##"CREATE INDEX another_index ON inventory.products USING bm25 (product_id, name) WITH (key_field='product_id', text_fields='{"name":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"##;
 
     assert_eq!(row.0, expected);
 }
@@ -196,7 +196,7 @@ fn test_format_bm25_basic(mut conn: PgConnection) {
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r##"CREATE INDEX my_search_idx ON public.articles USING bm25 (id, id, content, title, rating, published, metadata, price_range, created_at) WITH (key_field='id', text_fields='{"content":true,"title":true}', numeric_fields='{"rating":true}', boolean_fields='{"published":true}', json_fields='{"metadata":true}', range_fields='{"price_range":true}', datetime_fields='{"created_at":true}') WHERE rating > 3;"##;
+    let expected = r##"CREATE INDEX my_search_idx ON public.articles USING bm25 (id, content, title, rating, published, metadata, price_range, created_at) WITH (key_field='id', text_fields='{"content":true,"title":true}', numeric_fields='{"rating":true}', boolean_fields='{"published":true}', json_fields='{"metadata":true}', range_fields='{"price_range":true}', datetime_fields='{"created_at":true}') WHERE rating > 3;"##;
 
     assert_eq!(row.0, expected);
 }
@@ -220,7 +220,7 @@ fn test_format_bm25_empty_fields(mut conn: PgConnection) {
     "#
     .fetch_one::<(String,)>(&mut conn);
 
-    let expected = r#"CREATE INDEX minimal_idx ON public.simple_table USING bm25 (id, id, title) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"#;
+    let expected = r#"CREATE INDEX minimal_idx ON public.simple_table USING bm25 (id, title) WITH (key_field='id', text_fields='{"title":true}', numeric_fields='{}', boolean_fields='{}', json_fields='{}', range_fields='{}', datetime_fields='{}') ;"#;
 
     assert_eq!(row.0, expected);
 }

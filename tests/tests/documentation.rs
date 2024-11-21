@@ -992,7 +992,7 @@ fn phrase_level_queries(mut conn: PgConnection) {
             "phrases": ["running", "sh"]
         }
     }'::jsonb
-        "#
+    "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 

@@ -1824,6 +1824,43 @@ fn create_bm25_test_tables(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn concurrent_indexing(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating)
+    WITH (key_field='id'); 
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX CONCURRENTLY search_idx_v2 ON mock_items
+    USING bm25 (id, description, category, rating, in_stock)
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
+
+    // Verify the new index is being used by running a query that includes in_stock
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE description @@@ 'shoes' AND id @@@ 'in_stock:true'
+    ORDER BY rating DESC
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
 fn schema(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(

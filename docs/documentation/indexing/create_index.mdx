@@ -88,3 +88,24 @@ USING bm25 (id, description)
 WITH (key_field='id')
 WHERE category = 'Electronics' AND rating > 2;
 ```
+
+## Concurrent Indexing
+
+To create a new index without blocking writes to your table, use the `CONCURRENTLY` keyword:
+
+```sql
+CREATE INDEX CONCURRENTLY search_idx_v2 ON mock_items
+USING bm25 (id, description, category, rating, in_stock)
+WITH (key_field='id');
+```
+
+This is particularly useful when you need to:
+- Reindex with different settings
+- Update an existing index without downtime
+- Change the indexed columns
+
+`pg_search` can only use a single BM25 index per table - the most recently created one will automatically be used for queries. After creating a new index concurrently and verifying it works as expected, you can safely drop the old index:
+
+```sql
+DROP INDEX search_idx;
+```

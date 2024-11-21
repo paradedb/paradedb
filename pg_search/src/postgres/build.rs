@@ -63,15 +63,23 @@ pub extern "C" fn ambuild(
     let relfilenode = relfilenode_from_pg_relation(&index_relation);
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
-    for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
-        if existing_index.oid() == index_oid {
-            // the index we're about to build already exists on the table.
-            // we're likely here as a result of REINDEX
-            continue;
-        }
+    // and accounting for CONCURRENTLY.
+    unsafe {
+        let index_tuple = &(*index_relation.rd_index);
+        let is_reindex = !index_tuple.indisvalid;
+        let is_concurrent = (*index_info).ii_Concurrent;
 
-        if is_bm25_index(&existing_index) {
-            panic!("a relation may only have one `USING bm25` index");
+        if !is_reindex {
+            for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
+                if existing_index.oid() == index_oid {
+                    // the index we're about to build already exists on the table.
+                    continue;
+                }
+
+                if is_bm25_index(&existing_index) && !is_concurrent {
+                    panic!("a relation may only have one `USING bm25` index");
+                }
+            }
         }
     }
 

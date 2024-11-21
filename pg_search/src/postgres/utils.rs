@@ -25,19 +25,22 @@ use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 
-/// Finds and returns the first `USING bm25` index on the specified relation, or [`None`] if there
-/// aren't any
+/// Finds and returns the `USING bm25` index on the specified relation with the
+/// highest OID, or [`None`] if there aren't any.
 pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
     unsafe {
         let heaprel = PgRelation::open(heaprelid);
-        for index in heaprel.indices(pg_sys::AccessShareLock as _) {
-            if !index.rd_indam.is_null()
-                && (*index.rd_indam).ambuild == Some(crate::postgres::build::ambuild)
-            {
-                return Some(index);
-            }
-        }
-        None
+        let indices = heaprel.indices(pg_sys::AccessShareLock as _);
+
+        // Find all bm25 indexes and keep the one with highest OID
+        indices
+            .into_iter()
+            .filter(|index| pg_sys::get_index_isvalid(index.oid()))
+            .filter(|index| {
+                !index.rd_indam.is_null()
+                    && (*index.rd_indam).ambuild == Some(crate::postgres::build::ambuild)
+            })
+            .max_by_key(|index| index.oid().as_u32())
     }
 }
 

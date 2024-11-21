@@ -91,9 +91,7 @@
               "pages": [
                 "documentation/indexing/create_index",
                 "documentation/indexing/inspect_index",
-                "documentation/indexing/delete_index",
-                "documentation/indexing/partitioned",
-                "documentation/indexing/partial"
+                "documentation/indexing/delete_index"
               ]
             },
             {

@@ -18,7 +18,7 @@ USING bm25 (id, description)
 WITH (
     key_field='id',
     text_fields='{
-        "description": {"tokenizer": {"type": "default"}}
+        "description": {"tokenizer": {"type": "whitespace"}}
     }'
 );
 ```
@@ -102,7 +102,7 @@ WITH (
 );
 ```
 
-<ParamField body="pattern">
+<ParamField body="pattern" required>
   The regular expression pattern used to tokenize the text.
 </ParamField>
 
@@ -128,15 +128,15 @@ WITH (
 );
 ```
 
-<ParamField body="min_gram">
+<ParamField body="min_gram" required>
   Defines the minimum length for the n-grams. For instance, if set to 2, the
   smallest token created would be of length 2 characters.
 </ParamField>
-<ParamField body="max_gram">
+<ParamField body="max_gram" required>
   Determines the maximum length of the n-grams. If set to 5, the largest token
   produced would be of length 5 characters.
 </ParamField>
-<ParamField body="prefix_only">
+<ParamField body="prefix_only" required>
   When set to `true`, the tokenizer generates n-grams that start from the
   beginning of the word only, ensuring a prefix progression. If false, n-grams
   are created from all possible character combinations within the `min_gram` and

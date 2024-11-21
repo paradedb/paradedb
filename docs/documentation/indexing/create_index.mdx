@@ -57,7 +57,7 @@ USING bm25 (description)
 WITH (key_field = 'description');
 ```
 
-Finally, the key field must be the first column in the column list.
+Finally, the key field must be the first column in the target list.
 
 ```sql
 -- Recommended: key_field is the first column in the list
@@ -69,4 +69,22 @@ WITH (key_field = 'id');
 CREATE INDEX search_idx ON mock_items
 USING bm25 (description, id)
 WITH (key_field = 'id');
+```
+
+## Partitioned Index
+
+In Postgres, a partitioned index is an index created over a [partitioned table](https://www.postgresql.org/docs/current/ddl-partitioning.html).
+A BM25 index can be created over a partitioned table in the same way as a normal table.
+
+## Partial Index
+
+The following code block demonstrates how to pass predicates to `CREATE INDEX`
+to construct a [partial index](https://www.postgresql.org/docs/current/indexes-partial.html). Partial
+indexes are useful for reducing index size on disk and improving update speeds over non-indexed rows.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (key_field='id')
+WHERE category = 'Electronics' AND rating > 2;
 ```

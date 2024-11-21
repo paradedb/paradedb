@@ -277,3 +277,28 @@ Enums should be queried with [term queries](/documentation/advanced/term/term).
 
 If the ordering of the enum is changed with `ADD VALUE ... [ BEFORE | AFTER ]`, the BM25 index should be dropped
 and recreated to account for the new enum ordinal values.
+
+## Deprecated Syntax Migration
+
+In ParadeDB `v0.13.0`, the old `paradedb.create_bm25` function was deprecated in favor of the `CREATE INDEX` syntax. To make migration to the new
+`CREATE INDEX` syntax easier, a new `paradedb.format_create_bm25` function has been introduced. This function accepts the same arguments as the deprecated
+`paradedb.create_bm25` function and outputs an equivalent `CREATE INDEX` statement which can be copy, pasted, and executed.
+
+```sql
+SELECT * FROM paradedb.format_create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description') || paradedb.field('category'),
+  numeric_fields => paradedb.field('rating'),
+  boolean_fields => paradedb.field('in_stock'),
+  datetime_fields => paradedb.field('created_at'),
+  json_fields => paradedb.field('metadata'),
+  range_fields => paradedb.field('weight_range')
+);
+```
+
+<Note>
+  `paradedb.format_create_bm25` does **not** create the index. It simply outputs
+  a `CREATE INDEX` statement for you to run.
+</Note>

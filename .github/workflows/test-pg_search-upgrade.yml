@@ -28,7 +28,7 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        pg_version: [16]
+        pg_version: [17]
 
     steps:
       - name: Checkout Git Repository

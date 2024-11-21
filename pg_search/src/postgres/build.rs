@@ -112,7 +112,7 @@ pub extern "C" fn ambuild(
         })
         .collect();
 
-    for (name, _) in rdopts.get_text_fields() {
+    for (name, _config) in rdopts.get_text_fields() {
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Text)) {
             panic!("'{name}' cannot be indexed as a text field");
         }
@@ -162,6 +162,7 @@ pub extern "C" fn ambuild(
                 indexed: true,
                 fast: true,
                 stored: true,
+                column: None,
             }
         }
         SearchFieldType::Text => SearchFieldConfig::Text {
@@ -172,6 +173,7 @@ pub extern "C" fn ambuild(
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
+            column: None,
         },
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
@@ -182,17 +184,23 @@ pub extern "C" fn ambuild(
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
+            column: None,
         },
-        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
+        SearchFieldType::Range => SearchFieldConfig::Range {
+            stored: true,
+            column: None,
+        },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
             stored: true,
+            column: None,
         },
         SearchFieldType::Date => SearchFieldConfig::Date {
             indexed: true,
             fast: true,
             stored: true,
+            column: None,
         },
     };
 

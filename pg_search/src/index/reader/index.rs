@@ -23,7 +23,7 @@ use crate::index::SearchIndex;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
-use pgrx::PgRelation;
+use pgrx::{pg_sys, PgRelation};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use tantivy::collector::{Collector, TopDocs};
@@ -203,6 +203,7 @@ impl SearchResults {
 
 #[derive(Clone)]
 pub struct SearchIndexReader {
+    pub index_oid: pg_sys::Oid,
     pub searcher: Searcher,
     pub schema: SearchIndexSchema,
     pub underlying_reader: tantivy::IndexReader,
@@ -218,6 +219,7 @@ impl SearchIndexReader {
             .try_into()?;
         let searcher = reader.searcher();
         Ok(SearchIndexReader {
+            index_oid: search_index.index_oid,
             searcher,
             schema: schema.clone(),
             underlying_reader: reader,
@@ -250,6 +252,164 @@ impl SearchIndexReader {
             }
             _ => panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")
         }
+    }
+
+    /// Search the Tantivy index for matching documents, in the background, streaming the matching
+    /// documents back as they're found.
+    ///
+    /// The order of returned docs is unspecified.
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    pub fn search_via_channel(
+        &self,
+        need_scores: bool,
+        _sort_segments_by_ctid: bool,
+        executor: &'static Executor,
+        query: &dyn Query,
+        _estimated_rows: Option<usize>,
+    ) -> SearchResults {
+        // let estimated_rows = estimated_rows.unwrap_or(0);
+        //
+        // if estimated_rows == 0 || estimated_rows > 5_000 || sort_segments_by_ctid {
+        //     if need_scores {
+        //         let (sender, receiver) = crossbeam::channel::bounded(
+        //             std::thread::available_parallelism().unwrap().get(),
+        //         );
+        //         let collector = buffered_channel::BufferedChannelCollector::new(
+        //             need_scores,
+        //             sort_segments_by_ctid,
+        //             sender,
+        //         );
+        //         let searcher = self.searcher.clone();
+        //         let owned_query = query.box_clone();
+        //         std::thread::spawn(move || {
+        //             searcher
+        //                 .search_with_executor(
+        //                     &owned_query,
+        //                     &collector,
+        //                     executor,
+        //                     tantivy::query::EnableScoring::Enabled {
+        //                         searcher: &searcher,
+        //                         statistics_provider: &searcher,
+        //                     },
+        //                 )
+        //                 .expect("failed to search")
+        //         });
+        //
+        //         SearchResults::BufferedChannel(receiver.into_iter().flatten())
+        //     } else {
+        //         let (sender, receiver) = crossbeam::channel::unbounded();
+        //         let collector =
+        //             unscored_buffered_channel::UnscoredBufferedChannelCollector::new(sender);
+        //         let searcher = self.searcher.clone();
+        //         let schema = self.schema.schema.clone();
+        //
+        //         let owned_query = query.box_clone();
+        //         std::thread::spawn(move || {
+        //             searcher
+        //                 .search_with_executor(
+        //                     &owned_query,
+        //                     &collector,
+        //                     executor,
+        //                     tantivy::query::EnableScoring::Disabled {
+        //                         schema: &schema,
+        //                         searcher_opt: Some(&searcher),
+        //                     },
+        //                 )
+        //                 .expect("failed to search")
+        //         });
+        //
+        //         SearchResults::UnscoredBufferedChannel(receiver.into_iter(), None)
+        //     }
+        // } else {
+        //     let (sender, receiver) = crossbeam::channel::unbounded();
+        //     let collector = channel::ChannelCollector::new(need_scores, sender);
+        //     let searcher = self.searcher.clone();
+        //     let schema = self.schema.schema.clone();
+        //
+        //     let owned_query = query.box_clone();
+        //     std::thread::spawn(move || {
+        //         searcher
+        //             .search_with_executor(
+        //                 &owned_query,
+        //                 &collector,
+        //                 executor,
+        //                 if need_scores {
+        //                     tantivy::query::EnableScoring::Enabled {
+        //                         searcher: &searcher,
+        //                         statistics_provider: &searcher,
+        //                     }
+        //                 } else {
+        //                     tantivy::query::EnableScoring::Disabled {
+        //                         schema: &schema,
+        //                         searcher_opt: Some(&searcher),
+        //                     }
+        //                 },
+        //             )
+        //             .expect("failed to search")
+        //     });
+        //
+        //     SearchResults::Channel(receiver.into_iter())
+        // }
+
+        let cache = unsafe { BM25BufferCache::open(self.index_oid) };
+        let lock =
+            unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
+
+        let (search_sender, search_receiver) = crossbeam::channel::unbounded();
+        let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
+        let (response_sender, response_receiver) =
+            crossbeam::channel::unbounded::<ChannelResponse>();
+
+        let collector = channel::ChannelCollector::new(need_scores, search_sender);
+
+        let owned_query = query.box_clone();
+        std::thread::spawn(move || {
+            let channel_directory =
+                ChannelDirectory::new(request_sender.clone(), response_receiver.clone());
+            let channel_index = Index::open(channel_directory).expect("channel index should open");
+            let reader = channel_index
+                .reader_builder()
+                .reload_policy(tantivy::ReloadPolicy::Manual)
+                .try_into()
+                .unwrap();
+            let searcher = reader.searcher();
+            let schema = channel_index.schema();
+
+            searcher
+                .search_with_executor(
+                    &owned_query,
+                    &collector,
+                    executor,
+                    if need_scores {
+                        tantivy::query::EnableScoring::Enabled {
+                            searcher: &searcher,
+                            statistics_provider: &searcher,
+                        }
+                    } else {
+                        tantivy::query::EnableScoring::Disabled {
+                            schema: &schema,
+                            searcher_opt: Some(&searcher),
+                        }
+                    },
+                )
+                .expect("failed to search");
+
+            request_sender.send(ChannelRequest::Terminate).unwrap();
+        });
+
+        let blocking_directory = BlockingDirectory::new(self.index_oid);
+        let mut handler = ChannelRequestHandler::open(
+            blocking_directory,
+            self.index_oid,
+            response_sender,
+            request_receiver,
+        );
+        let _ = handler.receive_blocking(Some(|_| false)).unwrap();
+
+        unsafe { pgrx::pg_sys::UnlockReleaseBuffer(lock) };
+        SearchResults::Channel(search_receiver.into_iter())
     }
 
     /// Search a specific index segment for matching documents.
@@ -455,70 +615,7 @@ impl SearchIndexReader {
     }
 }
 
-pub fn search_via_channel(
-    index_oid: pgrx::pg_sys::Oid,
-    need_scores: bool,
-    sort_segments_by_ctid: bool,
-    executor: &'static Executor,
-    query: &dyn Query,
-) -> SearchResults {
-    let cache = unsafe { BM25BufferCache::open(index_oid) };
-    let lock = unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
-
-    let (search_sender, search_receiver) = crossbeam::channel::unbounded();
-    let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
-    let (response_sender, response_receiver) = crossbeam::channel::unbounded::<ChannelResponse>();
-
-    let collector = channel::ChannelCollector::new(need_scores, search_sender);
-
-    let owned_query = query.box_clone();
-    std::thread::spawn(move || {
-        let channel_directory =
-            ChannelDirectory::new(request_sender.clone(), response_receiver.clone());
-        let channel_index = Index::open(channel_directory).expect("channel index should open");
-        let reader = channel_index
-            .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::Manual)
-            .try_into()
-            .unwrap();
-        let searcher = reader.searcher();
-        let schema = channel_index.schema();
-
-        searcher
-            .search_with_executor(
-                &owned_query,
-                &collector,
-                executor,
-                if need_scores {
-                    tantivy::query::EnableScoring::Enabled {
-                        searcher: &searcher,
-                        statistics_provider: &searcher,
-                    }
-                } else {
-                    tantivy::query::EnableScoring::Disabled {
-                        schema: &schema,
-                        searcher_opt: Some(&searcher),
-                    }
-                },
-            )
-            .expect("failed to search");
-
-        request_sender.send(ChannelRequest::Terminate).unwrap();
-    });
-
-    let blocking_directory = BlockingDirectory::new(index_oid);
-    let mut handler = ChannelRequestHandler::open(
-        blocking_directory,
-        index_oid,
-        response_sender,
-        request_receiver,
-    );
-    let _ = handler.receive_blocking(Some(|_| false)).unwrap();
-
-    unsafe { pgrx::pg_sys::UnlockReleaseBuffer(lock) };
-    SearchResults::Channel(search_receiver.into_iter())
-}
-
+#[allow(dead_code)]
 mod buffered_channel {
     use crate::index::reader::index::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
@@ -630,6 +727,7 @@ mod buffered_channel {
     }
 }
 
+#[allow(dead_code)]
 mod unscored_buffered_channel {
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::fastfield::Column;

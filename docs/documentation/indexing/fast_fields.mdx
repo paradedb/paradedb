@@ -15,9 +15,9 @@ are indexed as fast. The following code block demonstrates how to specify a fast
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, rating)
 WITH (
-    key_field='id',
-    numeric_fields='{
-        "rating": {"fast": true}
+    key_field = 'id',
+    text_fields ='{
+        "description": {"fast": true}
     }'
 );
 ```

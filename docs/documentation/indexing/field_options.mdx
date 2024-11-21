@@ -1,0 +1,279 @@
+---
+title: Overview
+---
+
+## Basic Usage
+
+You can change how individual fields are tokenized and stored by passing JSON strings to the `WITH` clause of `CREATE INDEX`.
+For instance, the following statement configures an ngram tokenizer for the `description` field.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+        }
+    }'
+);
+```
+
+The key(s) of the JSON string correspond to field names, and the values are the configuration options.
+If a configuration option or field name is not specified, the default values are used (see [all configuration options](#all-configuration-options)).
+
+## Configure Multiple Fields
+
+To configure multiple fields, simply pass more keys to the JSON string. For instance, the following statement specifies
+tokenizers for both the `description` and `category` fields.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+        },
+        "category": {
+            "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+        }
+    }'
+);
+```
+
+## All Configuration Options
+
+### Text Fields
+
+Options for columns of type `VARCHAR`, `TEXT`, `UUID`, and their corresponding array types
+should be passed to `text_fields`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "fast": true,
+          "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+        }
+    }'
+);
+```
+
+The nested configuration JSON for `text_fields` accepts the following keys.
+
+<ParamField body="fast" default={false}>
+  See [fast fields](/documentation/indexing/fast_fields) for when this option
+  should be set to `true`.
+</ParamField>
+<ParamField body="tokenizer">
+  See [tokenizers](/documentation/indexing/tokenizers) for how to configure the
+  tokenizer.
+</ParamField>
+<ParamField body="record" default="position">
+  See [record](/documentation/indexing/record) for a list of available record
+  types.
+</ParamField>
+<ParamField body="normalizer">
+  See [normalizers](/documentation/indexing/fast_fields#normalizers) for how to
+  configure the normalizer.
+</ParamField>
+
+<Accordion title="Advanced Options">
+  <ParamField body="indexed" default={true}>
+    Whether the field is indexed. Must be `true` in order for the field to be
+    tokenized and searchable.
+  </ParamField>
+  <ParamField body="stored" default={true}>
+    Whether the original value of the field is stored.
+  </ParamField>
+  <ParamField body="fieldnorms" default={true}>
+    Fieldnorms store information about the length of the text field. Must be
+    `true` to calculate the BM25 score.
+  </ParamField>
+</Accordion>
+
+### JSON Fields
+
+Options for columns of type `JSON` and `JSONB` should be passed to `json_fields`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, metadata)
+WITH (
+  key_field = 'id',
+  json_fields = '{
+    "metadata": {
+      "fast": true
+    }
+  }'
+);
+```
+
+The nested configuration JSON for `json_fields` accepts the following keys.
+
+<ParamField body="fast" default={false}>
+  See [fast fields](/documentation/indexing/fast_fields) for when this option should be set to `true`.
+</ParamField>
+<ParamField body="tokenizer">
+  See [tokenizers](/documentation/indexing/tokenizers) for how to configure the tokenizer.
+</ParamField>
+<ParamField body="record" default="position">
+  See [record](/documentation/indexing/record) for a list of available record types.
+</ParamField>
+<ParamField body="normalizer">
+  See [normalizers](/documentation/indexing/fast_fields#normalizers) for how to configure the normalizer.
+</ParamField>
+<ParamField body="expand_dots" default={true}>
+  If `true`, JSON keys containing a `.` will be expanded. For instance, if `expand_dots` is `true`,
+  `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`.
+</ParamField>
+
+<Accordion title="Advanced Options">
+  <ParamField body="indexed" default={true}>
+    Whether the field is indexed. Must be `true` in order for the field to be
+    tokenized and searchable.
+  </ParamField>
+  <ParamField body="stored" default={true}>
+    Whether the original value of the field is stored.
+  </ParamField>
+  <ParamField body="fieldnorms" default={true}>
+    Fieldnorms store information about the length of the text field. Must be
+    `true` to calculate the BM25 score.
+  </ParamField>
+</Accordion>
+
+## Advanced Options
+
+In addition to text and JSON, ParadeDB exposes options for numeric, datetime, boolean, range, and enum fields.
+For most use cases, it is not necessary to change these options.
+
+### Numeric Fields
+
+Options for columns of type `SMALLINT`, `INTEGER`, `BIGINT`, `OID`, `REAL`, `DOUBLE PRECISION`, `NUMERIC`, and their corresponding array types
+should be passed to `numeric_fields`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, rating)
+WITH (
+    key_field = 'id',
+    numeric_fields = '{
+        "rating": {"fast": true}
+    }'
+);
+```
+
+<Accordion title="Advanced Options">
+  <ParamField body="indexed" default={true}>
+    Whether the field is indexed. Must be `true` in order for the field to be
+    tokenized and searchable.
+  </ParamField>
+  <ParamField body="stored" default={true}>
+    Whether the original value of the field is stored.
+  </ParamField>
+  <ParamField body="fast" default={true}>
+    Fast fields can be random-accessed rapidly. Fields used for aggregation must
+    have `fast` set to `true`. Fast fields are also useful for accelerated
+    scoring and filtering.
+  </ParamField>
+</Accordion>
+
+### Boolean Fields
+
+Options for columns of type `BOOLEAN` and `BOOLEAN[]` should be passed to `boolean_fields`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, in_stock)
+WITH (
+  key_field = 'id',
+  boolean_fields = '{
+      "in_stock": {"fast": true}
+  }'
+);
+```
+
+`CREATE_INDEX` accepts several configuration options for `boolean_fields`:
+
+<Accordion title="Advanced Options">
+  <ParamField body="indexed" default={true}>
+    Whether the field is indexed. Must be `true` in order for the field to be
+    tokenized and searchable.
+  </ParamField>
+  <ParamField body="stored" default={true}>
+    Whether the original value of the field is stored.
+  </ParamField>
+  <ParamField body="fast" default={true}>
+    Fast fields can be random-accessed rapidly. Fields used for aggregation must
+    have `fast` set to `true`. Fast fields are also useful for accelerated
+    scoring and filtering.
+  </ParamField>
+</Accordion>
+
+### Datetime Fields
+
+Options for columns of type `DATE`, `TIMESTAMP`, `TIMESTAMPTZ`, `TIME`, `TIMETZ`, and their corresponding array types should be passed to `datetime_fields`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, created_at)
+WITH (
+  key_field = 'id',
+  datetime_fields = '{
+      "created_at": {"fast": true}
+  }'
+);
+```
+
+`CREATE INDEX` accepts several configuration options for `boolean_fields`:
+
+<Accordion title="Advanced Options">
+  <ParamField body="indexed" default={true}>
+    Whether the field is indexed. Must be `true` in order for the field to be
+    tokenized and searchable.
+  </ParamField>
+  <ParamField body="stored" default={true}>
+    Whether the original value of the field is stored.
+  </ParamField>
+  <ParamField body="fast" default={true}>
+    Fast fields can be random-accessed rapidly. Fields used for aggregation must
+    have `fast` set to `true`. Fast fields are also useful for accelerated
+    scoring and filtering.
+  </ParamField>
+</Accordion>
+
+### Range Fields
+
+Options for columns of type `int4range`, `int8range`, `numrange`, `tsrange`, and `tstzrange` should be passed to `range_fields`.
+The [range term](/documentation/advanced/term/range_term) query is used to filter over these fields.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, weight_range)
+WITH (
+  key_field = 'id',
+  range_fields = '{
+    "weight_range": {"stored": true}
+  }'
+);
+```
+
+<Accordion title="Advanced Options">
+  <ParamField body="stored" default={true}>
+    Whether the original value of the field is stored.
+  </ParamField>
+</Accordion>
+
+### Enumerated Types
+
+Options for custom Postgres [enums](https://www.postgresql.org/docs/current/datatype-enum.html) should be passed to `numeric_fields`.
+Enums should be queried with [term queries](/documentation/advanced/term/term).
+
+If the ordering of the enum is changed with `ADD VALUE ... [ BEFORE | AFTER ]`, the BM25 index should be dropped
+and recreated to account for the new enum ordinal values.

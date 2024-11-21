@@ -5,6 +5,7 @@ title: Create an Index
 ## Basic Usage
 
 The following code block creates a [BM25 index](/documentation/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
+All columns that are relevant to the search query, including columns used for sorting and filtering, should be indexed for optimal performance.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -12,280 +13,35 @@ USING bm25 (id, description, category, rating, in_stock, created_at, metadata, w
 WITH (key_field='id');
 ```
 
-<ParamField body="index_name" required>
-  The name of the index being created.
+## Syntax
+
+```sql
+CREATE INDEX <index_name> ON <schema_name>.<table_name>
+USING bm25 (<columns>)
+WITH (key_field='<key_field>');
+```
+
+<ParamField body="index_name">
+  The name of the index being created. If unspecified, Postgres will automatically choose a name.
+</ParamField>
+<ParamField body="schema_name">
+  The name of the schema that the table belongs to. If unspecified, `CURRENT SCHEMA` is used.
 </ParamField>
 <ParamField body="table_name" required>
   The name of the table being indexed.
 </ParamField>
+<ParamField body="columns" required>
+  A comma-separated list of columns to index, starting with the key field. Text, numeric, datetime, boolean, range, enum, and JSON types can be indexed.
+</ParamField>
 <ParamField body="key_field" required>
   The name of a column in the table that represents a unique identifier for each
   record. Usually, this is the same column that is the primary key of the table.
-</ParamField>
-<ParamField body="schema_name" default="CURRENT SCHEMA">
-  The name of the schema, or namespace, of the table.
 </ParamField>
 
 ## Indexing Settings
 
 Several [settings](/documentation/configuration/index) exist to control the amount of resources to allocate during index creation.  While they have sensible
 defaults, overall indexing performance can be drastically improved if configured for the host system.
-
-## Field Types
-
-In addition to text fields, numeric, datetime, boolean, and JSON fields can also be indexed. For optimal performance, we recommend indexing all fields
-that are relevant to your search query.
-
-For instance, by indexing both `description` and `rating`, filters over `rating` can be pushed down to the full text query for optimal query speed.
-
-```sql
-SELECT id, description, rating
-FROM mock_items
-WHERE description @@@ 'shoes' AND rating @@@ '>3'
-ORDER BY id;
-```
-
-<Accordion title="Expected Response">
-```csv
- id |     description     | rating
-----+---------------------+--------
-  3 | Sleek running shoes |      5
-  5 | Generic shoes       |      4
-(2 rows)
-```
-</Accordion>
-
-### Text Fields
-
-Columns of type `VARCHAR`, `TEXT`, `UUID`, and their corresponding array types can be indexed as text fields.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
-WITH (
-    key_field = 'id',
-    text_fields = '{
-        "description": {"indexed": true}
-    }'
-);
-```
-
-`CREATE INDEX` accepts the following configuration options for `text_fields`:
-
-<ParamField body="indexed" default={true}>
-  Whether the field is indexed. Must be `true` in order for the field to be
-  tokenized and searchable.
-</ParamField>
-<ParamField body="stored" default={true}>
-  Whether the original value of the field is stored.
-</ParamField>
-<ParamField body="fast" default={false}>
-  Fast fields can be random-accessed rapidly. Fields used for aggregation must
-  have `fast` set to `true`. Fast fields are also useful for accelerated scoring
-  and filtering.
-</ParamField>
-<ParamField body="fieldnorms" default={true}>
-  Fieldnorms store information about the length of the text field. Must be
-  `true` to calculate the BM25 score.
-</ParamField>
-<ParamField body="tokenizer">
-  See [tokenizers](/documentation/indexing/tokenizers) for how to configure the
-  tokenizer.
-</ParamField>
-<ParamField body="record" default="position">
-  Describes the amount of information indexed. See
-  [record](/documentation/indexing/record) for a list of available record types.
-</ParamField>
-<ParamField body="normalizer">
-  The name of the tokenizer used for fast fields. This field is ignored unless
-  `fast=true`. See
-  [normalizers](/documentation/indexing/fast_fields#normalizers) for a list of
-  available normalizers.
-</ParamField>
-
-### Numeric Fields
-
-Columns of type `SMALLINT`, `INTEGER`, `BIGINT`, `OID`, `REAL`, `DOUBLE PRECISION`, `NUMERIC`, and their corresponding array types can be indexed
-as `numeric_fields`. The main reason to index a numeric field is if it is used for filtering or aggregations as part of the search query.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, rating)
-WITH (
-    key_field = 'id',
-    numeric_fields = '{
-        "rating": {"indexed": true}
-    }'
-);
-```
-
-`CREATE INDEX` accepts the following configuration options `numeric_fields`:
-
-<ParamField body="indexed" default={true}>
-  Whether the field is indexed. Must be `true` in order for the field to be
-  tokenized and searchable.
-</ParamField>
-<ParamField body="stored" default={true}>
-  Whether the original value of the field is stored.
-</ParamField>
-<ParamField body="fast" default={true}>
-  Fast fields can be random-accessed rapidly. Fields used for aggregation must
-  have `fast` set to `true`. Fast fields are also useful for accelerated scoring
-  and filtering.
-</ParamField>
-
-### Boolean Fields
-
-Columns of type `BOOLEAN` and `BOOLEAN[]` can be indexed as `boolean_fields`. Indexing a boolean field is useful if
-it is used for filtering as part of the search query.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, in_stock)
-WITH (key_field = 'id');
-```
-
-`CREATE_INDEX` accepts several configuration options for `boolean_fields`:
-
-<ParamField body="indexed" default={true}>
-  Whether the field is indexed. Must be `true` in order for the field to be
-  tokenized and searchable.
-</ParamField>
-<ParamField body="stored" default={true}>
-  Whether the original value of the field is stored.
-</ParamField>
-<ParamField body="fast" default={true}>
-  Fast fields can be random-accessed rapidly. Fields used for aggregation must
-  have `fast` set to `true`. Fast fields are also useful for accelerated scoring
-  and filtering.
-</ParamField>
-
-### JSON Fields
-
-Columns of type `JSON` and `JSONB` can be indexed as `json_fields`. Once indexed, search can be
-performed on nested text fields within JSON values.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, metadata)
-WITH (key_field = 'id');
-```
-
-`CREATE INDEX` accepts several configuration options for `json_fields`:
-
-<ParamField body="indexed" default={true}>
-  Whether the field is indexed. Must be `true` in order for the field to be tokenized and
-  searchable.
-</ParamField>
-<ParamField body="stored" default={true}>
-  Whether the original value of the field is stored.
-</ParamField>
-<ParamField body="fieldnorms" default={true}>
-  Fieldnorms store information about the length of the text field. Must be
-  `true` to calculate the BM25 score.
-</ParamField>
-<ParamField body="fast" default={false}>
-  Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
-  Fast fields are also useful for accelerated scoring and filtering.
-</ParamField>
-<ParamField body="expand_dots" default={true}>
-  If `true`, JSON keys containing a `.` will be expanded. For instance, if `expand_dots` is `true`,
-  `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`.
-</ParamField>
-<ParamField body="tokenizer">
-  See [tokenizers](/documentation/indexing/tokenizers) for how to configure the tokenizer.
-</ParamField>
-<ParamField body="record" default="position">
-  Describes the amount of information indexed. See [record](/documentation/indexing/record) for a list of available
-  record types.
-</ParamField>
-<ParamField body="normalizer">
-  The name of the tokenizer used for fast fields. This field is ignored unless
-  `fast=true`. See [normalizers](/documentation/indexing/fast_fields#normalizers) for a list of available
-  normalizers.
-</ParamField>
-
-### Datetime Fields
-
-Columns of type `DATE`, `TIMESTAMP`, `TIMESTAMPTZ`, `TIME`, `TIMETZ`, and their corresponding array types can be indexed as `datetime_fields`.
-Indexing a datetime field is useful if it is used for filtering as part of the search query.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, created_at)
-WITH (key_field = 'id');
-```
-
-`CREATE INDEX` accepts several configuration options for `boolean_fields`:
-
-<ParamField body="indexed" default={true}>
-  Whether the field is indexed. Must be `true` in order for the field to be
-  tokenized and searchable.
-</ParamField>
-<ParamField body="stored" default={true}>
-  Whether the original value of the field is stored.
-</ParamField>
-<ParamField body="fast" default={true}>
-  Fast fields can be random-accessed rapidly. Fields used for aggregation must
-  have `fast` set to `true`. Fast fields are also useful for accelerated scoring
-  and filtering.
-</ParamField>
-
-### Array Fields
-
-`text_fields`, `numeric_fields`, `boolean_fields`, and `datetime_fields` support array types. For instance, columns of
-type `TEXT[]` can be passed into `text_fields`, and columns of type `INT[]` can be passed into `numeric_fields`.
-
-<Note>
-  The only exception are `JSON[]` and `JSONB[]` types, which are not yet
-  supported.
-</Note>
-
-### Range Fields
-
-Columns of type `int4range`, `int8range`, `numrange`, `tsrange`, and `tstzrange` can be indexed as `range_fields`.
-The [range term](/documentation/advanced/term/range_term) query is used to filter over these fields.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, weight_range)
-WITH (key_field = 'id');
-```
-
-<ParamField body="stored" default={true}>
-  Whether the original value of the field is stored.
-</ParamField>
-
-### Enumerated Types
-
-Custom Postgres [enums](https://www.postgresql.org/docs/current/datatype-enum.html) should be indexed as `numeric_fields`.
-This is because enums are stored as float values in Postgres.
-
-```sql
-CREATE TYPE color AS ENUM ('red', 'green', 'blue');
-ALTER TABLE mock_items ADD COLUMN color color;
-
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, color, in_stock, created_at, metadata)
-WITH (key_field='id');
-```
-
-Enums should be queried with [term queries](/documentation/advanced/term/term).
-
-<Note>
-If the ordering of the enum is changed with `ADD VALUE ... [ BEFORE | AFTER ]`, the BM25 index should be dropped
-and recreated to account for the new enum ordinal values.
-</Note>
-
-### Multiple Fields
-
-The `||` operator can be used to index multiple fields.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category)
-WITH (key_field = 'id');
-```
 
 ## Choosing a Key Field
 

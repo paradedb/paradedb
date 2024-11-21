@@ -10,8 +10,7 @@ they search for `lore`, `ipsum`, or `dolor`.
 
 ## Basic Usage
 
-A `tokenizer` can be provided to any text or JSON field. If no `tokenizer` is specified, the `default` tokenizer is used, which splits on whitespace and punctuation,
-filters out tokens that are larger than 255 bytes, and lowercases all tokens.
+Both `text_fields` or `json_fields` JSON configs accept a `tokenizer` key.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -24,12 +23,7 @@ WITH (
 );
 ```
 
-Queries are automatically tokenized in the same way as the underlying field. For instance, in the following query,
-the word `keyboard` is tokenized with the default tokenizer.
-
-```sql
-SELECT * FROM mock_items WHERE description @@@ 'keyboard';
-```
+<Note>If no `tokenizer` is specified, the `default` tokenizer is used.</Note>
 
 ## Available Tokenizers
 
@@ -44,7 +38,16 @@ SELECT * FROM paradedb.tokenizers();
 Tokenizes the text by splitting on whitespace and punctuation, filters out tokens that are larger than 255 bytes, and converts to lowercase.
 
 ```sql
-paradedb.tokenizer('default')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "default"}
+        }
+    }'
+);
 ```
 
 ### Whitespace
@@ -52,7 +55,16 @@ paradedb.tokenizer('default')
 Like `default`, but splits based on whitespace only. Filters out tokens that are larger than 255 bytes and converts to lowercase.
 
 ```sql
-paradedb.tokenizer('whitespace')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "whitespace"}
+        }
+    }'
+);
 ```
 
 ### Raw
@@ -60,7 +72,16 @@ paradedb.tokenizer('whitespace')
 Treats the entire text as a single token. Filters out tokens larger than 255 bytes and converts to lowercase.
 
 ```sql
-paradedb.tokenizer('raw')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "raw"}
+        }
+    }'
+);
 ```
 
 ### Regex
@@ -69,7 +90,16 @@ Tokenizes text using a regular expression. The regular expression can be specifi
 For instance, `\\W+` splits on non-word characters.
 
 ```sql
-paradedb.tokenizer('regex', pattern => '\\W+')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "regex", "pattern": "\\W+"}
+        }
+    }'
+);
 ```
 
 <ParamField body="pattern">
@@ -86,7 +116,16 @@ because the token `hse` does not match with any of the tokens of `cheese`. Howev
 those of `cheese`.
 
 ```sql
-paradedb.tokenizer('ngram', min_gram => 2, max_gram => 4, prefix_only => false)
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "ngram", "min_gram": 2, "max_gram": 3, "prefix_only": false}
+        }
+    }'
+);
 ```
 
 <ParamField body="min_gram">
@@ -109,7 +148,16 @@ paradedb.tokenizer('ngram', min_gram => 2, max_gram => 4, prefix_only => false)
 Tokenizes the text by splitting based on casing conventions commonly used in code, such as camelCase or PascalCase. Filters out tokens that exceed 255 bytes, and converts them to lowercase with ASCII folding.
 
 ```sql
-paradedb.tokenizer('source_code')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "source_code"}
+        }
+    }'
+);
 ```
 
 ### Chinese Compatible
@@ -117,7 +165,16 @@ paradedb.tokenizer('source_code')
 The `chinese_compatible` tokenizer performs simple character splitting by treating each CJK (Chinese, Japanese, Korean) character as a single token and grouping non-CJK characters as a single token. Non-alphanumeric characters like punctuation are ignored and not included in any token.
 
 ```sql
-paradedb.tokenizer('chinese_compatible')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "chinese_compatible"}
+        }
+    }'
+);
 ```
 
 ### Lindera
@@ -125,22 +182,19 @@ paradedb.tokenizer('chinese_compatible')
 The Lindera tokenizer is a more advanced CJK tokenizer that uses prebuilt Chinese, Japanese, or Korean dictionaries to break text into meaningful tokens (words or phrases) rather than on
 individual characters.
 
-`chinese_lindera` uses the CC-CEDICT dictionary.
+`chinese_lindera` uses the CC-CEDICT dictionary, `korean_lindera` uses the KoDic dictionary, and `japanese_lindera` uses the IPADIC dictionary.
 
 ```sql
-paradedb.tokenizer('chinese_lindera');
-```
-
-`korean_lindera` uses the KoDic dictionary.
-
-```sql
-paradedb.tokenizer('korean_lindera');
-```
-
-`japanese_lindera` uses the IPADIC dictionary.
-
-```sql
-paradedb.tokenizer('japanese_lindera');
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "chinese_lindera"}
+        }
+    }'
+);
 ```
 
 ### ICU
@@ -149,7 +203,16 @@ The ICU (International Components for Unicode) tokenizer breaks down text accord
 and recognizes the nuances in word boundaries across different languages.
 
 ```sql
-paradedb.tokenizer('icu');
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "description": {
+          "tokenizer": {"type": "icu"}
+        }
+    }'
+);
 ```
 
 ## Tokenizing a Query

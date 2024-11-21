@@ -2,33 +2,53 @@
 title: Token Filters
 ---
 
-## Basic Usage
+Token filters apply additional processing to tokens after they have been created.
 
-Token filters apply additional processing to tokens after they have been created. For instance, the `remove_long` filter
-removes all tokens longer than a fixed number of bytes.
-
-```sql
-paradedb.tokenizer('default', lowercase => false, remove_long => 255)
-```
-
-<ParamField body="lowercase" default={true}>
-  Lowercases all tokens.
-</ParamField>
-<ParamField body="remove_long" default={255}>
-  Removes all tokens longer than this number of bytes.
-</ParamField>
-<ParamField body="stemmer">
-  Applies language-specific stemming to each token. See
-  [stemming](/documentation/indexing/token_filters) for supported languages.
-</ParamField>
-
-## Stemming
+## Stemmer
 
 Stemming is the process of reducing words to their root form. In English, for example, the root form of `running` and `runs` is `run`. The `stemmer` filter can
 be applied to any tokenizer.
 
 ```sql
-paradedb.tokenizer('default', stemmer => 'English')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "stemmer": "English"}}
+    }'
+);
 ```
 
 Available stemmers are `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`, `Portuguese`, `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, and `Turkish`.
+
+## Remove Long
+
+The `remove_long` filter removes all tokens longer than a fixed number of bytes. If not specified,
+`remove_long` defaults to `255`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "remove_long": 255}}
+    }'
+);
+```
+
+## Lowercase
+
+The `lowercase` filter lowercases all tokens. If not specified, `lowercase` defaults to `true`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "lowercase": false}}
+    }'
+);
+```

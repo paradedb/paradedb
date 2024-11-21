@@ -93,7 +93,13 @@
                 "documentation/indexing/inspect_index",
                 "documentation/indexing/delete_index",
                 "documentation/indexing/partitioned",
-                "documentation/indexing/partial",
+                "documentation/indexing/partial"
+              ]
+            },
+            {
+              "group": "Field Configuration",
+              "pages": [
+                "documentation/indexing/field_options",
                 "documentation/indexing/tokenizers",
                 "documentation/indexing/token_filters",
                 "documentation/indexing/fast_fields",

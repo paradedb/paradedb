@@ -91,9 +91,13 @@
               "pages": [
                 "documentation/indexing/create_index",
                 "documentation/indexing/inspect_index",
-                "documentation/indexing/delete_index",
-                "documentation/indexing/partitioned",
-                "documentation/indexing/partial",
+                "documentation/indexing/delete_index"
+              ]
+            },
+            {
+              "group": "Field Configuration",
+              "pages": [
+                "documentation/indexing/field_options",
                 "documentation/indexing/tokenizers",
                 "documentation/indexing/token_filters",
                 "documentation/indexing/fast_fields",

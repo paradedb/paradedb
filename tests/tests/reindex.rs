@@ -261,12 +261,12 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
         numeric_fields='{"rating": {}}',
         boolean_fields='{"in_stock": {}}',
         json_fields='{"metadata": {}}',
-        fast_fields='{"created_at": {}, "last_updated_date": {}}'
+        datetime_fields='{"created_at": {}, "last_updated_date": {}}'
     )"#.execute(&mut conn);
 
     // Query using the new index
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search_bm25_index_2 @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 
@@ -275,7 +275,7 @@ async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
 
     // Verify the new index still works
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search_bm25_index_2 @@@ 'description:keyboard' ORDER BY id"
+        "SELECT * FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' ORDER BY id"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2]);
 

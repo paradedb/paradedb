@@ -244,3 +244,40 @@ async fn reindex_table(mut conn: PgConnection) -> Result<()> {
 
     Ok(())
 }
+
+#[rstest]
+async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    // Create a second index concurrently
+    r#"CREATE INDEX CONCURRENTLY bm25_search_bm25_index_2 ON paradedb.bm25_search
+    USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"tokenizer": {"type": "en_stem"}},
+            "category": {}
+        }',
+        numeric_fields='{"rating": {}}',
+        boolean_fields='{"in_stock": {}}',
+        json_fields='{"metadata": {}}',
+        fast_fields='{"created_at": {}, "last_updated_date": {}}'
+    )"#.execute(&mut conn);
+
+    // Query using the new index
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search_bm25_index_2 @@@ 'description:keyboard' ORDER BY id"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![1, 2]);
+
+    // Drop the original index
+    "DROP INDEX paradedb.bm25_search_bm25_index".execute(&mut conn);
+
+    // Verify the new index still works
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM paradedb.bm25_search WHERE bm25_search_bm25_index_2 @@@ 'description:keyboard' ORDER BY id"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![1, 2]);
+
+    Ok(())
+}

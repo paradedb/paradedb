@@ -48,11 +48,25 @@ defaults, overall indexing performance can be drastically improved if configured
 While the key field can be any unique text, numeric, or datetime value, an integer key field will be the most
 performant. The Postgres `SERIAL` type is an easy way to create a unique integer column.
 
-Additionally, the key field is not intended to be tokenized. For instance, the following configuration is not allowed:
+The key field is not intended to be tokenized. For instance, the following configuration is not allowed:
 
 ```sql
 -- This will throw an error
 CREATE INDEX search_idx ON mock_items
 USING bm25 (description)
 WITH (key_field = 'description');
+```
+
+Finally, the key field must be the first column in the column list.
+
+```sql
+-- Recommended: key_field is the first column in the list
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (key_field = 'id');
+
+-- NOT recommended: key_field is not the first column
+CREATE INDEX search_idx ON mock_items
+USING bm25 (description, id)
+WITH (key_field = 'id');
 ```

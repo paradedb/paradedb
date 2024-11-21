@@ -48,8 +48,8 @@ WITH (key_field='id');
 <Note>
   Note the mandatory `key_field` option. Every BM25 index needs a `key_field`,
   which should be the name of a column that will function as a row's unique
-  identifier within the index. Usually, the `key_field` can just be the name of
-  your table's primary key column.
+  identifier within the index. Additionally, the `key_field` must be the first field
+  in the list of columns. See [choosing a key field](/documentation/indexing/create_index#choosing-a-key-field) for more details.
 </Note>
 
 <Note>

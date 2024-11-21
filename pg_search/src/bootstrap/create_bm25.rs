@@ -83,10 +83,16 @@ fn format_create_bm25(
         "".to_string()
     };
 
+    let schema_prefix = if schema_name.is_empty() {
+        "".to_string()
+    } else {
+        format!("{}.", spi::quote_identifier(schema_name))
+    };
+
     Ok(format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
+        "CREATE INDEX {} ON {}{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
         spi::quote_identifier(index_name),
-        spi::quote_identifier(schema_name),
+        schema_prefix,
         spi::quote_identifier(table_name),
         spi::quote_identifier(key_field),
         column_names_csv,

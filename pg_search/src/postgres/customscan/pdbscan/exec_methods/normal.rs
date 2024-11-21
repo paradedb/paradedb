@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::index::{search_via_channel, SearchResults};
+use crate::index::reader::index::SearchResults;
 use crate::index::SearchIndex;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
@@ -119,15 +119,13 @@ impl NormalScanExecState {
         if self.did_query {
             return false;
         }
-        todo!("implement search_via_channel");
-        // self.search_results = search_via_channel(
-
-        //     state.need_scores(),
-        //     false,
-        //     SearchIndex::executor(),
-        //     state.query.as_ref().unwrap(),
-        //     // state.limit,
-        // );
+        self.search_results = state.search_reader.as_ref().unwrap().search_via_channel(
+            state.need_scores(),
+            false,
+            SearchIndex::executor(),
+            state.query.as_ref().unwrap(),
+            state.limit,
+        );
         self.did_query = true;
         true
     }

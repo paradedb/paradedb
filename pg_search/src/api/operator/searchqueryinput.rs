@@ -21,7 +21,6 @@ use super::{
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::reader::index::search_via_channel;
 use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
 use crate::postgres::types::TantivyValue;
@@ -64,12 +63,12 @@ pub fn search_with_query_input(
             &search_reader,
             &[(key_field.clone(), key_field_type).into()],
         );
-        let top_docs = search_via_channel(
-            index_oid,
+        let top_docs = search_reader.search_via_channel(
             query.contains_more_like_this(),
             false,
             SearchIndex::executor(),
             &search_index.query(indexrel, &query, &search_reader),
+            None,
         );
         let mut hs = FxHashSet::default();
         for (_, doc_address) in top_docs {

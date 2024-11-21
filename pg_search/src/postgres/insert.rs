@@ -47,7 +47,7 @@ impl Drop for InsertState {
     /// or abort.
     fn drop(&mut self) {
         unsafe {
-            if !pg_sys::IsAbortedTransactionBlockState() && !self.abort_on_drop && !self.committed {
+            if pg_sys::IsTransactionState() && !self.abort_on_drop && !self.committed {
                 if let Some(writer) = self.writer.take() {
                     writer
                         .commit()
@@ -56,7 +56,7 @@ impl Drop for InsertState {
                 self.committed = true;
             }
 
-            if pg_sys::IsAbortedTransactionBlockState() || self.abort_on_drop {
+            if !pg_sys::IsTransactionState() || self.abort_on_drop {
                 drop(self.writer.take());
             }
         }

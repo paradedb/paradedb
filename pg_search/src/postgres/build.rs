@@ -128,11 +128,11 @@ fn do_heap_scan<'a>(
             index_info,
             WriterResources::CreateIndex,
         );
-        if let Some(mut writer) = (*insert_state).writer.take() {
+        if let Some(writer) = (*insert_state).writer.take() {
             writer
                 .commit()
                 .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
-            
+
             // writer
             //     .underlying_writer
             //     .wait_merging_threads()

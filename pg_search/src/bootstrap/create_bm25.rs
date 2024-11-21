@@ -28,7 +28,6 @@ use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::SearchNormalizer;
 use tokenizers::SearchTokenizer;
 
-use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::schema::IndexRecordOption;

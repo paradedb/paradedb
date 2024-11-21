@@ -1239,3 +1239,298 @@ fn json_array_term(mut conn: PgConnection) {
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 }
+
+#[rstest]
+fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE products (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        description TEXT
+    );"
+    .execute(&mut conn);
+
+    // Insert mock data
+    "INSERT INTO products (name, description) VALUES
+    ('Mechanical Keyboard', 'RGB backlit keyboard with Cherry MX switches'),
+    ('Wireless Mouse', 'Ergonomic mouse with long battery life'),
+    ('4K Monitor', 'Ultra-wide curved display with HDR'),
+    ('Gaming Laptop', 'Powerful laptop with dedicated GPU'),
+    ('Ergonomic Chair', 'Adjustable office chair with lumbar support'),
+    ('Standing Desk', 'Electric height-adjustable desk'),
+    ('Noise-Cancelling Headphones', 'Over-ear headphones with active noise cancellation'),
+    ('Mechanical Pencil', 'Precision drafting tool with 0.5mm lead'),
+    ('Wireless Keyboard', 'Slim keyboard with multi-device support'),
+    ('Graphic Tablet', 'Digital drawing pad with pressure sensitivity'),
+    ('Curved Monitor', 'Immersive gaming display with high refresh rate'),
+    ('Ergonomic Keyboard', 'Split design keyboard for comfortable typing'),
+    ('Vertical Mouse', 'Upright mouse design to reduce wrist strain'),
+    ('Ultrabook Laptop', 'Thin and light laptop with all-day battery'),
+    ('LED Desk Lamp', 'Adjustable lighting with multiple color temperatures');"
+        .execute(&mut conn);
+
+    // Create the BM25 index
+    r#"CREATE INDEX products_index ON products
+    USING bm25 (id, name, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "name": {
+                "tokenizer": {"type": "default"}
+            },
+            "name_stem": {
+                "source": "name",
+                "tokenizer": {"type": "default", "stemmer": "English"},
+                "column": "name"
+            },
+            "description": {
+                "tokenizer": {"type": "default"}
+            },
+            "description_stem": {
+                "source": "description", 
+                "tokenizer": {"type": "default", "stemmer": "English"},
+                "column": "description"
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    // Test querying with default tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Keyboard')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().any(|(_, name)| name == "Mechanical Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Ergonomic Keyboard"));
+
+    // Ensure that the default tokenizer doesn't return for stemmed queries
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Keyboards')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+
+    // Test querying with stemmed alias
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name_stem:Keyboards')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().any(|(_, name)| name == "Mechanical Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Ergonomic Keyboard"));
+
+    // Test querying description with default tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description:battery')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Mouse"));
+    assert!(rows.iter().any(|(_, name)| name == "Ultrabook Laptop"));
+
+    // Ensure that the default tokenizer doesn't return for stemmed queries
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description:displaying')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+
+    // Test querying description with stemmed alias
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description_stem:displaying')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "4K Monitor"));
+    assert!(rows.iter().any(|(_, name)| name == "Curved Monitor"));
+
+    // Test querying with both default and stemmed fields
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Mouse OR description_stem:mouses')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Mouse"));
+    assert!(rows.iter().any(|(_, name)| name == "Vertical Mouse"));
+}
+
+#[rstest]
+fn alias_cannot_be_key_field(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE products (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        description TEXT
+    );"
+    .execute(&mut conn);
+
+    // Test alias cannot be the same as key_field
+    let result = r#"CREATE INDEX products_index ON products
+    USING bm25 (id, name, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "name": {
+                "tokenizer": {"type": "default"}
+            },
+            "id": {
+                "tokenizer": {"type": "default", "stemmer": "English"},
+                "column": "description"
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "key_field id cannot be included"
+    );
+
+    // Test valid configuration where alias is different from key_field
+    let result = r#"CREATE INDEX products_index ON products
+    USING bm25 (id, name, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "name": {
+                "tokenizer": {"type": "default"}
+            },
+            "desc_stem": {
+                "source": "description",
+                "tokenizer": {"type": "default", "stemmer": "English"}
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_ok());
+}
+
+#[rstest]
+#[ignore = "figure out multiple tokenizers"]
+fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE product_reviews (
+        id SERIAL PRIMARY KEY,
+        product_name TEXT,
+        review_text TEXT
+    );"
+    .execute(&mut conn);
+
+    // Insert mock data
+    "INSERT INTO product_reviews (product_name, review_text) VALUES
+    ('SmartPhone X', 'This smartphone is incredible! The camera quality is amazing.'),
+    ('Laptop Pro', 'Great laptop for programming. The keyboard is comfortable.'),
+    ('Wireless Earbuds', 'These earbuds have excellent sound quality. Battery life could be better.'),
+    ('Gaming Mouse', 'Responsive and comfortable. Perfect for long gaming sessions.'),
+    ('4K TV', 'The picture quality is breathtaking. Smart features work seamlessly.'),
+    ('Fitness Tracker', 'Accurate step counting and heart rate monitoring. The app is user-friendly.'),
+    ('Smartwatch', 'This watch is smart indeed! Great for notifications and fitness tracking.'),
+    ('Bluetooth Speaker', 'Impressive sound for its size. Waterproof feature is a plus.'),
+    ('Mechanical Keyboard', 'Satisfying key presses. RGB lighting is customizable.'),
+    ('External SSD', 'Super fast read/write speeds. Compact and portable design.');"
+    .execute(&mut conn);
+
+    // Create the BM25 index with multiple tokenizers
+    r#"CREATE INDEX product_reviews_index ON product_reviews
+    USING bm25 (id, product_name, review_text)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "product_name": {
+                "tokenizer": {"type": "default"}
+            },
+            "product_name_ngram": {
+                "column": "product_name",
+                "tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}
+            },
+            "review_text": {
+                "tokenizer": {"type": "default"}
+            },
+            "review_text_stem": {
+                "column": "review_text",
+                "tokenizer": {"type": "default", "stemmer": "English"}
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    //  Exact match using default tokenizer
+    let rows: Vec<(i32, String)> = r#"SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('product_name:"Wireless Earbuds"')"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "Wireless Earbuds");
+
+    // Partial match using ngram tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('product_name_ngram:phon')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "SmartPhone X");
+
+    // Stemmed search using English stemmer tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('review_text_stem:gaming')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().any(|(_, name)| name == "Gaming Mouse"));
+
+    // Using default tokenizer and stem on same field
+    let rows: Vec<(i32, String)> = "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('review_text:monitoring OR review_text_stem:mon')"
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "Fitness Tracker");
+}
+
+#[ignore = "cannot find the field alias named `taste`"]
+#[rstest]
+fn more_like_this_with_alias(mut conn: PgConnection) {
+    // Create the table
+    r#"
+    CREATE TABLE test_more_like_this_alias (
+        id SERIAL PRIMARY KEY,
+        flavour TEXT,
+        description TEXT
+    );
+
+    INSERT INTO test_more_like_this_alias (flavour, description) VALUES 
+        ('apple', 'A sweet and crisp fruit'),
+        ('banana', 'A long yellow tropical fruit'),
+        ('cherry', 'A small round red fruit'),
+        ('banana split', 'An ice cream dessert with bananas'),
+        ('apple pie', 'A dessert made with apples');
+    "#
+    .execute(&mut conn);
+
+    // Create the BM25 index with aliased fields
+    r#"
+    CREATE INDEX test_more_like_this_alias_index ON test_more_like_this_alias
+    USING bm25 (id, flavour, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "taste": {
+                "source": "flavour",
+                "tokenizer": {"type": "default"}
+            },
+            "details": {
+                "source": "description",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );
+    "#
+    .execute(&mut conn);
+
+    // Test more_like_this with aliased field 'taste' (original 'flavour')
+    let rows: Vec<(i32, String, String)> = r#"
+    SELECT id, flavour, description FROM test_more_like_this_alias 
+    WHERE id @@@ paradedb.more_like_this(
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"taste": "banana"}'
+    );
+    "#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana"));
+    assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana split"));
+}

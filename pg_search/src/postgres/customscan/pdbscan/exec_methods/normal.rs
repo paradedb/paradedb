@@ -119,13 +119,15 @@ impl NormalScanExecState {
         if self.did_query {
             return false;
         }
-        self.search_results = state.search_reader.as_ref().unwrap().search_via_channel(
-            state.need_scores(),
-            false,
-            SearchIndex::executor(),
-            state.query.as_ref().unwrap(),
-            state.limit,
-        );
+        todo!("implement search_via_channel");
+        // self.search_results = search_via_channel(
+
+        //     state.need_scores(),
+        //     false,
+        //     SearchIndex::executor(),
+        //     state.query.as_ref().unwrap(),
+        //     // state.limit,
+        // );
         self.did_query = true;
         true
     }

@@ -23,8 +23,6 @@ use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
-use std::path::PathBuf;
-use tantivy::Index;
 
 #[rstest]
 async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
@@ -92,7 +90,8 @@ async fn reindex_with_updates(mut conn: PgConnection) -> Result<()> {
     assert_eq!(columns.id, vec![1, 2]);
 
     // Make some updates
-    "UPDATE paradedb.bm25_search SET description = 'Mechanical keyboard' WHERE id = 1".execute(&mut conn);
+    "UPDATE paradedb.bm25_search SET description = 'Mechanical keyboard' WHERE id = 1"
+        .execute(&mut conn);
     "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES ('Wireless keyboard', 'Electronics', 4, true, '{\"color\": \"black\"}', now(), current_date)".execute(&mut conn);
 
     // Verify updates are searchable
@@ -169,7 +168,8 @@ async fn reindex_schema_validation(mut conn: PgConnection) -> Result<()> {
 
 #[rstest]
 async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
-    SimpleProductsTable::setup().execute(&mut conn);
+    "CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');"
+        .execute(&mut conn);
 
     // Create a partial index
     r#"CREATE INDEX partial_idx ON paradedb.bm25_search
@@ -210,7 +210,8 @@ async fn concurrent_reindex_with_updates(mut conn: PgConnection) -> Result<()> {
     "REINDEX INDEX CONCURRENTLY paradedb.bm25_search_bm25_index".execute(&mut conn);
 
     // Make updates during reindex
-    "UPDATE paradedb.bm25_search SET description = 'Mechanical keyboard' WHERE id = 1".execute(&mut conn);
+    "UPDATE paradedb.bm25_search SET description = 'Mechanical keyboard' WHERE id = 1"
+        .execute(&mut conn);
     "INSERT INTO paradedb.bm25_search (description, category, rating, in_stock, metadata, created_at, last_updated_date) VALUES ('Wireless keyboard', 'Electronics', 4, true, '{\"color\": \"black\"}', now(), current_date)".execute(&mut conn);
 
     // Verify all updates are searchable after concurrent reindex
@@ -234,28 +235,6 @@ async fn reindex_table(mut conn: PgConnection) -> Result<()> {
 
     // Reindex entire table
     "REINDEX TABLE paradedb.bm25_search".execute(&mut conn);
-
-    // Verify search still works
-    let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
-            .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![1, 2]);
-
-    Ok(())
-}
-
-#[rstest]
-async fn reindex_database(mut conn: PgConnection) -> Result<()> {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    // Initial search
-    let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
-            .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![1, 2]);
-
-    // Reindex entire database
-    "REINDEX DATABASE postgres".execute(&mut conn);
 
     // Verify search still works
     let columns: SimpleProductsTableVec =

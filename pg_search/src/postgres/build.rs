@@ -132,13 +132,11 @@ fn do_heap_scan<'a>(
             writer
                 .commit()
                 .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
-
-            writer
-                .underlying_writer
-                .take()
-                .unwrap()
-                .wait_merging_threads()
-                .unwrap_or_else(|e| panic!("failed to wait for index merge: {e}"));
+            
+            // writer
+            //     .underlying_writer
+            //     .wait_merging_threads()
+            //     .unwrap_or_else(|e| panic!("failed to wait for index merge: {e}"));
         }
     }
 

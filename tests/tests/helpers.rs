@@ -143,8 +143,7 @@ fn test_format_create_bm25_basic(mut conn: PgConnection) {
             published_date TIMESTAMP
         );
     "#
-    .execute_result(&mut conn)
-    .unwrap();
+    .execute(&mut conn);
 
     // Get the CREATE INDEX statement
     let sql = r#"
@@ -153,20 +152,19 @@ fn test_format_create_bm25_basic(mut conn: PgConnection) {
             'my_table'::text, 
             'id'::text, 
             'public'::text, 
-            '{"title": true}'::jsonb, 
-            '{"price": true}'::jsonb, 
-            '{"is_available": true}'::jsonb, 
-            '{"details": true}'::jsonb, 
-            '{"price_range": true}'::jsonb, 
-            '{"published_date": true}'::jsonb, 
+            '{"title": {}}'::jsonb, 
+            '{"price": {}}'::jsonb, 
+            '{"is_available": {}}'::jsonb, 
+            '{"details": {}}'::jsonb, 
+            '{"price_range": {}}'::jsonb, 
+            '{"published_date": {}}'::jsonb, 
             'price > 0'::text
         );
     "#
-    .fetch_one::<(String,)>(&mut conn)
-    .unwrap();
+    .fetch_one::<(String,)>(&mut conn);
 
     // Execute the CREATE INDEX statement
-    sql.0.execute_result(&mut conn).unwrap();
+    sql.0.execute(&mut conn);
 
     // Cleanup
     r#"DROP TABLE public.my_table CASCADE;"#.execute_result(&mut conn).unwrap();
@@ -176,7 +174,7 @@ fn test_format_create_bm25_basic(mut conn: PgConnection) {
 fn test_format_create_index_no_predicate(mut conn: PgConnection) {
     // Create schema and test table
     r#"CREATE SCHEMA IF NOT EXISTS inventory;"#.execute_result(&mut conn).unwrap();
-    
+
     r#"
         CREATE TABLE inventory.products (
             product_id INTEGER PRIMARY KEY,
@@ -193,7 +191,7 @@ fn test_format_create_index_no_predicate(mut conn: PgConnection) {
             'products', 
             'product_id', 
             'inventory', 
-            '{"name": true}'::jsonb, 
+            '{"name": {}}'::jsonb, 
             '{}'::jsonb, 
             '{}'::jsonb, 
             '{}'::jsonb, 
@@ -202,10 +200,9 @@ fn test_format_create_index_no_predicate(mut conn: PgConnection) {
             ''
         );
     "#
-    .fetch_one::<(String,)>(&mut conn)
-    .unwrap();
+    .fetch_one::<(String,)>(&mut conn);
 
-    sql.0.execute_result(&mut conn).unwrap();
+    sql.0.execute(&mut conn);
 
     // Cleanup
     r#"DROP TABLE inventory.products CASCADE;"#.execute_result(&mut conn).unwrap();
@@ -237,17 +234,16 @@ fn test_format_bm25_basic(mut conn: PgConnection) {
             'articles',
             'id',
             'public',
-            '{"title": true, "content": true}'::jsonb,
-            '{"rating": true}'::jsonb,
-            '{"published": true}'::jsonb,
-            '{"metadata": true}'::jsonb,
-            '{"price_range": true}'::jsonb,
-            '{"created_at": true}'::jsonb,
+            '{"title": {}, "content": {}}'::jsonb,
+            '{"rating": {}}'::jsonb,
+            '{"published": {}}'::jsonb,
+            '{"metadata": {}}'::jsonb,
+            '{"price_range": {}}'::jsonb,
+            '{"created_at": {}}'::jsonb,
             'rating > 3'
         );
     "#
-    .fetch_one::<(String,)>(&mut conn)
-    .unwrap();
+    .fetch_one::<(String,)>(&mut conn);
 
     sql.0.execute_result(&mut conn).unwrap();
 
@@ -264,8 +260,7 @@ fn test_format_bm25_empty_fields(mut conn: PgConnection) {
             title TEXT
         );
     "#
-    .execute_result(&mut conn)
-    .unwrap();
+    .execute(&mut conn);
 
     // Get and execute CREATE INDEX statement
     let sql = r#"
@@ -274,7 +269,7 @@ fn test_format_bm25_empty_fields(mut conn: PgConnection) {
             'simple_table',
             'id',
             'public',
-            '{"title": true}'::jsonb,
+            '{"title": {}}'::jsonb,
             '{}'::jsonb,
             '{}'::jsonb,
             '{}'::jsonb,
@@ -283,13 +278,13 @@ fn test_format_bm25_empty_fields(mut conn: PgConnection) {
             ''
         );
     "#
-    .fetch_one::<(String,)>(&mut conn)
-    .unwrap();
+    .fetch_one::<(String,)>(&mut conn);
 
-    sql.0.execute_result(&mut conn).unwrap();
+    // Ensure the result can be executed.
+    sql.0.execute(&mut conn);
 
     // Cleanup
-    r#"DROP TABLE public.simple_table CASCADE;"#.execute_result(&mut conn).unwrap();
+    r#"DROP TABLE public.simple_table CASCADE;"#.execute(&mut conn);
 }
 
 #[rstest]
@@ -333,8 +328,7 @@ fn test_index_fields(mut conn: PgConnection) {
             created_at TIMESTAMP
         );
     "#
-    .execute_result(&mut conn)
-    .unwrap();
+    .execute(&mut conn);
 
     r#"
         CREATE INDEX idx_test_fields ON test_fields USING bm25 (
@@ -349,8 +343,7 @@ fn test_index_fields(mut conn: PgConnection) {
             datetime_fields='{"created_at": {}}'
         );
     "#
-    .execute_result(&mut conn)
-    .unwrap();
+    .execute(&mut conn);
 
     // Get the index fields
     let row: (serde_json::Value,) = r#"
@@ -470,5 +463,5 @@ fn test_index_fields(mut conn: PgConnection) {
     assert!(fields.contains_key("ctid"));
 
     // Cleanup
-    r#"DROP TABLE test_fields CASCADE;"#.execute_result(&mut conn).unwrap();
+    r#"DROP TABLE test_fields CASCADE;"#.execute(&mut conn);
 }

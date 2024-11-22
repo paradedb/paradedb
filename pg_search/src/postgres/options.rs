@@ -413,7 +413,7 @@ impl SearchIndexCreateOptions {
             },
         };
 
-        (key_field_name.into(), key_field_config, *key_field_type)
+        (key_field_name, key_field_config, *key_field_type)
     }
 
     pub fn get_fields(
@@ -501,8 +501,8 @@ impl SearchIndexCreateOptions {
                         name.to_string(),
                         (
                             SearchFieldName(name.to_string()),
-                            Self::json_value_to_search_field_config(&field_type, json_config),
-                            field_type.clone(),
+                            Self::json_value_to_search_field_config(field_type, json_config),
+                            *field_type,
                         ),
                     );
                 }

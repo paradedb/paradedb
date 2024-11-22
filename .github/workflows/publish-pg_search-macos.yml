@@ -40,35 +40,35 @@ jobs:
           - name: macOS 14 (Sonoma)
             runner: macos-14
             pg_version: 14
-          - name: macOS 14 (Sonoma)
-            runner: macos-14
-            pg_version: 15
-          - name: macOS 14 (Sonoma)
-            runner: macos-14
-            pg_version: 16
-          - name: macOS 14 (Sonoma)
-            runner: macos-14
-            pg_version: 17
-          # macOS 15 (Sequoia)
-          - name: macOS 15 (Sequoia)
-            runner: macos-15
-            pg_version: 14
-          - name: macOS 15 (Sequoia)
-            runner: macos-15
-            pg_version: 15
-          - name: macOS 15 (Sequoia)
-            runner: macos-15
-            pg_version: 16
-          - name: macOS 15 (Sequoia)
-            runner: macos-15
-            pg_version: 17
+          # - name: macOS 14 (Sonoma)
+          #   runner: macos-14
+          #   pg_version: 15
+          # - name: macOS 14 (Sonoma)
+          #   runner: macos-14
+          #   pg_version: 16
+          # - name: macOS 14 (Sonoma)
+          #   runner: macos-14
+          #   pg_version: 17
+          # # macOS 15 (Sequoia)
+          # - name: macOS 15 (Sequoia)
+          #   runner: macos-15
+          #   pg_version: 14
+          # - name: macOS 15 (Sequoia)
+          #   runner: macos-15
+          #   pg_version: 15
+          # - name: macOS 15 (Sequoia)
+          #   runner: macos-15
+          #   pg_version: 16
+          # - name: macOS 15 (Sequoia)
+          #   runner: macos-15
+          #   pg_version: 17
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install Dependencies
-        run: brew install icu4c
+        run: brew install icu4c jq
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version

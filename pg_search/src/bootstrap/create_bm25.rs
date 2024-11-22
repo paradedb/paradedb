@@ -49,6 +49,7 @@ fn format_create_bm25(
     json_fields: default!(JsonB, "'{}'::jsonb"),
     range_fields: default!(JsonB, "'{}'::jsonb"),
     datetime_fields: default!(JsonB, "'{}'::jsonb"),
+    uuid_fields: default!(JsonB, "'{}'::jsonb"),
     predicates: default!(&str, "''"),
 ) -> Result<String> {
     let mut column_names = vec![key_field.to_string()];
@@ -59,6 +60,7 @@ fn format_create_bm25(
         &json_fields,
         &range_fields,
         &datetime_fields,
+        &uuid_fields,
     ] {
         if let Value::Object(ref map) = fields.0 {
             for key in map.keys() {
@@ -91,7 +93,7 @@ fn format_create_bm25(
     };
 
     Ok(format!(
-        "CREATE INDEX {} ON {}{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
+        "CREATE INDEX {} ON {}{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}, uuid_fields={}) {};",
         spi::quote_identifier(index_name),
         schema_prefix,
         spi::quote_identifier(table_name),
@@ -104,6 +106,7 @@ fn format_create_bm25(
         spi::quote_literal(&serde_json::to_string(&json_fields)?),
         spi::quote_literal(&serde_json::to_string(&range_fields)?),
         spi::quote_literal(&serde_json::to_string(&datetime_fields)?),
+        spi::quote_literal(&serde_json::to_string(&uuid_fields)?),
         predicate_where))
 }
 
@@ -278,6 +281,13 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
         },
         SearchFieldType::Date => SearchFieldConfig::Date {
             indexed: true,
+            fast: true,
+            stored: true,
+            column: None,
+        },
+        SearchFieldType::Uuid => SearchFieldConfig::Bytes {
+            indexed: true,
+            fieldnorms: false,
             fast: true,
             stored: true,
             column: None,

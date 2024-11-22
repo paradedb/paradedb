@@ -37,16 +37,16 @@ use tantivy::schema::OwnedValue;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
-pub struct TantivyValue(pub tantivy::schema::OwnedValue);
+pub struct TantivyValue(pub OwnedValue);
 
 impl Default for TantivyValue {
     fn default() -> Self {
-        TantivyValue(tantivy::schema::OwnedValue::Null)
+        TantivyValue(OwnedValue::Null)
     }
 }
 
 impl TantivyValue {
-    pub fn tantivy_schema_value(&self) -> tantivy::schema::OwnedValue {
+    pub fn tantivy_schema_value(&self) -> OwnedValue {
         self.0.clone()
     }
 
@@ -101,7 +101,7 @@ impl TantivyValue {
                     tantivy_values.extend_from_slice(&Self::json_value_to_tantivy_value(value));
                 }
             }
-            _ => tantivy_values.push(TantivyValue(tantivy::schema::OwnedValue::from(value))),
+            _ => tantivy_values.push(TantivyValue(OwnedValue::from(value))),
         }
         tantivy_values
     }
@@ -279,22 +279,18 @@ impl TantivyValue {
 impl fmt::Display for TantivyValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.tantivy_schema_value() {
-            tantivy::schema::OwnedValue::Str(string) => write!(f, "{}", string.clone()),
-            tantivy::schema::OwnedValue::U64(u64) => write!(f, "{}", u64),
-            tantivy::schema::OwnedValue::I64(i64) => write!(f, "{}", i64),
-            tantivy::schema::OwnedValue::F64(f64) => write!(f, "{}", f64),
-            tantivy::schema::OwnedValue::Bool(bool) => write!(f, "{}", bool),
-            tantivy::schema::OwnedValue::Date(datetime) => {
+            OwnedValue::Str(string) => write!(f, "{}", string.clone()),
+            OwnedValue::U64(u64) => write!(f, "{}", u64),
+            OwnedValue::I64(i64) => write!(f, "{}", i64),
+            OwnedValue::F64(f64) => write!(f, "{}", f64),
+            OwnedValue::Bool(bool) => write!(f, "{}", bool),
+            OwnedValue::Date(datetime) => {
                 write!(f, "{}", datetime.into_primitive())
             }
-            tantivy::schema::OwnedValue::Bytes(bytes) => {
-                write!(
-                    f,
-                    "{}",
-                    String::from_utf8(bytes.clone()).expect("bytes should be valid utf-8")
-                )
+            OwnedValue::Bytes(bytes) => {
+                write!(f, "{:?}", bytes)
             }
-            tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
+            OwnedValue::Object(_) => write!(f, "json object"),
             _ => panic!("tantivy owned value not supported"),
         }
     }
@@ -303,13 +299,13 @@ impl fmt::Display for TantivyValue {
 impl Hash for TantivyValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.tantivy_schema_value() {
-            tantivy::schema::OwnedValue::Str(string) => string.hash(state),
-            tantivy::schema::OwnedValue::U64(u64) => u64.hash(state),
-            tantivy::schema::OwnedValue::I64(i64) => i64.hash(state),
-            tantivy::schema::OwnedValue::F64(f64) => OrderedFloat(f64).hash(state),
-            tantivy::schema::OwnedValue::Bool(bool) => bool.hash(state),
-            tantivy::schema::OwnedValue::Date(datetime) => datetime.hash(state),
-            tantivy::schema::OwnedValue::Bytes(bytes) => bytes.hash(state),
+            OwnedValue::Str(string) => string.hash(state),
+            OwnedValue::U64(u64) => u64.hash(state),
+            OwnedValue::I64(i64) => i64.hash(state),
+            OwnedValue::F64(f64) => OrderedFloat(f64).hash(state),
+            OwnedValue::Bool(bool) => bool.hash(state),
+            OwnedValue::Date(datetime) => datetime.hash(state),
+            OwnedValue::Bytes(bytes) => bytes.hash(state),
             _ => panic!("tantivy owned value not supported"),
         }
     }
@@ -317,53 +313,14 @@ impl Hash for TantivyValue {
 
 impl PartialOrd for TantivyValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.tantivy_schema_value() {
-            tantivy::schema::OwnedValue::Str(string) => {
-                if let tantivy::schema::OwnedValue::Str(other_string) = other.tantivy_schema_value()
-                {
-                    string.partial_cmp(&other_string)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::U64(u64) => {
-                if let tantivy::schema::OwnedValue::U64(other_u64) = other.tantivy_schema_value() {
-                    u64.partial_cmp(&other_u64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::I64(i64) => {
-                if let tantivy::schema::OwnedValue::I64(other_i64) = other.tantivy_schema_value() {
-                    i64.partial_cmp(&other_i64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::F64(f64) => {
-                if let tantivy::schema::OwnedValue::F64(other_f64) = other.tantivy_schema_value() {
-                    f64.partial_cmp(&other_f64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::Bool(bool) => {
-                if let tantivy::schema::OwnedValue::Bool(other_bool) = other.tantivy_schema_value()
-                {
-                    bool.partial_cmp(&other_bool)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::Date(datetime) => {
-                if let tantivy::schema::OwnedValue::Date(other_datetime) =
-                    other.tantivy_schema_value()
-                {
-                    datetime.partial_cmp(&other_datetime)
-                } else {
-                    None
-                }
-            }
+        match (self.tantivy_schema_value(), other.tantivy_schema_value()) {
+            (OwnedValue::Str(a), OwnedValue::Str(b)) => a.partial_cmp(&b),
+            (OwnedValue::U64(a), OwnedValue::U64(b)) => a.partial_cmp(&b),
+            (OwnedValue::I64(a), OwnedValue::I64(b)) => a.partial_cmp(&b),
+            (OwnedValue::F64(a), OwnedValue::F64(b)) => a.partial_cmp(&b),
+            (OwnedValue::Bool(a), OwnedValue::Bool(b)) => a.partial_cmp(&b),
+            (OwnedValue::Date(a), OwnedValue::Date(b)) => a.partial_cmp(&b),
+            (OwnedValue::Bytes(a), OwnedValue::Bytes(b)) => a.partial_cmp(&b),
             _ => None,
         }
     }
@@ -385,7 +342,7 @@ impl<'de> Deserialize<'de> for TantivyValue {
     where
         D: Deserializer<'de>,
     {
-        let inner_val = tantivy::schema::OwnedValue::deserialize(deserializer)?;
+        let inner_val = OwnedValue::deserialize(deserializer)?;
 
         Ok(TantivyValue(inner_val))
     }
@@ -395,7 +352,7 @@ impl TryFrom<Vec<u8>> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: Vec<u8>) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(val)))
+        Ok(TantivyValue(OwnedValue::Bytes(val)))
     }
 }
 
@@ -403,7 +360,7 @@ impl TryFrom<TantivyValue> for Vec<u8> {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Bytes(val) = value.0 {
+        if let OwnedValue::Bytes(val) = value.0 {
             Ok(val)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -417,7 +374,7 @@ impl TryFrom<String> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: String) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(val)))
+        Ok(TantivyValue(OwnedValue::Str(val)))
     }
 }
 
@@ -425,7 +382,7 @@ impl TryFrom<TantivyValue> for String {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Str(val) = value.0 {
+        if let OwnedValue::Str(val) = value.0 {
             Ok(val)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -439,7 +396,7 @@ impl TryFrom<i8> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: i8) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+        Ok(TantivyValue(OwnedValue::I64(val as i64)))
     }
 }
 
@@ -447,7 +404,7 @@ impl TryFrom<TantivyValue> for i8 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::I64(val) = value.0 {
+        if let OwnedValue::I64(val) = value.0 {
             Ok(val as i8)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -461,7 +418,7 @@ impl TryFrom<i16> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: i16) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+        Ok(TantivyValue(OwnedValue::I64(val as i64)))
     }
 }
 
@@ -469,7 +426,7 @@ impl TryFrom<TantivyValue> for i16 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::I64(val) = value.0 {
+        if let OwnedValue::I64(val) = value.0 {
             Ok(val as i16)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -483,7 +440,7 @@ impl TryFrom<i32> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: i32) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+        Ok(TantivyValue(OwnedValue::I64(val as i64)))
     }
 }
 
@@ -491,7 +448,7 @@ impl TryFrom<TantivyValue> for i32 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::I64(val) = value.0 {
+        if let OwnedValue::I64(val) = value.0 {
             Ok(val as i32)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -505,7 +462,7 @@ impl TryFrom<i64> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: i64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val)))
+        Ok(TantivyValue(OwnedValue::I64(val)))
     }
 }
 
@@ -513,7 +470,7 @@ impl TryFrom<TantivyValue> for i64 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::I64(val) = value.0 {
+        if let OwnedValue::I64(val) = value.0 {
             Ok(val)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -532,7 +489,7 @@ impl TryFrom<f32> for TantivyValue {
         let f32_string = format!("{}", val);
         let val_as_f64 = f64::from_str(&f32_string)?;
 
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val_as_f64)))
+        Ok(TantivyValue(OwnedValue::F64(val_as_f64)))
     }
 }
 
@@ -540,7 +497,7 @@ impl TryFrom<TantivyValue> for f32 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::F64(val) = value.0 {
+        if let OwnedValue::F64(val) = value.0 {
             // Casting f32 to f64 causes some precision errors when Tantivy writes the document.
             //     To avoid this, we string format the stored f64 and then read it as f32.
             let f64_string = format!("{}", val);
@@ -559,7 +516,7 @@ impl TryFrom<f64> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: f64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val)))
+        Ok(TantivyValue(OwnedValue::F64(val)))
     }
 }
 
@@ -567,7 +524,7 @@ impl TryFrom<TantivyValue> for f64 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::F64(val) = value.0 {
+        if let OwnedValue::F64(val) = value.0 {
             Ok(val)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -581,7 +538,7 @@ impl TryFrom<u32> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: u32) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::U64(val as u64)))
+        Ok(TantivyValue(OwnedValue::U64(val as u64)))
     }
 }
 
@@ -589,7 +546,7 @@ impl TryFrom<TantivyValue> for u32 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::U64(val) = value.0 {
+        if let OwnedValue::U64(val) = value.0 {
             Ok(val as u32)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -603,7 +560,7 @@ impl TryFrom<u64> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: u64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::U64(val)))
+        Ok(TantivyValue(OwnedValue::U64(val)))
     }
 }
 
@@ -611,7 +568,7 @@ impl TryFrom<TantivyValue> for u64 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::U64(val) = value.0 {
+        if let OwnedValue::U64(val) = value.0 {
             Ok(val)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -625,9 +582,7 @@ impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
-            val.try_into()?,
-        )))
+        Ok(TantivyValue(OwnedValue::F64(val.try_into()?)))
     }
 }
 
@@ -635,7 +590,7 @@ impl TryFrom<TantivyValue> for pgrx::AnyNumeric {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::F64(val) = value.0 {
+        if let OwnedValue::F64(val) = value.0 {
             Ok(val.try_into()?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -649,7 +604,7 @@ impl TryFrom<bool> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: bool) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Bool(val)))
+        Ok(TantivyValue(OwnedValue::Bool(val)))
     }
 }
 
@@ -657,7 +612,7 @@ impl TryFrom<TantivyValue> for bool {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Bool(val) = value.0 {
+        if let OwnedValue::Bool(val) = value.0 {
             Ok(val)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -672,7 +627,7 @@ impl TryFrom<pgrx::datum::JsonString> for TantivyValue {
 
     fn try_from(val: pgrx::datum::JsonString) -> Result<Self, Self::Error> {
         let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
+        Ok(TantivyValue(OwnedValue::from(json_value)))
     }
 }
 
@@ -680,7 +635,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::JsonString {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
+        if let OwnedValue::Object(val) = value.0 {
             Ok(pgrx::datum::JsonString(serde_json::to_string(&val)?))
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -695,7 +650,7 @@ impl TryFrom<pgrx::JsonB> for TantivyValue {
 
     fn try_from(val: pgrx::JsonB) -> Result<Self, Self::Error> {
         let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
+        Ok(TantivyValue(OwnedValue::from(json_value)))
     }
 }
 
@@ -703,7 +658,7 @@ impl TryFrom<TantivyValue> for pgrx::JsonB {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
+        if let OwnedValue::Object(val) = value.0 {
             Ok(pgrx::JsonB(serde_json::to_value(val)?))
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -728,7 +683,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::Date {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
+        if let OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             Ok(pgrx::datum::Date::new(
                 prim_dt.year(),
@@ -759,7 +714,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::Time {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
+        if let OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             let (h, m, s, micro) = prim_dt.as_hms_micro();
             Ok(pgrx::datum::Time::new(
@@ -791,7 +746,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::Timestamp {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
+        if let OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             let (h, m, s, micro) = prim_dt.as_hms_micro();
             Ok(pgrx::datum::Timestamp::new(
@@ -826,7 +781,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::TimeWithTimeZone {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
+        if let OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             let (h, m, s, micro) = prim_dt.as_hms_micro();
             Ok(pgrx::datum::TimeWithTimeZone::with_timezone(
@@ -860,7 +815,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::TimestampWithTimeZone {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
+        if let OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             let (h, m, s, micro) = prim_dt.as_hms_micro();
             Ok(pgrx::datum::TimestampWithTimeZone::with_timezone(
@@ -884,9 +839,7 @@ impl TryFrom<pgrx::Uuid> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Uuid) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
-            val.to_string(),
-        )))
+        Ok(TantivyValue(OwnedValue::Bytes(val.as_slice().to_vec())))
     }
 }
 
@@ -894,10 +847,8 @@ impl TryFrom<TantivyValue> for pgrx::Uuid {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Str(val) = value.0 {
-            let uuid = uuid::Uuid::parse_str(&val)?;
-            Ok(pgrx::Uuid::from_slice(uuid.as_bytes())
-                .map_err(TantivyValueError::UuidConversionError)?)
+        if let OwnedValue::Bytes(val) = value.0 {
+            Ok(pgrx::Uuid::from_slice(&val).map_err(TantivyValueError::UuidConversionError)?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "uuid".to_string(),
@@ -911,10 +862,8 @@ impl TryFrom<AnyEnum> for TantivyValue {
 
     fn try_from(val: AnyEnum) -> Result<Self, Self::Error> {
         match val.ordinal() {
-            Some(ordinal) => Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
-                ordinal.into(),
-            ))),
-            None => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+            Some(ordinal) => Ok(TantivyValue(OwnedValue::F64(ordinal.into()))),
+            None => Ok(TantivyValue(OwnedValue::Null)),
         }
     }
 }

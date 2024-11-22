@@ -54,6 +54,7 @@ pub struct SearchIndexCreateOptions {
     json_fields_offset: i32,
     range_fields_offset: i32,
     datetime_fields_offset: i32,
+    uuid_fields_offset: i32,
     key_field_offset: i32,
     target_segment_count: i32,
     merge_on_insert: bool,
@@ -160,7 +161,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 9;
+const NUM_REL_OPTS: usize = 10;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -196,6 +197,11 @@ pub unsafe extern "C" fn amoptions(
             optname: "datetime_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexCreateOptions, datetime_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "uuid_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(SearchIndexCreateOptions, uuid_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
@@ -309,6 +315,14 @@ impl SearchIndexCreateOptions {
         Self::deserialize_config_fields(config, &SearchFieldConfig::date_from_json)
     }
 
+    pub fn get_uuid_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
+        let config = self.get_str(self.uuid_fields_offset, "".to_string());
+        if config.is_empty() {
+            return Vec::new();
+        }
+        Self::deserialize_config_fields(config, &SearchFieldConfig::date_from_json)
+    }
+
     fn json_value_to_search_field_config(
         field_type: &SearchFieldType,
         field_config: serde_json::Value,
@@ -322,6 +336,7 @@ impl SearchIndexCreateOptions {
             SearchFieldType::Json => SearchFieldConfig::json_from_json(field_config),
             SearchFieldType::Date => SearchFieldConfig::date_from_json(field_config),
             SearchFieldType::Range => SearchFieldConfig::range_from_json(field_config),
+            SearchFieldType::Uuid => SearchFieldConfig::uuid_from_json(field_config),
         }
         .expect("field config should be valid for SearchFieldConfig::{field_name}")
     }
@@ -407,6 +422,13 @@ impl SearchIndexCreateOptions {
             },
             SearchFieldType::Date => SearchFieldConfig::Date {
                 indexed: true,
+                fast: true,
+                stored: true,
+                column: None,
+            },
+            SearchFieldType::Uuid => SearchFieldConfig::Bytes {
+                indexed: true,
+                fieldnorms: false,
                 fast: true,
                 stored: true,
                 column: None,

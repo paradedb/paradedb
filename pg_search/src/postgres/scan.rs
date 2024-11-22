@@ -352,6 +352,7 @@ pub extern "C" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
             pg_sys::FLOAT4OID,
             pg_sys::FLOAT8OID,
             pg_sys::BOOLOID,
+            pg_sys::UUIDOID,
         ]
         .contains(&att.atttypid)
     }

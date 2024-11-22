@@ -20,7 +20,7 @@ use crate::index::reader::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
 use std::sync::Arc;
-use tantivy::columnar::{ColumnValues, StrColumn};
+use tantivy::columnar::{BytesColumn, ColumnValues, StrColumn};
 use tantivy::fastfield::FastFieldReaders;
 use tantivy::schema::OwnedValue;
 use tantivy::{DocAddress, DocId};
@@ -81,6 +81,7 @@ impl FFHelper {
 pub enum FFType {
     Junk,
     Text(StrColumn),
+    Bytes(BytesColumn),
     I64(Arc<dyn ColumnValues<i64>>),
     F64(Arc<dyn ColumnValues<f64>>),
     U64(Arc<dyn ColumnValues<u64>>),
@@ -95,6 +96,8 @@ impl FFType {
     pub fn new(ffr: &FastFieldReaders, field_name: &str) -> Self {
         if let Ok(Some(ff)) = ffr.str(field_name) {
             Self::Text(ff)
+        } else if let Ok(Some(ff)) = ffr.bytes(field_name) {
+            Self::Bytes(ff)
         } else if let Ok(ff) = ffr.u64(field_name) {
             Self::U64(ff.first_or_default_col(0))
         } else if let Ok(ff) = ffr.i64(field_name) {
@@ -124,6 +127,16 @@ impl FFType {
                 ff.ord_to_str(ord, &mut s)
                     .expect("string should be retrievable for term ord");
                 TantivyValue(s.into())
+            }
+            FFType::Bytes(ff) => {
+                let mut v = Vec::new();
+                let ord = ff
+                    .term_ords(doc)
+                    .next()
+                    .expect("term ord should be retrievable");
+                ff.ord_to_bytes(ord, &mut v)
+                    .expect("bytes should be retrievable for term ord");
+                TantivyValue(v.into())
             }
             FFType::I64(ff) => TantivyValue(ff.get_val(doc).into()),
             FFType::F64(ff) => TantivyValue(ff.get_val(doc).into()),

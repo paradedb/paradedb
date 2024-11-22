@@ -28,8 +28,8 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
-    DateOptions, Field, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing, TextOptions,
-    FAST, INDEXED, STORED,
+    BytesOptions, DateOptions, Field, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing,
+    TextOptions, FAST, INDEXED, STORED,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -61,6 +61,7 @@ pub enum SearchFieldType {
     Json,
     Date,
     Range,
+    Uuid,
 }
 
 impl TryFrom<&PgOid> for SearchFieldType {
@@ -68,9 +69,7 @@ impl TryFrom<&PgOid> for SearchFieldType {
     fn try_from(pg_oid: &PgOid) -> Result<Self, Self::Error> {
         match &pg_oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID | PgBuiltInOids::UUIDOID => {
-                    Ok(SearchFieldType::Text)
-                }
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Ok(SearchFieldType::Text),
                 PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {
                     Ok(SearchFieldType::I64)
                 }
@@ -78,6 +77,7 @@ impl TryFrom<&PgOid> for SearchFieldType {
                 PgBuiltInOids::FLOAT4OID | PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
                     Ok(SearchFieldType::F64)
                 }
+                PgBuiltInOids::UUIDOID => Ok(SearchFieldType::Uuid),
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => Ok(SearchFieldType::Json),
                 PgBuiltInOids::INT4RANGEOID
@@ -174,6 +174,18 @@ pub enum SearchFieldConfig {
     Date {
         #[serde(default = "default_as_true")]
         indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        stored: bool,
+        #[serde(default)]
+        column: Option<String>,
+    },
+    Bytes {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fieldnorms: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
         #[serde(default = "default_as_true")]
@@ -478,6 +490,56 @@ impl SearchFieldConfig {
         })
     }
 
+    pub fn uuid_from_json(value: serde_json::Value) -> Result<Self> {
+        let obj = value
+            .as_object()
+            .context("Expected a JSON object for Uuid configuration")?;
+
+        let indexed = match obj.get("indexed") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'indexed' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fieldnorms = match obj.get("fieldnorms") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fieldnorms' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let fast = match obj.get("fast") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'fast' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let stored = match obj.get("stored") {
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
+            None => Ok(true),
+        }?;
+
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
+        Ok(SearchFieldConfig::Bytes {
+            indexed,
+            fieldnorms,
+            fast,
+            stored,
+            column,
+        })
+    }
+
     pub fn column(&self) -> Option<&String> {
         match self {
             Self::Text { column, .. }
@@ -664,6 +726,38 @@ impl From<SearchFieldConfig> for DateOptions {
     }
 }
 
+impl From<SearchFieldConfig> for BytesOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut byte_options = BytesOptions::default();
+        match config {
+            SearchFieldConfig::Bytes {
+                indexed,
+                fieldnorms,
+                fast,
+                stored,
+                ..
+            } => {
+                if indexed {
+                    byte_options = byte_options.set_indexed();
+                }
+                if fieldnorms {
+                    byte_options = byte_options.set_fieldnorms();
+                }
+                if fast {
+                    byte_options = byte_options.set_fast();
+                }
+                if stored {
+                    byte_options = byte_options.set_stored();
+                }
+            }
+            _ => {
+                panic!("attempted to convert non-bytes search field config to tantivy bytes config")
+            }
+        }
+        byte_options
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchField {
     /// The id of the field, stored in the index.
@@ -728,6 +822,7 @@ impl SearchIndexSchema {
                     SearchFieldType::Json => builder.add_json_field(name.as_ref(), config.clone()),
                     SearchFieldType::Range => builder.add_json_field(name.as_ref(), config.clone()),
                     SearchFieldType::Date => builder.add_date_field(name.as_ref(), config.clone()),
+                    SearchFieldType::Uuid => builder.add_bytes_field(name.as_ref(), config.clone()),
                 },
             }
             .into();

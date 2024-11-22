@@ -2248,6 +2248,8 @@ fn available_tokenizers(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|r| r.0.contains("cotton")));
+    assert!(rows.iter().any(|r| r.0.contains("shirt")));
 
     r#"DROP INDEX search_idx;"#.execute(&mut conn);
 }

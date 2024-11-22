@@ -71,20 +71,31 @@ jobs:
       - name: Install Dependencies
         run: brew reinstall icu4c
 
-
-      - name: Test Rate Limits
+      - name: Retrieve GitHub Release Upload URL via GraphQL
+        id: upload_url
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          curl -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" "https://api.github.com/rate_limit"
-
-
-      - name: Retrieve GitHub Release Upload URL
-        run: |
-          LATEST_RELEASE=$(curl --silent -H Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }} https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.13.0)
-          echo "Latest GitHub Release: $LATEST_RELEASE"
+          QUERY='
+          query($repoOwner: String!, $repoName: String!, $tagName: String!) {
+            repository(owner: $repoOwner, name: $repoName) {
+              release(tagName: $tagName) {
+                uploadUrl
+              }
+            }
+          }'
       
-          UPLOAD_URL=$($LATEST_RELEASE | jq .upload_url --raw-output)
+          RESPONSE=$(gh api graphql -f query="$QUERY" \
+            -F repoOwner='${{ github.repository_owner }}' \
+            -F repoName='${{ github.event.repository.name }}' \
+            -F tagName="v0.13.0")
+      
+          echo "GraphQL Response: $RESPONSE"
+          
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.data.repository.release.uploadUrl')
           echo "GitHub Release Upload URL is: $UPLOAD_URL"
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+      
 
 
       # - name: Retrieve OS & GitHub Tag Versions

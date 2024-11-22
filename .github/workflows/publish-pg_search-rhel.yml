@@ -7,6 +7,8 @@ name: Publish pg_search (Red Hat)
 
 on:
   push:
+    branches:
+      - phil/fix-pgrx
     tags:
       - "v*"
   workflow_dispatch:
@@ -171,142 +173,142 @@ jobs:
           sudo dnf install gh
           gh --version
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      # - name: Install Rust
+      #   uses: dtolnay/rust-toolchain@stable
 
-      - name: Retrieve OS & GitHub Tag Versions
-        id: version
-        run: |
-          if [ -z "${{ github.event.inputs.version }}" ]; then
-            if [[ $GITHUB_REF == refs/tags/v* ]]; then
-              VERSION=${GITHUB_REF#refs/tags/v}
-            else
-              # If there is no tag and no provided version, it's a test run and we set a default version
-              VERSION="0.0.0"
-            fi
-          else
-            VERSION=${{ github.event.inputs.version }}
-          fi
-          echo "GitHub Tag Version: $VERSION"
-          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+      # - name: Retrieve OS & GitHub Tag Versions
+      #   id: version
+      #   run: |
+      #     if [ -z "${{ github.event.inputs.version }}" ]; then
+      #       if [[ $GITHUB_REF == refs/tags/v* ]]; then
+      #         VERSION=${GITHUB_REF#refs/tags/v}
+      #       else
+      #         # If there is no tag and no provided version, it's a test run and we set a default version
+      #         VERSION="0.0.0"
+      #       fi
+      #     else
+      #       VERSION=${{ github.event.inputs.version }}
+      #     fi
+      #     echo "GitHub Tag Version: $VERSION"
+      #     echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
-          OS_VERSION="el$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)"
-          echo "OS Version: $OS_VERSION"
-          echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
+      #     OS_VERSION="el$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)"
+      #     echo "OS Version: $OS_VERSION"
+      #     echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
-          # Retrieve the current date for the changelog
-          CURRENT_DATE=$(LC_TIME=C date +"%a %b %d %Y")
-          echo "Current Date: $CURRENT_DATE"
-          echo "current_date=$CURRENT_DATE" >> $GITHUB_OUTPUT
+      #     # Retrieve the current date for the changelog
+      #     CURRENT_DATE=$(LC_TIME=C date +"%a %b %d %Y")
+      #     echo "Current Date: $CURRENT_DATE"
+      #     echo "current_date=$CURRENT_DATE" >> $GITHUB_OUTPUT
 
-      - name: Install & Configure Supported PostgreSQL Version on RHEL
-        run: |
-          # Extract RHEL version from the image name
-          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+      # - name: Install & Configure Supported PostgreSQL Version on RHEL
+      #   run: |
+      #     # Extract RHEL version from the image name
+      #     RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
 
-          # Install the repository RPM:
-          sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
+      #     # Install the repository RPM:
+      #     sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
 
-          # Disable the built-in PostgreSQL module:
-          sudo dnf -qy module disable postgresql
+      #     # Disable the built-in PostgreSQL module:
+      #     sudo dnf -qy module disable postgresql
 
-          # Install PostgreSQL:
-          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
+      #     # Install PostgreSQL:
+      #     sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
 
-      - name: Extract pgrx Version
-        id: pgrx
-        working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+      # - name: Extract pgrx Version
+      #   id: pgrx
+      #   working-directory: pg_search/
+      #   run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
 
-      - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+      # - name: Install pgrx
+      #   run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize pgrx for Current PostgreSQL Version
-        working-directory: pg_search/
-        run: |
-          PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
+      # - name: Initialize pgrx for Current PostgreSQL Version
+      #   working-directory: pg_search/
+      #   run: |
+      #     PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+      #     cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      - name: Package pg_search Extension with pgrx
-        working-directory: pg_search/
-        run: |
-          PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --pg-config $PG_CONFIG_PATH
+      # - name: Package pg_search Extension with pgrx
+      #   working-directory: pg_search/
+      #   run: |
+      #     PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+      #     cargo pgrx package --pg-config $PG_CONFIG_PATH
 
-      - name: Create .rpm Package
-        run: |
-          echo "Configuring RPM build environment..."
-          rpmdev-setuptree
+      # - name: Create .rpm Package
+      #   run: |
+      #     echo "Configuring RPM build environment..."
+      #     rpmdev-setuptree
 
-          echo "Creating RPM SPEC file..."
-          spec_file=~/rpmbuild/SPECS/pg_search.spec
-          cat <<EOF > $spec_file
-          Name:           pg_search_${{ matrix.pg_version }}
-          Version:        ${{ steps.version.outputs.tag_version }}
-          Release:        1%{?dist}
-          Summary:        Full-text search for PostgreSQL using BM25
-          License:        GNU Affero General Public License v3.0
-          URL:            https://github.com/paradedb/paradedb
+      #     echo "Creating RPM SPEC file..."
+      #     spec_file=~/rpmbuild/SPECS/pg_search.spec
+      #     cat <<EOF > $spec_file
+      #     Name:           pg_search_${{ matrix.pg_version }}
+      #     Version:        ${{ steps.version.outputs.tag_version }}
+      #     Release:        1%{?dist}
+      #     Summary:        Full-text search for PostgreSQL using BM25
+      #     License:        GNU Affero General Public License v3.0
+      #     URL:            https://github.com/paradedb/paradedb
 
-          BuildRequires:  postgresql${{ matrix.pg_version }}-devel
-          Requires:       postgresql${{ matrix.pg_version }}-server
+      #     BuildRequires:  postgresql${{ matrix.pg_version }}-devel
+      #     Requires:       postgresql${{ matrix.pg_version }}-server
 
-          %description
-          pg_search is a Postgres extension that enables full-text search over
-          PostgreSQL tables using the BM25 algorithm. It is built on top of Tantivy,
-          the Rust-based alternative to Apache Lucene, using pgrx.
+      #     %description
+      #     pg_search is a Postgres extension that enables full-text search over
+      #     PostgreSQL tables using the BM25 algorithm. It is built on top of Tantivy,
+      #     the Rust-based alternative to Apache Lucene, using pgrx.
 
-          %install
-          %{__rm} -rf %{buildroot}
-          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
-          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -m 755 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
-          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+      #     %install
+      #     %{__rm} -rf %{buildroot}
+      #     install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
+      #     install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+      #     install -m 755 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
+      #     install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+      #     install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
 
-          %files
-          /usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so
-          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control
-          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
+      #     %files
+      #     /usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so
+      #     /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control
+      #     /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
 
-          %changelog
-          * ${{ steps.version.outputs.current_date }} ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
-          - Latest RPM Release
-          * Sat Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
-          - Initial RPM Release
-          EOF
+      #     %changelog
+      #     * ${{ steps.version.outputs.current_date }} ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
+      #     - Latest RPM Release
+      #     * Sat Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
+      #     - Initial RPM Release
+      #     EOF
 
-          echo "Copying pg_search binaries to RPM build directory..."
-          cp -r target/release/pg_search-pg${{ matrix.pg_version }}/ ~/rpmbuild/SOURCES/pg_search_${{ matrix.pg_version }}
+      #     echo "Copying pg_search binaries to RPM build directory..."
+      #     cp -r target/release/pg_search-pg${{ matrix.pg_version }}/ ~/rpmbuild/SOURCES/pg_search_${{ matrix.pg_version }}
 
-          echo "Building RPM package..."
-          rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
+      #     echo "Building RPM package..."
+      #     rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
 
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: |
-            ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+      # - name: Sign and Attest Build Provenance
+      #   uses: actions/attest-build-provenance@v1
+      #   with:
+      #     subject-path: |
+      #       ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
 
-      - name: Retrieve GitHub Release Upload URL
-        id: upload_url
-        env:
-          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-        run: |
-          RESPONSE=$(gh api \
-            -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
-          echo "REST API Response: $RESPONSE"
+      # - name: Retrieve GitHub Release Upload URL
+      #   id: upload_url
+      #   env:
+      #     GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      #   run: |
+      #     RESPONSE=$(gh api \
+      #       -H "Authorization: token $GH_TOKEN" \
+      #       /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+      #     echo "REST API Response: $RESPONSE"
 
-          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
-          echo "GitHub Release Upload URL is: $UPLOAD_URL"
-          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+      #     UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
+      #     echo "GitHub Release Upload URL is: $UPLOAD_URL"
+      #     echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
-      - name: Upload pg_search .rpm to GitHub Release
-        uses: shogo82148/actions-upload-release-asset@v1
-        with:
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
-          asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
-          overwrite: true
+      # - name: Upload pg_search .rpm to GitHub Release
+      #   uses: shogo82148/actions-upload-release-asset@v1
+      #   with:
+      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
+      #     asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+      #     asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+      #     overwrite: true

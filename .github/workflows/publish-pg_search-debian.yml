@@ -175,7 +175,7 @@ jobs:
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
-            /repos/paradedb/paradedb/releases/tags/${{ steps.version.outputs.tag_version }})
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
           echo "REST API Response: $RESPONSE"
 
           UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')

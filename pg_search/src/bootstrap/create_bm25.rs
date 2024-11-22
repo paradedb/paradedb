@@ -242,7 +242,6 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
                 indexed: true,
                 fast: true,
                 stored: true,
-                column: None,
             }
         }
         SearchFieldType::Text => SearchFieldConfig::Text {
@@ -253,7 +252,6 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
-            column: None,
         },
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
@@ -264,23 +262,17 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             fieldnorms: true,
-            column: None,
         },
-        SearchFieldType::Range => SearchFieldConfig::Range {
-            stored: true,
-            column: None,
-        },
+        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
             stored: true,
-            column: None,
         },
         SearchFieldType::Date => SearchFieldConfig::Date {
             indexed: true,
             fast: true,
             stored: true,
-            column: None,
         },
     };
 

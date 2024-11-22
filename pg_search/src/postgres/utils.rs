@@ -80,60 +80,58 @@ pub unsafe fn row_to_search_document(
     schema: &SearchIndexSchema,
 ) -> Result<SearchDocument, IndexError> {
     let mut document = schema.new_document();
-    let mut alias_lookup = schema.alias_lookup();
 
     // Create a vector of index entries from the postgres row.
     for (attno, attribute) in tupdesc.iter().enumerate() {
         let attname = attribute.name().to_string();
         let attribute_type_oid = attribute.type_oid();
 
-        // List any indexed fields that use this column as source data.
-        let mut search_fields = alias_lookup.remove(&attname).unwrap_or_default();
-
-        // If there's an indexed field with the same name as a this column, add it to the list.
-        if let Some(index_field) = schema.get_search_field(&attname.clone().into()) {
-            search_fields.push(index_field)
-        };
-
-        for search_field in search_fields {
-            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-            let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
-                (PgOid::from(array_type), true)
+        // If we can't lookup the attribute name in the field_lookup parameter,
+        // it means that this field is not part of the index. We should skip it.
+        let search_field =
+            if let Some(index_field) = schema.get_search_field(&attname.clone().into()) {
+                index_field
             } else {
-                (attribute_type_oid, false)
+                continue;
             };
 
-            let is_json = matches!(
-                base_oid,
-                PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
+        let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+        let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
+            (PgOid::from(array_type), true)
+        } else {
+            (attribute_type_oid, false)
+        };
+
+        let is_json = matches!(
+            base_oid,
+            PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
+        );
+
+        let datum = *values.add(attno);
+        let isnull = *isnull.add(attno);
+
+        let SearchFieldName(key_field_name) = schema.key_field().name;
+        if key_field_name == attname && isnull {
+            return Err(IndexError::KeyIdNull(key_field_name));
+        }
+
+        if isnull {
+            continue;
+        }
+
+        if is_array {
+            for value in TantivyValue::try_from_datum_array(datum, base_oid)? {
+                document.insert(search_field.id, value.tantivy_schema_value());
+            }
+        } else if is_json {
+            for value in TantivyValue::try_from_datum_json(datum, base_oid)? {
+                document.insert(search_field.id, value.tantivy_schema_value());
+            }
+        } else {
+            document.insert(
+                search_field.id,
+                TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),
             );
-
-            let datum = *values.add(attno);
-            let isnull = *isnull.add(attno);
-
-            let SearchFieldName(key_field_name) = schema.key_field().name;
-            if key_field_name == attname && isnull {
-                return Err(IndexError::KeyIdNull(key_field_name));
-            }
-
-            if isnull {
-                continue;
-            }
-
-            if is_array {
-                for value in TantivyValue::try_from_datum_array(datum, base_oid)? {
-                    document.insert(search_field.id, value.tantivy_schema_value());
-                }
-            } else if is_json {
-                for value in TantivyValue::try_from_datum_json(datum, base_oid)? {
-                    document.insert(search_field.id, value.tantivy_schema_value());
-                }
-            } else {
-                document.insert(
-                    search_field.id,
-                    TantivyValue::try_from_datum(datum, base_oid)?.tantivy_schema_value(),
-                );
-            }
         }
     }
 

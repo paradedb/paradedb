@@ -21,11 +21,13 @@ use crate::postgres::index::relfilenode_from_pg_relation;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
-use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::time::Instant;
+use tokenizers::manager::SearchTokenizerFilters;
+use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 // For now just pass the count on the build callback state
 struct BuildState {
@@ -87,7 +89,6 @@ pub extern "C" fn ambuild(
         let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
         ops.into_pg_boxed()
     };
-    let key_field = rdopts.get_key_field().expect("must specify a key_field");
 
     // Create a map from column name to column type. We'll use this to verify that index
     // configurations passed by the user reference the correct types for each column.
@@ -111,17 +112,13 @@ pub extern "C" fn ambuild(
         })
         .collect();
 
-    for (name, config) in rdopts.get_text_fields() {
-        // (multi-tokenizers) check if field config specifies its source column
-        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
+    for (name, _) in rdopts.get_text_fields() {
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Text)) {
             panic!("'{name}' cannot be indexed as a text field");
         }
     }
 
-    for (name, config) in rdopts.get_numeric_fields() {
-        // (multi-tokenizers) check if field config specifies its source column
-        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
+    for (name, _) in rdopts.get_numeric_fields() {
         if !matches!(
             name_type_map.get(&name),
             Some(SearchFieldType::U64 | SearchFieldType::I64 | SearchFieldType::F64)
@@ -130,42 +127,85 @@ pub extern "C" fn ambuild(
         }
     }
 
-    for (name, config) in rdopts.get_boolean_fields() {
-        // (multi-tokenizers) check if field config specifies its source column
-        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
+    for (name, _) in rdopts.get_boolean_fields() {
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Bool)) {
             panic!("'{name}' cannot be indexed as a boolean field");
         }
     }
 
-    for (name, config) in rdopts.get_json_fields() {
-        // (multi-tokenizers) check if field config specifies its source column
-        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
+    for (name, _) in rdopts.get_json_fields() {
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Json)) {
             panic!("'{name}' cannot be indexed as a JSON field");
         }
     }
 
-    for (name, config) in rdopts.get_range_fields() {
-        // (multi-tokenizers) check if field config specifies its source column
-        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
+    for (name, _) in rdopts.get_range_fields() {
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Range)) {
             panic!("'{name}' cannot be indexed as a range field");
         }
     }
 
-    for (name, config) in rdopts.get_datetime_fields() {
-        // (multi-tokenizers) check if field config specifies its source column
-        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
+    for (name, _) in rdopts.get_datetime_fields() {
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Date)) {
             panic!("'{name}' cannot be indexed as a datetime field");
         }
     }
 
+    let key_field = rdopts.get_key_field().expect("must specify key field");
+    let key_field_type = match name_type_map.get(&key_field) {
+        Some(field_type) => field_type,
+        None => panic!("key field does not exist"),
+    };
+    let key_config = match key_field_type {
+        SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
+            SearchFieldConfig::Numeric {
+                indexed: true,
+                fast: true,
+                stored: true,
+            }
+        }
+        SearchFieldType::Text => SearchFieldConfig::Text {
+            indexed: true,
+            fast: true,
+            stored: true,
+            fieldnorms: false,
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+        },
+        SearchFieldType::Json => SearchFieldConfig::Json {
+            indexed: true,
+            fast: true,
+            stored: true,
+            fieldnorms: false,
+            expand_dots: false,
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+        },
+        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
+        SearchFieldType::Bool => SearchFieldConfig::Boolean {
+            indexed: true,
+            fast: true,
+            stored: true,
+        },
+        SearchFieldType::Date => SearchFieldConfig::Date {
+            indexed: true,
+            fast: true,
+            stored: true,
+        },
+    };
+
     // Concatenate the separate lists of fields.
     let fields: Vec<_> = rdopts
         .get_fields(&heap_relation, index_info)
         .into_iter()
+        .filter(|(name, _, _)| name != &key_field) // Process key_field separately.
+        .chain(std::iter::once((
+            key_field.clone(),
+            key_config,
+            *key_field_type,
+        )))
         // "ctid" is a reserved column name in Postgres, so we don't need to worry about
         // creating a name conflict with a user-named column.
         .chain(std::iter::once((

@@ -7,8 +7,6 @@ name: Publish pg_search (macOS)
 
 on:
   push:
-    branches:
-      - phil/fix-pgrx
     tags:
       - "v*"
   workflow_dispatch:
@@ -77,121 +75,121 @@ jobs:
           brew reinstall gh
           gh --version
 
-      # - name: Retrieve OS & GitHub Tag Versions
-      #   id: version
-      #   run: |
-      #     if [ -z "${{ github.event.inputs.version }}" ]; then
-      #       if [[ $GITHUB_REF == refs/tags/v* ]]; then
-      #         VERSION=${GITHUB_REF#refs/tags/v}
-      #       else
-      #         VERSION="0.0.0"
-      #       fi
-      #     else
-      #       VERSION=${{ github.event.inputs.version }}
-      #     fi
-      #     echo "GitHub Tag Version: $VERSION"
-      #     echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Retrieve OS & GitHub Tag Versions
+        id: version
+        run: |
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              VERSION="0.0.0"
+            fi
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
-      #     OS_VERSION=$(sw_vers -productVersion)
-      #     case $OS_VERSION in
-      #         15.*) OS_NAME="sequoia" ;;
-      #         14.*) OS_NAME="sonoma" ;;
-      #         *) exit 1 ;;
-      #     esac
-      #     echo "OS Version: $OS_NAME"
-      #     echo "os_version=$OS_NAME" >> $GITHUB_OUTPUT
+          OS_VERSION=$(sw_vers -productVersion)
+          case $OS_VERSION in
+              15.*) OS_NAME="sequoia" ;;
+              14.*) OS_NAME="sonoma" ;;
+              *) exit 1 ;;
+          esac
+          echo "OS Version: $OS_NAME"
+          echo "os_version=$OS_NAME" >> $GITHUB_OUTPUT
 
-      # - name: Install PostgreSQL
-      #   run: |
-      #     brew install postgresql@${{ matrix.pg_version }}
-      #     brew services start postgresql@${{ matrix.pg_version }}
-      #     echo "/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+      - name: Install PostgreSQL
+        run: |
+          brew install postgresql@${{ matrix.pg_version }}
+          brew services start postgresql@${{ matrix.pg_version }}
+          echo "/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      # - name: Extract pgrx Version
-      #   id: pgrx
-      #   working-directory: pg_search/
-      #   run: |
-      #     version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
-      #     echo version=$version >> $GITHUB_OUTPUT
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+          echo version=$version >> $GITHUB_OUTPUT
 
-      # - name: Install pgrx
-      #   run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+      - name: Install pgrx
+        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      # - name: Initialize pgrx for Current PostgreSQL Version
-      #   working-directory: pg_search/
-      #   run: |
-      #     PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
-      #     cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
+      - name: Initialize pgrx for Current PostgreSQL Version
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      # - name: Package pg_search Extension with pgrx
-      #   working-directory: pg_search/
-      #   run: |
-      #     PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
-      #     export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
-      #     export PATH="/opt/homebrew/bin:$PATH"
-      #     cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
+          export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
+          export PATH="/opt/homebrew/bin:$PATH"
+          cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 
-      # - name: Create .pkg Package
-      #   run: |
-      #     # Retrieve the built pg_search extension
-      #     mkdir archive
-      #     cp `find target/release -type f -name "pg_search*"` archive
-      #     ls -l archive
+      - name: Create .pkg Package
+        run: |
+          # Retrieve the built pg_search extension
+          mkdir archive
+          cp `find target/release -type f -name "pg_search*"` archive
+          ls -l archive
 
-      #     # Variables for directory structure and versioning
-      #     pg_version=${{ matrix.pg_version }}
-      #     tag_version=${{ steps.version.outputs.tag_version }}
-      #     package_dir="pg_search-${tag_version}-arm64-pg${pg_version}"
+          # Variables for directory structure and versioning
+          pg_version=${{ matrix.pg_version }}
+          tag_version=${{ steps.version.outputs.tag_version }}
+          package_dir="pg_search-${tag_version}-arm64-pg${pg_version}"
 
-      #     # Define Homebrew PostgreSQL paths
-      #     brew_pg_path="/opt/homebrew/opt/postgresql@${pg_version}"
-      #     lib_path="${brew_pg_path}/lib/postgresql"
-      #     share_path="${brew_pg_path}/share/postgresql@${pg_version}/extension"
+          # Define Homebrew PostgreSQL paths
+          brew_pg_path="/opt/homebrew/opt/postgresql@${pg_version}"
+          lib_path="${brew_pg_path}/lib/postgresql"
+          share_path="${brew_pg_path}/share/postgresql@${pg_version}/extension"
 
-      #     # Create directory structure for Homebrew
-      #     mkdir -p ${package_dir}${lib_path}
-      #     mkdir -p ${package_dir}${share_path}
+          # Create directory structure for Homebrew
+          mkdir -p ${package_dir}${lib_path}
+          mkdir -p ${package_dir}${share_path}
 
-      #     # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
-      #     if [[ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]]; then
-      #       cp archive/*.dylib ${package_dir}${lib_path}
-      #     else
-      #       cp archive/*.so ${package_dir}${lib_path}
-      #     fi
-      #     cp archive/*.control ${package_dir}${share_path}
-      #     cp archive/*.sql ${package_dir}${share_path}
+          # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
+          if [[ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]]; then
+            cp archive/*.dylib ${package_dir}${lib_path}
+          else
+            cp archive/*.so ${package_dir}${lib_path}
+          fi
+          cp archive/*.control ${package_dir}${share_path}
+          cp archive/*.sql ${package_dir}${share_path}
 
-      #     # Create the .pkg installer
-      #     pkgbuild --root ${package_dir} \
-      #             --identifier com.paradedb.pg_search \
-      #             --version ${tag_version} \
-      #             --install-location /opt/homebrew/opt/postgresql${pg_version} \
-      #             postgresql-${{ matrix.pg_version }}-pg_search--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          # Create the .pkg installer
+          pkgbuild --root ${package_dir} \
+                  --identifier com.paradedb.pg_search \
+                  --version ${tag_version} \
+                  --install-location /opt/homebrew/opt/postgresql${pg_version} \
+                  postgresql-${{ matrix.pg_version }}-pg_search--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
-      # - name: Sign and Attest Build Provenance
-      #   uses: actions/attest-build-provenance@v1
-      #   with:
-      #     subject-path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
-      # - name: Retrieve GitHub Release Upload URL
-      #   id: upload_url
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-      #   run: |
-      #     RESPONSE=$(gh api \
-      #       -H "Authorization: token $GH_TOKEN" \
-      #       /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
-      #     echo "REST API Response: $RESPONSE"
+      - name: Retrieve GitHub Release Upload URL
+        id: upload_url
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+        run: |
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+          echo "REST API Response: $RESPONSE"
 
-      #     UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
-      #     echo "GitHub Release Upload URL is: $UPLOAD_URL"
-      #     echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
+          echo "GitHub Release Upload URL is: $UPLOAD_URL"
+          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
-      # - name: Upload pg_search .pkg to GitHub Release
-      #   uses: shogo82148/actions-upload-release-asset@v1
-      #   with:
-      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
-      #     asset_path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
-      #     asset_name: postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
-      #     overwrite: true
+      - name: Upload pg_search .pkg to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          asset_name: postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          overwrite: true

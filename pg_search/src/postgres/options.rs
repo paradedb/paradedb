@@ -360,7 +360,7 @@ impl SearchIndexCreateOptions {
             })
             .collect();
 
-        let key_field_name = self.get_key_field().expect("must specfiy key_field");
+        let key_field_name = self.get_key_field().expect("must specify key_field");
         let key_field_type = match name_type_map.get(&key_field_name) {
             Some(field_type) => field_type,
             None => panic!("key field does not exist"),

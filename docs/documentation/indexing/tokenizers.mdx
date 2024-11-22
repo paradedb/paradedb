@@ -242,8 +242,8 @@ WITH (
     key_field='id',
     text_fields='{
         "description": {"tokenizer": {"type": "whitespace"}},
-        "description_ngram": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false} "column": "description"},
-        "description_stem": {"tokenizer": {"type": "default", "stemmer": "English"}, "column": "description"}}
+        "description_ngram": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}, "column": "description"},
+        "description_stem": {"tokenizer": {"type": "default", "stemmer": "English"}, "column": "description"}
     }'
 );
 

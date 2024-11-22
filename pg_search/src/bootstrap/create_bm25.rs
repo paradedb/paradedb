@@ -393,6 +393,9 @@ fn index_info(
     Ok(TableIterator::new(data))
 }
 
+#[pg_extern(sql = "")]
+fn create_bm25_jsonb() {}
+
 extension_sql!(
     r#"
     CREATE OR REPLACE FUNCTION paradedb.drop_bm25_event_trigger()

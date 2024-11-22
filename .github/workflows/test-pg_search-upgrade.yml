@@ -28,7 +28,7 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        pg_version: [17]
+        pg_version: [16] # We test extension upgrade on Postgres 16 for compatibility with older versions of pg_search
 
     steps:
       - name: Checkout Git Repository

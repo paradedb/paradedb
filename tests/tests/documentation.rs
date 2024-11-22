@@ -2245,7 +2245,7 @@ fn available_tokenizers(mut conn: PgConnection) {
     // Test multiple tokenizers for the same field
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description, description_ngram, description_stem)
+    USING bm25 (id, description)
     WITH (
         key_field='id',
         text_fields='{
@@ -2277,11 +2277,9 @@ fn available_tokenizers(mut conn: PgConnection) {
     LIMIT 5;
     "#
     .fetch(&mut conn);
-    assert_eq!(rows.len(), 2);
+    assert_eq!(rows.len(), 1);
     assert!(rows.iter().any(|r| r.0.contains("cotton")));
     assert!(rows.iter().any(|r| r.0.contains("shirt")));
-
-    r#"DROP INDEX search_idx;"#.execute(&mut conn);
 }
 
 #[rstest]
@@ -2346,7 +2344,7 @@ fn fast_fields(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, rating)
+    USING bm25 (id, description, rating)
     WITH (
         key_field = 'id',
         text_fields ='{

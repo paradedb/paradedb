@@ -71,30 +71,21 @@ jobs:
       - name: Install Dependencies
         run: brew reinstall icu4c
 
-      - name: Retrieve GitHub Release Upload URL via GraphQL
+      - name: Retrieve GitHub Release Upload URL via REST API
         id: upload_url
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          QUERY='
-          query($repoOwner: String!, $repoName: String!, $tagName: String!) {
-            repository(owner: $repoOwner, name: $repoName) {
-              release(tagName: $tagName) {
-                uploadUrl
-              }
-            }
-          }'
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v0.13.0)
       
-          RESPONSE=$(gh api graphql -f query="$QUERY" \
-            -F repoOwner='${{ github.repository_owner }}' \
-            -F repoName='${{ github.event.repository.name }}' \
-            -F tagName="v0.13.0")
+          echo "REST API Response: $RESPONSE"
       
-          echo "GraphQL Response: $RESPONSE"
-          
-          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.data.repository.release.uploadUrl')
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
           echo "GitHub Release Upload URL is: $UPLOAD_URL"
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+      
       
 
 

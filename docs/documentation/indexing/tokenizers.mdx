@@ -237,7 +237,7 @@ Here's an example of how to create a BM25 index with multiple tokenizers for the
 
 ```sql
 CREATE INDEX search_idx ON public.mock_items
-USING bm25 (id, description, description_ngram, description_stem)
+USING bm25 (id, description)
 WITH (
     key_field='id',
     text_fields='{

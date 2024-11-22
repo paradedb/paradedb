@@ -65,9 +65,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # We force reinstalling icu4c to ensure it is added to the PATH
       - name: Install Dependencies
-        run: brew reinstall icu4c
+        run: brew install icu4c
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version

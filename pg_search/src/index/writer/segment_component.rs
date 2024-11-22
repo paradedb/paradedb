@@ -41,6 +41,9 @@ impl SegmentComponentWriter {
 
 impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
+        if self.blocks.len() % 1000 == 0 {
+            pgrx::warning!("consumed {} blocks", self.blocks.len());
+        }
         let cache = &mut self.cache;
         let mut current_buffer = unsafe {
             cache.get_buffer(
@@ -94,6 +97,7 @@ impl Write for SegmentComponentWriter {
 
 impl TerminatingWrite for SegmentComponentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
+        pgrx::warning!("SegmentComponentWriter::terminate_ref()");
         let mut linked_list = unsafe {
             LinkedItemList::<SegmentComponentOpaque>::new(
                 self.relation_oid,
@@ -103,6 +107,7 @@ impl TerminatingWrite for SegmentComponentWriter {
                 |metadata, blockno| (*metadata).segment_component_last_blockno = blockno,
             )
         };
+        pgrx::warning!("made linked_list");
 
         let opaque = SegmentComponentOpaque {
             path: self.path.clone(),
@@ -111,14 +116,17 @@ impl TerminatingWrite for SegmentComponentWriter {
             xid: unsafe { pg_sys::GetCurrentTransactionId() },
         };
 
+        pgrx::warning!("making BlockingDirectory");
         let directory = BlockingDirectory::new(self.relation_oid);
 
+        pgrx::warning!("trying to acquire MANAGED_LOCK");
         let _lock = directory.acquire_lock(&Lock {
             filepath: MANAGED_LOCK.filepath.clone(),
             is_blocking: true,
         });
 
         unsafe {
+            pgrx::warning!("calling linked_list.add_items()");
             linked_list
                 .add_items(vec![opaque.clone()], false, |opaque, blockno, offsetno| {
                     SEGMENT_COMPONENT_CACHE

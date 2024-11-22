@@ -1,6 +1,6 @@
 use super::block::{BM25PageSpecialData, MetaPageData, METADATA_BLOCKNO};
 use super::utils::{BM25BufferCache, BM25Page};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use pgrx::pg_sys;
 use std::fmt::Debug;
 
@@ -118,7 +118,8 @@ impl<T: LinkedItem + Debug> LinkedItemList<T> {
                 if offsetno == pg_sys::InvalidOffsetNumber {
                     pg_sys::UnlockReleaseBuffer(insert_buffer);
                     pg_sys::UnlockReleaseBuffer(metadata_buffer);
-                    bail!("Failed to add item {:?}", item);
+                    pgrx::warning!("failed to add item");
+                    return Err(anyhow!("Failed to add item {item:?}"));
                 }
             }
 

@@ -18,6 +18,7 @@
 use super::reader::index::SearchIndexReader;
 use super::writer::index::IndexError;
 use crate::gucs;
+use crate::index::channel::ChannelRequestHandler;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::query::SearchQueryInput;
@@ -84,6 +85,8 @@ pub struct SearchIndex {
     pub index_oid: pgrx::pg_sys::Oid,
     #[serde(skip_serializing)]
     pub underlying_index: Index,
+    #[serde(skip_serializing)]
+    pub handler: ChannelRequestHandler,
 }
 
 impl SearchIndex {
@@ -103,11 +106,16 @@ impl SearchIndex {
     /// can get an exclusive lock on the Tantivy writer. The return type needs to
     /// be entirely owned by the new process, with no references.
     pub fn get_writer(
-        &self,
+        &mut self,
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
     ) -> Result<SearchIndexWriter> {
-        SearchIndexWriter::new(&self.underlying_index, resources, index_options)
+        SearchIndexWriter::new(
+            &self.underlying_index,
+            resources,
+            index_options,
+            self.handler.clone(),
+        )
     }
 
     #[allow(static_mut_refs)]

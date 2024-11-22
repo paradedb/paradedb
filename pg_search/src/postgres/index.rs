@@ -47,11 +47,12 @@ pub fn open_search_index(
 
     unsafe { pg_sys::UnlockReleaseBuffer(lock) };
 
-    Ok(SearchIndex {
-        schema,
-        underlying_index,
-        index_oid,
-    })
+    todo!("open_search_index")
+    // Ok(SearchIndex {
+    //     schema,
+    //     underlying_index,
+    //     index_oid,
+    // })
 }
 
 type Fields = Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>;

@@ -48,7 +48,11 @@ impl FileHandle for ChannelReader {
             .unwrap();
         let data = match self.receiver.recv().unwrap() {
             ChannelResponse::Bytes(data) => data,
-            unexpected => panic!("Bytes expected, got {:?}", unexpected),
+            unexpected => panic!(
+                "Bytes expected, got {:?}{}",
+                unexpected,
+                std::backtrace::Backtrace::capture()
+            ),
         };
 
         Ok(OwnedBytes::new(data))

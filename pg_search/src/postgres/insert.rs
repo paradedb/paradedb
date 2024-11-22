@@ -32,16 +32,6 @@ pub struct InsertState {
     committed: bool,
 }
 
-impl InsertState {
-    pub fn try_commit(&mut self) -> Result<()> {
-        if let Some(writer) = self.writer.take() {
-            writer.commit()?;
-            self.committed = true;
-        }
-        Ok(())
-    }
-}
-
 impl Drop for InsertState {
     /// When [`InsertState`] is dropped we'll either commit the underlying tantivy index changes
     /// or abort.
@@ -68,7 +58,7 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        let index = open_search_index(indexrel)?;
+        let mut index = open_search_index(indexrel)?;
         let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
         let writer = index.get_writer(writer_resources, options.as_ref().unwrap())?;
         Ok(Self {

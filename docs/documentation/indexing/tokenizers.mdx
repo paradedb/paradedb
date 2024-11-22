@@ -229,12 +229,9 @@ SELECT * FROM paradedb.tokenize(
 
 ## Multiple Tokenizers
 
-<Info>
-  Multiple tokenizers are a ParadeDB enterprise feature. [Contact
-  us](mailto:sales@paradedb.com) for access.
-</Info>
-
 ParadeDB supports using multiple tokenizers for the same field within a single BM25 index. This feature allows for more flexible and powerful querying capabilities, enabling you to employ various strategies to match against an index term.
+
+To setup a field with multiple tokenizers, you should configure it with an alias in the `WITH` options to `CREATE INDEX`. The configuration should contain a `"column"` key that points to the table column containing the data for that field.
 
 Here's an example of how to create a BM25 index with multiple tokenizers for the same field:
 

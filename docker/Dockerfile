@@ -9,7 +9,7 @@ ARG PG_VERSION_MAJOR=17
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR
-ARG RUST_VERSION=1.80.0
+ARG RUST_VERSION=stable
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \

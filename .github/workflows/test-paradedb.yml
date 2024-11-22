@@ -58,9 +58,6 @@ jobs:
           endpoint: ${{ secrets.DOCKERHUB_USERNAME }}/paradedb
           install: true
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
       # We only build with Docker Build Cloud when promoting to `main` as doing so requires access to GitHub Secrets,
       # which community contributors don't have access to.
       #

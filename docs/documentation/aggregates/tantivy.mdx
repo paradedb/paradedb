@@ -1,0 +1,421 @@
+---
+title: Tantivy Aggregates
+---
+
+<Info>
+  Tantivy aggregates are a ParadeDB enterprise feature. [Contact
+  us](mailto:sales@paradedb.com) for access.
+</Info>
+
+<Note>
+  All fields referenced by a Tantivy aggregate JSON string must be indexed as
+  [fast fields](/documentation/indexing/fast_fields).
+</Note>
+
+In addition to full text search, Tantivy also has the ability to compute aggregates over a single BM25 index. Tantivy aggregate queries are written as JSON query strings.
+
+These aggregates can be more performant than plain SQL aggregates over some datasets.
+
+## Syntax
+
+`paradedb.aggregate` accepts three arguments: the name of the BM25 index, a full text search query builder function,
+and a Tantivy aggregate JSON.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    '<index_name>',
+    <search_query>,
+    '<aggregate_query>'
+);
+```
+
+<ParamField body="index_name" required>
+  The name of the BM25 index as a string.
+</ParamField>
+<ParamField body="search_query" required>
+  A full text search query builder function. The aggregate will be computed over
+  the results of this function.
+</ParamField>
+<ParamField body="aggregate_query" required>
+  A Tantivy aggregate JSON string. See the sections below for how to construct
+  these JSONs.
+</ParamField>
+
+## Count
+
+A count aggregation tallies the number of values for the specified field across all documents.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "rating_total": {
+            "sum": {"field": "rating"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field name to compute the count on.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>
+
+## Average
+
+An average aggregation calculates the mean of the specified numeric field values across all documents.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "avg_rating": {
+            "avg": {"field": "rating"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field name to compute the average on.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>
+
+## Sum
+
+A sum aggregation computes the total sum of the specified numeric field values across all documents.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "rating_total": {
+            "sum": {"field": "rating"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field name to compute the sum on.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>
+
+## Min
+
+A min aggregation finds the smallest value for the specified numeric field across all documents.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "min_rating": {
+            "min": {"field": "rating"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field name to compute the minimum on.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>
+
+## Max
+
+A max aggregation finds the largest value for the specified numeric field across all documents.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "max_rating": {
+            "max": {"field": "rating"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field name to compute the maximum on.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>
+
+## Stats
+
+A stats aggregation provides a collection of statistical metrics for the specified numeric field, including count, sum, average, min, and max.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "rating_stats": {
+            "stats": {"field": "rating"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field name to compute the stats on.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>
+
+## Percentiles
+
+The percentiles aggregation calculates the values below which given percentages of the data fall, providing insights into the distribution of a dataset.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "rating_percentiles": {
+            "percentiles": {"field": "rating"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field name to compute the percentiles on.
+</ParamField>
+<ParamField body="percents" default={[1.0, 5.0, 25.0, 50.0, 75.0, 95.0, 99.0]}>
+  The percentiles to compute.
+</ParamField>
+<ParamField body="keyed" default={false}>
+  Whether to return the percentiles as a hash map.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>
+
+## Cardinality
+
+A cardinality aggregation estimates the number of unique values in the specified field using the HyperLogLog++ algorithm.
+This is useful for understanding the uniqueness of values in a large dataset.
+
+<Note>
+  The cardinality aggregation provides an approximate count, which is accurate
+  within a small error range. This trade-off allows for efficient computation
+  even on very large datasets.
+</Note>
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "unique_users": {
+            "cardinality": {"field": "user_id", "missing": "unknown"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field name to compute the cardinality on.
+</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field. By default, missing values
+  are ignored.
+</ParamField>
+
+## Histogram
+
+Histogram is a bucket aggregation where buckets are created dynamically based on a specified interval. Each document value is rounded down to its bucket. For example, if you have a price of 18 and an interval of 5, the document will fall into the bucket with the key 15. The formula used for this is: `((val - offset) / interval).floor() * interval + offset`.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "rating_histogram": {
+            "histogram": {"field": "rating", "interval": 1}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field to aggregate on.
+</ParamField>
+<ParamField body="interval" required>
+  The interval to chunk your data range. Each bucket spans a value range of
+  [0..interval). Must be a positive value.
+</ParamField>
+<ParamField body="offset" default={0.0}>
+  Shift the grid of buckets by the specified offset.
+</ParamField>
+<ParamField body="min_doc_count" default={0}>
+  The minimum number of documents in a bucket to be returned.
+</ParamField>
+<ParamField body="hard_bounds">
+  Limits the data range to [min, max] closed interval.
+</ParamField>
+<ParamField body="extended_bounds">
+  Extends the value range of the buckets.
+</ParamField>
+<ParamField body="keyed" default={false}>
+  Whether to return the buckets as a hash map.
+</ParamField>
+<ParamField body="is_normalized_to_ns" default={false}>
+  Whether the values are normalized to ns for date time values.
+</ParamField>
+
+## Date Histogram
+
+Similar to histogram, but can only be used with datetime types. Currently, only fixed time intervals are supported.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "created_at_histogram": {
+            "date_histogram": {"field": "created_at", "fixed_interval": "1h"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field to aggregate on.
+</ParamField>
+<ParamField body="fixed_interval" required>
+  The interval to chunk your data range. Each bucket spans a value range of
+  [0..fixed_interval). Accepted values should end in `ms`, `s`, `m`, `h`, or
+  `d`.
+</ParamField>
+<ParamField body="offset" default={0}>
+  Shift the grid of buckets by the specified offset.
+</ParamField>
+<ParamField body="min_doc_count" default={0}>
+  The minimum number of documents in a bucket to be returned.
+</ParamField>
+<ParamField body="hard_bounds">
+  Limits the data range to [min, max] closed interval.
+</ParamField>
+<ParamField body="extended_bounds">
+  Extends the value range of the buckets.
+</ParamField>
+<ParamField body="keyed" default={false}>
+  Whether to return the buckets as a hash map.
+</ParamField>
+
+## Range
+
+Range allows you to define custom buckets for specific ranges.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "ranges": {
+            "range": {"field": "rating", "ranges": [
+                { "to": 3.0 },
+                { "from": 3.0, "to": 7.0 },
+                { "from": 7.0, "to": 20.0 },
+                { "from": 20.0 }
+            ]}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field to aggregate on.
+</ParamField>
+<ParamField body="ranges" required>
+  A list of ranges to aggregate on.
+</ParamField>
+<ParamField body="keyed" default={false}>
+  Whether to return the buckets as a hash map.
+</ParamField>
+
+## Terms
+
+Terms creates a bucket for every unique term and counts the number of occurrences.
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "rating_terms": {
+            "terms": {"field": "rating"}
+        }
+    }'
+);
+```
+
+<ParamField body="field" required>
+  The field to aggregate on.
+</ParamField>
+<ParamField body="size" default={10}>
+  The number of terms to return.
+</ParamField>
+<ParamField body="segment_size" default={100}>
+  The number of terms to fetch from each segment.
+</ParamField>
+<ParamField body="show_term_doc_count_error" default={false}>
+  Whether to include the document count error.
+</ParamField>
+<ParamField body="min_doc_count" default={1}>
+  The minimum number of documents in a term to be returned.
+</ParamField>
+<ParamField body="order">The order in which to return the terms.</ParamField>
+<ParamField body="missing">
+  The value to use for documents missing the field.
+</ParamField>
+
+## Nested Aggregations
+
+Buckets can contain sub-aggregations. For example, creating buckets with the range aggregation and then calculating the average on each bucket:
+
+```sql
+SELECT * FROM paradedb.aggregate(
+    'search_idx',
+    paradedb.all(),
+    '{
+        "range_rating": {
+            "range": {
+            "field": "rating",
+            "ranges": [
+                { "from": 1, "to": 3 },
+                { "from": 3, "to": 5 }
+            ]
+            },
+            "aggs": {
+            "average_in_range": { "avg": { "field": "rating"} }
+            }
+        }
+    }'
+);
+```

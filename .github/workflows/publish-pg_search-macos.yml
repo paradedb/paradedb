@@ -72,7 +72,7 @@ jobs:
 
       - name: Retrieve GitHub Release Upload URL
         run: |
-          UPLOAD_URL=$(curl --silent -H Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }} https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.0.0 | jq .upload_url --raw-output)
+          UPLOAD_URL=$(curl --silent -H Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }} https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.13.0 | jq .upload_url --raw-output)
           echo "GitHub Release Upload URL is: $UPLOAD_URL"
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
@@ -81,7 +81,7 @@ jobs:
 
       - name: Retrieve GitHub Release Upload URL
         run: |
-          UPLOAD_URL=$(curl --silent -H Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }} https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.0.0 | jq .upload_url --raw-output)
+          UPLOAD_URL=$(curl --silent -H Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }} https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.13.0 | jq .upload_url --raw-output)
           echo "GitHub Release Upload URL is: $UPLOAD_URL"
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 

@@ -69,16 +69,11 @@ jobs:
 
       - name: Retrieve GitHub Release Upload URL
         run: |
-          UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.0.0)
+          UPLOAD_URL=$(curl --silent -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.0.0 | jq .upload_url --raw-output)
           echo "GitHub Release Upload URL is: $UPLOAD_URL"
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
-      - name: Retrieve GitHub Release Upload URL
-        shell: sh
-        run: |
-          UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v0.0.0)
-          echo "GitHub Release Upload URL is: $UPLOAD_URL"
-          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+
 
       # # We force reinstalling icu4c to ensure it is added to the PATH
       # - name: Install Dependencies
@@ -183,7 +178,7 @@ jobs:
       # - name: Retrieve GitHub Release Upload URL
       #   id: upload_url
       #   run: |
-      #     UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output)
+      #     UPLOAD_URL=$(curl --silent -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output)
       #     echo "GitHub Release Upload URL is: $UPLOAD_URL"
       #     echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 

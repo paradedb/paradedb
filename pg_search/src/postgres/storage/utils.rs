@@ -90,7 +90,6 @@ impl BM25BufferCache {
                 let page = pg_sys::BufferGetPage(buffer);
                 if page.recyclable(self.heaprel.as_ptr()) {
                     page.init(pg_sys::BufferGetPageSize(buffer));
-                    pg_sys::RelationClose(self.heaprel.as_ptr());
                     return buffer;
                 }
 

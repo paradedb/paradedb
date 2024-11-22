@@ -1477,3 +1477,190 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
     assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana"));
     assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana split"));
 }
+
+#[rstest]
+fn multiple_aliases_same_column(mut conn: PgConnection) {
+    // Test multiple aliases pointing to the same column with different tokenizers
+    "CREATE TABLE multi_alias (
+        id SERIAL PRIMARY KEY,
+        content TEXT
+    );"
+    .execute(&mut conn);
+
+    "INSERT INTO multi_alias (content) VALUES 
+    ('running and jumping'),
+    ('ran and jumped'),
+    ('runner jumper athlete');"
+        .execute(&mut conn);
+
+    // Create index with multiple aliases for same column
+    r#"CREATE INDEX multi_alias_idx ON multi_alias
+    USING bm25 (id, content)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "content": {
+                "tokenizer": {"type": "default"}
+            },
+            "content_stem": {
+                "column": "content",
+                "tokenizer": {"type": "default", "stemmer": "English"}
+            },
+            "content_ngram": {
+                "column": "content", 
+                "tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    // Test each alias configuration
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content:running'".fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content_stem:running'".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content_ngram:run'".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn missing_source_column(mut conn: PgConnection) {
+    "CREATE TABLE missing_source (
+        id SERIAL PRIMARY KEY,
+        text_field TEXT
+    );"
+    .execute(&mut conn);
+
+    // Attempt to create index with alias pointing to non-existent column
+    let result = r#"CREATE INDEX missing_source_idx ON missing_source
+    USING bm25 (id, text_field)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "alias": {
+                "column": "nonexistent_column",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "error returned from database: 'nonexistent_column' cannot be indexed as a text field"
+    );
+}
+
+#[rstest]
+fn alias_type_mismatch(mut conn: PgConnection) {
+    "CREATE TABLE type_mismatch (
+        id SERIAL PRIMARY KEY,
+        numeric_field INTEGER,
+        text_field TEXT
+    );"
+    .execute(&mut conn);
+
+    // Try to create text alias pointing to numeric column
+    let result = r#"CREATE INDEX type_mismatch_idx ON type_mismatch
+    USING bm25 (id, numeric_field, text_field)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "wrong_type": {
+                "column": "numeric_field",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+}
+
+#[rstest]
+fn alias_chain_validation(mut conn: PgConnection) {
+    // Test that we can't create an alias that points to another alias
+    "CREATE TABLE alias_chain (
+        id SERIAL PRIMARY KEY,
+        base_field TEXT
+    );"
+    .execute(&mut conn);
+
+    let result = r#"CREATE INDEX alias_chain_idx ON alias_chain
+    USING bm25 (id, base_field)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "first_alias": {
+                "column": "base_field",
+                "tokenizer": {"type": "default"}
+            },
+            "second_alias": {
+                "column": "first_alias",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+}
+
+#[rstest]
+fn mixed_field_types_with_aliases(mut conn: PgConnection) {
+    // Test mixing different field types with aliases
+    "CREATE TABLE mixed_fields (
+        id SERIAL PRIMARY KEY,
+        text_content TEXT,
+        num_value INTEGER,
+        bool_flag BOOLEAN
+    );"
+    .execute(&mut conn);
+
+    "INSERT INTO mixed_fields (text_content, num_value, bool_flag) VALUES 
+    ('test content', 42, true),
+    ('another test', 100, false);"
+        .execute(&mut conn);
+
+    r#"CREATE INDEX mixed_fields_idx ON mixed_fields
+    USING bm25 (id, text_content, num_value, bool_flag)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "text_alias": {
+                "column": "text_content",
+                "tokenizer": {"type": "default"}
+            }
+        }',
+        numeric_fields='{
+            "num_alias": {
+                "column": "num_value"
+            }
+        }',
+        boolean_fields='{
+            "bool_alias": {
+                "column": "bool_flag"
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    // Test each type of alias
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'text_alias:test'".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'num_alias:42'".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'bool_alias:true'".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+}

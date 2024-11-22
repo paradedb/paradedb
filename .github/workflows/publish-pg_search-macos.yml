@@ -68,7 +68,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Dependencies
-        run: brew install icu4c
+        run: brew reinstall icu4c
 
       - name: Retrieve GitHub Release Upload URL
         run: |
@@ -77,7 +77,7 @@ jobs:
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
       - name: Install Dependencies
-        run: brew install jq
+        run: brew reinstall jq
 
       - name: Retrieve GitHub Release Upload URL
         run: |

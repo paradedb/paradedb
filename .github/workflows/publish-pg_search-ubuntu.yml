@@ -137,7 +137,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Dependencies
-        run: sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
+        run: sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo apt-get install -y sudo wget curl gnupg gpg lsb-release pkg-config libssl-dev jq
+
+      # Used to upload the release to GitHub Releases
+      - name: Install GitHub CLI
+        run: |
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y gh
+          gh --version
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

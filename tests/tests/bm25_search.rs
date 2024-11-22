@@ -1357,11 +1357,18 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
         id SERIAL PRIMARY KEY,
         name TEXT,
         description TEXT
-    );"
+    );
+        INSERT INTO products (name, description) VALUES 
+        ('apple', 'fruit'),
+        ('banana', 'fruit'), 
+        ('cherry', 'fruit'), 
+        ('banana split', 'fruit');
+    "
     .execute(&mut conn);
 
     // Test alias cannot be the same as key_field
-    let result = r#"CREATE INDEX products_index ON products
+    let result = r#"
+    CREATE INDEX products_index ON products
     USING bm25 (id, name, description)
     WITH (
         key_field='id',
@@ -1380,27 +1387,32 @@ fn alias_cannot_be_key_field(mut conn: PgConnection) {
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err().to_string(),
-        "key_field id cannot be included"
+        "error returned from database: cannot override BM25 configuration for key_field 'id', you must use an aliased field name and 'column' configuration key"
     );
 
     // Test valid configuration where alias is different from key_field
-    let result = r#"CREATE INDEX products_index ON products
+    r#"
+    CREATE INDEX products_index ON products
     USING bm25 (id, name, description)
     WITH (
         key_field='id',
         text_fields='{
             "name": {
                 "tokenizer": {"type": "default"}
-            },
-            "desc_stem": {
-                "source": "description",
-                "tokenizer": {"type": "default", "stemmer": "English"}
+            }
+        }',
+        numeric_fields='{
+            "id_aliased": {
+                "column": "id"
             }
         }'
     );"#
-    .execute_result(&mut conn);
+    .execute(&mut conn);
 
-    assert!(result.is_ok());
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM products WHERE id @@@ paradedb.parse('id_aliased:1')".fetch(&mut conn);
+
+    assert_eq!(rows, vec![(1,)])
 }
 
 #[rstest]
@@ -1478,7 +1490,6 @@ fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
     assert_eq!(rows[0].1, "Fitness Tracker");
 }
 
-#[ignore = "cannot find the field alias named `taste`"]
 #[rstest]
 fn more_like_this_with_alias(mut conn: PgConnection) {
     // Create the table
@@ -1506,11 +1517,11 @@ fn more_like_this_with_alias(mut conn: PgConnection) {
         key_field='id',
         text_fields='{
             "taste": {
-                "source": "flavour",
+                "column": "flavour",
                 "tokenizer": {"type": "default"}
             },
             "details": {
-                "source": "description",
+                "column": "description",
                 "tokenizer": {"type": "default"}
             }
         }'

@@ -7,8 +7,6 @@ name: Publish pg_search (Ubuntu)
 
 on:
   push:
-    branches:
-      - phil/fix-pgrx
     tags:
       - "v*"
   workflow_dispatch:
@@ -149,115 +147,115 @@ jobs:
           DEBIAN_FRONTEND=noninteractive sudo apt-get update && sudo apt-get install -y gh
           gh --version
 
-      # - name: Install Rust
-      #   uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      # - name: Retrieve OS & GitHub Tag Versions
-      #   id: version
-      #   run: |
-      #     if [ -z "${{ github.event.inputs.version }}" ]; then
-      #       if [[ $GITHUB_REF == refs/tags/v* ]]; then
-      #         VERSION=${GITHUB_REF#refs/tags/v}
-      #       else
-      #         # If there is no tag and no provided version, it's a test run and we set a default version
-      #         VERSION="0.0.0"
-      #       fi
-      #     else
-      #       VERSION=${{ github.event.inputs.version }}
-      #     fi
-      #     echo "GitHub Tag Version: $VERSION"
-      #     echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Retrieve OS & GitHub Tag Versions
+        id: version
+        run: |
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
 
-      #     OS_VERSION="$(lsb_release -cs)"
-      #     echo "OS Version: $OS_VERSION"
-      #     echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
+          OS_VERSION="$(lsb_release -cs)"
+          echo "OS Version: $OS_VERSION"
+          echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
-      # - name: Install & Configure Supported PostgreSQL Version
-      #   run: |
-      #     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-      #     sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-      #     sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
-      #     sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
-      #     echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      # - name: Extract pgrx Version
-      #   id: pgrx
-      #   working-directory: pg_search/
-      #   run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
 
-      # - name: Install pgrx
-      #   run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+      - name: Install pgrx
+        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      # - name: Initialize pgrx for Current PostgreSQL Version
-      #   working-directory: pg_search/
-      #   run: |
-      #     PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-      #     cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
+      - name: Initialize pgrx for Current PostgreSQL Version
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      # - name: Package pg_search Extension with pgrx
-      #   working-directory: pg_search/
-      #   run: |
-      #     PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-      #     cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
 
-      # - name: Create .deb Package
-      #   run: |
-      #     # Create installable package
-      #     mkdir archive
-      #     cp `find target/release -type f -name "pg_search*"` archive
-      #     package_dir=pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
+      - name: Create .deb Package
+        run: |
+          # Create installable package
+          mkdir archive
+          cp `find target/release -type f -name "pg_search*"` archive
+          package_dir=pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
-      #     # Copy files into directory structure
-      #     mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-      #     mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
-      #     cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-      #     cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-      #     cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+          # Copy files into directory structure
+          mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+          mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
+          cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+          cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+          cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
 
-      #     # Create control file (package name cannot have underscore)
-      #     mkdir -p ${package_dir}/DEBIAN
-      #     touch ${package_dir}/DEBIAN/control
-      #     deb_version=${{ steps.version.outputs.tag_version }}
-      #     CONTROL_FILE="${package_dir}/DEBIAN/control"
-      #     echo 'Package: postgresql-${{ matrix.pg_version }}-pg-search' >> $CONTROL_FILE
-      #     echo 'Version:' ${deb_version} >> $CONTROL_FILE
-      #     echo 'Section: database' >> $CONTROL_FILE
-      #     echo 'Priority: optional' >> $CONTROL_FILE
-      #     echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
-      #     echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
-      #     echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-      #     echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
+          # Create control file (package name cannot have underscore)
+          mkdir -p ${package_dir}/DEBIAN
+          touch ${package_dir}/DEBIAN/control
+          deb_version=${{ steps.version.outputs.tag_version }}
+          CONTROL_FILE="${package_dir}/DEBIAN/control"
+          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-search' >> $CONTROL_FILE
+          echo 'Version:' ${deb_version} >> $CONTROL_FILE
+          echo 'Section: database' >> $CONTROL_FILE
+          echo 'Priority: optional' >> $CONTROL_FILE
+          echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
+          echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
+          echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
+          echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
 
-      #     # Create .deb package
-      #     sudo chown -R root:root ${package_dir}
-      #     sudo chmod -R 755 ${package_dir}
-      #     sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
+          # Create .deb package
+          sudo chown -R root:root ${package_dir}
+          sudo chmod -R 755 ${package_dir}
+          sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
-      # - name: Sign and Attest Build Provenance
-      #   uses: actions/attest-build-provenance@v1
-      #   with:
-      #     subject-path: |
-      #       ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
 
-      # - name: Retrieve GitHub Release Upload URL
-      #   id: upload_url
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-      #   run: |
-      #     RESPONSE=$(gh api \
-      #       -H "Authorization: token $GH_TOKEN" \
-      #       /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
-      #     echo "REST API Response: $RESPONSE"
+      - name: Retrieve GitHub Release Upload URL
+        id: upload_url
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+        run: |
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+          echo "REST API Response: $RESPONSE"
 
-      #     UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
-      #     echo "GitHub Release Upload URL is: $UPLOAD_URL"
-      #     echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
+          echo "GitHub Release Upload URL is: $UPLOAD_URL"
+          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
-      # - name: Upload pg_search .deb to GitHub Release
-      #   uses: shogo82148/actions-upload-release-asset@v1
-      #   with:
-      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
-      #     asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
-      #     asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
-      #     overwrite: true
+      - name: Upload pg_search .deb to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
+          overwrite: true

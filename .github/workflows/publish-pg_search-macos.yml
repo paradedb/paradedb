@@ -71,10 +71,10 @@ jobs:
       - name: Install Dependencies
         run: brew reinstall icu4c
 
-      # Used to upload the release to GitHub Releases
+      # Used to upload the release to GitHub Releases. We force install gh to make sure it is in PATH.
       - name: Install GitHub CLI
         run: |
-          brew update && brew install gh
+          brew reinstall gh
           gh --version
 
       # - name: Retrieve OS & GitHub Tag Versions

@@ -22,8 +22,9 @@ use pgrx::*;
 use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::CStr;
+use tokenizers::{manager::SearchTokenizerFilters, SearchNormalizer, SearchTokenizer};
 
-use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
@@ -308,13 +309,120 @@ impl SearchIndexCreateOptions {
         Self::deserialize_config_fields(config, &SearchFieldConfig::date_from_json)
     }
 
-    #[allow(unused)]
+    fn json_value_to_search_field_config(
+        field_type: &SearchFieldType,
+        field_config: serde_json::Value,
+    ) -> SearchFieldConfig {
+        match field_type {
+            SearchFieldType::Text => SearchFieldConfig::text_from_json(field_config),
+            SearchFieldType::I64 => SearchFieldConfig::numeric_from_json(field_config),
+            SearchFieldType::F64 => SearchFieldConfig::numeric_from_json(field_config),
+            SearchFieldType::U64 => SearchFieldConfig::numeric_from_json(field_config),
+            SearchFieldType::Bool => SearchFieldConfig::boolean_from_json(field_config),
+            SearchFieldType::Json => SearchFieldConfig::json_from_json(field_config),
+            SearchFieldType::Date => SearchFieldConfig::date_from_json(field_config),
+            SearchFieldType::Range => SearchFieldConfig::range_from_json(field_config),
+        }
+        .expect("field config should be valid for SearchFieldConfig::{field_name}")
+    }
+
+    pub fn get_key_field(&self) -> Option<SearchFieldName> {
+        let key_field_name = self.get_str(self.key_field_offset, "".to_string());
+        if key_field_name.is_empty() {
+            return None;
+        }
+        Some(SearchFieldName(key_field_name))
+    }
+
+    fn get_key_field_config(
+        &self,
+        heaprel: &PgRelation,
+    ) -> (SearchFieldName, SearchFieldConfig, SearchFieldType) {
+        // Create a map from column name to column type. We'll use this to verify that index
+        // configurations passed by the user reference the correct types for each column.
+        let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heaprel
+            .tuple_desc()
+            .into_iter()
+            .filter_map(|attribute| {
+                let attname = attribute.name();
+                let attribute_type_oid = attribute.type_oid();
+                let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+                let base_oid = if array_type != pg_sys::InvalidOid {
+                    PgOid::from(array_type)
+                } else {
+                    attribute_type_oid
+                };
+                if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
+                    Some((attname.into(), search_field_type))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let key_field_name = self.get_key_field().expect("must specfiy key_field");
+        let key_field_type = match name_type_map.get(&key_field_name) {
+            Some(field_type) => field_type,
+            None => panic!("key field does not exist"),
+        };
+        let key_field_config = match key_field_type {
+            SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
+                SearchFieldConfig::Numeric {
+                    indexed: true,
+                    fast: true,
+                    stored: true,
+                    column: None,
+                }
+            }
+            SearchFieldType::Text => SearchFieldConfig::Text {
+                indexed: true,
+                fast: true,
+                stored: true,
+                fieldnorms: false,
+                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+                record: IndexRecordOption::Basic,
+                normalizer: SearchNormalizer::Raw,
+                column: None,
+            },
+            SearchFieldType::Json => SearchFieldConfig::Json {
+                indexed: true,
+                fast: true,
+                stored: true,
+                fieldnorms: false,
+                expand_dots: false,
+                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+                record: IndexRecordOption::Basic,
+                normalizer: SearchNormalizer::Raw,
+                column: None,
+            },
+            SearchFieldType::Range => SearchFieldConfig::Range {
+                stored: true,
+                column: None,
+            },
+            SearchFieldType::Bool => SearchFieldConfig::Boolean {
+                indexed: true,
+                fast: true,
+                stored: true,
+                column: None,
+            },
+            SearchFieldType::Date => SearchFieldConfig::Date {
+                indexed: true,
+                fast: true,
+                stored: true,
+                column: None,
+            },
+        };
+
+        (key_field_name.into(), key_field_config, *key_field_type)
+    }
+
     pub fn get_fields(
         &self,
         heaprel: &PgRelation,
         index_info: *mut pg_sys::IndexInfo,
     ) -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
         let tupdesc = heaprel.tuple_desc();
+        let (key_field_name, key_field_config, key_field_type) = self.get_key_field_config(heaprel);
 
         let mut config_by_name = [
             self.text_fields_offset,
@@ -334,23 +442,8 @@ impl SearchIndexCreateOptions {
         })
         .collect::<HashMap<_, _>>();
 
-        let _ = unsafe {
-            let num_attrs = (*index_info).ii_NumIndexAttrs;
-            (0..num_attrs)
-                .map(|i| {
-                    let attr_number = (*index_info).ii_IndexAttrNumbers[i as usize];
-                    let attribute = tupdesc
-                        .get((attr_number - 1) as usize)
-                        .expect("attribute should exist");
-                    let column_name = attribute.name();
-                    let column_type_oid = attribute.type_oid();
-                    (column_name, column_type_oid)
-                })
-                .collect::<Vec<_>>()
-        };
-
         let num_index_attrs = unsafe { (*index_info).ii_NumIndexAttrs };
-        (0..num_index_attrs)
+        let mut fields_by_name = (0..num_index_attrs)
             .map(|i| {
                 let attr_number = unsafe { (*index_info).ii_IndexAttrNumbers[i as usize] };
                 let attribute = tupdesc
@@ -370,36 +463,55 @@ impl SearchIndexCreateOptions {
                     panic!("cannot index column '{column_name}' with type {base_oid:?}: {err}")
                 });
 
-                let field_config = config_by_name
+                if column_name == key_field_name.0 && config_by_name.contains_key(column_name){
+                    panic!("cannot override BM25 configuration for key_field '{column_name}', you must use an aliased field name and 'column' configuration key");
+                }
+
+                let json_config = config_by_name
                     .remove(column_name)
                     .unwrap_or_else(|| json!({}));
 
                 (
-                    column_name.into(),
-                    match field_type {
-                        SearchFieldType::Text => SearchFieldConfig::text_from_json(field_config),
-                        SearchFieldType::I64 => SearchFieldConfig::numeric_from_json(field_config),
-                        SearchFieldType::F64 => SearchFieldConfig::numeric_from_json(field_config),
-                        SearchFieldType::U64 => SearchFieldConfig::numeric_from_json(field_config),
-                        SearchFieldType::Bool => SearchFieldConfig::boolean_from_json(field_config),
-                        SearchFieldType::Json => SearchFieldConfig::json_from_json(field_config),
-                        SearchFieldType::Date => SearchFieldConfig::date_from_json(field_config),
-                        SearchFieldType::Range => SearchFieldConfig::range_from_json(field_config),
-                    }
-                    .expect("field config should be valid for SearchFieldConfig::{field_name}"),
-                    field_type,
+                    column_name.to_string(),
+                    (
+                        column_name.into(),
+                        Self::json_value_to_search_field_config(&field_type, json_config),
+                        field_type,
+                    ),
                 )
             })
-            .collect()
-    }
+            .collect::<HashMap<_, _>>();
 
-    pub fn get_key_field(&self) -> Option<SearchFieldName> {
-        let key_field = self.get_str(self.key_field_offset, "".to_string());
-        if key_field.is_empty() {
-            None
-        } else {
-            Some(key_field.into())
+        // Ensure the key_field entry has the correct default values.
+        fields_by_name.insert(
+            key_field_name.0.clone(),
+            (key_field_name, key_field_config, key_field_type),
+        );
+
+        // Iterate through all the configured fields to check for fields configured that don't
+        // have a matching Postgres column (for features like multiple tokenizers).
+        // Above, we've mutated config_by_name and removed entries that have a matching
+        // Postgres column, so all the entries below are aliases.
+        for (name, json_config) in config_by_name {
+            // A field not corresponding to a Postgres table column MUST have a 'column' key
+            // on the configuration, telling us which column contains the data to index.
+            if let Some(column) = json_config.get("column").and_then(|c| c.as_str()) {
+                if let Some((_, _, field_type)) = fields_by_name.get(column) {
+                    fields_by_name.insert(
+                        name.to_string(),
+                        (
+                            SearchFieldName(name.to_string()),
+                            Self::json_value_to_search_field_config(&field_type, json_config),
+                            field_type.clone(),
+                        ),
+                    );
+                }
+            } else {
+                panic!("Field '{name}' does not match any column, and has no 'column' key")
+            }
         }
+
+        fields_by_name.into_values().collect()
     }
 
     pub fn target_segment_count(&self) -> usize {

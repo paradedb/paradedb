@@ -432,7 +432,7 @@ mod tests {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             blocks,
             total_bytes: 100 as usize,
-            xid: u32,
+            xid: 0,
         };
         let (item, size) = segment.as_pg_item();
         let deserialized_segment = SegmentComponentOpaque::from_pg_item(item, size);

@@ -244,26 +244,20 @@ impl<T: LinkedItem + Debug> LinkedItemList<T> {
 /// where each node is a page filled with bytes (with the potential exception of the last page)
 pub struct LinkedBytesList {
     relation_oid: pg_sys::Oid,
-    get_first_blockno: fn(*mut MetaPageData) -> pg_sys::BlockNumber,
-    get_last_blockno: fn(*mut MetaPageData) -> pg_sys::BlockNumber,
-    set_first_blockno: fn(*mut MetaPageData, pg_sys::BlockNumber),
-    set_last_blockno: fn(*mut MetaPageData, pg_sys::BlockNumber),
+    first_blockno: pg_sys::BlockNumber,
+    last_blockno: pg_sys::BlockNumber,
 }
 
 impl LinkedBytesList {
     pub fn new(
         relation_oid: pg_sys::Oid,
-        get_first_blockno: fn(*mut MetaPageData) -> pg_sys::BlockNumber,
-        get_last_blockno: fn(*mut MetaPageData) -> pg_sys::BlockNumber,
-        set_first_blockno: fn(*mut MetaPageData, pg_sys::BlockNumber),
-        set_last_blockno: fn(*mut MetaPageData, pg_sys::BlockNumber),
+        first_blockno: pg_sys::BlockNumber,
+        last_blockno: pg_sys::BlockNumber,
     ) -> Self {
         Self {
             relation_oid,
-            get_first_blockno,
-            get_last_blockno,
-            set_first_blockno,
-            set_last_blockno,
+            first_blockno,
+            last_blockno,
         }
     }
 
@@ -273,14 +267,8 @@ impl LinkedBytesList {
         overwrite: bool,
     ) -> Result<Vec<pg_sys::BlockNumber>> {
         let cache = BM25BufferCache::open(self.relation_oid);
-        // It's important that we hold this lock for the duration of the function because we may be overwriting the list
-        let metadata_buffer =
-            cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-
         if overwrite {
-            let mut blockno = (self.get_first_blockno)(metadata);
+            let mut blockno = self.first_blockno;
 
             while blockno != pg_sys::InvalidBlockNumber {
                 let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
@@ -295,14 +283,14 @@ impl LinkedBytesList {
 
             let new_buffer = cache.new_buffer();
             let new_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
-            (self.set_first_blockno)(metadata, new_blockno);
-            (self.set_last_blockno)(metadata, new_blockno);
+            self.first_blockno = new_blockno;
+            self.last_blockno = new_blockno;
 
             pg_sys::MarkBufferDirty(new_buffer);
             pg_sys::UnlockReleaseBuffer(new_buffer);
         }
 
-        let mut insert_blockno = (self.get_last_blockno)(metadata);
+        let mut insert_blockno = self.last_blockno;
         let mut insert_buffer =
             cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
         let mut insert_page = pg_sys::BufferGetPage(insert_buffer);
@@ -329,7 +317,7 @@ impl LinkedBytesList {
                     pg_sys::UnlockReleaseBuffer(insert_buffer);
 
                     insert_buffer = new_buffer;
-                    (self.set_last_blockno)(metadata, new_blockno);
+                    self.last_blockno = new_blockno;
                     blocks_created.push(new_blockno);
 
                     continue;
@@ -348,7 +336,6 @@ impl LinkedBytesList {
         unsafe {
             pg_sys::MarkBufferDirty(insert_buffer);
             pg_sys::UnlockReleaseBuffer(insert_buffer);
-            pg_sys::UnlockReleaseBuffer(metadata_buffer);
         };
 
         Ok(blocks_created)
@@ -356,13 +343,8 @@ impl LinkedBytesList {
 
     pub unsafe fn read_all(&self) -> Vec<u8> {
         let cache = BM25BufferCache::open(self.relation_oid);
-        let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-        let mut blockno = (self.get_first_blockno)(metadata);
+        let mut blockno = self.first_blockno;
         let mut bytes: Vec<u8> = vec![];
-
-        pg_sys::UnlockReleaseBuffer(metadata_buffer);
 
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
@@ -457,14 +439,12 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let mut linked_list = LinkedBytesList::new(
-            relation_oid,
-            |metadata| unsafe { (*metadata).segment_component_first_blockno },
-            |metadata| unsafe { (*metadata).segment_component_last_blockno },
-            |metadata, blockno| unsafe { (*metadata).segment_component_first_blockno = blockno },
-            |metadata, blockno| unsafe { (*metadata).segment_component_last_blockno = blockno },
-        );
+        let cache = BM25BufferCache::open(relation_oid);
+        let buffer = cache.new_buffer();
+        let blockno = pg_sys::BufferGetBlockNumber(buffer);
+        pg_sys::UnlockReleaseBuffer(buffer);
 
+        let mut linked_list = LinkedBytesList::new(relation_oid, blockno, blockno);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let blocks = linked_list.write(&bytes, true);
         let read_bytes = linked_list.read_all();

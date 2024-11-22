@@ -8,7 +8,7 @@ use tantivy::Directory;
 
 use crate::index::blocking::{BlockingDirectory, SEGMENT_COMPONENT_CACHE};
 use crate::postgres::storage::block::{bm25_max_free_space, SegmentComponentOpaque};
-use crate::postgres::storage::linked_list::LinkedItemList;
+use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
 
 #[derive(Clone, Debug)]
@@ -41,50 +41,17 @@ impl SegmentComponentWriter {
 
 impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
-        let cache = &mut self.cache;
-        let mut current_buffer = unsafe {
-            cache.get_buffer(
-                *self.blocks.last().expect("blocks should not be empty"),
-                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            )
-        };
-        let mut data_cursor = Cursor::new(data);
-        let mut bytes_written = 0;
+        let mut linked_list = LinkedBytesList::new(
+            self.relation_oid,
+            self.blocks[0],
+            self.blocks[self.blocks.len() - 1],
+        );
 
-        while bytes_written < data.len() {
-            unsafe {
-                let page = pg_sys::BufferGetPage(current_buffer);
-                let header = page as *mut pg_sys::PageHeaderData;
-                let free_space = ((*header).pd_upper - (*header).pd_lower) as usize;
-                assert!(free_space <= bm25_max_free_space());
+        let mut blocks = unsafe { linked_list.write(data, false).expect("write should succeed") };
+        self.blocks.append(&mut blocks);
+        self.total_bytes += data.len();
 
-                let bytes_to_write = min(free_space, data.len() - bytes_written);
-                if bytes_to_write == 0 {
-                    let new_buffer = cache.new_buffer();
-                    self.blocks.push(pg_sys::BufferGetBlockNumber(new_buffer));
-                    pg_sys::MarkBufferDirty(current_buffer);
-                    pg_sys::UnlockReleaseBuffer(current_buffer);
-                    current_buffer = new_buffer;
-                    continue;
-                }
-
-                let page_slice = from_raw_parts_mut(
-                    (page as *mut u8).add((*header).pd_lower as usize),
-                    bytes_to_write,
-                );
-                data_cursor.read_exact(page_slice)?;
-                bytes_written += bytes_to_write;
-                (*header).pd_lower += bytes_to_write as u16;
-            }
-        }
-
-        unsafe {
-            pg_sys::MarkBufferDirty(current_buffer);
-            pg_sys::UnlockReleaseBuffer(current_buffer);
-        };
-
-        self.total_bytes += bytes_written;
-        Ok(bytes_written)
+        Ok(data.len())
     }
 
     fn flush(&mut self) -> Result<()> {

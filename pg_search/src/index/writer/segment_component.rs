@@ -7,7 +7,9 @@ use tantivy::directory::{AntiCallToken, Lock, TerminatingWrite, MANAGED_LOCK};
 use tantivy::Directory;
 
 use crate::index::blocking::{BlockingDirectory, SEGMENT_COMPONENT_CACHE};
-use crate::postgres::storage::block::{bm25_max_free_space, SegmentComponentOpaque, BlockNumberList};
+use crate::postgres::storage::block::{
+    bm25_max_free_space, BlockNumberList, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO,
+};
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
 
@@ -42,7 +44,8 @@ impl SegmentComponentWriter {
 impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
         let mut segment_component = LinkedBytesList::open(self.relation_oid, self.blocks[0]);
-        let mut block_created = unsafe { segment_component.write(data).expect("write should succeed") };
+        let mut block_created =
+            unsafe { segment_component.write(data).expect("write should succeed") };
         self.blocks.append(&mut block_created);
         self.total_bytes += data.len();
         Ok(data.len())
@@ -69,41 +72,37 @@ impl TerminatingWrite for SegmentComponentWriter {
         let mut block_list = LinkedBytesList::open(self.relation_oid, blockno);
         let bytes: Vec<u8> = BlockNumberList(self.blocks.clone()).into();
         unsafe {
-            block_list
-                .write(&bytes)
-                .expect("write should succeed");
+            block_list.write(&bytes).expect("write should succeed");
         }
 
-        let mut linked_list = unsafe {
-            LinkedItemList::<SegmentComponentOpaque>::new(
-                self.relation_oid,
-                |metadata| (*metadata).segment_component_first_blockno,
-                |metadata| (*metadata).segment_component_last_blockno,
-                |metadata, blockno| (*metadata).segment_component_first_blockno = blockno,
-                |metadata, blockno| (*metadata).segment_component_last_blockno = blockno,
-            )
-        };
-
-        let opaque = SegmentComponentOpaque {
-            path: self.path.clone(),
-            total_bytes: self.total_bytes,
-            start: blockno,
-            xid: unsafe { pg_sys::GetCurrentTransactionId() },
-        };
-
-        let directory = BlockingDirectory::new(self.relation_oid);
-        let _lock = directory.acquire_lock(&Lock {
-            filepath: MANAGED_LOCK.filepath.clone(),
-            is_blocking: true,
-        });
-
+        // TODO: Abstract this away
         unsafe {
-            linked_list
-                .add_items(vec![opaque.clone()], false, |opaque, blockno, offsetno| {
-                    SEGMENT_COMPONENT_CACHE
-                        .write()
-                        .insert(opaque.path.clone(), (opaque.clone(), blockno, offsetno));
-                })
+            let metadata_buffer =
+                cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
+            let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+            let start_blockno = (*metadata).segment_component_first_blockno;
+            pg_sys::UnlockReleaseBuffer(metadata_buffer);
+
+            let mut segment_components = unsafe {
+                LinkedItemList::<SegmentComponentOpaque>::open(self.relation_oid, start_blockno)
+            };
+
+            let opaque = SegmentComponentOpaque {
+                path: self.path.clone(),
+                total_bytes: self.total_bytes,
+                start: blockno,
+                xid: unsafe { pg_sys::GetCurrentTransactionId() },
+            };
+
+            let directory = BlockingDirectory::new(self.relation_oid);
+            let _lock = directory.acquire_lock(&Lock {
+                filepath: MANAGED_LOCK.filepath.clone(),
+                is_blocking: true,
+            });
+
+            segment_components
+                .write(vec![opaque.clone()])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
 

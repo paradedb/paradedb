@@ -41,7 +41,7 @@ use crate::postgres::storage::block::{
     SegmentComponentOpaque, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
     META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
 };
-use crate::postgres::storage::linked_list::{LinkedItem, LinkedItemList};
+use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 
 /// Defined by Tantivy in core/mod.rs
@@ -78,45 +78,6 @@ impl Drop for BlockingLock {
                 pg_sys::UnlockReleaseBuffer(self.buffer)
             }
         };
-    }
-}
-
-impl LinkedItem for PathBuf {
-    fn from_pg_item(item: pg_sys::Item, size: pg_sys::Size) -> Self {
-        unsafe {
-            PathBuf::from(
-                std::str::from_utf8(std::slice::from_raw_parts(item as *const u8, size))
-                    .expect("expected valid Utf-8"),
-            )
-        }
-    }
-
-    fn as_pg_item(&self) -> (pg_sys::Item, pg_sys::Size) {
-        let path_str = self.to_str().expect("file path is not valid UTF-8");
-        (
-            path_str.as_pg_cstr() as pg_sys::Item,
-            path_str.as_bytes().len() as pg_sys::Size,
-        )
-    }
-}
-
-impl LinkedItem for SegmentComponentOpaque {
-    fn from_pg_item(item: pg_sys::Item, size: pg_sys::Size) -> Self {
-        let opaque: SegmentComponentOpaque = unsafe {
-            serde_json::from_slice(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid SegmentComponent")
-        };
-        opaque
-    }
-
-    fn as_pg_item(&self) -> (pg_sys::Item, pg_sys::Size) {
-        let bytes: Vec<u8> =
-            serde_json::to_vec(self).expect("expected to serialize valid SegmentComponent");
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        (pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
     }
 }
 
@@ -182,26 +143,18 @@ impl BlockingDirectory {
         &self,
         path: &Path,
     ) -> Result<SegmentComponentCacheEntry> {
-        if let Some(entry) = SEGMENT_COMPONENT_CACHE.read().get(path) {
-            return Ok(entry.clone());
-        }
+        let cache = BM25BufferCache::open(self.relation_oid);
+        let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
+        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
+        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+        let start_blockno = (*metadata).segment_component_first_blockno;
+        pg_sys::UnlockReleaseBuffer(metadata_buffer);
 
-        let linked_list = LinkedItemList::<SegmentComponentOpaque>::new(
-            self.relation_oid,
-            |metadata| (*metadata).segment_component_first_blockno,
-            |metadata| (*metadata).segment_component_last_blockno,
-            |metadata, blockno| (*metadata).segment_component_first_blockno = blockno,
-            |metadata, blockno| (*metadata).segment_component_last_blockno = blockno,
-        );
+        let segment_components =
+            LinkedItemList::<SegmentComponentOpaque>::open(self.relation_oid, start_blockno);
 
-        let result = linked_list.lookup(
-            |opaque| opaque.path == path,
-            |opaque, blockno, offsetno| {
-                SEGMENT_COMPONENT_CACHE
-                    .write()
-                    .insert(opaque.path.clone(), (opaque.clone(), blockno, offsetno));
-            },
-        )?;
+        let result = segment_components.lookup(|opaque| opaque.path == path)?;
+
         Ok(result)
     }
 }
@@ -380,16 +333,19 @@ impl Directory for BlockingDirectory {
     }
 
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
-        let linked_list = LinkedItemList::<SegmentComponentOpaque>::new(
-            self.relation_oid,
-            |metadata| unsafe { (*metadata).segment_component_first_blockno },
-            |metadata| unsafe { (*metadata).segment_component_last_blockno },
-            |metadata, blockno| unsafe { (*metadata).segment_component_first_blockno = blockno },
-            |metadata, blockno| unsafe { (*metadata).segment_component_last_blockno = blockno },
-        );
-
         unsafe {
-            Ok(linked_list
+            let cache = BM25BufferCache::open(self.relation_oid);
+            let metadata_buffer =
+                cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
+            let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+            let start_blockno = (*metadata).segment_component_first_blockno;
+            pg_sys::UnlockReleaseBuffer(metadata_buffer);
+
+            let segment_components =
+                LinkedItemList::<SegmentComponentOpaque>::open(self.relation_oid, start_blockno);
+
+            Ok(segment_components
                 .list_all_items()
                 .map_err(|err| TantivyError::InternalError(err.to_string()))?
                 .into_iter()
@@ -418,27 +374,6 @@ mod tests {
     use pgrx::prelude::*;
     use std::collections::HashSet;
     use uuid::Uuid;
-
-    #[pg_test]
-    fn test_pathbuf_linked_item() {
-        let actual_path = PathBuf::from(format!("{}.ext", Uuid::new_v4()));
-        let (item, size) = actual_path.as_pg_item();
-        let deserialized_path = PathBuf::from_pg_item(item, size);
-        assert_eq!(actual_path, deserialized_path);
-    }
-
-    #[pg_test]
-    fn test_segment_component_opaque_linked_item() {
-        let segment = SegmentComponentOpaque {
-            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-            start: 0,
-            total_bytes: 100 as usize,
-            xid: 0,
-        };
-        let (item, size) = segment.as_pg_item();
-        let deserialized_segment = SegmentComponentOpaque::from_pg_item(item, size);
-        assert_eq!(segment, deserialized_segment);
-    }
 
     #[pg_test]
     fn test_register_single_file_as_managed() {

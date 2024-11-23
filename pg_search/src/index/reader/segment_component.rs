@@ -8,7 +8,7 @@ use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
 use crate::postgres::storage::block::{
-    bm25_max_free_space, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO, BlockNumberList
+    bm25_max_free_space, BlockNumberList, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;

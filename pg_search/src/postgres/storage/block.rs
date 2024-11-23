@@ -54,11 +54,13 @@
 // ...LP_UPPER
 // LP_SPECIAL: [next_page BlockNumber, deleted bool, delete_xid TransactionId]
 
+use super::linked_list::PgItem;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
+use std::slice::from_raw_parts;
 
 pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the entire index
 pub const INDEX_WRITER_LOCK_BLOCKNO: pg_sys::BlockNumber = 1; // Used for Tantivy's INDEX_WRITER_LOCK
@@ -153,10 +155,34 @@ impl Into<Vec<u8>> for BlockNumberList {
     }
 }
 
+impl From<PgItem> for SegmentComponentOpaque {
+    fn from(pg_item: PgItem) -> Self {
+        let PgItem(item, size) = pg_item;
+        let opaque: SegmentComponentOpaque = unsafe {
+            serde_json::from_slice(from_raw_parts(item as *const u8, size))
+                .expect("expected to deserialize valid SegmentComponent")
+        };
+        opaque
+    }
+}
+
+impl Into<PgItem> for SegmentComponentOpaque {
+    fn into(self) -> PgItem {
+        let bytes: Vec<u8> =
+            serde_json::to_vec(&self).expect("expected to serialize valid SegmentComponent");
+        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
+        }
+        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+    }
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[pg_test]
     unsafe fn test_block_number_list() {
@@ -165,5 +191,18 @@ mod tests {
         let bytes: Vec<u8> = blockno_list.into();
         let blockno_list_from_bytes = BlockNumberList::from(&bytes[..]);
         assert_eq!(blocknos, blockno_list_from_bytes.0);
+    }
+
+    #[pg_test]
+    fn test_segment_component_opaque_into() {
+        let segment = SegmentComponentOpaque {
+            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+            start: 0,
+            total_bytes: 100 as usize,
+            xid: 0,
+        };
+        let pg_item: PgItem = segment.clone().into();
+        let segment_from_pg_item: SegmentComponentOpaque = pg_item.into();
+        assert_eq!(segment, segment_from_pg_item);
     }
 }

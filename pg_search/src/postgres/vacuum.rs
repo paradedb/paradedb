@@ -21,7 +21,7 @@ use crate::index::channel::{
 };
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::SegmentComponentOpaque;
+use crate::postgres::storage::block::{MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO};
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use anyhow::Result;
@@ -144,6 +144,7 @@ unsafe fn vacuum_segment_components(
     paths_deleted: Vec<PathBuf>,
 ) -> Result<()> {
     let directory = BlockingDirectory::new(relation_oid);
+    let cache = BM25BufferCache::open(relation_oid);
     // This lock is necessary because we are reading the segment components list, appending, and then overwriting
     // If another process were to insert a segment component while we are doing this, that component would be forever lost
     let _lock = directory.acquire_lock(&Lock {
@@ -151,28 +152,23 @@ unsafe fn vacuum_segment_components(
         is_blocking: true,
     });
 
-    let mut segment_components_list = unsafe {
-        LinkedItemList::<SegmentComponentOpaque>::new(
-            relation_oid,
-            |metadata| (*metadata).segment_component_first_blockno,
-            |metadata| (*metadata).segment_component_last_blockno,
-            |metadata, blockno| (*metadata).segment_component_first_blockno = blockno,
-            |metadata, blockno| (*metadata).segment_component_last_blockno = blockno,
-        )
-    };
+    let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
+    let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
+    let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+    let start_blockno = (*metadata).segment_component_first_blockno;
+    pg_sys::UnlockReleaseBuffer(metadata_buffer);
+
+    let mut old_segment_components =
+        unsafe { LinkedItemList::<SegmentComponentOpaque>::open(relation_oid, start_blockno) };
 
     let alive_segment_components =
-        alive_segment_components(&segment_components_list, paths_deleted.clone())?;
+        alive_segment_components(&old_segment_components, paths_deleted.clone())?;
 
-    segment_components_list.add_items(
-        alive_segment_components,
-        true,
-        |opaque, blockno, offsetno| {
-            SEGMENT_COMPONENT_CACHE
-                .write()
-                .insert(opaque.path.clone(), (opaque.clone(), blockno, offsetno));
-        },
-    )
+    old_segment_components.delete();
+
+    let mut new_segment_components = LinkedItemList::<SegmentComponentOpaque>::create(relation_oid);
+    // TODO: Change metadata segment components first blockno
+    new_segment_components.write(alive_segment_components)
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -202,15 +198,15 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let mut segment_components_list = unsafe {
-            LinkedItemList::<SegmentComponentOpaque>::new(
-                relation_oid,
-                |metadata| (*metadata).segment_component_first_blockno,
-                |metadata| (*metadata).segment_component_last_blockno,
-                |metadata, blockno| (*metadata).segment_component_first_blockno = blockno,
-                |metadata, blockno| (*metadata).segment_component_last_blockno = blockno,
-            )
-        };
+        let cache = BM25BufferCache::open(relation_oid);
+        let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
+        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
+        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+        let start_blockno = (*metadata).segment_component_first_blockno;
+        pg_sys::UnlockReleaseBuffer(metadata_buffer);
+
+        let mut segment_components_list =
+            unsafe { LinkedItemList::<SegmentComponentOpaque>::open(relation_oid, start_blockno) };
 
         let paths = (0..3)
             .map(|_| PathBuf::from(format!("{:?}.term", Uuid::new_v4())))
@@ -227,7 +223,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         segment_components_list
-            .add_items(segments_to_vacuum.clone(), true, |_, _, _| {})
+            .write(segments_to_vacuum.clone())
             .unwrap();
 
         let dead_paths = vec![paths[0].clone(), paths[2].clone()];

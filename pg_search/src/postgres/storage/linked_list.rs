@@ -17,6 +17,7 @@
 
 use super::block::{BM25PageSpecialData, MetaPageData, METADATA_BLOCKNO};
 use super::utils::{BM25BufferCache, BM25Page};
+use crate::postgres::storage::block::bm25_max_free_space;
 use anyhow::{bail, Result};
 use pgrx::pg_sys;
 use std::cmp::min;
@@ -24,88 +25,72 @@ use std::fmt::Debug;
 use std::io::{Cursor, Read};
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
-use crate::postgres::storage::block::bm25_max_free_space;
-
-pub trait LinkedItem {
-    fn from_pg_item(item: pg_sys::Item, size: pg_sys::Size) -> Self;
-    fn as_pg_item(&self) -> (pg_sys::Item, pg_sys::Size);
-}
+pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 /// Linked list implementation over block storage,
 /// where each node in the list is a pg_sys::Item
-pub struct LinkedItemList<T: LinkedItem + Debug> {
+pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug> {
     relation_oid: pg_sys::Oid,
-    get_first_blockno: fn(*mut MetaPageData) -> pg_sys::BlockNumber,
-    get_last_blockno: fn(*mut MetaPageData) -> pg_sys::BlockNumber,
-    set_first_blockno: fn(*mut MetaPageData, pg_sys::BlockNumber),
-    set_last_blockno: fn(*mut MetaPageData, pg_sys::BlockNumber),
+    start: pg_sys::BlockNumber,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: LinkedItem + Debug> LinkedItemList<T> {
-    pub fn new(
-        relation_oid: pg_sys::Oid,
-        get_first_blockno: fn(*mut MetaPageData) -> pg_sys::BlockNumber,
-        get_last_blockno: fn(*mut MetaPageData) -> pg_sys::BlockNumber,
-        set_first_blockno: fn(*mut MetaPageData, pg_sys::BlockNumber),
-        set_last_blockno: fn(*mut MetaPageData, pg_sys::BlockNumber),
-    ) -> Self {
+impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
+    pub fn open(relation_oid: pg_sys::Oid, start: pg_sys::BlockNumber) -> Self {
         Self {
             relation_oid,
-            get_first_blockno,
-            get_last_blockno,
-            set_first_blockno,
-            set_last_blockno,
+            start,
             _marker: std::marker::PhantomData,
         }
     }
 
-    pub unsafe fn add_items<CacheFn>(
-        &mut self,
-        items: Vec<T>,
-        overwrite: bool,
-        update_cache: CacheFn,
-    ) -> Result<()>
-    where
-        CacheFn: Fn(&T, pg_sys::BlockNumber, pg_sys::OffsetNumber),
-    {
-        let cache = BM25BufferCache::open(self.relation_oid);
-        // It's important that we hold this lock for the duration of the function because we may be overwriting the list
-        let metadata_buffer =
-            cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+    pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
+        let cache = BM25BufferCache::open(relation_oid);
+        let start_buffer = cache.new_buffer();
+        let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
+        pg_sys::UnlockReleaseBuffer(start_buffer);
 
-        if overwrite {
-            let mut blockno = (self.get_first_blockno)(metadata);
-
-            while blockno != pg_sys::InvalidBlockNumber {
-                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                let page = pg_sys::BufferGetPage(buffer);
-                let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-                blockno = (*special).next_blockno;
-                page.mark_deleted();
-
-                pg_sys::MarkBufferDirty(buffer);
-                pg_sys::UnlockReleaseBuffer(buffer);
-            }
-
-            let new_buffer = cache.new_buffer();
-            let new_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
-            (self.set_first_blockno)(metadata, new_blockno);
-            (self.set_last_blockno)(metadata, new_blockno);
-
-            pg_sys::MarkBufferDirty(new_buffer);
-            pg_sys::UnlockReleaseBuffer(new_buffer);
+        Self {
+            relation_oid,
+            start: start_blockno,
+            _marker: std::marker::PhantomData,
         }
+    }
 
-        let mut insert_blockno = (self.get_last_blockno)(metadata);
+    pub unsafe fn delete(&self) {
+        let cache = BM25BufferCache::open(self.relation_oid);
+        let mut blockno = self.start;
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            blockno = (*special).next_blockno;
+            page.mark_deleted();
+
+            pg_sys::MarkBufferDirty(buffer);
+            pg_sys::UnlockReleaseBuffer(buffer);
+        }
+    }
+
+    pub unsafe fn write(&mut self, items: Vec<T>) -> Result<()> {
+        let cache = BM25BufferCache::open(self.relation_oid);
+
+        let start_buffer = cache.get_buffer(self.start, Some(pg_sys::BUFFER_LOCK_SHARE));
+        let page = pg_sys::BufferGetPage(start_buffer);
+        let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+        let mut insert_blockno = if (*special).last_blockno == pg_sys::InvalidBlockNumber {
+            self.start
+        } else {
+            (*special).last_blockno
+        };
+        pg_sys::UnlockReleaseBuffer(start_buffer);
+
         let mut insert_buffer =
             cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
         let mut insert_page = pg_sys::BufferGetPage(insert_buffer);
 
-        for item in &items {
-            let (pg_item, size) = item.as_pg_item();
+        for item in items {
+            let PgItem(pg_item, size) = item.into();
             let mut offsetno = pg_sys::PageAddItemExtended(
                 insert_page,
                 pg_item,
@@ -118,16 +103,21 @@ impl<T: LinkedItem + Debug> LinkedItemList<T> {
                     pg_sys::PageGetSpecialPointer(insert_page) as *mut BM25PageSpecialData;
                 let new_buffer = cache.new_buffer();
                 let new_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
-                (self.set_last_blockno)(metadata, new_blockno);
                 (*special).next_blockno = new_blockno;
 
-                pg_sys::MarkBufferDirty(metadata_buffer);
                 pg_sys::MarkBufferDirty(insert_buffer);
                 pg_sys::UnlockReleaseBuffer(insert_buffer);
 
                 insert_buffer = new_buffer;
                 insert_blockno = new_blockno;
                 insert_page = pg_sys::BufferGetPage(insert_buffer);
+
+                let start_buffer =
+                    cache.get_buffer(self.start, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                let page = pg_sys::BufferGetPage(start_buffer);
+                let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+                (*special).last_blockno = new_blockno;
+                pg_sys::UnlockReleaseBuffer(start_buffer);
 
                 offsetno = pg_sys::PageAddItemExtended(
                     insert_page,
@@ -139,37 +129,26 @@ impl<T: LinkedItem + Debug> LinkedItemList<T> {
 
                 if offsetno == pg_sys::InvalidOffsetNumber {
                     pg_sys::UnlockReleaseBuffer(insert_buffer);
-                    pg_sys::UnlockReleaseBuffer(metadata_buffer);
-                    bail!("Failed to add item {:?}", item);
+                    bail!("Failed to add item");
                 }
             }
-
-            update_cache(item, insert_blockno, offsetno);
         }
 
         pg_sys::MarkBufferDirty(insert_buffer);
         pg_sys::UnlockReleaseBuffer(insert_buffer);
-        pg_sys::UnlockReleaseBuffer(metadata_buffer);
 
         Ok(())
     }
 
-    pub unsafe fn lookup<EqFn, CacheFn>(
+    pub unsafe fn lookup<EqFn>(
         &self,
         eq: EqFn,
-        update_cache: CacheFn,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)>
     where
         EqFn: Fn(&T) -> bool,
-        CacheFn: Fn(&T, pg_sys::BlockNumber, pg_sys::OffsetNumber),
     {
         let cache = BM25BufferCache::open(self.relation_oid);
-        let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-        let mut blockno = (self.get_first_blockno)(metadata);
-
-        pg_sys::UnlockReleaseBuffer(metadata_buffer);
+        let mut blockno = self.start;
 
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
@@ -178,12 +157,10 @@ impl<T: LinkedItem + Debug> LinkedItemList<T> {
 
             while offsetno <= pg_sys::PageGetMaxOffsetNumber(page) {
                 let item_id = pg_sys::PageGetItemId(page, offsetno);
-                let deserialized = T::from_pg_item(
+                let deserialized = T::from(PgItem(
                     pg_sys::PageGetItem(page, item_id),
                     (*item_id).lp_len() as pg_sys::Size,
-                );
-
-                update_cache(&deserialized, blockno, offsetno);
+                ));
 
                 if eq(&deserialized) {
                     pg_sys::UnlockReleaseBuffer(buffer);
@@ -205,12 +182,7 @@ impl<T: LinkedItem + Debug> LinkedItemList<T> {
     pub unsafe fn list_all_items(&self) -> Result<Vec<T>> {
         let mut items = Vec::new();
         let cache = BM25BufferCache::open(self.relation_oid);
-        let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-        let mut blockno = (self.get_first_blockno)(metadata);
-
-        pg_sys::UnlockReleaseBuffer(metadata_buffer);
+        let mut blockno = self.start;
 
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
@@ -224,10 +196,10 @@ impl<T: LinkedItem + Debug> LinkedItemList<T> {
 
             for offsetno in 1..=max_offset {
                 let item_id = pg_sys::PageGetItemId(page, offsetno);
-                let item = T::from_pg_item(
+                let item = T::from(PgItem(
                     pg_sys::PageGetItem(page, item_id),
                     (*item_id).lp_len() as pg_sys::Size,
-                );
+                ));
                 items.push(item);
             }
 
@@ -367,9 +339,31 @@ impl LinkedBytesList {
 mod tests {
     use super::*;
     use pgrx::prelude::*;
+    use pgrx::pg_sys::AsPgCStr;
     use std::collections::HashSet;
     use std::path::PathBuf;
     use uuid::Uuid;
+
+    impl From<PgItem> for PathBuf {
+        fn from(pg_item: PgItem) -> Self {
+            let PgItem(item, size) = pg_item;
+            let path_str = unsafe {
+                std::str::from_utf8(from_raw_parts(item as *const u8, size))
+                    .expect("expected valid Utf-8")
+            };
+            PathBuf::from(path_str)
+        }
+    }
+
+    impl Into<PgItem> for PathBuf {
+        fn into(self) -> PgItem {
+            let path_str = self.to_str().expect("file path is not valid UTF-8");
+            PgItem(
+                path_str.as_pg_cstr() as pg_sys::Item,
+                path_str.as_bytes().len() as pg_sys::Size,
+            )
+        }
+    }
 
     #[pg_test]
     unsafe fn test_pathbuf_linked_list() {
@@ -380,13 +374,12 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let mut linked_list = LinkedItemList::<PathBuf>::new(
-            relation_oid,
-            |metadata| unsafe { (*metadata).tantivy_managed_first_blockno },
-            |metadata| unsafe { (*metadata).tantivy_managed_last_blockno },
-            |metadata, blockno| unsafe { (*metadata).tantivy_managed_first_blockno = blockno },
-            |metadata, blockno| unsafe { (*metadata).tantivy_managed_last_blockno = blockno },
-        );
+        let cache = BM25BufferCache::open(relation_oid);
+        let start_buffer = cache.new_buffer();
+        let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
+        pg_sys::UnlockReleaseBuffer(start_buffer);
+
+        let mut linked_list = LinkedItemList::<PathBuf>::open(relation_oid, start_blockno);
 
         let files: Vec<PathBuf> = (0..10000)
             .map(|_| {
@@ -398,9 +391,7 @@ mod tests {
             .collect();
 
         for file in &files {
-            linked_list
-                .add_items(vec![file.clone()], false, |_, _, _| {})
-                .unwrap();
+            linked_list.write(vec![file.clone()]).unwrap();
         }
 
         let listed_files = linked_list.list_all_items().unwrap();
@@ -410,13 +401,13 @@ mod tests {
 
         for i in (0..10000).step_by(100) {
             let target = files.get(i).expect("expected file");
-            let (found, _, _) = linked_list.lookup(|i| *i == *target, |_, _, _| {}).unwrap();
+            let (found, _, _) = linked_list.lookup(|i| *i == *target).unwrap();
             assert_eq!(found, *target);
         }
 
         let invalid_file = PathBuf::from("invalid_file.ext");
         assert!(linked_list
-            .lookup(|i| *i == invalid_file, |_, _, _| {})
+            .lookup(|i| *i == invalid_file)
             .is_err());
     }
 
@@ -430,11 +421,11 @@ mod tests {
                 .unwrap();
 
         let cache = BM25BufferCache::open(relation_oid);
-        let buffer = cache.new_buffer();
-        let blockno = pg_sys::BufferGetBlockNumber(buffer);
-        pg_sys::UnlockReleaseBuffer(buffer);
+        let start_buffer = cache.new_buffer();
+        let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
+        pg_sys::UnlockReleaseBuffer(start_buffer);
 
-        let mut linked_list = LinkedBytesList::open(relation_oid, blockno);
+        let mut linked_list = LinkedBytesList::open(relation_oid, start_blockno);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let blocks = linked_list.write(&bytes);
         let read_bytes = linked_list.read_all();

@@ -7,7 +7,7 @@ use tantivy::directory::{AntiCallToken, Lock, TerminatingWrite, MANAGED_LOCK};
 use tantivy::Directory;
 
 use crate::index::blocking::{BlockingDirectory, SEGMENT_COMPONENT_CACHE};
-use crate::postgres::storage::block::{bm25_max_free_space, SegmentComponentOpaque};
+use crate::postgres::storage::block::{bm25_max_free_space, SegmentComponentOpaque, BlockNumberList};
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
 
@@ -41,16 +41,8 @@ impl SegmentComponentWriter {
 
 impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
-        let mut linked_list = LinkedBytesList::new(
-            self.relation_oid,
-            self.blocks[0]
-        );
-
-        let mut blocks = unsafe {
-            linked_list
-                .write(data, false)
-                .expect("write should succeed")
-        };
+        let mut segment_component = LinkedBytesList::open(self.relation_oid, self.blocks[0]);
+        let mut blocks = unsafe { segment_component.write(data).expect("write should succeed") };
         self.blocks.append(&mut blocks);
         self.total_bytes += data.len();
 
@@ -68,17 +60,11 @@ impl TerminatingWrite for SegmentComponentWriter {
         let new_buffer = unsafe { cache.new_buffer() };
         let blockno = unsafe { pg_sys::BufferGetBlockNumber(new_buffer) };
 
-        let mut blockno_linked_list = LinkedBytesList::new(self.relation_oid, blockno);
-
-        let mut bytes =
-            Vec::with_capacity(self.blocks.len() * std::mem::size_of::<pg_sys::BlockNumber>());
-        for blockno in &self.blocks {
-            bytes.extend_from_slice(&blockno.to_le_bytes());
-        }
-
+        let mut block_list = LinkedBytesList::open(self.relation_oid, blockno);
+        let bytes: Vec<u8> = BlockNumberList(self.blocks.clone()).into();
         unsafe {
-            blockno_linked_list
-                .write(&bytes, false)
+            block_list
+                .write(&bytes)
                 .expect("write should succeed");
         }
 

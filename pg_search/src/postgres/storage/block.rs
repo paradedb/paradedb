@@ -54,8 +54,9 @@
 // ...LP_UPPER
 // LP_SPECIAL: [next_page BlockNumber, deleted bool, delete_xid TransactionId]
 
-use pgrx::pg_sys;
+use pgrx::*;
 use serde::{Deserialize, Serialize};
+use std::io::{Cursor, Read};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 
@@ -119,4 +120,44 @@ pub const unsafe fn bm25_max_free_space() -> usize {
     (pg_sys::BLCKSZ as usize)
         - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
         - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
+}
+
+pub struct BlockNumberList(pub Vec<pg_sys::BlockNumber>);
+
+impl From<&[u8]> for BlockNumberList {
+    fn from(bytes: &[u8]) -> Self {
+        let mut blocks = vec![];
+        let mut cursor = Cursor::new(bytes);
+        while cursor.position() < bytes.len() as u64 {
+            let mut block_bytes = [0u8; std::mem::size_of::<pg_sys::BlockNumber>()];
+            cursor.read_exact(&mut block_bytes).unwrap();
+            blocks.push(u32::from_le_bytes(block_bytes) as pg_sys::BlockNumber);
+        }
+        BlockNumberList(blocks)
+    }
+}
+
+impl Into<Vec<u8>> for BlockNumberList {
+    fn into(self) -> Vec<u8> {
+        let mut bytes = vec![];
+        for blockno in self.0 {
+            bytes.extend_from_slice(&blockno.to_le_bytes());
+        }
+        bytes
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+
+    #[pg_test]
+    unsafe fn test_block_number_list() {
+        let blocknos = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let blockno_list = BlockNumberList(blocknos.clone());
+        let bytes: Vec<u8> = blockno_list.into();
+        let blockno_list_from_bytes = BlockNumberList::from(&bytes[..]);
+        assert_eq!(blocknos, blockno_list_from_bytes.0);
+    }
 }

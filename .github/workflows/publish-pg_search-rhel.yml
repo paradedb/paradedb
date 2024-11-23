@@ -164,6 +164,13 @@ jobs:
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
 
+      # Used to upload the release to GitHub Releases
+      - name: Install GitHub CLI
+        run: |
+          sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+          sudo dnf install -y gh
+          gh --version
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 

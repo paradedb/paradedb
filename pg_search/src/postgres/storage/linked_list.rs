@@ -248,18 +248,14 @@ pub struct LinkedBytesList {
 }
 
 impl LinkedBytesList {
-    pub fn new(relation_oid: pg_sys::Oid, start: pg_sys::BlockNumber) -> Self {
+    pub fn open(relation_oid: pg_sys::Oid, start: pg_sys::BlockNumber) -> Self {
         Self {
             relation_oid,
             start,
         }
     }
 
-    pub unsafe fn write(
-        &mut self,
-        bytes: &[u8],
-        _overwrite: bool,
-    ) -> Result<Vec<pg_sys::BlockNumber>> {
+    pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<Vec<pg_sys::BlockNumber>> {
         let cache = BM25BufferCache::open(self.relation_oid);
         let mut blocks_created = vec![];
 
@@ -438,9 +434,9 @@ mod tests {
         let blockno = pg_sys::BufferGetBlockNumber(buffer);
         pg_sys::UnlockReleaseBuffer(buffer);
 
-        let mut linked_list = LinkedBytesList::new(relation_oid, blockno);
+        let mut linked_list = LinkedBytesList::open(relation_oid, blockno);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-        let blocks = linked_list.write(&bytes, false);
+        let blocks = linked_list.write(&bytes);
         let read_bytes = linked_list.read_all();
         assert_eq!(bytes, read_bytes);
     }

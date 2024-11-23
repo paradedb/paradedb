@@ -10,8 +10,8 @@ use tantivy::HasLen;
 use crate::postgres::storage::block::{
     bm25_max_free_space, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO,
 };
-use crate::postgres::storage::utils::BM25BufferCache;
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::utils::BM25BufferCache;
 
 #[derive(Clone, Debug)]
 pub struct SegmentComponentReader {
@@ -22,10 +22,7 @@ pub struct SegmentComponentReader {
 
 impl SegmentComponentReader {
     pub unsafe fn new(relation_oid: pg_sys::Oid, opaque: SegmentComponentOpaque) -> Self {
-        let block_number_list = LinkedBytesList::new(
-            relation_oid,
-            opaque.start
-        );
+        let block_number_list = LinkedBytesList::open(relation_oid, opaque.start);
 
         // TODO: Implement this
         let blocks = vec![];
@@ -33,7 +30,7 @@ impl SegmentComponentReader {
         Self {
             opaque,
             relation_oid,
-            blocks
+            blocks,
         }
     }
 }

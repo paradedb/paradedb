@@ -216,10 +216,9 @@ impl Directory for BlockingDirectory {
                 })?
         };
 
-        Ok(Arc::new(unsafe { SegmentComponentReader::new(
-            self.relation_oid,
-            opaque,
-        ) }))
+        Ok(Arc::new(unsafe {
+            SegmentComponentReader::new(self.relation_oid, opaque)
+        }))
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {

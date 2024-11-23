@@ -77,6 +77,7 @@ pub struct MetaPageData {
 /// Special data struct for all other pages except the metadata page and lock pages
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
+    pub last_blockno: pg_sys::BlockNumber,
     pub deleted: bool,
     pub delete_xid: pg_sys::FullTransactionId,
 }
@@ -85,7 +86,7 @@ pub struct BM25PageSpecialData {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SegmentComponentOpaque {
     pub path: PathBuf,
-    pub blocks: Vec<pg_sys::BlockNumber>,
+    pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
     pub xid: u32,
 }

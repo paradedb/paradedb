@@ -280,7 +280,7 @@ impl ChannelRequestHandler {
                     let reader = self
                         .readers
                         .entry(handle.path.clone())
-                        .or_insert_with(|| SegmentComponentReader::new(self.relation_oid, handle));
+                        .or_insert_with(|| unsafe { SegmentComponentReader::new(self.relation_oid, handle) });
                     let data = reader.read_bytes(range)?;
                     self.sender
                         .send(ChannelResponse::Bytes(data.as_slice().to_owned()))?;

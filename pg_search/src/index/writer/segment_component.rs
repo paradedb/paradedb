@@ -43,11 +43,14 @@ impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
         let mut linked_list = LinkedBytesList::new(
             self.relation_oid,
-            self.blocks[0],
-            self.blocks[self.blocks.len() - 1],
+            self.blocks[0]
         );
 
-        let mut blocks = unsafe { linked_list.write(data, false).expect("write should succeed") };
+        let mut blocks = unsafe {
+            linked_list
+                .write(data, false)
+                .expect("write should succeed")
+        };
         self.blocks.append(&mut blocks);
         self.total_bytes += data.len();
 
@@ -61,6 +64,24 @@ impl Write for SegmentComponentWriter {
 
 impl TerminatingWrite for SegmentComponentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
+        let cache = &self.cache;
+        let new_buffer = unsafe { cache.new_buffer() };
+        let blockno = unsafe { pg_sys::BufferGetBlockNumber(new_buffer) };
+
+        let mut blockno_linked_list = LinkedBytesList::new(self.relation_oid, blockno);
+
+        let mut bytes =
+            Vec::with_capacity(self.blocks.len() * std::mem::size_of::<pg_sys::BlockNumber>());
+        for blockno in &self.blocks {
+            bytes.extend_from_slice(&blockno.to_le_bytes());
+        }
+
+        unsafe {
+            blockno_linked_list
+                .write(&bytes, false)
+                .expect("write should succeed");
+        }
+
         let mut linked_list = unsafe {
             LinkedItemList::<SegmentComponentOpaque>::new(
                 self.relation_oid,
@@ -74,12 +95,11 @@ impl TerminatingWrite for SegmentComponentWriter {
         let opaque = SegmentComponentOpaque {
             path: self.path.clone(),
             total_bytes: self.total_bytes,
-            blocks: self.blocks.clone(),
+            start: blockno,
             xid: unsafe { pg_sys::GetCurrentTransactionId() },
         };
 
         let directory = BlockingDirectory::new(self.relation_oid);
-
         let _lock = directory.acquire_lock(&Lock {
             filepath: MANAGED_LOCK.filepath.clone(),
             is_blocking: true,

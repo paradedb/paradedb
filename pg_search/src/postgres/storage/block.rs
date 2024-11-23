@@ -137,6 +137,12 @@ impl From<&[u8]> for BlockNumberList {
     }
 }
 
+impl From<Vec<u8>> for BlockNumberList {
+    fn from(bytes: Vec<u8>) -> Self {
+        BlockNumberList::from(&bytes[..])
+    }
+}
+
 impl Into<Vec<u8>> for BlockNumberList {
     fn into(self) -> Vec<u8> {
         let mut bytes = vec![];

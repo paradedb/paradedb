@@ -57,3 +57,40 @@ WITH (
     }'
 );
 ```
+
+## Pre-built Stopwords
+
+`pre_built_stop_word` is a filter that removes common words from the text. The `pre_built_stop_word` filter can be applied to any tokenizer.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "pre_built_stop_word": "English"}}
+    }'
+);
+```
+
+<ParamField body="pre_built_stop_word">
+  Available stemmers are `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`,
+  `French`, `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`,
+  `Portuguese`, `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, and
+  `Turkish`.
+</ParamField>
+
+## Custom Stopwords
+
+`custom_stop_word` is a filter that removes custom words from the text. The `custom_stop_word` filter can be applied to any tokenizer.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "custom_stop_word": ["shoes", "boots"]}}
+    }'
+);
+```

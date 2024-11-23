@@ -150,29 +150,32 @@ impl BlockingDirectory {
     pub fn try_delete(&self, path: &Path) -> Result<Option<SegmentComponentOpaque>> {
         let (opaque, _, _) = unsafe { self.lookup_segment_component(path)? };
 
-        if unsafe {
-            pg_sys::TransactionIdDidCommit(opaque.xid) || pg_sys::TransactionIdDidAbort(opaque.xid)
-        } {
-            let blocks = opaque.blocks.clone();
-            let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+        // TODO: Reimplement delete
+        // if unsafe {
+        //     pg_sys::TransactionIdDidCommit(opaque.xid) || pg_sys::TransactionIdDidAbort(opaque.xid)
+        // } {
+        //     let blocks = opaque.blocks.clone();
+        //     let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
 
-            // Mark pages as deleted, but don't actually free them
-            // It's important that only VACUUM frees pages, because pages might still be used by other transactions
-            for blockno in &blocks {
-                unsafe {
-                    let buffer = cache.get_buffer(*blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                    let page = pg_sys::BufferGetPage(buffer);
-                    page.mark_deleted();
+        //     // Mark pages as deleted, but don't actually free them
+        //     // It's important that only VACUUM frees pages, because pages might still be used by other transactions
+        //     for blockno in &blocks {
+        //         unsafe {
+        //             let buffer = cache.get_buffer(*blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+        //             let page = pg_sys::BufferGetPage(buffer);
+        //             page.mark_deleted();
 
-                    pg_sys::MarkBufferDirty(buffer);
-                    pg_sys::UnlockReleaseBuffer(buffer);
-                }
-            }
+        //             pg_sys::MarkBufferDirty(buffer);
+        //             pg_sys::UnlockReleaseBuffer(buffer);
+        //         }
+        //     }
 
-            Ok(Some(opaque))
-        } else {
-            Ok(None)
-        }
+        //     Ok(Some(opaque))
+        // } else {
+        //     Ok(None)
+        // }
+
+        Ok(None)
     }
 
     pub unsafe fn lookup_segment_component(
@@ -213,10 +216,10 @@ impl Directory for BlockingDirectory {
                 })?
         };
 
-        Ok(Arc::new(SegmentComponentReader::new(
+        Ok(Arc::new(unsafe { SegmentComponentReader::new(
             self.relation_oid,
             opaque,
-        )))
+        ) }))
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
@@ -427,10 +430,9 @@ mod tests {
 
     #[pg_test]
     fn test_segment_component_opaque_linked_item() {
-        let blocks: Vec<pg_sys::BlockNumber> = vec![1, 2, 3];
         let segment = SegmentComponentOpaque {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-            blocks,
+            start: 0,
             total_bytes: 100 as usize,
             xid: 0,
         };

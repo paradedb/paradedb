@@ -244,60 +244,41 @@ impl<T: LinkedItem + Debug> LinkedItemList<T> {
 /// where each node is a page filled with bytes (with the potential exception of the last page)
 pub struct LinkedBytesList {
     relation_oid: pg_sys::Oid,
-    first_blockno: pg_sys::BlockNumber,
-    last_blockno: pg_sys::BlockNumber,
+    start: pg_sys::BlockNumber,
 }
 
 impl LinkedBytesList {
-    pub fn new(
-        relation_oid: pg_sys::Oid,
-        first_blockno: pg_sys::BlockNumber,
-        last_blockno: pg_sys::BlockNumber,
-    ) -> Self {
+    pub fn new(relation_oid: pg_sys::Oid, start: pg_sys::BlockNumber) -> Self {
         Self {
             relation_oid,
-            first_blockno,
-            last_blockno,
+            start,
         }
     }
 
     pub unsafe fn write(
         &mut self,
         bytes: &[u8],
-        overwrite: bool,
+        _overwrite: bool,
     ) -> Result<Vec<pg_sys::BlockNumber>> {
         let cache = BM25BufferCache::open(self.relation_oid);
-        if overwrite {
-            let mut blockno = self.first_blockno;
+        let mut blocks_created = vec![];
 
-            while blockno != pg_sys::InvalidBlockNumber {
-                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                let page = pg_sys::BufferGetPage(buffer);
-                let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-                blockno = (*special).next_blockno;
-                page.mark_deleted();
+        let start_buffer = cache.get_buffer(self.start, Some(pg_sys::BUFFER_LOCK_SHARE));
+        let page = pg_sys::BufferGetPage(start_buffer);
+        let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+        let insert_blockno = if (*special).last_blockno == pg_sys::InvalidBlockNumber {
+            self.start
+        } else {
+            (*special).last_blockno
+        };
+        pg_sys::UnlockReleaseBuffer(start_buffer);
 
-                pg_sys::MarkBufferDirty(buffer);
-                pg_sys::UnlockReleaseBuffer(buffer);
-            }
-
-            let new_buffer = cache.new_buffer();
-            let new_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
-            self.first_blockno = new_blockno;
-            self.last_blockno = new_blockno;
-
-            pg_sys::MarkBufferDirty(new_buffer);
-            pg_sys::UnlockReleaseBuffer(new_buffer);
-        }
-
-        let mut insert_blockno = self.last_blockno;
         let mut insert_buffer =
             cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
         let mut insert_page = pg_sys::BufferGetPage(insert_buffer);
 
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
-        let mut blocks_created = vec![];
 
         while bytes_written < bytes.len() {
             unsafe {
@@ -317,8 +298,14 @@ impl LinkedBytesList {
                     pg_sys::UnlockReleaseBuffer(insert_buffer);
 
                     insert_buffer = new_buffer;
-                    self.last_blockno = new_blockno;
                     blocks_created.push(new_blockno);
+
+                    let start_buffer =
+                        cache.get_buffer(self.start, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                    let page = pg_sys::BufferGetPage(start_buffer);
+                    let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+                    (*special).last_blockno = new_blockno;
+                    pg_sys::UnlockReleaseBuffer(start_buffer);
 
                     continue;
                 }
@@ -343,7 +330,7 @@ impl LinkedBytesList {
 
     pub unsafe fn read_all(&self) -> Vec<u8> {
         let cache = BM25BufferCache::open(self.relation_oid);
-        let mut blockno = self.first_blockno;
+        let mut blockno = self.start;
         let mut bytes: Vec<u8> = vec![];
 
         while blockno != pg_sys::InvalidBlockNumber {
@@ -362,6 +349,21 @@ impl LinkedBytesList {
 
         bytes
     }
+
+    pub unsafe fn delete(&self) {
+        let cache = BM25BufferCache::open(self.relation_oid);
+        let mut blockno = self.start;
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            blockno = (*special).next_blockno;
+            page.mark_deleted();
+
+            pg_sys::MarkBufferDirty(buffer);
+            pg_sys::UnlockReleaseBuffer(buffer);
+        }
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -376,15 +378,7 @@ mod tests {
     #[pg_test]
     unsafe fn test_pathbuf_linked_list() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run(
-            "CALL paradedb.create_bm25(
-            index_name => 't_idx',
-            table_name => 't',
-            key_field => 'id',
-            text_fields => paradedb.field('data')
-        )",
-        )
-        .unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -433,7 +427,7 @@ mod tests {
     #[pg_test]
     unsafe fn test_linked_bytes() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t(id, data)").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -444,9 +438,9 @@ mod tests {
         let blockno = pg_sys::BufferGetBlockNumber(buffer);
         pg_sys::UnlockReleaseBuffer(buffer);
 
-        let mut linked_list = LinkedBytesList::new(relation_oid, blockno, blockno);
+        let mut linked_list = LinkedBytesList::new(relation_oid, blockno);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-        let blocks = linked_list.write(&bytes, true);
+        let blocks = linked_list.write(&bytes, false);
         let read_bytes = linked_list.read_all();
         assert_eq!(bytes, read_bytes);
     }

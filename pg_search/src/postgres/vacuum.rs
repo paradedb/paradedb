@@ -220,7 +220,7 @@ mod tests {
             .iter()
             .map(|path| SegmentComponentOpaque {
                 path: path.to_path_buf(),
-                blocks: vec![1, 2, 3],
+                start: 0,
                 total_bytes: 100,
                 xid: 0,
             })

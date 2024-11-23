@@ -7,20 +7,33 @@ use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
-use crate::postgres::storage::block::{bm25_max_free_space, SegmentComponentOpaque};
+use crate::postgres::storage::block::{
+    bm25_max_free_space, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO,
+};
 use crate::postgres::storage::utils::BM25BufferCache;
+use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 
 #[derive(Clone, Debug)]
 pub struct SegmentComponentReader {
     opaque: SegmentComponentOpaque,
     relation_oid: pg_sys::Oid,
+    blocks: Vec<pg_sys::BlockNumber>,
 }
 
 impl SegmentComponentReader {
-    pub fn new(relation_oid: pg_sys::Oid, opaque: SegmentComponentOpaque) -> Self {
+    pub unsafe fn new(relation_oid: pg_sys::Oid, opaque: SegmentComponentOpaque) -> Self {
+        let block_number_list = LinkedBytesList::new(
+            relation_oid,
+            opaque.start
+        );
+
+        // TODO: Implement this
+        let blocks = vec![];
+
         Self {
             opaque,
             relation_oid,
+            blocks
         }
     }
 }
@@ -37,10 +50,10 @@ impl FileHandle for SegmentComponentReader {
             }
             let start_block = start / ITEM_SIZE;
             let end_block = end / ITEM_SIZE;
-            let blocks = self.opaque.blocks.clone();
             let mut data: Vec<u8> = vec![];
 
-            for (i, blockno) in blocks
+            for (i, blockno) in self
+                .blocks
                 .iter()
                 .enumerate()
                 .take(end_block + 1)

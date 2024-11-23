@@ -31,6 +31,7 @@ impl BM25Page for pg_sys::Page {
 
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
         (*special).next_blockno = pg_sys::InvalidBlockNumber;
+        (*special).last_blockno = pg_sys::InvalidBlockNumber;
         (*special).deleted = false;
         (*special).delete_xid = pg_sys::FullTransactionId::default();
     }
@@ -38,6 +39,7 @@ impl BM25Page for pg_sys::Page {
     unsafe fn mark_deleted(self) {
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
         (*special).next_blockno = pg_sys::InvalidBlockNumber;
+        (*special).last_blockno = pg_sys::InvalidBlockNumber;
         (*special).deleted = true;
         (*special).delete_xid = pg_sys::ReadNextFullTransactionId();
     }

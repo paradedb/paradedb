@@ -8,7 +8,7 @@ use tantivy::Directory;
 
 use crate::index::blocking::{BlockingDirectory, SEGMENT_COMPONENT_CACHE};
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_metadata, BlockNumberList, MetaPageData, SegmentComponentOpaque,
+    bm25_max_free_space, bm25_metadata, BlockNumberList, DirectoryEntry, MetaPageData,
     METADATA_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
@@ -80,11 +80,10 @@ impl TerminatingWrite for SegmentComponentWriter {
         unsafe {
             let metadata = bm25_metadata(self.relation_oid);
             let start_blockno = metadata.directory_start;
-            let mut segment_components = unsafe {
-                LinkedItemList::<SegmentComponentOpaque>::open(self.relation_oid, start_blockno)
-            };
+            let mut segment_components =
+                unsafe { LinkedItemList::<DirectoryEntry>::open(self.relation_oid, start_blockno) };
 
-            let opaque = SegmentComponentOpaque {
+            let opaque = DirectoryEntry {
                 path: self.path.clone(),
                 total_bytes: self.total_bytes,
                 start: blockno,

@@ -37,8 +37,8 @@ use tantivy::{
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, MetaPageData,
-    SegmentComponentOpaque, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
+    bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, DirectoryEntry,
+    MetaPageData, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
     META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::LinkedItemList;
@@ -47,13 +47,9 @@ use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 /// Defined by Tantivy in core/mod.rs
 pub static META_FILEPATH: Lazy<&'static Path> = Lazy::new(|| Path::new("meta.json"));
 
-/// Keep SegmentComponentOpaque instances in memory for the duration of the backend process
+/// Keep DirectoryEntry instances in memory for the duration of the backend process
 /// to make lookups faster
-type SegmentComponentCacheEntry = (
-    SegmentComponentOpaque,
-    pg_sys::BlockNumber,
-    pg_sys::OffsetNumber,
-);
+type SegmentComponentCacheEntry = (DirectoryEntry, pg_sys::BlockNumber, pg_sys::OffsetNumber);
 pub static SEGMENT_COMPONENT_CACHE: Lazy<RwLock<HashMap<PathBuf, SegmentComponentCacheEntry>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
@@ -108,7 +104,7 @@ impl BlockingDirectory {
 
     /// ambulkdelete wants to know how many pages were deleted, but the Directory trait doesn't let delete
     /// return a value, so we implement our own delete method
-    pub fn try_delete(&self, path: &Path) -> Result<Option<SegmentComponentOpaque>> {
+    pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
         let (opaque, _, _) = unsafe { self.lookup_segment_component(path)? };
 
         // TODO: Reimplement delete
@@ -144,10 +140,8 @@ impl BlockingDirectory {
         path: &Path,
     ) -> Result<SegmentComponentCacheEntry> {
         let metadata = bm25_metadata(self.relation_oid);
-        let segment_components = LinkedItemList::<SegmentComponentOpaque>::open(
-            self.relation_oid,
-            metadata.directory_start,
-        );
+        let segment_components =
+            LinkedItemList::<DirectoryEntry>::open(self.relation_oid, metadata.directory_start);
         let result = segment_components.lookup(|opaque| opaque.path == path)?;
 
         Ok(result)
@@ -330,10 +324,8 @@ impl Directory for BlockingDirectory {
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
         unsafe {
             let metadata = bm25_metadata(self.relation_oid);
-            let segment_components = LinkedItemList::<SegmentComponentOpaque>::open(
-                self.relation_oid,
-                metadata.directory_start,
-            );
+            let segment_components =
+                LinkedItemList::<DirectoryEntry>::open(self.relation_oid, metadata.directory_start);
 
             Ok(segment_components
                 .list_all_items()

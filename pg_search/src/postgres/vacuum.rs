@@ -21,7 +21,7 @@ use crate::index::channel::{
 };
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::{MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO};
+use crate::postgres::storage::block::{bm25_metadata, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO};
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use anyhow::Result;
@@ -152,11 +152,8 @@ unsafe fn vacuum_segment_components(
         is_blocking: true,
     });
 
-    let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-    let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-    let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-    let start_blockno = (*metadata).segment_component_first_blockno;
-    pg_sys::UnlockReleaseBuffer(metadata_buffer);
+    let metadata = bm25_metadata(relation_oid);
+    let start_blockno = metadata.segment_component_first_blockno;
 
     let mut old_segment_components =
         unsafe { LinkedItemList::<SegmentComponentOpaque>::open(relation_oid, start_blockno) };
@@ -198,13 +195,8 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let cache = BM25BufferCache::open(relation_oid);
-        let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-        let start_blockno = (*metadata).segment_component_first_blockno;
-        pg_sys::UnlockReleaseBuffer(metadata_buffer);
-
+        let metadata = bm25_metadata(relation_oid);
+        let start_blockno = metadata.segment_component_first_blockno;
         let mut segment_components_list =
             unsafe { LinkedItemList::<SegmentComponentOpaque>::open(relation_oid, start_blockno) };
 

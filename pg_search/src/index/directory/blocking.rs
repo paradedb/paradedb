@@ -37,7 +37,7 @@ use tantivy::{
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_max_item_size, BM25PageSpecialData, MetaPageData,
+    bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, MetaPageData,
     SegmentComponentOpaque, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
     META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
 };
@@ -143,16 +143,11 @@ impl BlockingDirectory {
         &self,
         path: &Path,
     ) -> Result<SegmentComponentCacheEntry> {
-        let cache = BM25BufferCache::open(self.relation_oid);
-        let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-        let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-        let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-        let start_blockno = (*metadata).segment_component_first_blockno;
-        pg_sys::UnlockReleaseBuffer(metadata_buffer);
-
-        let segment_components =
-            LinkedItemList::<SegmentComponentOpaque>::open(self.relation_oid, start_blockno);
-
+        let metadata = bm25_metadata(self.relation_oid);
+        let segment_components = LinkedItemList::<SegmentComponentOpaque>::open(
+            self.relation_oid,
+            metadata.segment_component_first_blockno,
+        );
         let result = segment_components.lookup(|opaque| opaque.path == path)?;
 
         Ok(result)
@@ -262,11 +257,8 @@ impl Directory for BlockingDirectory {
 
         let bytes = unsafe {
             let cache = BM25BufferCache::open(self.relation_oid);
-            let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
-            let last_blockno = (*metadata).tantivy_meta_last_blockno;
-            pg_sys::UnlockReleaseBuffer(buffer);
+            let metadata = bm25_metadata(self.relation_oid);
+            let last_blockno = metadata.tantivy_meta_last_blockno;
 
             let mut current_blockno = TANTIVY_META_BLOCKNO;
             let mut bytes = Vec::new();

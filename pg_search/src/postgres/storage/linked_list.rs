@@ -338,8 +338,8 @@ impl LinkedBytesList {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use pgrx::prelude::*;
     use pgrx::pg_sys::AsPgCStr;
+    use pgrx::prelude::*;
     use std::collections::HashSet;
     use std::path::PathBuf;
     use uuid::Uuid;
@@ -406,9 +406,7 @@ mod tests {
         }
 
         let invalid_file = PathBuf::from("invalid_file.ext");
-        assert!(linked_list
-            .lookup(|i| *i == invalid_file)
-            .is_err());
+        assert!(linked_list.lookup(|i| *i == invalid_file).is_err());
     }
 
     #[pg_test]

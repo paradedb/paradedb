@@ -244,12 +244,10 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     let segment_component_buffer = cache.new_buffer();
     let segment_component_blockno = pg_sys::BufferGetBlockNumber(segment_component_buffer);
     (*metadata).segment_component_first_blockno = segment_component_blockno;
-    (*metadata).segment_component_last_blockno = segment_component_blockno;
 
     let tantivy_managed_buffer = cache.new_buffer();
     let tantivy_managed_blockno = pg_sys::BufferGetBlockNumber(tantivy_managed_buffer);
     (*metadata).tantivy_managed_first_blockno = tantivy_managed_blockno;
-    (*metadata).tantivy_managed_last_blockno = tantivy_managed_blockno;
 
     assert!(pg_sys::BufferGetBlockNumber(metadata_buffer) == METADATA_BLOCKNO);
     assert!(pg_sys::BufferGetBlockNumber(writer_lock_buffer) == INDEX_WRITER_LOCK_BLOCKNO);

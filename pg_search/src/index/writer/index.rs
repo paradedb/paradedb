@@ -93,6 +93,8 @@ impl SearchIndexWriter {
         let mut segments = committed_meta.segments.clone();
         segments.push(segment.meta().clone());
 
+        crate::log_message(&format!("--- COMMITTING SEGMENT --- {:?}", segment.meta()));
+
         let new_meta = tantivy::IndexMeta {
             segments,
             opstamp: self.current_opstamp,

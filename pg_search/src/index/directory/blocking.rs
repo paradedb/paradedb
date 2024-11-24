@@ -39,7 +39,7 @@ use crate::postgres::storage::block::{
     TANTIVY_META_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
-use crate::postgres::storage::utils::BM25BufferCache;
+use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 
 /// Defined by Tantivy in core/mod.rs
 pub static META_FILEPATH: Lazy<&'static Path> = Lazy::new(|| Path::new("meta.json"));
@@ -96,16 +96,33 @@ impl BlockingDirectory {
     /// ambulkdelete wants to know how many pages were deleted, but the Directory trait doesn't let delete
     /// return a value, so we implement our own delete method
     pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
-        let (opaque, _, _) = unsafe { self.directory_lookup(path)? };
+        let (entry, _, _) = unsafe { self.directory_lookup(path)? };
+
+        crate::log_message(&format!("--- DELETING SEGMENT --- {:?}", entry));
 
         if unsafe {
-            pg_sys::TransactionIdDidCommit(opaque.xid) || pg_sys::TransactionIdDidAbort(opaque.xid)
+            pg_sys::TransactionIdDidCommit(entry.xid) || pg_sys::TransactionIdDidAbort(entry.xid)
         } {
-            let block_list = LinkedBytesList::open(self.relation_oid, opaque.start);
+            let block_list = LinkedBytesList::open(self.relation_oid, entry.start);
             let BlockNumberList(blocks) = unsafe { block_list.read_all().into() };
             let segment_component = LinkedBytesList::open(self.relation_oid, blocks[0]);
-            unsafe { segment_component.delete() };
-            Ok(Some(opaque))
+
+            let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+
+            // Mark pages as deleted, but don't actually free them
+            // It's important that only VACUUM frees pages, because pages might still be used by other transactions
+            for blockno in blocks {
+                unsafe {
+                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                    let page = pg_sys::BufferGetPage(buffer);
+                    page.mark_deleted();
+
+                    pg_sys::MarkBufferDirty(buffer);
+                    pg_sys::UnlockReleaseBuffer(buffer);
+                }
+            }
+
+            Ok(Some(entry))
         } else {
             Ok(None)
         }
@@ -118,7 +135,7 @@ impl BlockingDirectory {
         let metadata = bm25_metadata(self.relation_oid);
         let directory =
             LinkedItemList::<DirectoryEntry>::open(self.relation_oid, metadata.directory_start);
-        let result = directory.lookup(|opaque| opaque.path == path)?;
+        let result = directory.lookup(path, |opaque, path| opaque.path == *path)?;
         Ok(result)
     }
 }

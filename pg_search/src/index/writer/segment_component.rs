@@ -71,11 +71,16 @@ impl TerminatingWrite for SegmentComponentWriter {
             block_list.write(&bytes).expect("write should succeed");
         }
 
-        // TODO: Abstract this away
         unsafe {
+            let blocking_directory = BlockingDirectory::new(self.relation_oid);
+            let _lock = blocking_directory.acquire_lock(&Lock {
+                filepath: MANAGED_LOCK.filepath.clone(),
+                is_blocking: true,
+            });
+
             let metadata = bm25_metadata(self.relation_oid);
             let start_blockno = metadata.directory_start;
-            let mut segment_components =
+            let mut directory =
                 LinkedItemList::<DirectoryEntry>::open(self.relation_oid, start_blockno);
 
             let opaque = DirectoryEntry {
@@ -85,15 +90,14 @@ impl TerminatingWrite for SegmentComponentWriter {
                 xid: pg_sys::GetCurrentTransactionId(),
             };
 
-            let directory = BlockingDirectory::new(self.relation_oid);
-            let _lock = directory.acquire_lock(&Lock {
-                filepath: MANAGED_LOCK.filepath.clone(),
-                is_blocking: true,
-            });
-
-            segment_components
+            directory
                 .write(vec![opaque.clone()])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+            crate::log_message(&format!(
+                "--- WRITING SEGMENT COMPONENT --- {:?}",
+                opaque.path
+            ));
         }
 
         Ok(())

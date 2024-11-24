@@ -152,8 +152,7 @@ unsafe fn vacuum_segment_components(
     let metadata = bm25_metadata(relation_oid);
     let start_blockno = metadata.directory_start;
 
-    let mut old_segment_components =
-        unsafe { LinkedItemList::<DirectoryEntry>::open(relation_oid, start_blockno) };
+    let old_segment_components = LinkedItemList::<DirectoryEntry>::open(relation_oid, start_blockno);
     let alive_segment_components =
         alive_segment_components(&old_segment_components, paths_deleted.clone())?;
 

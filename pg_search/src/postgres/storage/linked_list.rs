@@ -78,7 +78,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
         let start_buffer = cache.get_buffer(self.start, Some(pg_sys::BUFFER_LOCK_SHARE));
         let page = pg_sys::BufferGetPage(start_buffer);
         let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-        let mut insert_blockno = if (*special).last_blockno == pg_sys::InvalidBlockNumber {
+        let insert_blockno = if (*special).last_blockno == pg_sys::InvalidBlockNumber {
             self.start
         } else {
             (*special).last_blockno
@@ -109,7 +109,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
                 pg_sys::UnlockReleaseBuffer(insert_buffer);
 
                 insert_buffer = new_buffer;
-                insert_blockno = new_blockno;
                 insert_page = pg_sys::BufferGetPage(insert_buffer);
 
                 let start_buffer =

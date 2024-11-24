@@ -1,7 +1,6 @@
 use pgrx::*;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
-use std::slice::from_raw_parts_mut;
 use tantivy::directory::{AntiCallToken, Lock, TerminatingWrite, MANAGED_LOCK};
 use tantivy::Directory;
 
@@ -76,14 +75,13 @@ impl TerminatingWrite for SegmentComponentWriter {
         unsafe {
             let metadata = bm25_metadata(self.relation_oid);
             let start_blockno = metadata.directory_start;
-            let mut segment_components =
-                unsafe { LinkedItemList::<DirectoryEntry>::open(self.relation_oid, start_blockno) };
+            let mut segment_components = LinkedItemList::<DirectoryEntry>::open(self.relation_oid, start_blockno);
 
             let opaque = DirectoryEntry {
                 path: self.path.clone(),
                 total_bytes: self.total_bytes,
                 start: blockno,
-                xid: unsafe { pg_sys::GetCurrentTransactionId() },
+                xid: pg_sys::GetCurrentTransactionId(),
             };
 
             let directory = BlockingDirectory::new(self.relation_oid);

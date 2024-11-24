@@ -92,6 +92,7 @@ pub extern "C" fn amvacuumcleanup(
         let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
         let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
 
+        crate::log_message(&format!("-- BEGINNING VACUUM"));
         unsafe {
             vacuum_directory(index_oid, blocking_stats.deleted_paths)
                 .expect("vacuum segment components should succeed");
@@ -137,6 +138,7 @@ fn alive_segment_components(
 }
 
 unsafe fn vacuum_directory(relation_oid: pg_sys::Oid, paths_deleted: Vec<PathBuf>) -> Result<()> {
+    crate::log_message(&format!("-- VACUUMING DIRECTORY"));
     let directory = BlockingDirectory::new(relation_oid);
     let cache = BM25BufferCache::open(relation_oid);
     // This lock is necessary because we are reading the segment components list, appending, and then overwriting
@@ -146,8 +148,11 @@ unsafe fn vacuum_directory(relation_oid: pg_sys::Oid, paths_deleted: Vec<PathBuf
         is_blocking: true,
     });
 
-    let metadata = bm25_metadata(relation_oid);
-    let start_blockno = metadata.directory_start;
+    let mut new_segment_components = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+    let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+    let page = pg_sys::BufferGetPage(buffer);
+    let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
+    let start_blockno = (*metadata).directory_start;
 
     let old_segment_components =
         LinkedItemList::<DirectoryEntry>::open(relation_oid, start_blockno);
@@ -156,10 +161,6 @@ unsafe fn vacuum_directory(relation_oid: pg_sys::Oid, paths_deleted: Vec<PathBuf
 
     old_segment_components.delete();
 
-    let mut new_segment_components = LinkedItemList::<DirectoryEntry>::create(relation_oid);
-    let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-    let page = pg_sys::BufferGetPage(buffer);
-    let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
     (*metadata).directory_start = new_segment_components.start;
     new_segment_components.write(alive_segment_components)?;
 
@@ -248,16 +249,19 @@ mod tests {
 
         old_directory.write(segments_to_vacuum.clone()).unwrap();
 
+        // Test that old directory contains dead entries
         let alive_segments = old_directory.list_all_items().unwrap();
         assert!(alive_segments.contains(&segments_to_vacuum[0]));
         assert!(alive_segments.contains(&segments_to_vacuum[2]));
 
+        // Perform vacuum
         let dead_paths = vec![paths[0].clone(), paths[2].clone()];
         vacuum_directory(relation_oid, dead_paths).unwrap();
 
         let cache = BM25BufferCache::open(relation_oid);
         let mut blockno = old_start_blockno;
 
+        // Test that entries were marked as dead after vacuum
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
             let page = pg_sys::BufferGetPage(buffer);
@@ -267,12 +271,25 @@ mod tests {
             pg_sys::UnlockReleaseBuffer(buffer);
         }
 
+        // Test that a new directory was created
         let new_start_blockno = bm25_metadata(relation_oid).directory_start;
         assert_ne!(old_start_blockno, new_start_blockno);
 
+        // Test that new directory does not contain dead entries
         let new_directory = LinkedItemList::<DirectoryEntry>::open(relation_oid, new_start_blockno);
         let alive_segments = new_directory.list_all_items().unwrap();
         assert!(!alive_segments.contains(&segments_to_vacuum[0]));
         assert!(!alive_segments.contains(&segments_to_vacuum[2]));
+
+        // Test that old entries were not physically deleted
+        let (entry, _, _) = old_directory
+            .lookup(paths[0], |entry, path| entry.path == path)
+            .unwrap();
+        assert_eq!(entry.path, paths[0]);
+
+        let (entry, _, _) = old_directory
+            .lookup(paths[2], |entry, path| entry.path == path)
+            .unwrap();
+        assert_eq!(entry.path, paths[2]);
     }
 }

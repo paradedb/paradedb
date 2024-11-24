@@ -83,12 +83,18 @@ pub struct BM25PageSpecialData {
 }
 
 /// Metadata for tracking segment components
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DirectoryEntry {
     pub path: PathBuf,
     pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
     pub xid: u32,
+}
+
+impl PartialEq for DirectoryEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
 }
 
 /// Defined in `src/include/c.h`

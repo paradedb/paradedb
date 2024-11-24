@@ -143,12 +143,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
         Ok(())
     }
 
-    pub unsafe fn lookup<EqFn>(
+    pub unsafe fn lookup<K>(
         &self,
-        eq: EqFn,
+        target: K,
+        cmp: fn(&T, &K) -> bool,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)>
     where
-        EqFn: Fn(&T) -> bool,
+        K: Debug,
     {
         let cache = BM25BufferCache::open(self.relation_oid);
         let mut blockno = self.start;
@@ -165,7 +166,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
                     (*item_id).lp_len() as pg_sys::Size,
                 ));
 
-                if eq(&deserialized) {
+                if cmp(&deserialized, &target) {
                     pg_sys::UnlockReleaseBuffer(buffer);
                     return Ok((deserialized, blockno, offsetno));
                 }
@@ -179,7 +180,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
             pg_sys::UnlockReleaseBuffer(buffer);
         }
 
-        bail!("failed to find item in linked list");
+        bail!("failed to find {:?}", target);
     }
 
     pub unsafe fn list_all_items(&self) -> Result<Vec<T>> {
@@ -403,12 +404,16 @@ mod tests {
 
         for i in (0..10000).step_by(100) {
             let target = files.get(i).expect("expected file");
-            let (found, _, _) = linked_list.lookup(|i| *i == *target).unwrap();
+            let (found, _, _) = linked_list
+                .lookup(*target, |entry, path| entry.path == path)
+                .unwrap();
             assert_eq!(found, *target);
         }
 
         let invalid_file = PathBuf::from("invalid_file.ext");
-        assert!(linked_list.lookup(|i| *i == invalid_file).is_err());
+        assert!(linked_list
+            .lookup(invalid_file, |entry, path| entry.path == path)
+            .is_err());
     }
 
     #[pg_test]

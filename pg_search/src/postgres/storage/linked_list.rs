@@ -48,6 +48,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
         let cache = BM25BufferCache::open(relation_oid);
         let start_buffer = cache.new_buffer();
         let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
+        let page = pg_sys::BufferGetPage(start_buffer);
+        let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+        (*special).last_blockno = start_blockno;
+
         pg_sys::UnlockReleaseBuffer(start_buffer);
 
         Self {
@@ -242,7 +246,6 @@ impl LinkedBytesList {
 
         let mut insert_buffer =
             cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        let mut insert_page = pg_sys::BufferGetPage(insert_buffer);
 
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
@@ -424,7 +427,7 @@ mod tests {
 
         let mut linked_list = LinkedBytesList::open(relation_oid, start_blockno);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-        let blocks = linked_list.write(&bytes);
+        linked_list.write(&bytes).unwrap();
         let read_bytes = linked_list.read_all();
         assert_eq!(bytes, read_bytes);
     }

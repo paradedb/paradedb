@@ -93,7 +93,7 @@ pub extern "C" fn amvacuumcleanup(
         let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
 
         unsafe {
-            vacuum_segment_components(index_oid, blocking_stats.deleted_paths)
+            vacuum_directory(index_oid, blocking_stats.deleted_paths)
                 .expect("vacuum segment components should succeed");
         }
 
@@ -136,10 +136,7 @@ fn alive_segment_components(
     }
 }
 
-unsafe fn vacuum_segment_components(
-    relation_oid: pg_sys::Oid,
-    paths_deleted: Vec<PathBuf>,
-) -> Result<()> {
+unsafe fn vacuum_directory(relation_oid: pg_sys::Oid, paths_deleted: Vec<PathBuf>) -> Result<()> {
     let directory = BlockingDirectory::new(relation_oid);
     let cache = BM25BufferCache::open(relation_oid);
     // This lock is necessary because we are reading the segment components list, appending, and then overwriting
@@ -223,7 +220,7 @@ mod tests {
     }
 
     #[pg_test]
-    unsafe fn test_vacuum_segment_components() {
+    unsafe fn test_vacuum_directory() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
         let relation_oid: pg_sys::Oid =
@@ -256,7 +253,7 @@ mod tests {
         assert!(alive_segments.contains(&segments_to_vacuum[2]));
 
         let dead_paths = vec![paths[0].clone(), paths[2].clone()];
-        vacuum_segment_components(relation_oid, dead_paths).unwrap();
+        vacuum_directory(relation_oid, dead_paths).unwrap();
 
         let cache = BM25BufferCache::open(relation_oid);
         let mut blockno = old_start_blockno;

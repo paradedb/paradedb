@@ -22,7 +22,7 @@ use crate::index::channel::{
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
-    bm25_metadata, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO,
+    bm25_metadata, DirectoryEntry, MetaPageData, METADATA_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -129,9 +129,9 @@ pub extern "C" fn amvacuumcleanup(
 }
 
 fn alive_segment_components(
-    segment_components_list: &LinkedItemList<SegmentComponentOpaque>,
+    segment_components_list: &LinkedItemList<DirectoryEntry>,
     paths_to_delete: Vec<PathBuf>,
-) -> Result<Vec<SegmentComponentOpaque>> {
+) -> Result<Vec<DirectoryEntry>> {
     unsafe {
         Ok(segment_components_list
             .list_all_items()?
@@ -166,13 +166,13 @@ unsafe fn vacuum_segment_components(
     let start_blockno = metadata.directory_start;
 
     let mut old_segment_components =
-        unsafe { LinkedItemList::<SegmentComponentOpaque>::open(relation_oid, start_blockno) };
+        unsafe { LinkedItemList::<DirectoryEntry>::open(relation_oid, start_blockno) };
     let alive_segment_components =
         alive_segment_components(&old_segment_components, paths_deleted.clone())?;
 
     old_segment_components.delete();
 
-    let mut new_segment_components = LinkedItemList::<SegmentComponentOpaque>::create(relation_oid);
+    let mut new_segment_components = LinkedItemList::<DirectoryEntry>::create(relation_oid);
     // TODO: Change metadata segment components first blockno
     new_segment_components.write(alive_segment_components)
 }
@@ -184,7 +184,7 @@ mod tests {
     use std::path::PathBuf;
     use uuid::Uuid;
 
-    use crate::postgres::storage::block::SegmentComponentOpaque;
+    use crate::postgres::storage::block::DirectoryEntry;
     use crate::postgres::storage::linked_list::LinkedItemList;
 
     #[pg_test]
@@ -199,7 +199,7 @@ mod tests {
         let metadata = bm25_metadata(relation_oid);
         let start_blockno = metadata.directory_start;
         let mut segment_components_list =
-            unsafe { LinkedItemList::<SegmentComponentOpaque>::open(relation_oid, start_blockno) };
+            unsafe { LinkedItemList::<DirectoryEntry>::open(relation_oid, start_blockno) };
 
         let paths = (0..3)
             .map(|_| PathBuf::from(format!("{:?}.term", Uuid::new_v4())))
@@ -207,7 +207,7 @@ mod tests {
 
         let segments_to_vacuum = paths
             .iter()
-            .map(|path| SegmentComponentOpaque {
+            .map(|path| DirectoryEntry {
                 path: path.to_path_buf(),
                 start: 0,
                 total_bytes: 100,

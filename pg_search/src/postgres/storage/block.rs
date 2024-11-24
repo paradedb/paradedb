@@ -84,7 +84,7 @@ pub struct BM25PageSpecialData {
 
 /// Metadata for tracking segment components
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct SegmentComponentOpaque {
+pub struct DirectoryEntry {
     pub path: PathBuf,
     pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
@@ -164,10 +164,10 @@ impl Into<Vec<u8>> for BlockNumberList {
     }
 }
 
-impl From<PgItem> for SegmentComponentOpaque {
+impl From<PgItem> for DirectoryEntry {
     fn from(pg_item: PgItem) -> Self {
         let PgItem(item, size) = pg_item;
-        let opaque: SegmentComponentOpaque = unsafe {
+        let opaque: DirectoryEntry = unsafe {
             serde_json::from_slice(from_raw_parts(item as *const u8, size))
                 .expect("expected to deserialize valid SegmentComponent")
         };
@@ -175,7 +175,7 @@ impl From<PgItem> for SegmentComponentOpaque {
     }
 }
 
-impl Into<PgItem> for SegmentComponentOpaque {
+impl Into<PgItem> for DirectoryEntry {
     fn into(self) -> PgItem {
         let bytes: Vec<u8> =
             serde_json::to_vec(&self).expect("expected to serialize valid SegmentComponent");
@@ -204,14 +204,14 @@ mod tests {
 
     #[pg_test]
     fn test_segment_component_opaque_into() {
-        let segment = SegmentComponentOpaque {
+        let segment = DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 0,
             total_bytes: 100 as usize,
             xid: 0,
         };
         let pg_item: PgItem = segment.clone().into();
-        let segment_from_pg_item: SegmentComponentOpaque = pg_item.into();
+        let segment_from_pg_item: DirectoryEntry = pg_item.into();
         assert_eq!(segment, segment_from_pg_item);
     }
 }

@@ -7,11 +7,11 @@ use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
 use crate::index::directory::channel::{ChannelRequest, ChannelResponse};
-use crate::postgres::storage::block::SegmentComponentOpaque;
+use crate::postgres::storage::block::DirectoryEntry;
 
 #[derive(Clone, Debug)]
 pub struct ChannelReader {
-    opaque: SegmentComponentOpaque,
+    opaque: DirectoryEntry,
     sender: Sender<ChannelRequest>,
     receiver: Receiver<ChannelResponse>,
 }
@@ -26,8 +26,8 @@ impl ChannelReader {
             .send(ChannelRequest::GetSegmentComponent(path.to_path_buf()))
             .unwrap();
         let opaque = match receiver.recv().unwrap() {
-            ChannelResponse::SegmentComponentOpaque(opaque) => opaque,
-            unexpected => panic!("SegmentComponentOpaque expected, got {:?}", unexpected),
+            ChannelResponse::DirectoryEntry(opaque) => opaque,
+            unexpected => panic!("DirectoryEntry expected, got {:?}", unexpected),
         };
 
         Ok(Self {

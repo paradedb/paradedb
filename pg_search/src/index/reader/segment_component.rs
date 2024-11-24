@@ -8,20 +8,20 @@ use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
 use crate::postgres::storage::block::{
-    bm25_max_free_space, BlockNumberList, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO,
+    bm25_max_free_space, BlockNumberList, DirectoryEntry, MetaPageData, METADATA_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
 
 #[derive(Clone, Debug)]
 pub struct SegmentComponentReader {
-    opaque: SegmentComponentOpaque,
+    opaque: DirectoryEntry,
     relation_oid: pg_sys::Oid,
     blocks: Vec<pg_sys::BlockNumber>,
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(relation_oid: pg_sys::Oid, opaque: SegmentComponentOpaque) -> Self {
+    pub unsafe fn new(relation_oid: pg_sys::Oid, opaque: DirectoryEntry) -> Self {
         let block_list = LinkedBytesList::open(relation_oid, opaque.start);
         let blocks: BlockNumberList = block_list.read_all().into();
 

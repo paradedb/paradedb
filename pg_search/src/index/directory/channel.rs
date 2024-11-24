@@ -16,7 +16,7 @@ use crate::index::reader::channel::ChannelReader;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::channel::ChannelWriter;
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::{bm25_max_free_space, SegmentComponentOpaque};
+use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
 #[derive(Debug)]
 pub enum ChannelRequest {
@@ -26,7 +26,7 @@ pub enum ChannelRequest {
     ListManagedFiles(),
     RegisterFilesAsManaged(Vec<PathBuf>, bool),
     ReleaseBlockingLock(BlockingLock),
-    SegmentRead(Range<usize>, SegmentComponentOpaque),
+    SegmentRead(Range<usize>, DirectoryEntry),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
     SegmentDelete(PathBuf),
@@ -39,7 +39,7 @@ pub enum ChannelResponse {
     ManagedFiles(HashSet<PathBuf>),
     AcquiredLock(BlockingLock),
     Bytes(Vec<u8>),
-    SegmentComponentOpaque(SegmentComponentOpaque),
+    DirectoryEntry(DirectoryEntry),
     ShouldDeleteCtids(Vec<u64>),
 }
 
@@ -49,7 +49,7 @@ impl Debug for ChannelResponse {
             ChannelResponse::AcquiredLock(_) => write!(f, "AcquiredLock"),
             ChannelResponse::ManagedFiles(_) => write!(f, "ManagedFiles"),
             ChannelResponse::Bytes(_) => write!(f, "Bytes"),
-            ChannelResponse::SegmentComponentOpaque(_) => write!(f, "SegmentComponentOpaque"),
+            ChannelResponse::DirectoryEntry(_) => write!(f, "DirectoryEntry"),
             ChannelResponse::ShouldDeleteCtids(_) => write!(f, "ShouldDeleteCtids"),
         }
     }
@@ -270,8 +270,7 @@ impl ChannelRequestHandler {
                 }
                 ChannelRequest::GetSegmentComponent(path) => {
                     let (opaque, _, _) = unsafe { self.directory.lookup_segment_component(&path)? };
-                    self.sender
-                        .send(ChannelResponse::SegmentComponentOpaque(opaque))?;
+                    self.sender.send(ChannelResponse::DirectoryEntry(opaque))?;
                 }
                 ChannelRequest::ReleaseBlockingLock(blocking_lock) => {
                     drop(blocking_lock);

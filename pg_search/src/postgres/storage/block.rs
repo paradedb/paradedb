@@ -154,10 +154,10 @@ impl From<Vec<u8>> for BlockNumberList {
     }
 }
 
-impl Into<Vec<u8>> for BlockNumberList {
-    fn into(self) -> Vec<u8> {
+impl From<BlockNumberList> for Vec<u8> {
+    fn from(val: BlockNumberList) -> Self {
         let mut bytes = vec![];
-        for blockno in self.0 {
+        for blockno in val.0 {
             bytes.extend_from_slice(&blockno.to_le_bytes());
         }
         bytes
@@ -175,10 +175,10 @@ impl From<PgItem> for DirectoryEntry {
     }
 }
 
-impl Into<PgItem> for DirectoryEntry {
-    fn into(self) -> PgItem {
+impl From<DirectoryEntry> for PgItem {
+    fn from(val: DirectoryEntry) -> Self {
         let bytes: Vec<u8> =
-            serde_json::to_vec(&self).expect("expected to serialize valid SegmentComponent");
+            serde_json::to_vec(&val).expect("expected to serialize valid SegmentComponent");
         let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
         unsafe {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());

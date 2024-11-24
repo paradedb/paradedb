@@ -39,7 +39,7 @@ use crate::postgres::storage::block::{
     TANTIVY_META_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
-use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
+use crate::postgres::storage::utils::BM25BufferCache;
 
 /// Defined by Tantivy in core/mod.rs
 pub static META_FILEPATH: Lazy<&'static Path> = Lazy::new(|| Path::new("meta.json"));
@@ -98,27 +98,13 @@ impl BlockingDirectory {
     pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
         let (opaque, _, _) = unsafe { self.directory_lookup(path)? };
 
-        // TODO: Reimplement delete
         if unsafe {
             pg_sys::TransactionIdDidCommit(opaque.xid) || pg_sys::TransactionIdDidAbort(opaque.xid)
         } {
             let block_list = LinkedBytesList::open(self.relation_oid, opaque.start);
-            let blocks: BlockNumberList = unsafe { block_list.read_all().into() };
-            let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
-
-            // Mark pages as deleted, but don't actually free them
-            // It's important that only VACUUM frees pages, because pages might still be used by other transactions
-            for blockno in blocks.0 {
-                unsafe {
-                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                    let page = pg_sys::BufferGetPage(buffer);
-                    page.mark_deleted();
-
-                    pg_sys::MarkBufferDirty(buffer);
-                    pg_sys::UnlockReleaseBuffer(buffer);
-                }
-            }
-
+            let BlockNumberList(blocks) = unsafe { block_list.read_all().into() };
+            let segment_component = LinkedBytesList::open(self.relation_oid, blocks[0]);
+            unsafe { segment_component.delete() };
             Ok(Some(opaque))
         } else {
             Ok(None)
@@ -343,8 +329,6 @@ impl Directory for BlockingDirectory {
 mod tests {
     use super::*;
     use pgrx::prelude::*;
-    use std::collections::HashSet;
-    use uuid::Uuid;
 
     #[pg_test]
     fn test_list_managed_files() {

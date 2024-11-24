@@ -24,7 +24,7 @@ use crate::{
     },
 };
 use anyhow::Result;
-use tantivy::directory::{Lock, INDEX_WRITER_LOCK, META_LOCK};
+use tantivy::directory::{Lock, INDEX_WRITER_LOCK};
 use tantivy::{
     indexer::{AddOperation, SegmentWriter},
     IndexSettings,
@@ -84,12 +84,16 @@ impl SearchIndexWriter {
         let segment = self.segment.with_max_doc(max_doc);
         let index = segment.index();
 
+        // An index writer lock is needed here to guard against the scenario
+        // where we commit a segment in the middle of another process' merge/vacuum. For instance:
+        // Process A sees files A,B,C,D but only A,B,C committed
+        // Process A thinks D is tombstoned and puts up D as a deletion candidate
+        // Process B commits D
+        // Process A sees that D has been committed AND is a deletion candidate, so it mistakenly deletes D
+        // In order to prevent this, we would need to hold a lock across Tantivy's entire commit process which spans multiple functions,
+        // and an index writer lock is a good stopgap for now.
         let _index_writer_lock = index.directory().acquire_lock(&Lock {
             filepath: INDEX_WRITER_LOCK.filepath.clone(),
-            is_blocking: true,
-        });
-        let _meta_lock = index.directory().acquire_lock(&Lock {
-            filepath: META_LOCK.filepath.clone(),
             is_blocking: true,
         });
 

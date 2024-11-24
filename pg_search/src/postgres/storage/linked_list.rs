@@ -390,14 +390,14 @@ mod tests {
         for i in (0..10000).step_by(100) {
             let target = files.get(i).expect("expected file");
             let (found, _, _) = linked_list
-                .lookup(*target, |entry, path| entry.path == path)
+                .lookup(target.clone(), |target, path| *target == *path)
                 .unwrap();
             assert_eq!(found, *target);
         }
 
         let invalid_file = PathBuf::from("invalid_file.ext");
         assert!(linked_list
-            .lookup(invalid_file, |entry, path| entry.path == path)
+            .lookup(invalid_file, |target, path| *target == *path)
             .is_err());
     }
 

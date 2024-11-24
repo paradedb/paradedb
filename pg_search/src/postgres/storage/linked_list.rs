@@ -320,21 +320,6 @@ impl LinkedBytesList {
 
         bytes
     }
-
-    pub unsafe fn delete(&self) {
-        let cache = BM25BufferCache::open(self.relation_oid);
-        let mut blockno = self.start;
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            blockno = (*special).next_blockno;
-            page.mark_deleted();
-
-            pg_sys::MarkBufferDirty(buffer);
-            pg_sys::UnlockReleaseBuffer(buffer);
-        }
-    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

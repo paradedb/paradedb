@@ -98,15 +98,11 @@ impl BlockingDirectory {
     pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
         let (entry, _, _) = unsafe { self.directory_lookup(path)? };
 
-        crate::log_message(&format!("--- DELETING SEGMENT --- {:?}", entry));
-
         if unsafe {
             pg_sys::TransactionIdDidCommit(entry.xid) || pg_sys::TransactionIdDidAbort(entry.xid)
         } {
             let block_list = LinkedBytesList::open(self.relation_oid, entry.start);
             let BlockNumberList(blocks) = unsafe { block_list.read_all().into() };
-            let segment_component = LinkedBytesList::open(self.relation_oid, blocks[0]);
-
             let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
 
             // Mark pages as deleted, but don't actually free them

@@ -7,10 +7,8 @@ use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
-use crate::postgres::storage::block::{
-    bm25_max_free_space, BlockNumberList, DirectoryEntry, MetaPageData, METADATA_BLOCKNO,
-};
-use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::block::{bm25_max_free_space, BlockNumberList, DirectoryEntry};
+use crate::postgres::storage::linked_list::LinkedBytesList;
 use crate::postgres::storage::utils::BM25BufferCache;
 
 #[derive(Clone, Debug)]
@@ -122,7 +120,7 @@ mod tests {
         let directory = BlockingDirectory::new(index_oid);
         let (opaque, _, _) = unsafe {
             directory
-                .lookup_segment_component(&path)
+                .directory_lookup(&path)
                 .expect("open segment component opaque should succeed")
         };
         let reader = SegmentComponentReader::new(index_oid, opaque.clone());

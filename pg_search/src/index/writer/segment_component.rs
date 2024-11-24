@@ -93,11 +93,6 @@ impl TerminatingWrite for SegmentComponentWriter {
             directory
                 .write(vec![opaque.clone()])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
-            crate::log_message(&format!(
-                "--- WRITING SEGMENT COMPONENT --- {:?}",
-                opaque.path
-            ));
         }
 
         Ok(())

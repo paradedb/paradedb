@@ -24,7 +24,7 @@ use crate::{
     },
 };
 use anyhow::Result;
-use tantivy::directory::{Lock, META_LOCK};
+use tantivy::directory::{Lock, INDEX_WRITER_LOCK, META_LOCK};
 use tantivy::{
     indexer::{AddOperation, SegmentWriter},
     IndexSettings,
@@ -84,7 +84,11 @@ impl SearchIndexWriter {
         let segment = self.segment.with_max_doc(max_doc);
         let index = segment.index();
 
-        let _lock = index.directory().acquire_lock(&Lock {
+        let _index_writer_lock = index.directory().acquire_lock(&Lock {
+            filepath: INDEX_WRITER_LOCK.filepath.clone(),
+            is_blocking: true,
+        });
+        let _meta_lock = index.directory().acquire_lock(&Lock {
             filepath: META_LOCK.filepath.clone(),
             is_blocking: true,
         });
@@ -92,8 +96,6 @@ impl SearchIndexWriter {
         let committed_meta = index.load_metas()?;
         let mut segments = committed_meta.segments.clone();
         segments.push(segment.meta().clone());
-
-        crate::log_message(&format!("--- COMMITTING SEGMENT --- {:?}", segment.meta()));
 
         let new_meta = tantivy::IndexMeta {
             segments,

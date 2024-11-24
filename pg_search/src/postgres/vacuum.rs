@@ -21,9 +21,7 @@ use crate::index::channel::{
 };
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::{
-    bm25_metadata, DirectoryEntry, MetaPageData, METADATA_BLOCKNO,
-};
+use crate::postgres::storage::block::{DirectoryEntry, MetaPageData, METADATA_BLOCKNO};
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use anyhow::Result;
@@ -92,7 +90,6 @@ pub extern "C" fn amvacuumcleanup(
         let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
         let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
 
-        crate::log_message(&format!("-- BEGINNING VACUUM"));
         unsafe {
             vacuum_directory(index_oid, blocking_stats.deleted_paths)
                 .expect("vacuum segment components should succeed");
@@ -138,7 +135,6 @@ fn alive_segment_components(
 }
 
 unsafe fn vacuum_directory(relation_oid: pg_sys::Oid, paths_deleted: Vec<PathBuf>) -> Result<()> {
-    crate::log_message(&format!("-- VACUUMING DIRECTORY"));
     let directory = BlockingDirectory::new(relation_oid);
     let cache = BM25BufferCache::open(relation_oid);
     // This lock is necessary because we are reading the segment components list, appending, and then overwriting

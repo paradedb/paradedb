@@ -146,7 +146,7 @@ impl BlockingDirectory {
         let metadata = bm25_metadata(self.relation_oid);
         let segment_components = LinkedItemList::<SegmentComponentOpaque>::open(
             self.relation_oid,
-            metadata.segment_component_first_blockno,
+            metadata.directory_start,
         );
         let result = segment_components.lookup(|opaque| opaque.path == path)?;
 
@@ -237,11 +237,11 @@ impl Directory for BlockingDirectory {
             pg_sys::UnlockReleaseBuffer(buffer);
 
             // Update the last blockno in the metadata page
-            let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let buffer =
+                cache.get_buffer(TANTIVY_META_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
             let page = pg_sys::BufferGetPage(buffer);
-            let data = pg_sys::PageGetContents(page) as *mut MetaPageData;
-            (*data).tantivy_meta_last_blockno = last_blockno;
-
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            (*special).last_blockno = last_blockno;
             pg_sys::MarkBufferDirty(buffer);
             pg_sys::UnlockReleaseBuffer(buffer);
         }
@@ -257,11 +257,14 @@ impl Directory for BlockingDirectory {
 
         let bytes = unsafe {
             let cache = BM25BufferCache::open(self.relation_oid);
-            let metadata = bm25_metadata(self.relation_oid);
-            let last_blockno = metadata.tantivy_meta_last_blockno;
+            let buffer = cache.get_buffer(TANTIVY_META_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            let last_blockno = (*special).last_blockno;
 
-            let mut current_blockno = TANTIVY_META_BLOCKNO;
+            pg_sys::UnlockReleaseBuffer(buffer);
             let mut bytes = Vec::new();
+            let mut current_blockno = TANTIVY_META_BLOCKNO;
 
             loop {
                 let buffer = cache.get_buffer(current_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
@@ -326,16 +329,11 @@ impl Directory for BlockingDirectory {
 
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
         unsafe {
-            let cache = BM25BufferCache::open(self.relation_oid);
-            let metadata_buffer =
-                cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-            let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-            let start_blockno = (*metadata).segment_component_first_blockno;
-            pg_sys::UnlockReleaseBuffer(metadata_buffer);
-
-            let segment_components =
-                LinkedItemList::<SegmentComponentOpaque>::open(self.relation_oid, start_blockno);
+            let metadata = bm25_metadata(self.relation_oid);
+            let segment_components = LinkedItemList::<SegmentComponentOpaque>::open(
+                self.relation_oid,
+                metadata.directory_start,
+            );
 
             Ok(segment_components
                 .list_all_items()
@@ -368,64 +366,16 @@ mod tests {
     use uuid::Uuid;
 
     #[pg_test]
-    fn test_register_single_file_as_managed() {
+    fn test_list_managed_files() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run(
-            "CALL paradedb.create_bm25(
-            index_name => 't_idx',
-            table_name => 't',
-            key_field => 'id',
-            text_fields => paradedb.field('data')
-        )",
-        )
-        .unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
 
         let directory = BlockingDirectory { relation_oid };
-        let file = PathBuf::from("file.ext");
-        directory
-            .register_files_as_managed(vec![file.clone()], false)
-            .unwrap();
         let listed_files = directory.list_managed_files().unwrap();
-        assert!(listed_files.contains(&file));
-    }
-
-    #[pg_test]
-    fn test_register_files_as_managed_with_overwrite() {
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run(
-            "CALL paradedb.create_bm25(
-            index_name => 't_idx',
-            table_name => 't',
-            key_field => 'id',
-            text_fields => paradedb.field('data')
-        )",
-        )
-        .unwrap();
-        let relation_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-                .expect("spi should succeed")
-                .unwrap();
-
-        let directory = BlockingDirectory { relation_oid };
-        let files: Vec<PathBuf> = (0..10000)
-            .map(|_| {
-                let uuid = Uuid::new_v4();
-                let mut path = PathBuf::new();
-                path.set_file_name(format!("{}.ext", uuid));
-                path
-            })
-            .collect();
-        directory
-            .register_files_as_managed(files.clone(), true)
-            .unwrap();
-        let listed_files = directory.list_managed_files().unwrap();
-        assert_eq!(
-            listed_files,
-            files.into_iter().collect::<HashSet<PathBuf>>()
-        );
+        assert!(listed_files.len() == 5);
     }
 }

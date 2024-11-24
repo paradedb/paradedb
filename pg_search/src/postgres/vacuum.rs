@@ -21,7 +21,9 @@ use crate::index::channel::{
 };
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::{bm25_metadata, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO};
+use crate::postgres::storage::block::{
+    bm25_metadata, MetaPageData, SegmentComponentOpaque, METADATA_BLOCKNO,
+};
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use anyhow::Result;
@@ -134,7 +136,15 @@ fn alive_segment_components(
         Ok(segment_components_list
             .list_all_items()?
             .into_iter()
-            .filter(|opaque| !paths_to_delete.contains(&opaque.path))
+            .filter(|opaque| {
+                println!(
+                    "target {:?} paths to delete {:?} should delete {}",
+                    opaque.path,
+                    paths_to_delete,
+                    !paths_to_delete.contains(&opaque.path)
+                );
+                !paths_to_delete.contains(&opaque.path)
+            })
             .collect::<Vec<_>>())
     }
 }
@@ -153,11 +163,10 @@ unsafe fn vacuum_segment_components(
     });
 
     let metadata = bm25_metadata(relation_oid);
-    let start_blockno = metadata.segment_component_first_blockno;
+    let start_blockno = metadata.directory_start;
 
     let mut old_segment_components =
         unsafe { LinkedItemList::<SegmentComponentOpaque>::open(relation_oid, start_blockno) };
-
     let alive_segment_components =
         alive_segment_components(&old_segment_components, paths_deleted.clone())?;
 
@@ -181,22 +190,14 @@ mod tests {
     #[pg_test]
     unsafe fn test_alive_segment_components() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run(
-            "CALL paradedb.create_bm25(
-            index_name => 't_idx',
-            table_name => 't',
-            key_field => 'id',
-            text_fields => paradedb.field('data')
-        )",
-        )
-        .unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
 
         let metadata = bm25_metadata(relation_oid);
-        let start_blockno = metadata.segment_component_first_blockno;
+        let start_blockno = metadata.directory_start;
         let mut segment_components_list =
             unsafe { LinkedItemList::<SegmentComponentOpaque>::open(relation_oid, start_blockno) };
 

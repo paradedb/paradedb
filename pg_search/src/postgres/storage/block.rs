@@ -55,13 +55,13 @@
 // LP_SPECIAL: [next_page BlockNumber, deleted bool, delete_xid TransactionId]
 
 use super::linked_list::PgItem;
+use super::utils::BM25BufferCache;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
-use super::utils::BM25BufferCache;
 
 pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the entire index
 pub const INDEX_WRITER_LOCK_BLOCKNO: pg_sys::BlockNumber = 1; // Used for Tantivy's INDEX_WRITER_LOCK
@@ -71,9 +71,7 @@ pub const TANTIVY_META_BLOCKNO: pg_sys::BlockNumber = 4; // Used for Tantivy's m
 
 /// Special data struct for the metadata page, located at METADATA_BLOCKNO
 pub struct MetaPageData {
-    pub segment_component_first_blockno: pg_sys::BlockNumber,
-    pub tantivy_meta_last_blockno: pg_sys::BlockNumber,
-    pub tantivy_managed_first_blockno: pg_sys::BlockNumber,
+    pub directory_start: pg_sys::BlockNumber,
 }
 
 /// Special data struct for all other pages except the metadata page and lock pages
@@ -121,6 +119,18 @@ pub const unsafe fn bm25_max_free_space() -> usize {
     (pg_sys::BLCKSZ as usize)
         - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
         - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
+}
+
+pub unsafe fn bm25_metadata(relation_oid: pg_sys::Oid) -> MetaPageData {
+    let cache = BM25BufferCache::open(relation_oid);
+    let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
+    let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
+    let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+    let data = MetaPageData {
+        directory_start: (*metadata).directory_start,
+    };
+    pg_sys::UnlockReleaseBuffer(metadata_buffer);
+    data
 }
 
 pub struct BlockNumberList(pub Vec<pg_sys::BlockNumber>);
@@ -175,20 +185,6 @@ impl Into<PgItem> for SegmentComponentOpaque {
         }
         PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
     }
-}
-
-pub unsafe fn bm25_metadata(relation_oid: pg_sys::Oid) -> MetaPageData {
-    let cache = BM25BufferCache::open(relation_oid);
-    let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-    let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-    let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-    let data = MetaPageData {
-        segment_component_first_blockno: (*metadata).segment_component_first_blockno,
-        tantivy_meta_last_blockno: (*metadata).tantivy_meta_last_blockno,
-        tantivy_managed_first_blockno: (*metadata).tantivy_managed_first_blockno,
-    };
-    pg_sys::UnlockReleaseBuffer(metadata_buffer);
-    data
 }
 
 #[cfg(any(test, feature = "pg_test"))]

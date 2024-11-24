@@ -234,7 +234,6 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     let metadata_buffer = cache.new_buffer();
     let page = pg_sys::BufferGetPage(metadata_buffer);
     let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
-    (*metadata).tantivy_meta_last_blockno = TANTIVY_META_BLOCKNO;
 
     let writer_lock_buffer = cache.new_buffer();
     let meta_lock_buffer = cache.new_buffer();
@@ -243,11 +242,7 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
 
     let segment_component_buffer = cache.new_buffer();
     let segment_component_blockno = pg_sys::BufferGetBlockNumber(segment_component_buffer);
-    (*metadata).segment_component_first_blockno = segment_component_blockno;
-
-    let tantivy_managed_buffer = cache.new_buffer();
-    let tantivy_managed_blockno = pg_sys::BufferGetBlockNumber(tantivy_managed_buffer);
-    (*metadata).tantivy_managed_first_blockno = tantivy_managed_blockno;
+    (*metadata).directory_start = segment_component_blockno;
 
     assert!(pg_sys::BufferGetBlockNumber(metadata_buffer) == METADATA_BLOCKNO);
     assert!(pg_sys::BufferGetBlockNumber(writer_lock_buffer) == INDEX_WRITER_LOCK_BLOCKNO);
@@ -261,7 +256,6 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     pg_sys::MarkBufferDirty(managed_lock_buffer);
     pg_sys::MarkBufferDirty(segment_component_buffer);
     pg_sys::MarkBufferDirty(tantivy_meta_buffer);
-    pg_sys::MarkBufferDirty(tantivy_managed_buffer);
 
     pg_sys::UnlockReleaseBuffer(metadata_buffer);
     pg_sys::UnlockReleaseBuffer(writer_lock_buffer);
@@ -269,5 +263,4 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     pg_sys::UnlockReleaseBuffer(managed_lock_buffer);
     pg_sys::UnlockReleaseBuffer(segment_component_buffer);
     pg_sys::UnlockReleaseBuffer(tantivy_meta_buffer);
-    pg_sys::UnlockReleaseBuffer(tantivy_managed_buffer);
 }

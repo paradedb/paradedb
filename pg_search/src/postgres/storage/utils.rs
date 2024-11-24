@@ -160,15 +160,7 @@ mod tests {
     #[pg_test]
     unsafe fn test_new_buffer() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run(
-            "CALL paradedb.create_bm25(
-            index_name => 't_idx',
-            table_name => 't',
-            key_field => 'id',
-            text_fields => paradedb.field('data')
-        )",
-        )
-        .unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")

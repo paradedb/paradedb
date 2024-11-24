@@ -22,7 +22,7 @@
 // # metadata
 
 // ...LP_LOWER
-// [directory_entries_start BlockNumber]
+// [directory_start BlockNumber]
 // ...LP_UPPER
 // LP_SPECIAL: <nothing>
 

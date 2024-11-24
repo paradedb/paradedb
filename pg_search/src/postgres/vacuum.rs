@@ -173,8 +173,8 @@ mod tests {
     use std::path::PathBuf;
     use uuid::Uuid;
 
-    use crate::postgres::storage::block::BM25PageSpecialData;
     use crate::postgres::storage::block::DirectoryEntry;
+    use crate::postgres::storage::block::{bm25_metadata, BM25PageSpecialData};
     use crate::postgres::storage::linked_list::LinkedItemList;
 
     #[pg_test]
@@ -279,12 +279,12 @@ mod tests {
 
         // Test that old entries were not physically deleted
         let (entry, _, _) = old_directory
-            .lookup(paths[0], |entry, path| entry.path == path)
+            .lookup(paths[0].clone(), |entry, path| entry.path == *path)
             .unwrap();
         assert_eq!(entry.path, paths[0]);
 
         let (entry, _, _) = old_directory
-            .lookup(paths[2], |entry, path| entry.path == path)
+            .lookup(paths[2].clone(), |entry, path| entry.path == *path)
             .unwrap();
         assert_eq!(entry.path, paths[2]);
     }

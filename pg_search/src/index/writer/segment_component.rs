@@ -1,16 +1,12 @@
 use pgrx::*;
-use std::cmp::min;
-use std::io::{Cursor, Read, Result, Write};
+use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 use std::slice::from_raw_parts_mut;
 use tantivy::directory::{AntiCallToken, Lock, TerminatingWrite, MANAGED_LOCK};
 use tantivy::Directory;
 
-use crate::index::blocking::{BlockingDirectory, SEGMENT_COMPONENT_CACHE};
-use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_metadata, BlockNumberList, DirectoryEntry, MetaPageData,
-    METADATA_BLOCKNO,
-};
+use crate::index::blocking::BlockingDirectory;
+use crate::postgres::storage::block::{bm25_metadata, BlockNumberList, DirectoryEntry};
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
 

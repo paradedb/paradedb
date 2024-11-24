@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::block::{BM25PageSpecialData, MetaPageData, METADATA_BLOCKNO};
+use super::block::BM25PageSpecialData;
 use super::utils::{BM25BufferCache, BM25Page};
 use crate::postgres::storage::block::bm25_max_free_space;
 use anyhow::{bail, Result};
@@ -31,7 +31,7 @@ pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 /// where each node in the list is a pg_sys::Item
 pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug> {
     relation_oid: pg_sys::Oid,
-    start: pg_sys::BlockNumber,
+    pub start: pg_sys::BlockNumber,
     _marker: std::marker::PhantomData<T>,
 }
 

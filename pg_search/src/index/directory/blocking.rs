@@ -19,11 +19,9 @@ use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use pgrx::pg_sys;
-use pgrx::pg_sys::AsPgCStr;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::path::PathBuf;
-use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::{io, result};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
@@ -37,21 +35,15 @@ use tantivy::{
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, DirectoryEntry,
-    MetaPageData, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
-    META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
+    bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, BlockNumberList,
+    DirectoryEntry, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, META_LOCK_BLOCKNO,
+    TANTIVY_META_BLOCKNO,
 };
-use crate::postgres::storage::linked_list::LinkedItemList;
+use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 
 /// Defined by Tantivy in core/mod.rs
 pub static META_FILEPATH: Lazy<&'static Path> = Lazy::new(|| Path::new("meta.json"));
-
-/// Keep DirectoryEntry instances in memory for the duration of the backend process
-/// to make lookups faster
-type SegmentComponentCacheEntry = (DirectoryEntry, pg_sys::BlockNumber, pg_sys::OffsetNumber);
-pub static SEGMENT_COMPONENT_CACHE: Lazy<RwLock<HashMap<PathBuf, SegmentComponentCacheEntry>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
 
 /// Custom lock passed to acquire_lock that uses a buffer as a blocking lock
 #[derive(Debug)]
@@ -105,45 +97,43 @@ impl BlockingDirectory {
     /// ambulkdelete wants to know how many pages were deleted, but the Directory trait doesn't let delete
     /// return a value, so we implement our own delete method
     pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
-        let (opaque, _, _) = unsafe { self.lookup_segment_component(path)? };
+        let (opaque, _, _) = unsafe { self.directory_lookup(path)? };
 
         // TODO: Reimplement delete
-        // if unsafe {
-        //     pg_sys::TransactionIdDidCommit(opaque.xid) || pg_sys::TransactionIdDidAbort(opaque.xid)
-        // } {
-        //     let blocks = opaque.blocks.clone();
-        //     let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+        if unsafe {
+            pg_sys::TransactionIdDidCommit(opaque.xid) || pg_sys::TransactionIdDidAbort(opaque.xid)
+        } {
+            let block_list = LinkedBytesList::open(self.relation_oid, opaque.start);
+            let blocks: BlockNumberList = unsafe { block_list.read_all().into() };
+            let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
 
-        //     // Mark pages as deleted, but don't actually free them
-        //     // It's important that only VACUUM frees pages, because pages might still be used by other transactions
-        //     for blockno in &blocks {
-        //         unsafe {
-        //             let buffer = cache.get_buffer(*blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        //             let page = pg_sys::BufferGetPage(buffer);
-        //             page.mark_deleted();
+            // Mark pages as deleted, but don't actually free them
+            // It's important that only VACUUM frees pages, because pages might still be used by other transactions
+            for blockno in blocks.0 {
+                unsafe {
+                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                    let page = pg_sys::BufferGetPage(buffer);
+                    page.mark_deleted();
 
-        //             pg_sys::MarkBufferDirty(buffer);
-        //             pg_sys::UnlockReleaseBuffer(buffer);
-        //         }
-        //     }
+                    pg_sys::MarkBufferDirty(buffer);
+                    pg_sys::UnlockReleaseBuffer(buffer);
+                }
+            }
 
-        //     Ok(Some(opaque))
-        // } else {
-        //     Ok(None)
-        // }
-
-        Ok(None)
+            Ok(Some(opaque))
+        } else {
+            Ok(None)
+        }
     }
 
-    pub unsafe fn lookup_segment_component(
+    pub unsafe fn directory_lookup(
         &self,
         path: &Path,
-    ) -> Result<SegmentComponentCacheEntry> {
+    ) -> Result<(DirectoryEntry, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
         let metadata = bm25_metadata(self.relation_oid);
-        let segment_components =
+        let directory =
             LinkedItemList::<DirectoryEntry>::open(self.relation_oid, metadata.directory_start);
-        let result = segment_components.lookup(|opaque| opaque.path == path)?;
-
+        let result = directory.lookup(|opaque| opaque.path == path)?;
         Ok(result)
     }
 }
@@ -151,7 +141,7 @@ impl BlockingDirectory {
 impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
         let (opaque, _, _) = unsafe {
-            self.lookup_segment_component(path)
+            self.directory_lookup(path)
                 .map_err(|err| OpenReadError::IoError {
                     io_error: io::Error::new(io::ErrorKind::Other, err.to_string()).into(),
                     filepath: PathBuf::from(path),
@@ -368,6 +358,6 @@ mod tests {
 
         let directory = BlockingDirectory { relation_oid };
         let listed_files = directory.list_managed_files().unwrap();
-        assert!(listed_files.len() == 5);
+        assert_eq!(listed_files.len(), 6);
     }
 }

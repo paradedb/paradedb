@@ -269,7 +269,7 @@ impl ChannelRequestHandler {
                     self.directory.register_files_as_managed(files, overwrite)?;
                 }
                 ChannelRequest::GetSegmentComponent(path) => {
-                    let (opaque, _, _) = unsafe { self.directory.lookup_segment_component(&path)? };
+                    let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
                     self.sender.send(ChannelResponse::DirectoryEntry(opaque))?;
                 }
                 ChannelRequest::ReleaseBlockingLock(blocking_lock) => {

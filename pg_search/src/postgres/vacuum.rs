@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::blocking::{BlockingDirectory, SEGMENT_COMPONENT_CACHE};
+use crate::index::blocking::BlockingDirectory;
 use crate::index::channel::{
     ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
 };
@@ -87,11 +87,6 @@ pub extern "C" fn amvacuumcleanup(
             .receive_blocking(Some(|_| false))
             .expect("blocking handler should succeed");
 
-        // Update the cache
-        for path in &blocking_stats.deleted_paths {
-            SEGMENT_COMPONENT_CACHE.write().remove(path);
-        }
-
         // Vacuum the linked list of segment components
         let cache = unsafe { BM25BufferCache::open(index_oid) };
         let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
@@ -136,15 +131,7 @@ fn alive_segment_components(
         Ok(segment_components_list
             .list_all_items()?
             .into_iter()
-            .filter(|opaque| {
-                println!(
-                    "target {:?} paths to delete {:?} should delete {}",
-                    opaque.path,
-                    paths_to_delete,
-                    !paths_to_delete.contains(&opaque.path)
-                );
-                !paths_to_delete.contains(&opaque.path)
-            })
+            .filter(|opaque| !paths_to_delete.contains(&opaque.path))
             .collect::<Vec<_>>())
     }
 }
@@ -173,8 +160,16 @@ unsafe fn vacuum_segment_components(
     old_segment_components.delete();
 
     let mut new_segment_components = LinkedItemList::<DirectoryEntry>::create(relation_oid);
-    // TODO: Change metadata segment components first blockno
-    new_segment_components.write(alive_segment_components)
+    let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+    let page = pg_sys::BufferGetPage(buffer);
+    let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
+    (*metadata).directory_start = new_segment_components.start;
+    new_segment_components.write(alive_segment_components)?;
+
+    pg_sys::MarkBufferDirty(buffer);
+    pg_sys::UnlockReleaseBuffer(buffer);
+
+    Ok(())
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -184,6 +179,7 @@ mod tests {
     use std::path::PathBuf;
     use uuid::Uuid;
 
+    use crate::postgres::storage::block::BM25PageSpecialData;
     use crate::postgres::storage::block::DirectoryEntry;
     use crate::postgres::storage::linked_list::LinkedItemList;
 
@@ -222,6 +218,64 @@ mod tests {
         let dead_paths = vec![paths[0].clone(), paths[2].clone()];
         let alive_segments =
             alive_segment_components(&segment_components_list, dead_paths).unwrap();
-        assert_eq!(alive_segments, vec![segments_to_vacuum[1].clone()]);
+        assert!(!alive_segments.contains(&segments_to_vacuum[0]));
+        assert!(!alive_segments.contains(&segments_to_vacuum[2]));
+    }
+
+    #[pg_test]
+    unsafe fn test_vacuum_segment_components() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let old_start_blockno = bm25_metadata(relation_oid).directory_start;
+        let mut old_directory =
+            LinkedItemList::<DirectoryEntry>::open(relation_oid, old_start_blockno);
+
+        let paths = (0..3)
+            .map(|_| PathBuf::from(format!("{:?}.term", Uuid::new_v4())))
+            .collect::<Vec<_>>();
+
+        let segments_to_vacuum = paths
+            .iter()
+            .map(|path| DirectoryEntry {
+                path: path.to_path_buf(),
+                start: 0,
+                total_bytes: 100,
+                xid: 0,
+            })
+            .collect::<Vec<_>>();
+
+        old_directory.write(segments_to_vacuum.clone()).unwrap();
+
+        let alive_segments = old_directory.list_all_items().unwrap();
+        assert!(alive_segments.contains(&segments_to_vacuum[0]));
+        assert!(alive_segments.contains(&segments_to_vacuum[2]));
+
+        let dead_paths = vec![paths[0].clone(), paths[2].clone()];
+        vacuum_segment_components(relation_oid, dead_paths).unwrap();
+
+        let cache = BM25BufferCache::open(relation_oid);
+        let mut blockno = old_start_blockno;
+
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            assert_eq!((*special).deleted, true);
+            blockno = (*special).next_blockno;
+            pg_sys::UnlockReleaseBuffer(buffer);
+        }
+
+        let new_start_blockno = bm25_metadata(relation_oid).directory_start;
+        assert_ne!(old_start_blockno, new_start_blockno);
+
+        let new_directory = LinkedItemList::<DirectoryEntry>::open(relation_oid, new_start_blockno);
+        let alive_segments = new_directory.list_all_items().unwrap();
+        assert!(!alive_segments.contains(&segments_to_vacuum[0]));
+        assert!(!alive_segments.contains(&segments_to_vacuum[2]));
     }
 }

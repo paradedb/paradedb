@@ -17,9 +17,8 @@
 
 use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use pgrx::pg_sys;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

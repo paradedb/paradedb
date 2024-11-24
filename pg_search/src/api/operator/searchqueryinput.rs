@@ -47,7 +47,7 @@ pub fn search_with_query_input(
             // with the WithIndex when it is rewritten with our custom operator.
             match query {
                 SearchQueryInput::WithIndex { oid, .. } => oid,
-                _ => panic!("the SeachQueryInput must be wrapped in a WithIndex variant"),
+                _ => panic!("the SearchQueryInput must be wrapped in a WithIndex variant"),
             }
         };
         let indexrel = unsafe {

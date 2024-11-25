@@ -87,10 +87,6 @@ impl BlockingDirectory {
                 let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
                 let page = pg_sys::BufferGetPage(buffer);
                 let PgItem(item, size) = entry_with_xmax.clone().into();
-                eprintln!(
-                    "overwriting {:?} size {} blockno {} offsetno {}",
-                    path, size, blockno, offsetno
-                );
                 let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
                 assert!(overwrite, "setting xmax for {:?} should succeed", path);
 
@@ -353,23 +349,4 @@ mod tests {
         let listed_files = directory.list_managed_files().unwrap();
         assert_eq!(listed_files.len(), 6);
     }
-    // #[pg_test]
-    // unsafe fn test_try_delete() {
-    //     Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-    //     Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-    //     let relation_oid: pg_sys::Oid =
-    //         Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-    //             .expect("spi should succeed")
-    //             .unwrap();
-    //     Spi::run("COMMIT;").unwrap();
-
-    //     let directory = BlockingDirectory { relation_oid };
-    //     let listed_files = directory.list_managed_files().unwrap();
-    //     let path_to_delete = listed_files.iter().next().unwrap().clone();
-
-    //     directory.try_delete(&path_to_delete).unwrap();
-
-    //     let (deleted_entry, _, _) = directory.directory_lookup(&path_to_delete).unwrap();
-    //     assert_eq!(deleted_entry.xmax, pg_sys::GetCurrentTransactionId());
-    // }
 }

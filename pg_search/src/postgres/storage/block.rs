@@ -220,7 +220,7 @@ mod tests {
     }
 
     #[pg_test]
-    unsafe fn test_bincode_size() {
+    unsafe fn test_serialized_size() {
         let segment1 = DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 0,
@@ -230,7 +230,7 @@ mod tests {
         };
         let segment2 = DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-            start: 0,
+            start: 1000,
             total_bytes: 100 as usize,
             xmin: pg_sys::GetCurrentTransactionId(),
             xmax: pg_sys::GetCurrentTransactionId(),

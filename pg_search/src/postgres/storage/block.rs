@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_segment_component_opaque_into() {
+    unsafe fn test_directory_entry_into() {
         let segment = DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 0,

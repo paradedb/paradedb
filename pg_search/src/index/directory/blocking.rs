@@ -39,7 +39,7 @@ use crate::postgres::storage::block::{
     DirectoryEntry, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, META_LOCK_BLOCKNO,
     TANTIVY_META_BLOCKNO,
 };
-use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList, PgItem};
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 
 /// Defined by Tantivy in core/mod.rs
@@ -73,11 +73,28 @@ impl BlockingDirectory {
     /// ambulkdelete wants to know how many pages were deleted, but the Directory trait doesn't let delete
     /// return a value, so we implement our own delete method
     pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
-        let (entry, _, _) = unsafe { self.directory_lookup(path)? };
+        let (entry, blockno, offsetno) = unsafe { self.directory_lookup(path)? };
 
         if unsafe {
             pg_sys::TransactionIdDidCommit(entry.xmin) || pg_sys::TransactionIdDidAbort(entry.xmin)
         } {
+            unsafe {
+                println!("SETTING MXAX");
+                let entry_with_xmax = DirectoryEntry {
+                    xmax: pg_sys::GetCurrentTransactionId(),
+                    ..entry.clone()
+                };
+                let cache = BM25BufferCache::open(self.relation_oid);
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                let page = pg_sys::BufferGetPage(buffer);
+                let PgItem(item, size) = entry_with_xmax.into();
+                let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
+                assert!(overwrite, "setting xmax for {:?} should succeed", path);
+
+                pg_sys::MarkBufferDirty(buffer);
+                pg_sys::UnlockReleaseBuffer(buffer);
+            }
+
             let block_list = LinkedBytesList::open(self.relation_oid, entry.start);
             let BlockNumberList(blocks) = unsafe { block_list.read_all().into() };
             let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
@@ -333,4 +350,23 @@ mod tests {
         let listed_files = directory.list_managed_files().unwrap();
         assert_eq!(listed_files.len(), 6);
     }
+    // #[pg_test]
+    // unsafe fn test_try_delete() {
+    //     Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+    //     Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+    //     let relation_oid: pg_sys::Oid =
+    //         Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+    //             .expect("spi should succeed")
+    //             .unwrap();
+    //     Spi::run("COMMIT;").unwrap();
+
+    //     let directory = BlockingDirectory { relation_oid };
+    //     let listed_files = directory.list_managed_files().unwrap();
+    //     let path_to_delete = listed_files.iter().next().unwrap().clone();
+
+    //     directory.try_delete(&path_to_delete).unwrap();
+
+    //     let (deleted_entry, _, _) = directory.directory_lookup(&path_to_delete).unwrap();
+    //     assert_eq!(deleted_entry.xmax, pg_sys::GetCurrentTransactionId());
+    // }
 }

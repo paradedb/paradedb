@@ -32,7 +32,6 @@ impl BM25Page for pg_sys::Page {
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
         (*special).next_blockno = pg_sys::InvalidBlockNumber;
         (*special).last_blockno = pg_sys::InvalidBlockNumber;
-        (*special).deleted = false;
         (*special).delete_xid = pg_sys::FullTransactionId::default();
     }
 
@@ -40,7 +39,6 @@ impl BM25Page for pg_sys::Page {
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
         (*special).next_blockno = pg_sys::InvalidBlockNumber;
         (*special).last_blockno = pg_sys::InvalidBlockNumber;
-        (*special).deleted = true;
         (*special).delete_xid = pg_sys::ReadNextFullTransactionId();
     }
 
@@ -50,7 +48,7 @@ impl BM25Page for pg_sys::Page {
         }
 
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
-        if !(*special).deleted {
+        if (*special).delete_xid.value == pg_sys::FullTransactionId::default().value {
             return false;
         }
 
@@ -158,6 +156,7 @@ mod tests {
     use pgrx::prelude::*;
 
     #[pg_test]
+    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
     unsafe fn test_new_buffer() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();

@@ -262,7 +262,10 @@ mod tests {
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
             let page = pg_sys::BufferGetPage(buffer);
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            assert_eq!((*special).deleted, true);
+            assert_ne!(
+                (*special).delete_xid.value,
+                pg_sys::FullTransactionId::default().value
+            );
             blockno = (*special).next_blockno;
             pg_sys::UnlockReleaseBuffer(buffer);
         }

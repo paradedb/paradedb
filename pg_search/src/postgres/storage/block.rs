@@ -26,6 +26,9 @@
 // ...LP_UPPER
 // LP_SPECIAL: <nothing>
 
+// TODO: DOCUMENT META BLOCKS
+// TODO: Get rid of deleted flag
+
 // # directory entries
 
 // ...LP_LOWER
@@ -35,7 +38,7 @@
 // ...
 // Item: [<PathBuf>, BlockNumber, ssize_t, TransactionId]
 // ...LP_UPPER
-// LP_SPECIAL: [next_page BlockNumber, deleted bool, delete_xid TransactionId]
+// LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
 
 // # segment file blocknumber list
 
@@ -45,14 +48,14 @@
 // [BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber]
 // [BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber]
 // ...LP_UPPER
-// LP_SPECIAL: [next_page BlockNumber, deleted bool, delete_xid TransactionId]
+// LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
 
 // # segment file data
 
 // ...LP_LOWER
 // [u8 byte data]
 // ...LP_UPPER
-// LP_SPECIAL: [next_page BlockNumber, deleted bool, delete_xid TransactionId]
+// LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
 
 use super::linked_list::PgItem;
 use super::utils::BM25BufferCache;
@@ -78,23 +81,16 @@ pub struct MetaPageData {
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
     pub last_blockno: pg_sys::BlockNumber,
-    pub deleted: bool,
     pub delete_xid: pg_sys::FullTransactionId,
 }
 
 /// Metadata for tracking segment components
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DirectoryEntry {
     pub path: PathBuf,
     pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
     pub xid: u32,
-}
-
-impl PartialEq for DirectoryEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.path == other.path
-    }
 }
 
 /// Defined in `src/include/c.h`

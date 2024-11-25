@@ -24,7 +24,6 @@ use crate::{
     },
 };
 use anyhow::Result;
-use tantivy::directory::{Lock, INDEX_WRITER_LOCK};
 use tantivy::{
     indexer::{AddOperation, SegmentWriter},
     IndexSettings,
@@ -33,6 +32,7 @@ use tantivy::{Directory, Index};
 use thiserror::Error;
 
 use crate::index::directory::blocking::{BlockingDirectory, META_FILEPATH};
+use crate::index::directory::lock::index_writer_lock;
 use crate::index::WriterResources;
 
 /// The entity that interfaces with Tantivy indexes.
@@ -92,10 +92,7 @@ impl SearchIndexWriter {
         // Process A sees that D has been committed AND is a deletion candidate, so it mistakenly deletes D
         // In order to prevent this, we would need to hold a lock across Tantivy's entire commit process which spans multiple functions,
         // and an index writer lock is a good stopgap for now.
-        let _index_writer_lock = index.directory().acquire_lock(&Lock {
-            filepath: INDEX_WRITER_LOCK.filepath.clone(),
-            is_blocking: true,
-        });
+        let _index_writer_lock = index.directory().acquire_lock(&index_writer_lock())?;
 
         let committed_meta = index.load_metas()?;
         let mut segments = committed_meta.segments.clone();

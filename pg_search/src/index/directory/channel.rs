@@ -11,7 +11,8 @@ use tantivy::directory::{
 };
 use tantivy::Directory;
 
-use crate::index::directory::blocking::{BlockingDirectory, BlockingLock};
+use crate::index::directory::blocking::BlockingDirectory;
+use crate::index::directory::lock::BlockingLock;
 use crate::index::reader::channel::ChannelReader;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::channel::ChannelWriter;

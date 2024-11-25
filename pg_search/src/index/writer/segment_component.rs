@@ -1,10 +1,11 @@
 use pgrx::*;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
-use tantivy::directory::{AntiCallToken, Lock, TerminatingWrite, MANAGED_LOCK};
+use tantivy::directory::{AntiCallToken, TerminatingWrite};
 use tantivy::Directory;
 
 use crate::index::blocking::BlockingDirectory;
+use crate::index::directory::lock::managed_lock;
 use crate::postgres::storage::block::{bm25_metadata, BlockNumberList, DirectoryEntry};
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
@@ -73,10 +74,7 @@ impl TerminatingWrite for SegmentComponentWriter {
 
         unsafe {
             let blocking_directory = BlockingDirectory::new(self.relation_oid);
-            let _lock = blocking_directory.acquire_lock(&Lock {
-                filepath: MANAGED_LOCK.filepath.clone(),
-                is_blocking: true,
-            });
+            let _lock = blocking_directory.acquire_lock(&managed_lock());
 
             let metadata = bm25_metadata(self.relation_oid);
             let start_blockno = metadata.directory_start;

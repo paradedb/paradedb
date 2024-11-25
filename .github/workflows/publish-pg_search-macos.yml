@@ -142,28 +142,27 @@ jobs:
           package_dir="pg_search-${tag_version}-arm64-pg${pg_version}"
 
           # Define Homebrew PostgreSQL paths
-          brew_pg_path="/opt/homebrew/opt/postgresql@${pg_version}"
-          lib_path="${brew_pg_path}/lib/postgresql"
-          share_path="${brew_pg_path}/share/postgresql@${pg_version}/extension"
+          lib_path="lib/postgresql"
+          share_path="share/postgresql@${pg_version}/extension"
 
           # Create directory structure for Homebrew
-          mkdir -p ${package_dir}${lib_path}
-          mkdir -p ${package_dir}${share_path}
+          mkdir -p ${package_dir}/${lib_path}
+          mkdir -p ${package_dir}/${share_path}
 
           # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
           if [[ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]]; then
-            cp archive/*.dylib ${package_dir}${lib_path}
+            cp archive/*.dylib ${package_dir}/${lib_path}
           else
-            cp archive/*.so ${package_dir}${lib_path}
+            cp archive/*.so ${package_dir}/${lib_path}
           fi
-          cp archive/*.control ${package_dir}${share_path}
-          cp archive/*.sql ${package_dir}${share_path}
+          cp archive/*.control ${package_dir}/${share_path}
+          cp archive/*.sql ${package_dir}/${share_path}
 
           # Create the .pkg installer
           pkgbuild --root ${package_dir} \
                   --identifier com.paradedb.pg_search \
                   --version ${tag_version} \
-                  --install-location /opt/homebrew/opt/postgresql${pg_version} \
+                  --install-location /opt/homebrew/opt/postgresql@${pg_version} \
                   postgresql-${{ matrix.pg_version }}-pg_search--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Sign and Attest Build Provenance

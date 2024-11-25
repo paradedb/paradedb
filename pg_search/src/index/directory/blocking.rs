@@ -76,7 +76,7 @@ impl BlockingDirectory {
         let (entry, _, _) = unsafe { self.directory_lookup(path)? };
 
         if unsafe {
-            pg_sys::TransactionIdDidCommit(entry.xid) || pg_sys::TransactionIdDidAbort(entry.xid)
+            pg_sys::TransactionIdDidCommit(entry.xmin) || pg_sys::TransactionIdDidAbort(entry.xmin)
         } {
             let block_list = LinkedBytesList::open(self.relation_oid, entry.start);
             let BlockNumberList(blocks) = unsafe { block_list.read_all().into() };

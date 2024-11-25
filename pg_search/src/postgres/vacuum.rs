@@ -201,7 +201,8 @@ mod tests {
                 path: path.to_path_buf(),
                 start: 0,
                 total_bytes: 100,
-                xid: 0,
+                xmin: pg_sys::GetCurrentTransactionId(),
+                xmax: pg_sys::InvalidTransactionId,
             })
             .collect::<Vec<_>>();
 
@@ -239,7 +240,8 @@ mod tests {
                 path: path.to_path_buf(),
                 start: 0,
                 total_bytes: 100,
-                xid: 0,
+                xmin: pg_sys::GetCurrentTransactionId(),
+                xmax: pg_sys::InvalidTransactionId,
             })
             .collect::<Vec<_>>();
 

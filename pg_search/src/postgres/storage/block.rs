@@ -90,7 +90,8 @@ pub struct DirectoryEntry {
     pub path: PathBuf,
     pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
-    pub xid: u32,
+    pub xmin: pg_sys::TransactionId,
+    pub xmax: pg_sys::TransactionId,
 }
 
 /// Defined in `src/include/c.h`
@@ -210,7 +211,8 @@ mod tests {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 0,
             total_bytes: 100 as usize,
-            xid: 0,
+            xmin: pg_sys::GetCurrentTransactionId(),
+            xmax: pg_sys::InvalidTransactionId,
         };
         let pg_item: PgItem = segment.clone().into();
         let segment_from_pg_item: DirectoryEntry = pg_item.into();

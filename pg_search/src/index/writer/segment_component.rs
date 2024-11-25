@@ -85,7 +85,8 @@ impl TerminatingWrite for SegmentComponentWriter {
                 path: self.path.clone(),
                 total_bytes: self.total_bytes,
                 start: blockno,
-                xid: pg_sys::GetCurrentTransactionId(),
+                xmin: pg_sys::GetCurrentTransactionId(),
+                xmax: pg_sys::InvalidTransactionId,
             };
 
             directory

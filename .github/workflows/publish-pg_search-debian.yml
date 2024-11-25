@@ -176,8 +176,11 @@ jobs:
           subject-path: |
             ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
 
+      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which
+      # is not capable of parsing certain control characters
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |

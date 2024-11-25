@@ -19,9 +19,9 @@ use crate::index::{SearchIndex, WriterResources};
 use crate::postgres::index::get_fields;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::storage::block::{
-    MetaPageData, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
-    META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
+    DirectoryEntry, MetaPageData, SegmentMetaEntry, METADATA_BLOCKNO,
 };
+use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
 use crate::postgres::utils::row_to_search_document;
 use pgrx::*;
@@ -235,32 +235,23 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     let page = pg_sys::BufferGetPage(metadata_buffer);
     let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
 
-    let writer_lock_buffer = cache.new_buffer();
-    let meta_lock_buffer = cache.new_buffer();
-    let managed_lock_buffer = cache.new_buffer();
-    let tantivy_meta_buffer = cache.new_buffer();
+    let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+    let directory_blockno = pg_sys::BufferGetBlockNumber(directory.lock_buffer);
+    (*metadata).directory_start = directory_blockno;
 
-    let segment_component_buffer = cache.new_buffer();
-    let segment_component_blockno = pg_sys::BufferGetBlockNumber(segment_component_buffer);
-    (*metadata).directory_start = segment_component_blockno;
+    let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+    let segment_metas_blockno = pg_sys::BufferGetBlockNumber(segment_metas.lock_buffer);
+    (*metadata).segment_metas_start = segment_metas_blockno;
+
+    let schema = LinkedBytesList::create(relation_oid);
+    let schema_blockno = pg_sys::BufferGetBlockNumber(schema.lock_buffer);
+    (*metadata).schema_start = schema_blockno;
+
+    let settings = LinkedBytesList::create(relation_oid);
+    let settings_blockno = pg_sys::BufferGetBlockNumber(settings.lock_buffer);
+    (*metadata).settings_start = settings_blockno;
 
     assert!(pg_sys::BufferGetBlockNumber(metadata_buffer) == METADATA_BLOCKNO);
-    assert!(pg_sys::BufferGetBlockNumber(writer_lock_buffer) == INDEX_WRITER_LOCK_BLOCKNO);
-    assert!(pg_sys::BufferGetBlockNumber(meta_lock_buffer) == META_LOCK_BLOCKNO);
-    assert!(pg_sys::BufferGetBlockNumber(managed_lock_buffer) == MANAGED_LOCK_BLOCKNO);
-    assert!(pg_sys::BufferGetBlockNumber(tantivy_meta_buffer) == TANTIVY_META_BLOCKNO);
-
     pg_sys::MarkBufferDirty(metadata_buffer);
-    pg_sys::MarkBufferDirty(writer_lock_buffer);
-    pg_sys::MarkBufferDirty(meta_lock_buffer);
-    pg_sys::MarkBufferDirty(managed_lock_buffer);
-    pg_sys::MarkBufferDirty(segment_component_buffer);
-    pg_sys::MarkBufferDirty(tantivy_meta_buffer);
-
     pg_sys::UnlockReleaseBuffer(metadata_buffer);
-    pg_sys::UnlockReleaseBuffer(writer_lock_buffer);
-    pg_sys::UnlockReleaseBuffer(meta_lock_buffer);
-    pg_sys::UnlockReleaseBuffer(managed_lock_buffer);
-    pg_sys::UnlockReleaseBuffer(segment_component_buffer);
-    pg_sys::UnlockReleaseBuffer(tantivy_meta_buffer);
 }

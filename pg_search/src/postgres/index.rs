@@ -27,26 +27,17 @@ use tantivy::Index;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
-use crate::postgres::storage::block::METADATA_BLOCKNO;
-use crate::postgres::storage::utils::BM25BufferCache;
-
 /// Open the underlying [`SearchIndex`] for the specified Postgres index relation
 pub fn open_search_index(
     index_relation: &PgRelation,
 ) -> anyhow::Result<SearchIndex, SearchIndexError> {
     let index_oid = index_relation.oid();
-    let cache = unsafe { BM25BufferCache::open(index_oid) };
-    let lock = unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
-
     let (fields, key_field_index) = unsafe { get_fields(index_relation) };
     let schema = SearchIndexSchema::new(fields, key_field_index)?;
     let tantivy_dir = BlockingDirectory::new(index_oid);
     let mut underlying_index = Index::open(tantivy_dir)?;
 
     SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
-
-    unsafe { pg_sys::UnlockReleaseBuffer(lock) };
-
     Ok(SearchIndex {
         schema,
         underlying_index,

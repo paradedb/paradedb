@@ -2,37 +2,27 @@ use pgrx::*;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 use tantivy::directory::{AntiCallToken, TerminatingWrite};
-use tantivy::Directory;
 
-use crate::index::blocking::BlockingDirectory;
-use crate::index::directory::lock::managed_lock;
-use crate::postgres::storage::block::{bm25_metadata, BlockNumberList, DirectoryEntry};
+use crate::postgres::storage::block::{bm25_metadata, DirectoryEntry};
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
-use crate::postgres::storage::utils::BM25BufferCache;
 
 #[derive(Clone, Debug)]
 pub struct SegmentComponentWriter {
     relation_oid: pg_sys::Oid,
-    cache: BM25BufferCache,
     path: PathBuf,
-    blocks: Vec<pg_sys::BlockNumber>,
+    lock_blockno: pg_sys::BlockNumber,
     total_bytes: usize,
 }
 
 impl SegmentComponentWriter {
     pub unsafe fn new(relation_oid: pg_sys::Oid, path: &Path) -> Self {
-        let cache = BM25BufferCache::open(relation_oid);
-        let current_buffer = cache.new_buffer();
-        let blockno = pg_sys::BufferGetBlockNumber(current_buffer);
-
-        pg_sys::MarkBufferDirty(current_buffer);
-        pg_sys::UnlockReleaseBuffer(current_buffer);
+        let segment_component = LinkedBytesList::create(relation_oid);
+        let lock_blockno = unsafe { pg_sys::BufferGetBlockNumber(segment_component.lock_buffer) };
 
         Self {
             relation_oid,
-            cache,
             path: path.to_path_buf(),
-            blocks: vec![blockno],
+            lock_blockno,
             total_bytes: 0,
         }
     }
@@ -40,10 +30,12 @@ impl SegmentComponentWriter {
 
 impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
-        let mut segment_component = LinkedBytesList::open(self.relation_oid, self.blocks[0]);
-        let mut block_created =
-            unsafe { segment_component.write(data).expect("write should succeed") };
-        self.blocks.append(&mut block_created);
+        let mut segment_component = LinkedBytesList::open_with_lock(
+            self.relation_oid,
+            self.lock_blockno,
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        );
+        unsafe { segment_component.write(data).expect("write should succeed") };
         self.total_bytes += data.len();
         Ok(data.len())
     }
@@ -55,41 +47,23 @@ impl Write for SegmentComponentWriter {
 
 impl TerminatingWrite for SegmentComponentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
-        // Store segment component's block numbers
-        let cache = &self.cache;
-        let new_buffer = unsafe { cache.new_buffer() };
-        let blockno = unsafe { pg_sys::BufferGetBlockNumber(new_buffer) };
-
         unsafe {
-            pg_sys::MarkBufferDirty(new_buffer);
-            pg_sys::UnlockReleaseBuffer(new_buffer);
-        }
-
-        // TODO: Set special data for blockno
-        let mut block_list = LinkedBytesList::open(self.relation_oid, blockno);
-        let bytes: Vec<u8> = BlockNumberList(self.blocks.clone()).into();
-        unsafe {
-            block_list.write(&bytes).expect("write should succeed");
-        }
-
-        unsafe {
-            let blocking_directory = BlockingDirectory::new(self.relation_oid);
-            let _lock = blocking_directory.acquire_lock(&managed_lock());
-
             let metadata = bm25_metadata(self.relation_oid);
-            let start_blockno = metadata.directory_start;
-            let mut directory =
-                LinkedItemList::<DirectoryEntry>::open(self.relation_oid, start_blockno);
-
-            let opaque = DirectoryEntry {
+            let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
+                self.relation_oid,
+                metadata.directory_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            let entry = DirectoryEntry {
                 path: self.path.clone(),
                 total_bytes: self.total_bytes,
-                start: blockno,
-                xid: pg_sys::GetCurrentTransactionId(),
+                start: self.lock_blockno,
+                xmin: pg_sys::GetCurrentTransactionId(),
+                xmax: pg_sys::InvalidTransactionId,
             };
 
             directory
-                .write(vec![opaque.clone()])
+                .write(vec![entry])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
 

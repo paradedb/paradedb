@@ -163,12 +163,12 @@ jobs:
                   --identifier com.paradedb.pg_search \
                   --version ${tag_version} \
                   --install-location /opt/homebrew/opt/postgresql@${pg_version} \
-                  postgresql-${{ matrix.pg_version }}-pg_search--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
+                  pg_search-pg${{ matrix.pg_version }}--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          subject-path: ./pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -189,6 +189,6 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
-          asset_name: postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          asset_path: ./pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          asset_name: pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
           overwrite: true

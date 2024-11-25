@@ -406,7 +406,7 @@ impl SearchIndexReader {
             response_sender,
             request_receiver,
         );
-        let _ = handler.receive_blocking(Some(|_| false)).unwrap();
+        handler.receive_blocking(Some(|_| false)).unwrap();
 
         unsafe { pgrx::pg_sys::UnlockReleaseBuffer(lock) };
         SearchResults::Channel(search_receiver.into_iter())

@@ -15,25 +15,28 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::Result;
+use pgrx::pg_sys;
+use tantivy::Index;
+use tantivy::{
+    indexer::{AddOperation, SegmentWriter},
+    IndexSettings,
+};
+use thiserror::Error;
+
+use crate::index::directory::blocking::BlockingDirectory;
+use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::storage::block::bm25_metadata;
+use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::{
     index::SearchIndex,
+    postgres::storage::block::SegmentMetaEntry,
     postgres::types::TantivyValueError,
     schema::{
         SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
     },
 };
-use anyhow::Result;
-use tantivy::{
-    indexer::{AddOperation, SegmentWriter},
-    IndexSettings,
-};
-use tantivy::{Directory, Index};
-use thiserror::Error;
-
-use crate::index::directory::blocking::{BlockingDirectory, META_FILEPATH};
-use crate::index::directory::lock::index_writer_lock;
-use crate::index::WriterResources;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
@@ -42,6 +45,7 @@ pub struct SearchIndexWriter {
     pub wants_merge: bool,
     pub commit_opstamp: tantivy::Opstamp,
     pub segment: tantivy::Segment,
+    relation_oid: pg_sys::Oid,
 }
 
 impl SearchIndexWriter {
@@ -49,6 +53,7 @@ impl SearchIndexWriter {
         index: &Index,
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
+        relation_oid: pg_sys::Oid,
     ) -> Result<Self> {
         let (_, memory_budget, _, _) = resources.resources(index_options);
         let segment = index.new_segment();
@@ -62,6 +67,7 @@ impl SearchIndexWriter {
             // TODO: Merge on insert
             wants_merge: false,
             segment,
+            relation_oid,
         })
     }
 
@@ -82,33 +88,23 @@ impl SearchIndexWriter {
         let max_doc = self.underlying_writer.max_doc();
         self.underlying_writer.finalize()?;
         let segment = self.segment.with_max_doc(max_doc);
-        let index = segment.index();
 
-        // An index writer lock is needed here to guard against the scenario
-        // where we commit a segment in the middle of another process' merge/vacuum. For instance:
-        // Process A sees files A,B,C,D but only A,B,C committed
-        // Process A thinks D is tombstoned and puts up D as a deletion candidate
-        // Process B commits D
-        // Process A sees that D has been committed AND is a deletion candidate, so it mistakenly deletes D
-        // In order to prevent this, we would need to hold a lock across Tantivy's entire commit process which spans multiple functions,
-        // and an index writer lock is a good stopgap for now.
-        let _index_writer_lock = index.directory().acquire_lock(&index_writer_lock())?;
-
-        let committed_meta = index.load_metas()?;
-        let mut segments = committed_meta.segments.clone();
-        segments.push(segment.meta().clone());
-
-        let new_meta = tantivy::IndexMeta {
-            segments,
+        let entry = SegmentMetaEntry {
+            meta: segment.meta().tracked.as_ref().clone(),
             opstamp: self.current_opstamp,
-            index_settings: committed_meta.index_settings,
-            schema: committed_meta.schema,
-            payload: committed_meta.payload,
+            xmin: unsafe { pgrx::pg_sys::GetCurrentTransactionId() },
+            xmax: pgrx::pg_sys::InvalidTransactionId,
         };
 
-        index
-            .directory()
-            .atomic_write(*META_FILEPATH, &serde_json::to_vec(&new_meta)?)?;
+        unsafe {
+            let metadata = bm25_metadata(self.relation_oid);
+            let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+                self.relation_oid,
+                metadata.segment_metas_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            segment_metas.write(vec![entry]).unwrap();
+        }
 
         Ok(())
     }

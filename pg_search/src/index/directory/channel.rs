@@ -9,65 +9,45 @@ use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWrite
 use tantivy::directory::{
     DirectoryLock, FileHandle, Lock, TerminatingWrite, WatchCallback, WatchHandle, WritePtr,
 };
-use tantivy::Directory;
+use tantivy::index::SegmentMetaInventory;
+use tantivy::{Directory, IndexMeta};
 
 use crate::index::directory::blocking::BlockingDirectory;
-use crate::index::directory::lock::BlockingLock;
 use crate::index::reader::channel::ChannelReader;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::channel::ChannelWriter;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
-#[derive(Debug)]
 pub enum ChannelRequest {
-    AcquireLock(Lock),
-    AtomicRead(PathBuf),
-    AtomicWrite(PathBuf, Vec<u8>),
     ListManagedFiles(),
     RegisterFilesAsManaged(Vec<PathBuf>, bool),
-    ReleaseBlockingLock(BlockingLock),
     SegmentRead(Range<usize>, DirectoryEntry),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
-    SegmentDelete(PathBuf),
     GetSegmentComponent(PathBuf),
     ShouldDeleteCtids(Vec<u64>),
+    SaveMetas(IndexMeta),
+    LoadMetas(SegmentMetaInventory),
     Terminate,
 }
 
 pub enum ChannelResponse {
     ManagedFiles(HashSet<PathBuf>),
-    AcquiredLock(BlockingLock),
     Bytes(Vec<u8>),
     DirectoryEntry(DirectoryEntry),
     ShouldDeleteCtids(Vec<u64>),
+    LoadMetas(IndexMeta),
 }
 
 impl Debug for ChannelResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChannelResponse::AcquiredLock(_) => write!(f, "AcquiredLock"),
             ChannelResponse::ManagedFiles(_) => write!(f, "ManagedFiles"),
             ChannelResponse::Bytes(_) => write!(f, "Bytes"),
             ChannelResponse::DirectoryEntry(_) => write!(f, "DirectoryEntry"),
             ChannelResponse::ShouldDeleteCtids(_) => write!(f, "ShouldDeleteCtids"),
-        }
-    }
-}
-
-pub struct ChannelLock {
-    // This is an Option because we need to take ownership of the lock in the Drop implementation
-    lock: Option<BlockingLock>,
-    sender: Sender<ChannelRequest>,
-}
-
-impl Drop for ChannelLock {
-    fn drop(&mut self) {
-        if let Some(lock) = self.lock.take() {
-            self.sender
-                .send(ChannelRequest::ReleaseBlockingLock(lock))
-                .expect("should be able to release channel lock");
+            ChannelResponse::LoadMetas(_) => write!(f, "LoadMetas"),
         }
     }
 }
@@ -105,39 +85,21 @@ impl Directory for ChannelDirectory {
         ))
     }
 
+    /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
+    /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
+    fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
+        unimplemented!("atomic_write should not be called for {:?}", path);
+    }
+
+    /// atomic_read is used by Tantivy to read from managed.json and meta.json
+    /// This function should never be called by our Tantivy fork because we read from them ourselves
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        self.sender
-            .send(ChannelRequest::AtomicRead(path.to_path_buf()))
-            .unwrap();
-
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::Bytes(bytes) => Ok(bytes),
-            unexpected => Err(OpenReadError::wrap_io_error(
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("atomic_read unexpected response {:?}", unexpected),
-                ),
-                path.to_path_buf(),
-            )),
-        }
+        unimplemented!("atomic_read should not be called for {:?}", path);
     }
 
-    fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        self.sender
-            .send(ChannelRequest::AtomicWrite(
-                path.to_path_buf(),
-                data.to_vec(),
-            ))
-            .unwrap();
-
-        Ok(())
-    }
-
-    fn delete(&self, path: &Path) -> result::Result<(), DeleteError> {
-        self.sender
-            .send(ChannelRequest::SegmentDelete(path.to_path_buf()))
-            .unwrap();
-
+    // This is called by Tantivy's garbage collect process, which we do not want to implement
+    // because we use Postgres MVCC rules for our own garbage collection in amvacuumcleanup
+    fn delete(&self, _path: &Path) -> result::Result<(), DeleteError> {
         Ok(())
     }
 
@@ -147,28 +109,10 @@ impl Directory for ChannelDirectory {
     }
 
     fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
-        self.sender
-            .send(ChannelRequest::AcquireLock(Lock {
-                filepath: lock.filepath.clone(),
-                is_blocking: lock.is_blocking,
-            }))
-            .unwrap();
-
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::AcquiredLock(blocking_lock) => {
-                Ok(DirectoryLock::from(Box::new(ChannelLock {
-                    lock: Some(blocking_lock),
-                    sender: self.sender.clone(),
-                })))
-            }
-            unexpected => Err(LockError::IoError(
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("acquire_lock unexpected response {:?}", unexpected),
-                )
-                .into(),
-            )),
-        }
+        Ok(DirectoryLock::from(Box::new(Lock {
+            filepath: lock.filepath.clone(),
+            is_blocking: true,
+        })))
     }
 
     // Internally, tantivy only uses this API to detect new commits to implement the
@@ -208,6 +152,28 @@ impl Directory for ChannelDirectory {
 
         Ok(())
     }
+
+    fn save_metas(&self, meta: &IndexMeta) -> tantivy::Result<()> {
+        self.sender
+            .send(ChannelRequest::SaveMetas(meta.clone()))
+            .unwrap();
+
+        Ok(())
+    }
+
+    fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
+        self.sender
+            .send(ChannelRequest::LoadMetas(inventory.clone()))
+            .unwrap();
+
+        match self.receiver.recv().unwrap() {
+            ChannelResponse::LoadMetas(metas) => Ok(metas),
+            unexpected => Err(tantivy::TantivyError::ErrorInThread(format!(
+                "load_metas unexpected response {:?}",
+                unexpected
+            ))),
+        }
+    }
 }
 
 pub struct ChannelRequestHandler {
@@ -217,11 +183,6 @@ pub struct ChannelRequestHandler {
     receiver: Receiver<ChannelRequest>,
     writers: HashMap<PathBuf, SegmentComponentWriter>,
     readers: HashMap<PathBuf, SegmentComponentReader>,
-}
-
-#[derive(Debug)]
-pub struct ChannelRequestStats {
-    pub deleted_paths: Vec<PathBuf>,
 }
 
 impl ChannelRequestHandler {
@@ -241,26 +202,9 @@ impl ChannelRequestHandler {
         }
     }
 
-    pub fn receive_blocking(
-        &mut self,
-        should_delete: Option<impl Fn(u64) -> bool>,
-    ) -> Result<ChannelRequestStats> {
-        let mut deleted_paths: Vec<PathBuf> = vec![];
-
+    pub fn receive_blocking(&mut self, should_delete: Option<impl Fn(u64) -> bool>) -> Result<()> {
         for message in self.receiver.iter() {
             match message {
-                ChannelRequest::AcquireLock(lock) => {
-                    let blocking_lock = unsafe { self.directory.acquire_blocking_lock(&lock)? };
-                    self.sender
-                        .send(ChannelResponse::AcquiredLock(blocking_lock))?;
-                }
-                ChannelRequest::AtomicRead(path) => {
-                    let data = self.directory.atomic_read(&path)?;
-                    self.sender.send(ChannelResponse::Bytes(data))?;
-                }
-                ChannelRequest::AtomicWrite(path, data) => {
-                    self.directory.atomic_write(&path, &data)?;
-                }
                 ChannelRequest::ListManagedFiles() => {
                     let managed_files = self.directory.list_managed_files()?;
                     self.sender
@@ -272,9 +216,6 @@ impl ChannelRequestHandler {
                 ChannelRequest::GetSegmentComponent(path) => {
                     let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
                     self.sender.send(ChannelResponse::DirectoryEntry(opaque))?;
-                }
-                ChannelRequest::ReleaseBlockingLock(blocking_lock) => {
-                    drop(blocking_lock);
                 }
                 ChannelRequest::SegmentRead(range, handle) => {
                     let reader =
@@ -297,11 +238,6 @@ impl ChannelRequestHandler {
                     let writer = self.writers.remove(&path).expect("writer should exist");
                     writer.terminate()?;
                 }
-                ChannelRequest::SegmentDelete(path) => {
-                    if (self.directory.try_delete(&path)?).is_some() {
-                        deleted_paths.push(path);
-                    }
-                }
                 ChannelRequest::ShouldDeleteCtids(ctids) => {
                     if let Some(ref should_delete) = should_delete {
                         let filtered_ctids: Vec<u64> = ctids
@@ -315,12 +251,19 @@ impl ChannelRequestHandler {
                             .send(ChannelResponse::ShouldDeleteCtids(vec![]))?;
                     }
                 }
+                ChannelRequest::SaveMetas(metas) => {
+                    self.directory.save_metas(&metas)?;
+                }
+                ChannelRequest::LoadMetas(inventory) => {
+                    let metas = self.directory.load_metas(&inventory)?;
+                    self.sender.send(ChannelResponse::LoadMetas(metas))?;
+                }
                 ChannelRequest::Terminate => {
                     break;
                 }
             }
         }
 
-        Ok(ChannelRequestStats { deleted_paths })
+        Ok(())
     }
 }

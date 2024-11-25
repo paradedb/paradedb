@@ -166,6 +166,7 @@ jobs:
 
       - name: Run pg_search test suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
@@ -176,123 +177,123 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log
 
-  # test-pg_search-pgrx-postgres:
-  #   name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
-  #   runs-on: ${{ matrix.runner }}
-  #   if: github.event.pull_request.draft == false
-  #   strategy:
-  #     matrix:
-  #       include:
-  #         - runner: ubicloud-standard-8
-  #           pg_version: 17
-  #           arch: amd64
-  #   env:
-  #     default_pg_version: 17
+  test-pg_search-pgrx-postgres:
+    name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    if: github.event.pull_request.draft == false
+    strategy:
+      matrix:
+        include:
+          - runner: ubicloud-standard-8
+            pg_version: 17
+            arch: amd64
+    env:
+      default_pg_version: 17
 
-  #   steps:
-  #     # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
-  #     # needs to happen once, so we skip the workflow for all but one of the matrix jobs in that case.
-  #     - name: Check if Skipping
-  #       id: check_skip
-  #       run: |
-  #         if [[ "${{ github.event_name }}" == "push" && "${{ matrix.pg_version }}" != "${{ env.default_pg_version }}" ]]; then
-  #           echo "This is a push event to fill Rust cache. Skipping this job."
-  #           echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
-  #         fi
+    steps:
+      # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
+      # needs to happen once, so we skip the workflow for all but one of the matrix jobs in that case.
+      - name: Check if Skipping
+        id: check_skip
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ matrix.pg_version }}" != "${{ env.default_pg_version }}" ]]; then
+            echo "This is a push event to fill Rust cache. Skipping this job."
+            echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
+          fi
 
-  #     - name: Checkout Git Repository
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       uses: actions/checkout@v4
+      - name: Checkout Git Repository
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        uses: actions/checkout@v4
 
-  #     - name: Install Rust
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        uses: dtolnay/rust-toolchain@stable
 
-  #     # This checks that the version in Cargo.toml is incremented to the next release. We only run it
-  #     # on PRs to main, which are our release promotion PRs.
-  #     - name: Check version in Cargo.toml
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-  #       working-directory: pg_search/
-  #       run: |
-  #         CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-  #         RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
-  #         if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
-  #           echo "Version in Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($RELEASE_VERSION), did you forget to increment it?"
-  #           exit 1
-  #         fi
-  #         echo "Version check passed!"
+      # This checks that the version in Cargo.toml is incremented to the next release. We only run it
+      # on PRs to main, which are our release promotion PRs.
+      - name: Check version in Cargo.toml
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
+        working-directory: pg_search/
+        run: |
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Version in Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($RELEASE_VERSION), did you forget to increment it?"
+            exit 1
+          fi
+          echo "Version check passed!"
 
-  #     - name: Extract pgrx Version
-  #       id: pgrx
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       working-directory: pg_search/
-  #       run: |
-  #         version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-  #         echo "version=$version" >> $GITHUB_OUTPUT
+      - name: Extract pgrx Version
+        id: pgrx
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
-  #     # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-  #     # save the cache on the 'dev' branch, but load it on all branches.
-  #     - name: Install Rust Cache
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       uses: ubicloud/rust-cache@v2
-  #       with:
-  #         prefix-key: "v1-rust"
-  #         key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
-  #         cache-targets: true
-  #         cache-all-crates: true
-  #         save-if: ${{ github.ref == 'refs/heads/dev' }}
+      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
+      # save the cache on the 'dev' branch, but load it on all branches.
+      - name: Install Rust Cache
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        uses: ubicloud/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
+          cache-targets: true
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
-  #     - name: Install required system tools
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       run: sudo apt-get update && sudo apt-get install -y lsof
+      - name: Install required system tools
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: sudo apt-get update && sudo apt-get install -y lsof
 
-  #     - name: Install llvm-tools-preview
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       run: rustup component add llvm-tools-preview
+      - name: Install llvm-tools-preview
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: rustup component add llvm-tools-preview
 
-  #     - name: Install cargo-pgrx
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+      - name: Install cargo-pgrx
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-  #     - name: Initialize cargo-pgrx environment
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+      - name: Initialize cargo-pgrx environment
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
 
-  #     # Needed for hybrid search unit tests
-  #     - name: Install pgvector
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       run: |
-  #         git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
-  #         cd pgvector/
-  #         PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
-  #         PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
+      # Needed for hybrid search unit tests
+      - name: Install pgvector
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
+          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+          cd pgvector/
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
-  #     - name: Add pg_search to shared_preload_libraries
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-  #       run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+      - name: Add pg_search to shared_preload_libraries
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
-  #     - name: Stop postgres
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       working-directory: pg_search/
-  #       run: cargo pgrx stop all
+      - name: Stop postgres
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: cargo pgrx stop all
 
-  #     - name: Compile & install pg_search extension
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       working-directory: pg_search/
-  #       run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+      - name: Compile & install pg_search extension
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
 
-  #     - name: Start Postgres and create database
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       working-directory: pg_search/
-  #       run: |
-  #         RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-  #         ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
+      - name: Start Postgres and create database
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: |
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
-  #     - name: Run pg_search test suite against pgrx-managed Postgres
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-  #       run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
+      - name: Run pg_search test suite against pgrx-managed Postgres
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
 
-  #     - name: Print the Postgres Logs
-  #       if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
-  #       run: cat ~/.pgrx/${{ matrix.pg_version}}.log
+      - name: Print the Postgres Logs
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
+        run: cat ~/.pgrx/${{ matrix.pg_version}}.log

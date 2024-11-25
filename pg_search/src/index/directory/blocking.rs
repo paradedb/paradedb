@@ -79,7 +79,6 @@ impl BlockingDirectory {
             pg_sys::TransactionIdDidCommit(entry.xmin) || pg_sys::TransactionIdDidAbort(entry.xmin)
         } {
             unsafe {
-                println!("SETTING MXAX");
                 let entry_with_xmax = DirectoryEntry {
                     xmax: pg_sys::GetCurrentTransactionId(),
                     ..entry.clone()
@@ -87,7 +86,11 @@ impl BlockingDirectory {
                 let cache = BM25BufferCache::open(self.relation_oid);
                 let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
                 let page = pg_sys::BufferGetPage(buffer);
-                let PgItem(item, size) = entry_with_xmax.into();
+                let PgItem(item, size) = entry_with_xmax.clone().into();
+                eprintln!(
+                    "overwriting {:?} size {} blockno {} offsetno {}",
+                    path, size, blockno, offsetno
+                );
                 let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
                 assert!(overwrite, "setting xmax for {:?} should succeed", path);
 

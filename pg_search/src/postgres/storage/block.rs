@@ -170,18 +170,18 @@ impl From<BlockNumberList> for Vec<u8> {
 impl From<PgItem> for DirectoryEntry {
     fn from(pg_item: PgItem) -> Self {
         let PgItem(item, size) = pg_item;
-        let opaque: DirectoryEntry = unsafe {
-            serde_json::from_slice(from_raw_parts(item as *const u8, size))
+        let decoded: DirectoryEntry = unsafe {
+            bincode::deserialize(from_raw_parts(item as *const u8, size))
                 .expect("expected to deserialize valid SegmentComponent")
         };
-        opaque
+        decoded
     }
 }
 
 impl From<DirectoryEntry> for PgItem {
     fn from(val: DirectoryEntry) -> Self {
         let bytes: Vec<u8> =
-            serde_json::to_vec(&val).expect("expected to serialize valid SegmentComponent");
+            bincode::serialize(&val).expect("expected to serialize valid SegmentComponent");
         let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
         unsafe {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
@@ -217,5 +217,26 @@ mod tests {
         let pg_item: PgItem = segment.clone().into();
         let segment_from_pg_item: DirectoryEntry = pg_item.into();
         assert_eq!(segment, segment_from_pg_item);
+    }
+
+    #[pg_test]
+    unsafe fn test_bincode_size() {
+        let segment1 = DirectoryEntry {
+            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+            start: 0,
+            total_bytes: 100 as usize,
+            xmin: pg_sys::GetCurrentTransactionId(),
+            xmax: pg_sys::InvalidTransactionId,
+        };
+        let segment2 = DirectoryEntry {
+            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+            start: 0,
+            total_bytes: 100 as usize,
+            xmin: pg_sys::GetCurrentTransactionId(),
+            xmax: pg_sys::GetCurrentTransactionId(),
+        };
+        let PgItem(_, size1) = segment1.into();
+        let PgItem(_, size2) = segment2.into();
+        assert_eq!(size1, size2);
     }
 }

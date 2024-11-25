@@ -3178,6 +3178,7 @@ name = "pg_search"
 version = "0.13.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "chrono",
  "crossbeam",
  "derive_more",

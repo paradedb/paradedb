@@ -29,13 +29,13 @@ pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 /// Linked list implementation over block storage,
 /// where each node in the list is a pg_sys::Item
-pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug> {
+pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone> {
     relation_oid: pg_sys::Oid,
     pub start: pg_sys::BlockNumber,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     pub fn open(relation_oid: pg_sys::Oid, start: pg_sys::BlockNumber) -> Self {
         Self {
             relation_oid,
@@ -94,7 +94,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug> LinkedItemList<T> {
         let mut insert_page = pg_sys::BufferGetPage(insert_buffer);
 
         for item in items {
-            let PgItem(pg_item, size) = item.into();
+            let PgItem(pg_item, size) = item.clone().into();
+            eprintln!("inserting item: {:?} size {}", item, size);
             let mut offsetno = pg_sys::PageAddItemExtended(
                 insert_page,
                 pg_item,

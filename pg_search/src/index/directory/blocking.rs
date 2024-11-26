@@ -30,7 +30,7 @@ use tantivy::{
     directory::{INDEX_WRITER_LOCK, MANAGED_LOCK, META_LOCK},
     error::TantivyError,
 };
-use tantivy::{Directory, IndexMeta, index::SegmentMetaInventory};
+use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
 use super::lock::BlockingLock;
 use crate::index::reader::segment_component::SegmentComponentReader;
@@ -295,31 +295,34 @@ impl Directory for BlockingDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        // let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
-        //     self.relation_oid,
-        //     unsafe { bm25_metadata(self.relation_oid).segment_metas_start },
-        //     Some(pg_sys::BUFFER_LOCK_SHARE),
-        // );
+        let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+            self.relation_oid,
+            unsafe { bm25_metadata(self.relation_oid).segment_metas_start },
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
 
-        // let mut alive_segments = vec![];
-        // let mut opstamp = 0;
-        // let mut max_xmin = 0;
-        // let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
+        let mut alive_segments = vec![];
+        let mut opstamp = 0;
+        let mut max_xmin = 0;
+        let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
+        let in_progress: &[u32] =
+            unsafe { from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize) };
+        let snapshot_xmin = unsafe { (*snapshot).xmin };
+        let snapshot_xmax = unsafe { (*snapshot).xmax };
 
-        // for (entry, _, _) in segment_metas {
-        //     let segment_meta = entry.meta.clone();
-        //     let in_progress: &[u32] = unsafe { from_raw_parts(snapshot.xip, snapshot.xcnt) };
-        //     let invisible = segment_meta.xmin >= snapshot.xmin
-        //         || segment_meta.xmax >= snapshot.xmax
-        //         || in_progress.contains(&snapshot.xmin)
-        //         || !pg_sys::TransactionIdDidCommit(segment_meta.xmin);
+        for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
+            let invisible = entry.xmin >= snapshot_xmin
+                || entry.xmax >= snapshot_xmax
+                || in_progress.contains(&snapshot_xmin)
+                || unsafe { !pg_sys::TransactionIdDidCommit(entry.xmin) };
 
-        //     if !invisible {
-        //         alive_segments.push(segment_meta);
-        //         opstamp = opstamp.max(entry.opstamp);
-        //         max_xmin = max_xmin.max(entry.xmin);
-        //     }
-        // }
+            if !invisible {
+                let segment_meta = entry.meta.clone();
+                alive_segments.push(segment_meta.track(inventory));
+                opstamp = opstamp.max(entry.opstamp);
+                max_xmin = max_xmin.max(entry.xmin);
+            }
+        }
 
         todo!()
     }

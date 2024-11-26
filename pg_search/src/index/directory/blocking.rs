@@ -24,20 +24,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::{io, result};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
-use tantivy::Directory;
 use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
     directory::{INDEX_WRITER_LOCK, MANAGED_LOCK, META_LOCK},
     error::TantivyError,
 };
+use tantivy::{Directory, IndexMeta};
 
 use super::lock::BlockingLock;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
     bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, BlockNumberList,
-    DirectoryEntry, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, META_LOCK_BLOCKNO,
-    TANTIVY_META_BLOCKNO,
+    DirectoryEntry, SegmentMetaEntry, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO,
+    META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList, PgItem};
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -94,22 +94,23 @@ impl BlockingDirectory {
                 pg_sys::UnlockReleaseBuffer(buffer);
             }
 
-            let block_list = LinkedBytesList::open(self.relation_oid, entry.start);
-            let BlockNumberList(blocks) = unsafe { block_list.read_all().into() };
-            let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+            // TODO: Move this over to linked_list
+            // let block_list = LinkedBytesList::open_with_lock(self.relation_oid, entry.start, Some(pg_sys::BUFFER_LOCK_SHARE));
+            // let BlockNumberList(blocks) = unsafe { block_list.read_all().into() };
+            // let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
 
-            // Mark pages as deleted, but don't actually free them
-            // It's important that only VACUUM frees pages, because pages might still be used by other transactions
-            for blockno in blocks {
-                unsafe {
-                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                    let page = pg_sys::BufferGetPage(buffer);
-                    page.mark_deleted();
+            // // Mark pages as deleted, but don't actually free them
+            // // It's important that only VACUUM frees pages, because pages might still be used by other transactions
+            // for blockno in blocks {
+            //     unsafe {
+            //         let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            //         let page = pg_sys::BufferGetPage(buffer);
+            //         page.mark_deleted();
 
-                    pg_sys::MarkBufferDirty(buffer);
-                    pg_sys::UnlockReleaseBuffer(buffer);
-                }
-            }
+            //         pg_sys::MarkBufferDirty(buffer);
+            //         pg_sys::UnlockReleaseBuffer(buffer);
+            //     }
+            // }
 
             Ok(Some(entry))
         } else {
@@ -122,8 +123,11 @@ impl BlockingDirectory {
         path: &Path,
     ) -> Result<(DirectoryEntry, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
         let metadata = bm25_metadata(self.relation_oid);
-        let directory =
-            LinkedItemList::<DirectoryEntry>::open(self.relation_oid, metadata.directory_start);
+        let directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
+            self.relation_oid,
+            metadata.directory_start,
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
         let result = directory.lookup(path, |opaque, path| opaque.path == *path)?;
         Ok(result)
     }
@@ -152,124 +156,16 @@ impl Directory for BlockingDirectory {
         ))
     }
 
-    fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        // Atomic write should only ever be used for writing meta.json
-        if path.to_path_buf() != *META_FILEPATH {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("atomic_write unexpected path: {:?}", path),
-            ));
-        }
-
-        unsafe {
-            const ITEM_SIZE: usize = unsafe { bm25_max_item_size() };
-            let cache = BM25BufferCache::open(self.relation_oid);
-            let mut buffer =
-                cache.get_buffer(TANTIVY_META_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let mut page = pg_sys::BufferGetPage(buffer);
-
-            for (i, chunk) in data.chunks(ITEM_SIZE).enumerate() {
-                if i > 0 {
-                    let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-                    if (*special).next_blockno == pg_sys::InvalidBlockNumber {
-                        let new_buffer = cache.new_buffer();
-                        (*special).next_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
-                        pg_sys::MarkBufferDirty(buffer);
-                        pg_sys::UnlockReleaseBuffer(buffer);
-                        buffer = new_buffer;
-                        page = pg_sys::BufferGetPage(buffer);
-                    } else {
-                        let next_blockno = (*special).next_blockno;
-                        pg_sys::MarkBufferDirty(buffer);
-                        pg_sys::UnlockReleaseBuffer(buffer);
-                        buffer =
-                            cache.get_buffer(next_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                        page = pg_sys::BufferGetPage(buffer);
-                    }
-                }
-
-                if pg_sys::PageGetMaxOffsetNumber(page) == pg_sys::InvalidOffsetNumber {
-                    pg_sys::PageAddItemExtended(
-                        page,
-                        chunk.as_ptr() as pg_sys::Item,
-                        chunk.len(),
-                        pg_sys::FirstOffsetNumber,
-                        0,
-                    );
-                } else {
-                    let overwrite = pg_sys::PageIndexTupleOverwrite(
-                        page,
-                        pg_sys::FirstOffsetNumber,
-                        chunk.as_ptr() as pg_sys::Item,
-                        chunk.len(),
-                    );
-                    assert!(overwrite);
-                }
-            }
-
-            let last_blockno = pg_sys::BufferGetBlockNumber(buffer);
-            pg_sys::MarkBufferDirty(buffer);
-            pg_sys::UnlockReleaseBuffer(buffer);
-
-            // Update the last blockno in the metadata page
-            let buffer =
-                cache.get_buffer(TANTIVY_META_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            (*special).last_blockno = last_blockno;
-            pg_sys::MarkBufferDirty(buffer);
-            pg_sys::UnlockReleaseBuffer(buffer);
-        }
-
-        Ok(())
+    /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
+    /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
+    fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
+        unimplemented!("atomic_write should not be called for {:?}", path);
     }
 
+    /// atomic_read is used by Tantivy to read from managed.json and meta.json
+    /// This function should never be called by our Tantivy fork because we read from them ourselves
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        // Atomic read should only ever be used for reading .meta.json
-        if path.to_path_buf() != *META_FILEPATH {
-            return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
-        }
-
-        let bytes = unsafe {
-            let cache = BM25BufferCache::open(self.relation_oid);
-            let buffer = cache.get_buffer(TANTIVY_META_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            let last_blockno = (*special).last_blockno;
-
-            pg_sys::UnlockReleaseBuffer(buffer);
-            let mut bytes = Vec::new();
-            let mut current_blockno = TANTIVY_META_BLOCKNO;
-
-            loop {
-                let buffer = cache.get_buffer(current_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-                let page = pg_sys::BufferGetPage(buffer);
-                let item_id = pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber);
-                let item = pg_sys::PageGetItem(page, item_id);
-                let len = (*item_id).lp_len() as usize;
-
-                bytes.extend(std::slice::from_raw_parts(item as *const u8, len));
-
-                let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-                let next_blockno = (*special).next_blockno;
-
-                if current_blockno == last_blockno || next_blockno == pg_sys::InvalidBlockNumber {
-                    pg_sys::UnlockReleaseBuffer(buffer);
-                    break;
-                } else {
-                    current_blockno = next_blockno;
-                    pg_sys::UnlockReleaseBuffer(buffer);
-                }
-            }
-
-            bytes
-        };
-
-        if bytes.is_empty() {
-            return Err(OpenReadError::FileDoesNotExist(PathBuf::from(path)));
-        }
-
-        Ok(bytes)
+        unimplemented!("atomic_read should not be called for {:?}", path);
     }
 
     fn delete(&self, _path: &Path) -> result::Result<(), DeleteError> {
@@ -305,14 +201,17 @@ impl Directory for BlockingDirectory {
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
         unsafe {
             let metadata = bm25_metadata(self.relation_oid);
-            let segment_components =
-                LinkedItemList::<DirectoryEntry>::open(self.relation_oid, metadata.directory_start);
+            let segment_components = LinkedItemList::<DirectoryEntry>::open_with_lock(
+                self.relation_oid,
+                metadata.directory_start,
+                Some(pg_sys::BUFFER_LOCK_SHARE),
+            );
 
             Ok(segment_components
                 .list_all_items()
                 .map_err(|err| TantivyError::InternalError(err.to_string()))?
                 .into_iter()
-                .map(|opaque| opaque.path)
+                .map(|(entry, _, _)| entry.path)
                 .collect())
         }
     }
@@ -326,6 +225,66 @@ impl Directory for BlockingDirectory {
         _files: Vec<PathBuf>,
         _overwrite: bool,
     ) -> tantivy::Result<()> {
+        Ok(())
+    }
+
+    fn save_meta(&self, meta: &IndexMeta) -> tantivy::Result<()> {
+        let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+        let opstamp = meta.opstamp;
+        let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
+
+        let mut new_segments = meta.segments.clone();
+        let new_segment_ids = new_segments
+            .iter()
+            .map(|segment| segment.id())
+            .collect::<Vec<_>>();
+
+        let existing_segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+            self.relation_oid,
+            unsafe { bm25_metadata(self.relation_oid).segment_metas_start },
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
+
+        unsafe {
+            for (entry, blockno, offsetno) in existing_segment_metas.list_all_items().unwrap() {
+                if let Some(index) = new_segments
+                    .iter()
+                    .position(|segment| segment.id() == entry.meta.segment_id)
+                {
+                    new_segments.remove(index);
+                } else {
+                    let entry_with_xmax = SegmentMetaEntry {
+                        xmax: current_xid,
+                        ..entry.clone()
+                    };
+
+                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                    let page = pg_sys::BufferGetPage(buffer);
+                    let PgItem(item, size) = entry_with_xmax.clone().into();
+                    let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
+                    assert!(
+                        overwrite,
+                        "setting xmax for {:?} should succeed",
+                        entry.meta.segment_id
+                    );
+
+                    pg_sys::MarkBufferDirty(buffer);
+                    pg_sys::UnlockReleaseBuffer(buffer);
+                }
+            }
+        }
+
+        for segment_meta in new_segments {
+            // let entry = SegmentMetaEntry {
+            //     meta: segment_meta.tracked.as_ref().clone(),
+            //     opstamp,
+            //     xmin,
+            //     xmax,
+            // };
+
+            // TODO: Save
+        }
+
         Ok(())
     }
 }

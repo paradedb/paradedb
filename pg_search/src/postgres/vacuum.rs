@@ -129,7 +129,8 @@ fn alive_segment_components(
         Ok(segment_components_list
             .list_all_items()?
             .into_iter()
-            .filter(|opaque| !paths_to_delete.contains(&opaque.path))
+            .map(|(entry, _, _)| entry)
+            .filter(|entry| !paths_to_delete.contains(&entry.path))
             .collect::<Vec<_>>())
     }
 }
@@ -150,14 +151,17 @@ unsafe fn vacuum_directory(relation_oid: pg_sys::Oid, paths_deleted: Vec<PathBuf
     let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
     let start_blockno = (*metadata).directory_start;
 
-    let old_segment_components =
-        LinkedItemList::<DirectoryEntry>::open(relation_oid, start_blockno);
+    let old_segment_components = LinkedItemList::<DirectoryEntry>::open_with_lock(
+        relation_oid,
+        start_blockno,
+        Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+    );
     let alive_segment_components =
         alive_segment_components(&old_segment_components, paths_deleted.clone())?;
 
     old_segment_components.delete();
 
-    (*metadata).directory_start = new_segment_components.start;
+    (*metadata).directory_start = pg_sys::BufferGetBlockNumber(new_segment_components.lock_buffer);
     new_segment_components.write(alive_segment_components)?;
 
     pg_sys::MarkBufferDirty(buffer);
@@ -188,8 +192,11 @@ mod tests {
 
         let metadata = bm25_metadata(relation_oid);
         let start_blockno = metadata.directory_start;
-        let mut segment_components_list =
-            LinkedItemList::<DirectoryEntry>::open(relation_oid, start_blockno);
+        let mut segment_components_list = LinkedItemList::<DirectoryEntry>::open_with_lock(
+            relation_oid,
+            start_blockno,
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        );
 
         let paths = (0..3)
             .map(|_| PathBuf::from(format!("{:?}.term", Uuid::new_v4())))
@@ -227,8 +234,11 @@ mod tests {
                 .unwrap();
 
         let old_start_blockno = bm25_metadata(relation_oid).directory_start;
-        let mut old_directory =
-            LinkedItemList::<DirectoryEntry>::open(relation_oid, old_start_blockno);
+        let mut old_directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
+            relation_oid,
+            old_start_blockno,
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        );
 
         let paths = (0..3)
             .map(|_| PathBuf::from(format!("{:?}.term", Uuid::new_v4())))
@@ -248,7 +258,12 @@ mod tests {
         old_directory.write(segments_to_vacuum.clone()).unwrap();
 
         // Test that old directory contains dead entries
-        let alive_segments = old_directory.list_all_items().unwrap();
+        let alive_segments = old_directory
+            .list_all_items()
+            .unwrap()
+            .into_iter()
+            .map(|(entry, _, _)| entry)
+            .collect::<Vec<_>>();
         assert!(alive_segments.contains(&segments_to_vacuum[0]));
         assert!(alive_segments.contains(&segments_to_vacuum[2]));
 
@@ -277,8 +292,17 @@ mod tests {
         assert_ne!(old_start_blockno, new_start_blockno);
 
         // Test that new directory does not contain dead entries
-        let new_directory = LinkedItemList::<DirectoryEntry>::open(relation_oid, new_start_blockno);
-        let alive_segments = new_directory.list_all_items().unwrap();
+        let new_directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
+            relation_oid,
+            new_start_blockno,
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        );
+        let alive_segments = new_directory
+            .list_all_items()
+            .unwrap()
+            .into_iter()
+            .map(|(entry, _, _)| entry)
+            .collect::<Vec<_>>();
         assert!(!alive_segments.contains(&segments_to_vacuum[0]));
         assert!(!alive_segments.contains(&segments_to_vacuum[2]));
 

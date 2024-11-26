@@ -15,14 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::options::SearchIndexCreateOptions;
-use crate::{
-    index::SearchIndex,
-    postgres::types::TantivyValueError,
-    schema::{
-        SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
-    },
-};
 use anyhow::Result;
 use tantivy::{
     indexer::{AddOperation, SegmentWriter},
@@ -34,6 +26,15 @@ use thiserror::Error;
 use crate::index::directory::blocking::{BlockingDirectory, META_FILEPATH};
 use crate::index::directory::lock::index_writer_lock;
 use crate::index::WriterResources;
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::{
+    index::SearchIndex,
+    postgres::storage::block::SegmentMetaEntry,
+    postgres::types::TantivyValueError,
+    schema::{
+        SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
+    },
+};
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
@@ -94,21 +95,14 @@ impl SearchIndexWriter {
         // and an index writer lock is a good stopgap for now.
         let _index_writer_lock = index.directory().acquire_lock(&index_writer_lock())?;
 
-        let committed_meta = index.load_metas()?;
-        let mut segments = committed_meta.segments.clone();
-        segments.push(segment.meta().clone());
-
-        let new_meta = tantivy::IndexMeta {
-            segments,
+        let entry = SegmentMetaEntry {
+            meta: segment.meta().tracked.as_ref().clone(),
             opstamp: self.current_opstamp,
-            index_settings: committed_meta.index_settings,
-            schema: committed_meta.schema,
-            payload: committed_meta.payload,
+            xmin: unsafe { pgrx::pg_sys::GetCurrentTransactionId() },
+            xmax: pgrx::pg_sys::InvalidTransactionId,
         };
 
-        index
-            .directory()
-            .atomic_write(*META_FILEPATH, &serde_json::to_vec(&new_meta)?)?;
+        // TODO: Write to block
 
         Ok(())
     }

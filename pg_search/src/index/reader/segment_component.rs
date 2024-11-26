@@ -13,18 +13,22 @@ use crate::postgres::storage::utils::BM25BufferCache;
 
 #[derive(Clone, Debug)]
 pub struct SegmentComponentReader {
-    opaque: DirectoryEntry,
+    entry: DirectoryEntry,
     relation_oid: pg_sys::Oid,
     blocks: Vec<pg_sys::BlockNumber>,
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(relation_oid: pg_sys::Oid, opaque: DirectoryEntry) -> Self {
-        let block_list = LinkedBytesList::open(relation_oid, opaque.start);
+    pub unsafe fn new(relation_oid: pg_sys::Oid, entry: DirectoryEntry) -> Self {
+        let block_list = LinkedBytesList::open_with_lock(
+            relation_oid,
+            entry.start,
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
         let blocks: BlockNumberList = block_list.read_all().into();
 
         Self {
-            opaque,
+            entry,
             relation_oid,
             blocks: blocks.0,
         }
@@ -80,7 +84,7 @@ impl FileHandle for SegmentComponentReader {
 
 impl HasLen for SegmentComponentReader {
     fn len(&self) -> usize {
-        self.opaque.total_bytes
+        self.entry.total_bytes
     }
 }
 
@@ -118,12 +122,12 @@ mod tests {
         writer.terminate().unwrap();
 
         let directory = BlockingDirectory::new(index_oid);
-        let (opaque, _, _) = unsafe {
+        let (entry, _, _) = unsafe {
             directory
                 .directory_lookup(&path)
-                .expect("open segment component opaque should succeed")
+                .expect("open directory entry should succeed")
         };
-        let reader = SegmentComponentReader::new(index_oid, opaque.clone());
+        let reader = SegmentComponentReader::new(index_oid, entry.clone());
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

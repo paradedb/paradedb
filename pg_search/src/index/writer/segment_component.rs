@@ -40,7 +40,11 @@ impl SegmentComponentWriter {
 
 impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
-        let mut segment_component = LinkedBytesList::open(self.relation_oid, self.blocks[0]);
+        let mut segment_component = LinkedBytesList::open_with_lock(
+            self.relation_oid,
+            self.blocks[0],
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        );
         let mut block_created =
             unsafe { segment_component.write(data).expect("write should succeed") };
         self.blocks.append(&mut block_created);
@@ -66,7 +70,11 @@ impl TerminatingWrite for SegmentComponentWriter {
         }
 
         // TODO: Set special data for blockno
-        let mut block_list = LinkedBytesList::open(self.relation_oid, blockno);
+        let mut block_list = LinkedBytesList::open_with_lock(
+            self.relation_oid,
+            blockno,
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        );
         let bytes: Vec<u8> = BlockNumberList(self.blocks.clone()).into();
         unsafe {
             block_list.write(&bytes).expect("write should succeed");
@@ -78,8 +86,11 @@ impl TerminatingWrite for SegmentComponentWriter {
 
             let metadata = bm25_metadata(self.relation_oid);
             let start_blockno = metadata.directory_start;
-            let mut directory =
-                LinkedItemList::<DirectoryEntry>::open(self.relation_oid, start_blockno);
+            let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
+                self.relation_oid,
+                start_blockno,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
 
             let opaque = DirectoryEntry {
                 path: self.path.clone(),

@@ -65,6 +65,7 @@ use std::io::{Cursor, Read};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
+use tantivy::index::InnerSegmentMeta;
 
 pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the entire index
 pub const INDEX_WRITER_LOCK_BLOCKNO: pg_sys::BlockNumber = 1; // Used for Tantivy's INDEX_WRITER_LOCK
@@ -75,13 +76,19 @@ pub const TANTIVY_META_BLOCKNO: pg_sys::BlockNumber = 4; // Used for Tantivy's m
 /// Special data struct for the metadata page, located at METADATA_BLOCKNO
 pub struct MetaPageData {
     pub directory_start: pg_sys::BlockNumber,
+    pub segment_metas_start: pg_sys::BlockNumber,
 }
 
 /// Special data struct for all other pages except the metadata page and lock pages
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
-    pub last_blockno: pg_sys::BlockNumber,
     pub delete_xid: pg_sys::FullTransactionId,
+}
+
+/// Every linked list should start with a page that holds metadata about the linked list
+pub struct LinkedListData {
+    pub start_blockno: pg_sys::BlockNumber,
+    pub last_blockno: pg_sys::BlockNumber,
 }
 
 /// Metadata for tracking segment components
@@ -90,7 +97,23 @@ pub struct DirectoryEntry {
     pub path: PathBuf,
     pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
+    // This is the transaction ID that created this entry
+    // An entry is a candidate for being marked as deleted if this transaction ID has been committed or aborted
+    // which guarantees that we don't mark in-progress entries as deleted
     pub xmin: pg_sys::TransactionId,
+    // The transaction ID that marks this entry as deleted
+    // Vacuum will physically delete this entry if this transaction ID is no longer visible to any existing transactions
+    pub xmax: pg_sys::TransactionId,
+}
+
+/// Metadata for tracking alive segments
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SegmentMetaEntry {
+    pub meta: InnerSegmentMeta,
+    pub opstamp: tantivy::Opstamp,
+    // The transaction ID that created this entry
+    pub xmin: pg_sys::TransactionId,
+    // The transaction ID that marks this entry as deleted
     pub xmax: pg_sys::TransactionId,
 }
 
@@ -131,6 +154,7 @@ pub unsafe fn bm25_metadata(relation_oid: pg_sys::Oid) -> MetaPageData {
     let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
     let data = MetaPageData {
         directory_start: (*metadata).directory_start,
+        segment_metas_start: (*metadata).segment_metas_start,
     };
     pg_sys::UnlockReleaseBuffer(metadata_buffer);
     data
@@ -182,6 +206,29 @@ impl From<DirectoryEntry> for PgItem {
     fn from(val: DirectoryEntry) -> Self {
         let bytes: Vec<u8> =
             bincode::serialize(&val).expect("expected to serialize valid SegmentComponent");
+        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
+        }
+        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+    }
+}
+
+impl From<PgItem> for SegmentMetaEntry {
+    fn from(pg_item: PgItem) -> Self {
+        let PgItem(item, size) = pg_item;
+        let decoded: SegmentMetaEntry = unsafe {
+            bincode::deserialize(from_raw_parts(item as *const u8, size))
+                .expect("expected to deserialize valid SegmentMetaEntry")
+        };
+        decoded
+    }
+}
+
+impl From<SegmentMetaEntry> for PgItem {
+    fn from(val: SegmentMetaEntry) -> Self {
+        let bytes: Vec<u8> =
+            bincode::serialize(&val).expect("expected to serialize valid SegmentMetaEntry");
         let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
         unsafe {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());

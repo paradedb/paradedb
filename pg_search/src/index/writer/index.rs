@@ -26,15 +26,21 @@ use crate::{
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
-use tantivy::Index;
-use tantivy::IndexWriter;
+use tantivy::{Index, Opstamp, TantivyError};
+use tantivy::{IndexWriter, TantivyDocument};
 use thiserror::Error;
+
+// NB:  should this be a GUC?  Could be useful or could just complicate things for the user
+/// How big should our insert queue get before we go ahead and add them to the tantivy index?
+const MAX_INSERT_QUEUE_SIZE: usize = 1000;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
     pub writer: IndexWriter,
     pub schema: SearchIndexSchema,
     pub handler: ChannelRequestHandler,
+    wants_merge: bool,
+    insert_queue: Vec<TantivyDocument>,
 }
 
 impl SearchIndexWriter {
@@ -51,7 +57,7 @@ impl SearchIndexWriter {
         let memory_budget = memory_budget / parallelism.get();
         let parallelism = NonZeroUsize::new(1).unwrap();
 
-        let (_wants_merge, merge_policy) = match resources {
+        let (wants_merge, merge_policy) = match resources {
             // During a CREATE INDEX we use `target_segment_count` but require twice
             // as many segments before we'll do a merge.
             WriterResources::CreateIndex => {
@@ -101,30 +107,47 @@ impl SearchIndexWriter {
             writer,
             schema,
             handler,
+            wants_merge,
+            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
         })
     }
 
     pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
-        // Add the Tantivy document to the index.
-        let tantivy_document: tantivy::TantivyDocument = document.into();
+        let tantivy_document: TantivyDocument = document.into();
+        self.insert_queue.push(tantivy_document);
 
-        let _opstamp = self
-            .handler
-            .wait_for(|| self.writer.add_document(tantivy_document))
-            .expect("spawned thread should not fail")?;
+        if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
+            self.drain_insert_queue()?;
+        }
         Ok(())
     }
 
     pub fn commit(mut self) -> Result<()> {
+        self.drain_insert_queue()?;
         let _opstamp = self
             .handler
             .wait_for(|| {
                 let opstamp = self.writer.commit()?;
-                self.writer.wait_merging_threads()?;
+                if self.wants_merge {
+                    self.writer.wait_merging_threads()?;
+                }
                 tantivy::Result::Ok(opstamp)
             })
             .expect("spawned thread should not fail")?;
         Ok(())
+    }
+
+    fn drain_insert_queue(&mut self) -> Result<Option<Opstamp>, TantivyError> {
+        // Add the Tantivy document to the index.
+        self.handler
+            .wait_for(|| {
+                let mut opstamp = None;
+                for tantivy_document in self.insert_queue.drain(..) {
+                    opstamp = Some(self.writer.add_document(tantivy_document)?);
+                }
+                tantivy::Result::Ok(opstamp)
+            })
+            .expect("spawned thread should not fail")
     }
 
     pub fn vacuum(mut self) -> Result<ChannelRequestStats> {

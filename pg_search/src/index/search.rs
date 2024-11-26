@@ -73,7 +73,6 @@ impl WriterResources {
     }
 }
 
-// #[derive(Serialize)]
 struct SearchIndex {
     schema: SearchIndexSchema,
     underlying_index: Index,

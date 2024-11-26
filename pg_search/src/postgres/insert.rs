@@ -17,9 +17,7 @@
 
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{open_search_writer, WriterResources};
-use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::row_to_search_document;
-use anyhow::Result;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};

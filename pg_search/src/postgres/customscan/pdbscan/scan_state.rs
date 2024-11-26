@@ -27,7 +27,6 @@ use crate::query::SearchQueryInput;
 use pgrx::{name_data_to_str, pg_sys, PgRelation};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
-use tantivy::query::Query;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::DocAddress;
 

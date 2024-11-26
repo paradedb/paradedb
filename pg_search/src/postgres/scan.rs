@@ -142,7 +142,7 @@ pub extern "C" fn amrescan(
                     &[(key_field, key_field_type).into()],
                 ),
                 reader: search_reader,
-                search_query_input: search_query_input,
+                search_query_input,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
                 key_field_oid: PgOid::from(
@@ -154,7 +154,7 @@ pub extern "C" fn amrescan(
                 need_scores,
                 fast_fields: FFHelper::empty(),
                 reader: search_reader,
-                search_query_input: search_query_input,
+                search_query_input,
                 results,
                 itup: (vec![], vec![]),
                 key_field_oid: PgOid::Invalid,

@@ -120,7 +120,7 @@ mod tests {
         let directory = BlockingDirectory::new(index_oid);
         let (opaque, _, _) = unsafe {
             directory
-                .directory_lookup(&path)
+                .directory_lookup(path)
                 .expect("open segment component opaque should succeed")
         };
         let reader = SegmentComponentReader::new(index_oid, opaque.clone());

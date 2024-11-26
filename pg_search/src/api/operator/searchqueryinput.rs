@@ -53,7 +53,7 @@ pub fn search_with_query_input(
             &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         };
         let search_reader =
-            open_search_reader(&indexrel).expect("should be able to open a SearchIndexReader");
+            open_search_reader(indexrel).expect("should be able to open a SearchIndexReader");
 
         let key_field = search_reader.key_field();
         let key_field_name = key_field.name.0;

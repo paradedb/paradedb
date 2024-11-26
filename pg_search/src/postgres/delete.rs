@@ -50,7 +50,7 @@ pub extern "C" fn ambulkdelete(
 
                 let callback_fn = callback.as_ref().unwrap();
                 callback_fn(&mut ipd, callback_state)
-                    .then(|| tantivy::Term::from_field_u64(ctid_field.clone(), ctid_u64))
+                    .then(|| tantivy::Term::from_field_u64(ctid_field, ctid_u64))
             }) {
                 writer.writer.delete_term(ctid);
             }

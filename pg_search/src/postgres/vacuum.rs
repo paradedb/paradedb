@@ -16,11 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::blocking::BlockingDirectory;
-use crate::index::channel::{
-    ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
-};
 use crate::index::{open_search_writer, WriterResources};
-use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{DirectoryEntry, MetaPageData, METADATA_BLOCKNO};
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -28,8 +24,7 @@ use anyhow::Result;
 use pgrx::*;
 use std::path::PathBuf;
 use tantivy::directory::{Lock, MANAGED_LOCK};
-use tantivy::index::Index;
-use tantivy::{Directory, IndexWriter};
+use tantivy::Directory;
 
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
@@ -227,7 +222,7 @@ mod tests {
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
             let page = pg_sys::BufferGetPage(buffer);
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            assert_eq!((*special).deleted, true);
+            assert!((*special).deleted);
             blockno = (*special).next_blockno;
             pg_sys::UnlockReleaseBuffer(buffer);
         }

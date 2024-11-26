@@ -21,7 +21,6 @@ use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
 use pgrx::{direct_function_call, pg_sys, IntoDatum};
-use tantivy::query::{Query, QueryClone};
 
 // TODO:  should these be GUCs?  I think yes, probably
 const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;

@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{create_new_index, open_search_writer, WriterResources};
+use crate::index::{create_new_index, WriterResources};
 use crate::postgres::storage::block::{
     MetaPageData, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
     META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
@@ -109,7 +109,7 @@ fn do_heap_scan<'a>(
     index_relation: &'a PgRelation,
 ) -> usize {
     unsafe {
-        let writer = create_new_index(&index_relation, WriterResources::CreateIndex)
+        let writer = create_new_index(index_relation, WriterResources::CreateIndex)
             .expect("should be able to open a SearchIndexWriter");
 
         let mut state = BuildState::new(index_relation, index_info, writer);
@@ -147,7 +147,7 @@ unsafe extern "C" fn build_callback(
 
     let tupdesc = &build_state.tupdesc;
     let schema = &build_state.schema;
-    let mut writer = &mut build_state.writer;
+    let writer = &mut build_state.writer;
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a
     // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it

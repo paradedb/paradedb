@@ -46,7 +46,7 @@ impl SearchIndexWriter {
         index_options: &SearchIndexCreateOptions,
     ) -> Result<Self> {
         let (parallelism, memory_budget, target_segment_count, merge_on_insert) =
-            resources.resources(&index_options);
+            resources.resources(index_options);
 
         let memory_budget = memory_budget / parallelism.get();
         let parallelism = NonZeroUsize::new(1).unwrap();

@@ -213,7 +213,7 @@ mod tests {
         let segment = DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 0,
-            total_bytes: 100 as usize,
+            total_bytes: 100_usize,
             xid: 0,
         };
         let pg_item: PgItem = segment.clone().into();

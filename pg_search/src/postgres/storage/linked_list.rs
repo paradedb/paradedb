@@ -343,9 +343,9 @@ mod tests {
         }
     }
 
-    impl Into<PgItem> for PathBuf {
-        fn into(self) -> PgItem {
-            let path_str = self.to_str().expect("file path is not valid UTF-8");
+    impl From<PathBuf> for PgItem {
+        fn from(val: PathBuf) -> Self {
+            let path_str = val.to_str().expect("file path is not valid UTF-8");
             PgItem(
                 path_str.as_pg_cstr() as pg_sys::Item,
                 path_str.as_bytes().len() as pg_sys::Size,

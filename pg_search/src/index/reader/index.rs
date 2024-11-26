@@ -393,7 +393,7 @@ impl SearchIndexReader {
 
         let collector = channel::ChannelCollector::new(need_scores, search_sender);
 
-        let owned_query = self.query(&query);
+        let owned_query = self.query(query);
         std::thread::spawn(move || {
             let channel_directory =
                 ChannelDirectory::new(request_sender.clone(), response_receiver.clone());

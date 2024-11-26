@@ -1,11 +1,10 @@
 use anyhow::Result;
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
-use pgrx::check_for_interrupts;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread::{Scope, ScopedJoinHandle};
+use std::thread::ScopedJoinHandle;
 use std::{io, io::Write, ops::Range, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{

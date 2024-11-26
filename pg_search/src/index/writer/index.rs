@@ -26,7 +26,7 @@ use crate::{
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
-use tantivy::{Index, Opstamp, TantivyError};
+use tantivy::{Index, Opstamp, TantivyError, Term};
 use tantivy::{IndexWriter, TantivyDocument};
 use thiserror::Error;
 
@@ -36,9 +36,12 @@ const MAX_INSERT_QUEUE_SIZE: usize = 1000;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
-    pub writer: IndexWriter,
     pub schema: SearchIndexSchema,
-    pub handler: ChannelRequestHandler,
+
+    // keep all these private -- leaking them to the public API would allow callers to
+    // mis-use the IndexWriter in particular.
+    writer: IndexWriter,
+    handler: ChannelRequestHandler,
     wants_merge: bool,
     insert_queue: Vec<TantivyDocument>,
 }
@@ -110,6 +113,12 @@ impl SearchIndexWriter {
             wants_merge,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
         })
+    }
+
+    pub fn delete_term(&mut self, term: Term) -> Opstamp {
+        self.handler
+            .wait_for(|| self.writer.delete_term(term))
+            .expect("scoped thread should not fail")
     }
 
     pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {

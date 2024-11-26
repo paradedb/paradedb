@@ -33,7 +33,7 @@ pub extern "C" fn ambulkdelete(
 
     let reader = open_search_reader(&index_relation)
         .expect("ambulkdelete: should be able to open SearchIndexReader");
-    let writer = open_search_writer(&index_relation, WriterResources::Vacuum)
+    let mut writer = open_search_writer(&index_relation, WriterResources::Vacuum)
         .expect("ambulkdelete: should be able to open SearchIndexWriter");
     let ctid_field = reader
         .schema
@@ -52,7 +52,7 @@ pub extern "C" fn ambulkdelete(
                 callback_fn(&mut ipd, callback_state)
                     .then(|| tantivy::Term::from_field_u64(ctid_field, ctid_u64))
             }) {
-                writer.writer.delete_term(ctid);
+                writer.delete_term(ctid);
             }
         }
     }

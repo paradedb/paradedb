@@ -100,7 +100,6 @@ impl SearchIndexWriter {
             }
         };
 
-        let mut handler = handler.clone();
         let writer = handler
             .wait_for(|| index.writer_with_num_threads(parallelism.get(), memory_budget))
             .expect("scoped thread should not fail")?;

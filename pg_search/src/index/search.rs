@@ -73,6 +73,9 @@ impl WriterResources {
     }
 }
 
+/// How many messages should we buffer between the channels?
+const CHANNEL_QUEUE_LEN: usize = 1000;
+
 struct SearchIndex {
     schema: SearchIndexSchema,
     underlying_index: Index,
@@ -136,11 +139,11 @@ impl SearchIndex {
         let lock =
             unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
 
-        let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
-        let (resp_sender, resp_receiver) = crossbeam::channel::bounded(1);
+        let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
+        let (resp_sender, resp_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let tantivy_dir = BlockingDirectory::new(index_oid);
         let channel_dir = ChannelDirectory::new(req_sender, resp_receiver);
-        let mut handler =
+        let handler =
             ChannelRequestHandler::open(tantivy_dir, index_oid, resp_sender, req_receiver);
 
         let underlying_index = handler

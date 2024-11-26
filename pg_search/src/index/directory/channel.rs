@@ -1,6 +1,8 @@
 use anyhow::Result;
-use crossbeam::channel::{Receiver, Sender, TryRecvError};
-use std::collections::{HashMap, HashSet};
+use crossbeam::channel::{Receiver, Sender};
+use parking_lot::Mutex;
+use rustc_hash::FxHashMap;
+use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -207,14 +209,13 @@ impl Directory for ChannelDirectory {
     }
 }
 
-#[derive(Clone)]
 pub struct ChannelRequestHandler {
     directory: BlockingDirectory,
     relation_oid: pgrx::pg_sys::Oid,
     sender: Sender<ChannelResponse>,
     receiver: Receiver<ChannelRequest>,
-    writers: HashMap<PathBuf, SegmentComponentWriter>,
-    readers: HashMap<PathBuf, SegmentComponentReader>,
+    writers: Mutex<FxHashMap<PathBuf, SegmentComponentWriter>>,
+    readers: Mutex<FxHashMap<PathBuf, SegmentComponentReader>>,
 }
 
 #[derive(Debug)]
@@ -236,47 +237,30 @@ impl ChannelRequestHandler {
             relation_oid,
             receiver,
             sender,
-            writers: HashMap::new(),
-            readers: HashMap::new(),
+            writers: Default::default(),
+            readers: Default::default(),
         }
     }
 
     pub fn wait_for<T: Send + Sync, F: FnOnce() -> T + Send + Sync>(
-        &mut self,
+        &self,
         func: F,
     ) -> std::thread::Result<T> {
         std::thread::scope(|scope| self.wait_for_inner(scope.spawn(func)))
     }
 
     #[inline(always)]
-    fn wait_for_inner<T: Send + Sync>(
-        &mut self,
-        scope: ScopedJoinHandle<T>,
-    ) -> std::thread::Result<T> {
-        while !scope.is_finished() {
-            let response = self.try_recv();
-            match response {
-                Ok(terminate) if terminate => break,
-                Ok(_) => continue,
-                Err(e) => match e.downcast_ref::<TryRecvError>() {
-                    Some(TryRecvError::Empty) => continue,
-                    None => return Err(Box::new(e)),
-                    Some(err) => match err {
-                        // no message to process
-                        TryRecvError::Empty => continue,
-
-                        // the sender has been dropped, which is fine for us
-                        TryRecvError::Disconnected => break,
-                    },
-                },
+    fn wait_for_inner<T: Send + Sync>(&self, scope: ScopedJoinHandle<T>) -> std::thread::Result<T> {
+        'scope: while !scope.is_finished() {
+            for message in self.receiver.try_iter() {
+                match self.process_message(message, &mut vec![]) {
+                    Ok(should_terminate) if should_terminate => break 'scope,
+                    Ok(_) => continue,
+                    Err(e) => return Err(Box::new(e)),
+                }
             }
         }
         scope.join()
-    }
-
-    pub fn try_recv(&mut self) -> Result<ShouldTerminate> {
-        let message = self.receiver.try_recv()?;
-        self.process_message(message, &mut vec![])
     }
 
     pub fn receive_blocking(&mut self) -> Result<ChannelRequestStats> {
@@ -291,7 +275,7 @@ impl ChannelRequestHandler {
     }
 
     fn process_message(
-        &mut self,
+        &self,
         message: ChannelRequest,
         deleted_paths: &mut Vec<PathBuf>,
     ) -> Result<ShouldTerminate> {
@@ -324,24 +308,26 @@ impl ChannelRequestHandler {
                 drop(blocking_lock);
             }
             ChannelRequest::SegmentRead(range, handle) => {
-                let reader = self
-                    .readers
-                    .entry(handle.path.clone())
-                    .or_insert_with(|| unsafe {
-                        SegmentComponentReader::new(self.relation_oid, handle)
-                    });
+                let mut mutex = self.readers.lock();
+                let reader = mutex.entry(handle.path.clone()).or_insert_with(|| unsafe {
+                    SegmentComponentReader::new(self.relation_oid, handle)
+                });
                 let data = reader.read_bytes(range)?;
+                drop(mutex);
+
                 self.sender
                     .send(ChannelResponse::Bytes(data.as_slice().to_owned()))?;
             }
             ChannelRequest::SegmentWrite(path, data) => {
-                let writer = self.writers.entry(path.clone()).or_insert_with(|| unsafe {
+                let mut mutex = self.writers.lock();
+                let writer = mutex.entry(path.clone()).or_insert_with(|| unsafe {
                     SegmentComponentWriter::new(self.relation_oid, &path)
                 });
                 writer.write_all(&data)?;
             }
             ChannelRequest::SegmentWriteTerminate(path) => {
-                let writer = self.writers.remove(&path).expect("writer should exist");
+                let mut mutex = self.writers.lock();
+                let writer = mutex.remove(&path).expect("writer should exist");
                 writer.terminate()?;
             }
             ChannelRequest::SegmentDelete(path) => {

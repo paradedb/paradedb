@@ -209,7 +209,7 @@ pub enum SearchQueryInput {
     },
     RegexPhrase {
         field: String,
-        phrases: Vec<String>,
+        regexes: Vec<String>,
         slop: Option<u32>,
         max_expansions: Option<u32>,
     },
@@ -1506,7 +1506,7 @@ impl SearchQueryInput {
             )),
             Self::RegexPhrase {
                 field,
-                phrases,
+                regexes,
                 slop,
                 max_expansions,
             } => {
@@ -1515,7 +1515,7 @@ impl SearchQueryInput {
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
 
-                let mut query = RegexPhraseQuery::new(field, phrases);
+                let mut query = RegexPhraseQuery::new(field, regexes);
 
                 if let Some(slop) = slop {
                     query.set_slop(slop)

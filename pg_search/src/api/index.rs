@@ -552,13 +552,13 @@ pub fn regex(field: FieldName, pattern: String) -> SearchQueryInput {
 #[pg_extern(immutable, parallel_safe)]
 pub fn regex_phrase(
     field: FieldName,
-    phrases: Vec<String>,
+    regexes: Vec<String>,
     slop: default!(Option<i32>, "NULL"),
     max_expansions: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::RegexPhrase {
         field: field.into_inner(),
-        phrases,
+        regexes,
         slop: slop.map(|n| n as u32),
         max_expansions: max_expansions.map(|n| n as u32),
     }

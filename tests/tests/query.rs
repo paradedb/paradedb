@@ -234,8 +234,21 @@ fn single_queries(mut conn: PgConnection) {
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_phrase(
         field => 'description',
-        phrases => ARRAY['.*bot', '.*ing', 'kit']
+        regexes => ARRAY['.*bot', '.*ing', 'kit']
     ) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
+    '{
+        "regex_phrase": {
+            "field": "description",
+            "regexes": [".*eek", "shoes"],
+            "slop": 1,
+            "max_expansion": 10
+        }
+    }'::jsonb;"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
 

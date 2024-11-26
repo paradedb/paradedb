@@ -19,7 +19,7 @@ WHERE id @@@
 '{
     "regex_phrase": {
         "field": "description",
-        "values": [".*nning", ".*oes"]
+        "regexes": [".*nning", ".*oes"]
     }
 }'::jsonb;
 ```
@@ -30,7 +30,7 @@ WHERE id @@@
 <ParamField body="field" required>
   Specifies the field within the document to search for the term.
 </ParamField>
-<ParamField body="phrases" required>
+<ParamField body="regexes" required>
   An `ARRAY` of regex queries that the search is looking to match.
 </ParamField>
 <ParamField body="slop" default={0}>
@@ -59,8 +59,8 @@ WHERE id @@@
 '{
     "regex_phrase": {
         "field": "description",
-        "values": [",*eek", "shoes"],
-        "slop": 1
+        "regexes": [".*eek", "shoes"],
+        "slop": 1,
         "max_expansion": 10
     }
 }'::jsonb;

@@ -511,13 +511,13 @@ fn language_stem_filter(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn pre_built_stop_words_tokenizer_config(mut conn: PgConnection) {
+fn stopwords_language_tokenizer_config(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description)
-        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "pre_built_stop_words": "English"}}}');
+        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "stopwords_language": "English"}}}');
     "#
     .execute(&mut conn);
 
@@ -535,13 +535,13 @@ fn pre_built_stop_words_tokenizer_config(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn custom_stop_words_tokenizer_config(mut conn: PgConnection) {
+fn stopwords_tokenizer_config(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
     CREATE INDEX bm25_search_idx ON paradedb.bm25_search
         USING bm25 (id, description)
-        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "custom_stop_words": ["shoes"]}}}');
+        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "default", "stopwords": ["shoes"]}}}');
     "#
     .execute(&mut conn);
 

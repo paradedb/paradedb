@@ -60,7 +60,7 @@ WITH (
 
 ## Pre-built Stopwords
 
-`pre_built_stop_word` is a filter that removes common words from the text. The `pre_built_stop_word` filter can be applied to any tokenizer.
+`pre_built_stop_word` is a filter that removes common words from the text. The `stopwords_language` filter can be applied to any tokenizer.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -68,12 +68,12 @@ USING bm25 (id, description)
 WITH (
     key_field='id',
     text_fields='{
-        "description": {"tokenizer": {"type": "default", "pre_built_stop_word": "English"}}
+        "description": {"tokenizer": {"type": "default", "stopwords_language": "English"}}
     }'
 );
 ```
 
-<ParamField body="pre_built_stop_word">
+<ParamField body="stopwords_language">
   Available stemmers are `Arabic`, `Danish`, `Dutch`, `English`, `Finnish`,
   `French`, `German`, `Greek`, `Hungarian`, `Italian`, `Norwegian`,
   `Portuguese`, `Romanian`, `Russian`, `Spanish`, `Swedish`, `Tamil`, and
@@ -82,7 +82,7 @@ WITH (
 
 ## Custom Stopwords
 
-`custom_stop_word` is a filter that removes custom words from the text. The `custom_stop_word` filter can be applied to any tokenizer.
+`stopwords` is a filter that removes custom words from the text. The `stopwords` filter can be applied to any tokenizer.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -90,7 +90,7 @@ USING bm25 (id, description)
 WITH (
     key_field='id',
     text_fields='{
-        "description": {"tokenizer": {"type": "default", "custom_stop_word": ["shoes", "boots"]}}
+        "description": {"tokenizer": {"type": "default", "stopwords": ["shoes", "boots"]}}
     }'
 );
 ```

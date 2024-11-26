@@ -57,8 +57,8 @@ pub fn tokenizer(
     language: default!(Option<String>, "NULL"),
     pattern: default!(Option<String>, "NULL"),
     stemmer: default!(Option<String>, "NULL"),
-    pre_built_stop_words: default!(Option<String>, "NULL"),
-    custom_stop_words: default!(Option<Vec<String>>, "NULL"),
+    stopwords_language: default!(Option<String>, "NULL"),
+    stopwords: default!(Option<Vec<String>>, "NULL"),
 ) -> JsonB {
     let mut config = Map::new();
 
@@ -68,11 +68,10 @@ pub fn tokenizer(
     remove_long.map(|v| config.insert("remove_long".to_string(), Value::Number(v.into())));
     lowercase.map(|v| config.insert("lowercase".to_string(), Value::Bool(v)));
     stemmer.map(|v| config.insert("stemmer".to_string(), Value::String(v)));
-    pre_built_stop_words
-        .map(|v| config.insert("pre_built_stop_words".to_string(), Value::String(v)));
-    custom_stop_words.map(|v| {
+    stopwords_language.map(|v| config.insert("stopwords_language".to_string(), Value::String(v)));
+    stopwords.map(|v| {
         config.insert(
-            "custom_stop_words".to_string(),
+            "stopwords".to_string(),
             Value::Array(v.into_iter().map(Value::String).collect()),
         )
     });

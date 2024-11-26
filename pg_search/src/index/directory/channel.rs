@@ -8,8 +8,7 @@ use std::thread::ScopedJoinHandle;
 use std::{io, io::Write, ops::Range, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
-    DirectoryClone, DirectoryLock, FileHandle, Lock, TerminatingWrite, WatchCallback, WatchHandle,
-    WritePtr,
+    DirectoryLock, FileHandle, Lock, TerminatingWrite, WatchCallback, WatchHandle, WritePtr,
 };
 use tantivy::Directory;
 
@@ -33,7 +32,6 @@ pub enum ChannelRequest {
     SegmentWriteTerminate(PathBuf),
     SegmentDelete(PathBuf),
     GetSegmentComponent(PathBuf),
-    ShouldDeleteCtids(Vec<u64>),
     Terminate,
 }
 
@@ -42,7 +40,6 @@ pub enum ChannelResponse {
     AcquiredLock(BlockingLock),
     Bytes(Vec<u8>),
     DirectoryEntry(DirectoryEntry),
-    ShouldDeleteCtids(Vec<u64>),
 }
 
 impl Debug for ChannelResponse {
@@ -52,7 +49,6 @@ impl Debug for ChannelResponse {
             ChannelResponse::ManagedFiles(_) => write!(f, "ManagedFiles"),
             ChannelResponse::Bytes(_) => write!(f, "Bytes"),
             ChannelResponse::DirectoryEntry(_) => write!(f, "DirectoryEntry"),
-            ChannelResponse::ShouldDeleteCtids(_) => write!(f, "ShouldDeleteCtids"),
         }
     }
 }
@@ -245,23 +241,18 @@ impl ChannelRequestHandler {
         }
     }
 
-    pub fn as_blocking_directory(&self) -> Box<dyn Directory> {
-        self.directory.box_clone()
-    }
-
-    pub fn wait_for<T, F: FnOnce() -> T>(&mut self, func: F) -> std::thread::Result<T>
-    where
-        F: Send + Sync,
-        T: Send + Sync,
-    {
+    pub fn wait_for<T: Send + Sync, F: FnOnce() -> T + Send + Sync>(
+        &mut self,
+        func: F,
+    ) -> std::thread::Result<T> {
         std::thread::scope(|scope| self.wait_for_inner(scope.spawn(func)))
     }
 
     #[inline(always)]
-    fn wait_for_inner<T>(&mut self, scope: ScopedJoinHandle<T>) -> std::thread::Result<T>
-    where
-        T: Send + Sync,
-    {
+    fn wait_for_inner<T: Send + Sync>(
+        &mut self,
+        scope: ScopedJoinHandle<T>,
+    ) -> std::thread::Result<T> {
         while !scope.is_finished() {
             let response = self.try_recv();
             match response {
@@ -285,18 +276,15 @@ impl ChannelRequestHandler {
 
     pub fn try_recv(&mut self) -> Result<ShouldTerminate> {
         let message = self.receiver.try_recv()?;
-        self.process_message(message, &Some(|_| false), &mut vec![])
+        self.process_message(message, &mut vec![])
     }
 
-    pub fn receive_blocking(
-        &mut self,
-        should_delete: Option<impl Fn(u64) -> bool>,
-    ) -> Result<ChannelRequestStats> {
+    pub fn receive_blocking(&mut self) -> Result<ChannelRequestStats> {
         let mut deleted_paths: Vec<PathBuf> = vec![];
 
         let receiver = self.receiver.clone();
         for message in receiver.into_iter() {
-            self.process_message(message, &should_delete, &mut deleted_paths)?;
+            self.process_message(message, &mut deleted_paths)?;
         }
 
         Ok(ChannelRequestStats { deleted_paths })
@@ -305,7 +293,6 @@ impl ChannelRequestHandler {
     fn process_message(
         &mut self,
         message: ChannelRequest,
-        should_delete: &Option<impl Fn(u64) -> bool>,
         deleted_paths: &mut Vec<PathBuf>,
     ) -> Result<ShouldTerminate> {
         match message {
@@ -360,19 +347,6 @@ impl ChannelRequestHandler {
             ChannelRequest::SegmentDelete(path) => {
                 if (self.directory.try_delete(&path)?).is_some() {
                     deleted_paths.push(path);
-                }
-            }
-            ChannelRequest::ShouldDeleteCtids(ctids) => {
-                if let Some(ref should_delete) = should_delete {
-                    let filtered_ctids: Vec<u64> = ctids
-                        .into_iter()
-                        .filter(|&ctid_val| should_delete(ctid_val))
-                        .collect();
-                    self.sender
-                        .send(ChannelResponse::ShouldDeleteCtids(filtered_ctids))?;
-                } else {
-                    self.sender
-                        .send(ChannelResponse::ShouldDeleteCtids(vec![]))?;
                 }
             }
             ChannelRequest::Terminate => {

@@ -51,7 +51,7 @@ impl SearchIndexWriter {
         let memory_budget = memory_budget / parallelism.get();
         let parallelism = NonZeroUsize::new(1).unwrap();
 
-        let (wants_merge, merge_policy) = match resources {
+        let (_wants_merge, merge_policy) = match resources {
             // During a CREATE INDEX we use `target_segment_count` but require twice
             // as many segments before we'll do a merge.
             WriterResources::CreateIndex => {
@@ -129,13 +129,13 @@ impl SearchIndexWriter {
 
     pub fn vacuum(mut self) -> Result<ChannelRequestStats> {
         std::thread::scope(|scope| {
-            let opstampt = scope.spawn(|| {
+            let _opstamp = scope.spawn(|| {
                 let opstamp = self.writer.commit()?;
                 self.writer.wait_merging_threads()?;
                 tantivy::Result::Ok(opstamp)
             });
 
-            self.handler.receive_blocking(Some(|_| false))
+            self.handler.receive_blocking()
         })
     }
 }

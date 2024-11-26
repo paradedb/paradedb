@@ -435,7 +435,7 @@ impl SearchIndexReader {
             response_sender,
             request_receiver,
         );
-        let _ = handler.receive_blocking(Some(|_| false)).unwrap();
+        let _ = handler.receive_blocking().unwrap();
 
         unsafe { pg_sys::UnlockReleaseBuffer(lock) };
         SearchResults::Channel(search_receiver.into_iter())

@@ -25,20 +25,15 @@ use crate::postgres::index::get_fields;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::METADATA_BLOCKNO;
 use crate::postgres::storage::utils::BM25BufferCache;
-use crate::schema::{SearchField, SearchFieldConfig, SearchIndexSchema, SearchIndexSchemaError};
+use crate::schema::{SearchFieldConfig, SearchIndexSchema, SearchIndexSchemaError};
 use anyhow::Result;
-use once_cell::sync::Lazy;
 use pgrx::{pg_sys, PgRelation};
 use std::num::NonZeroUsize;
 use tantivy::directory::DirectoryClone;
-use tantivy::{Directory, Executor, Index, IndexSettings, ReloadPolicy};
+use tantivy::{Directory, Index, IndexSettings, ReloadPolicy};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::trace;
-
-/// PostgreSQL operates in a process-per-client model, meaning every client connection
-/// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
-pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(Executor::single_thread);
 
 pub enum WriterResources {
     CreateIndex,
@@ -81,7 +76,6 @@ impl WriterResources {
 // #[derive(Serialize)]
 struct SearchIndex {
     schema: SearchIndexSchema,
-    index_oid: pg_sys::Oid,
     underlying_index: Index,
     handler: ChannelRequestHandler,
 }
@@ -131,14 +125,13 @@ impl SearchIndex {
         )
     }
 
-    fn prepare_index<F: FnOnce(Box<dyn Directory>, &SearchIndexSchema) -> tantivy::Result<Index>>(
+    fn prepare_index<
+        F: FnOnce(Box<dyn Directory>, &SearchIndexSchema) -> tantivy::Result<Index> + Send + Sync,
+    >(
         index_relation: &PgRelation,
         schema: SearchIndexSchema,
         opener: F,
-    ) -> Result<Self, SearchIndexError>
-    where
-        F: Send + Sync,
-    {
+    ) -> Result<Self, SearchIndexError> {
         let index_oid = index_relation.oid();
         let cache = unsafe { BM25BufferCache::open(index_oid) };
         let lock =
@@ -164,17 +157,8 @@ impl SearchIndex {
         Ok(SearchIndex {
             schema,
             underlying_index,
-            index_oid,
             handler,
         })
-    }
-
-    pub fn perform<T, F: FnOnce(&Index) -> T>(&mut self, action: F) -> std::thread::Result<T>
-    where
-        F: Send + Sync,
-        T: Send + Sync,
-    {
-        self.handler.wait_for(|| action(&self.underlying_index))
     }
 
     fn open_reader(index_relation: &PgRelation) -> Result<SearchIndexReader> {
@@ -197,11 +181,6 @@ impl SearchIndex {
         ))
     }
 
-    #[allow(static_mut_refs)]
-    fn executor() -> &'static Executor {
-        unsafe { &SEARCH_EXECUTOR }
-    }
-
     fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
         let tokenizers = schema
             .fields
@@ -220,14 +199,6 @@ impl SearchIndex {
 
         underlying_index.set_tokenizers(create_tokenizer_manager(tokenizers));
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
-    }
-
-    fn key_field(&self) -> SearchField {
-        self.schema.key_field()
-    }
-
-    fn key_field_name(&self) -> String {
-        self.key_field().name.to_string()
     }
 }
 

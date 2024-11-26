@@ -251,7 +251,6 @@ impl Directory for BlockingDirectory {
 
             loop {
                 let buffer = cache.get_buffer(current_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-                let bn = pg_sys::BufferGetBlockNumber(buffer);
                 let page = pg_sys::BufferGetPage(buffer);
                 let item_id = pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber);
                 let item = pg_sys::PageGetItem(page, item_id);

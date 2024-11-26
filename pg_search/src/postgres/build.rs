@@ -32,7 +32,6 @@ use std::time::Instant;
 struct BuildState {
     count: usize,
     memctx: PgMemoryContexts,
-    index_info: *mut pg_sys::IndexInfo,
     tupdesc: PgTupleDesc<'static>,
     start: Instant,
     writer: SearchIndexWriter,
@@ -40,16 +39,11 @@ struct BuildState {
 }
 
 impl BuildState {
-    fn new(
-        indexrel: &PgRelation,
-        index_info: *mut pg_sys::IndexInfo,
-        writer: SearchIndexWriter,
-    ) -> Self {
+    fn new(indexrel: &PgRelation, writer: SearchIndexWriter) -> Self {
         let schema = writer.schema.clone();
         BuildState {
             count: 0,
             memctx: PgMemoryContexts::new("pg_search_index_build"),
-            index_info,
             tupdesc: unsafe { PgTupleDesc::from_pg_copy(indexrel.rd_att) },
             start: Instant::now(),
             writer,
@@ -112,7 +106,7 @@ fn do_heap_scan<'a>(
         let writer = create_new_index(index_relation, WriterResources::CreateIndex)
             .expect("should be able to open a SearchIndexWriter");
 
-        let mut state = BuildState::new(index_relation, index_info, writer);
+        let mut state = BuildState::new(index_relation, writer);
 
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),

@@ -21,6 +21,7 @@ use pgrx::pg_sys;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
+use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::{io, result};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
@@ -29,7 +30,7 @@ use tantivy::{
     directory::{INDEX_WRITER_LOCK, MANAGED_LOCK, META_LOCK},
     error::TantivyError,
 };
-use tantivy::{Directory, IndexMeta};
+use tantivy::{Directory, IndexMeta, index::SegmentMetaInventory};
 
 use super::lock::BlockingLock;
 use crate::index::reader::segment_component::SegmentComponentReader;
@@ -239,14 +240,14 @@ impl Directory for BlockingDirectory {
             .map(|segment| segment.id())
             .collect::<Vec<_>>();
 
-        let existing_segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+        let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
             self.relation_oid,
             unsafe { bm25_metadata(self.relation_oid).segment_metas_start },
-            Some(pg_sys::BUFFER_LOCK_SHARE),
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
         );
 
         unsafe {
-            for (entry, blockno, offsetno) in existing_segment_metas.list_all_items().unwrap() {
+            for (entry, blockno, offsetno) in segment_metas.list_all_items().unwrap() {
                 if let Some(index) = new_segments
                     .iter()
                     .position(|segment| segment.id() == entry.meta.segment_id)
@@ -274,18 +275,53 @@ impl Directory for BlockingDirectory {
             }
         }
 
-        for segment_meta in new_segments {
-            // let entry = SegmentMetaEntry {
-            //     meta: segment_meta.tracked.as_ref().clone(),
-            //     opstamp,
-            //     xmin,
-            //     xmax,
-            // };
+        let entries = new_segments
+            .iter()
+            .map(|segment| SegmentMetaEntry {
+                meta: segment.tracked.as_ref().clone(),
+                opstamp,
+                xmin: current_xid,
+                xmax: pg_sys::InvalidTransactionId,
+            })
+            .collect::<Vec<_>>();
 
-            // TODO: Save
+        unsafe {
+            segment_metas
+                .write(entries)
+                .expect("save new metas should succeed");
         }
 
         Ok(())
+    }
+
+    fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
+        // let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+        //     self.relation_oid,
+        //     unsafe { bm25_metadata(self.relation_oid).segment_metas_start },
+        //     Some(pg_sys::BUFFER_LOCK_SHARE),
+        // );
+
+        // let mut alive_segments = vec![];
+        // let mut opstamp = 0;
+        // let mut max_xmin = 0;
+        // let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
+
+        // for (entry, _, _) in segment_metas {
+        //     let segment_meta = entry.meta.clone();
+        //     let in_progress: &[u32] = unsafe { from_raw_parts(snapshot.xip, snapshot.xcnt) };
+        //     let invisible = segment_meta.xmin >= snapshot.xmin
+        //         || segment_meta.xmax >= snapshot.xmax
+        //         || in_progress.contains(&snapshot.xmin)
+        //         || !pg_sys::TransactionIdDidCommit(segment_meta.xmin);
+
+        //     if !invisible {
+        //         alive_segments.push(segment_meta);
+        //         opstamp = opstamp.max(entry.opstamp);
+        //         max_xmin = max_xmin.max(entry.xmin);
+        //     }
+        // }
+
+        todo!()
     }
 }
 

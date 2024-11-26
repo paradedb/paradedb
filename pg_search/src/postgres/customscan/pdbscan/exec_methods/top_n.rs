@@ -16,10 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::query::SearchQueryInput;
 use pgrx::{direct_function_call, pg_sys, IntoDatum};
 use tantivy::query::{Query, QueryClone};
 
@@ -36,7 +36,7 @@ pub struct TopNScanExecState {
 
     // set during init
     have_less: bool,
-    query: Option<Box<dyn Query>>,
+    search_query_input: Option<SearchQueryInput>,
     search_reader: Option<SearchIndexReader>,
     sort_field: Option<String>,
     search_results: SearchResults,
@@ -63,13 +63,11 @@ impl ExecMethod for TopNScanExecState {
     fn init(&mut self, state: &PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
         let sort_field = state.sort_field.clone();
         let search_reader = state.search_reader.as_ref().unwrap();
-        let query = state.query.as_ref().map(|q| q.box_clone());
 
-        self.query = query;
+        self.search_query_input = Some(state.search_query_input.clone());
         self.sort_field = sort_field;
         self.search_results = search_reader.search_top_n(
-            SearchIndex::executor(),
-            self.query.as_ref().unwrap(),
+            self.search_query_input.as_ref().unwrap(),
             self.sort_field.clone(),
             self.sort_direction.into(),
             self.limit,
@@ -136,8 +134,7 @@ impl ExecMethod for TopNScanExecState {
                     .min(MAX_CHUNK_SIZE);
 
                 let mut results = self.search_reader.as_ref().unwrap().search_top_n(
-                    SearchIndex::executor(),
-                    self.query.as_ref().unwrap(),
+                    self.search_query_input.as_ref().unwrap(),
                     self.sort_field.clone(),
                     self.sort_direction.into(),
                     self.chunk_size,

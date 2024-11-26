@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::reader::index::SearchResults;
-use crate::index::SearchIndex;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
@@ -122,8 +121,7 @@ impl NormalScanExecState {
         self.search_results = state.search_reader.as_ref().unwrap().search_via_channel(
             state.need_scores(),
             false,
-            SearchIndex::executor(),
-            state.query.as_ref().unwrap(),
+            &state.search_query_input,
             state.limit,
         );
         self.did_query = true;

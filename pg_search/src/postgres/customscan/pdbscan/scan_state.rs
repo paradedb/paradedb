@@ -35,7 +35,6 @@ use tantivy::DocAddress;
 pub struct PdbScanState {
     pub rti: pg_sys::Index,
 
-    pub query: Option<Box<dyn Query>>,
     pub search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 

@@ -174,6 +174,7 @@ impl Directory for BlockingDirectory {
             let mut buffer =
                 cache.get_buffer(TANTIVY_META_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
             let mut page = pg_sys::BufferGetPage(buffer);
+            page.init(pg_sys::BufferGetPageSize(buffer));
 
             for (i, chunk) in data.chunks(ITEM_SIZE).enumerate() {
                 if i > 0 {
@@ -250,6 +251,7 @@ impl Directory for BlockingDirectory {
 
             loop {
                 let buffer = cache.get_buffer(current_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                let bn = pg_sys::BufferGetBlockNumber(buffer);
                 let page = pg_sys::BufferGetPage(buffer);
                 let item_id = pg_sys::PageGetItemId(page, pg_sys::FirstOffsetNumber);
                 let item = pg_sys::PageGetItem(page, item_id);

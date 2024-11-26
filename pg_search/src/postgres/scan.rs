@@ -16,21 +16,19 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFHelper;
+use crate::index::open_search_reader;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::index::SearchIndex;
-use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::{parallel, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
-use tantivy::query::Query;
 
 pub struct Bm25ScanState {
     need_scores: bool,
     fast_fields: FFHelper,
     reader: SearchIndexReader,
-    query: Box<dyn Query>,
+    search_query_input: SearchQueryInput,
     results: SearchResults,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
     key_field_oid: PgOid,
@@ -106,11 +104,8 @@ pub extern "C" fn amrescan(
     }
 
     // Create the index and scan state
-    let search_index = open_search_index(&indexrel).expect("should be able to open search index");
-    let search_reader = search_index
-        .get_reader()
-        .expect("SearchState should construct cleanly");
-
+    let search_reader =
+        open_search_reader(&indexrel).expect("should be able to open a SearchIndexReader");
     unsafe {
         parallel::maybe_init_parallel_scan(scan, &search_reader.searcher);
 
@@ -119,22 +114,20 @@ pub extern "C" fn amrescan(
             .get_key_field()
             .expect("bm25 index should have a key_field")
             .0;
-        let key_field_type = search_index.key_field().type_.into();
+        let key_field_type = search_reader.key_field().type_.into();
 
         let need_scores = search_query_input.contains_more_like_this();
-        let query = search_index.query(&indexrel, &search_query_input, &search_reader);
         let results = if (*scan).parallel_scan.is_null() {
             // not a parallel scan
             search_reader.search_via_channel(
                 need_scores,
                 !(*scan).xs_want_itup,
-                SearchIndex::executor(),
-                &query,
+                &search_query_input,
                 None,
             )
         } else if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
             // a parallel scan: got a segment to query
-            search_reader.search_segment(need_scores, segment_number, &query)
+            search_reader.search_segment(need_scores, segment_number, &search_query_input)
         } else {
             // a parallel scan: no more segments to query
             SearchResults::None
@@ -149,7 +142,7 @@ pub extern "C" fn amrescan(
                     &[(key_field, key_field_type).into()],
                 ),
                 reader: search_reader,
-                query,
+                search_query_input: search_query_input,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
                 key_field_oid: PgOid::from(
@@ -161,7 +154,7 @@ pub extern "C" fn amrescan(
                 need_scores,
                 fast_fields: FFHelper::empty(),
                 reader: search_reader,
-                query,
+                search_query_input: search_query_input,
                 results,
                 itup: (vec![], vec![]),
                 key_field_oid: PgOid::Invalid,
@@ -319,10 +312,11 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
 // if there's a segment to be claimed for parallel query execution, do that now
 fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
     if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-        state.results =
-            state
-                .reader
-                .search_segment(state.need_scores, segment_number, &state.query);
+        state.results = state.reader.search_segment(
+            state.need_scores,
+            segment_number,
+            &state.search_query_input,
+        );
         return true;
     }
     false

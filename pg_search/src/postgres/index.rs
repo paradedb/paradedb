@@ -15,44 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::directory::blocking::BlockingDirectory;
-use crate::index::{SearchIndex, SearchIndexError};
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::schema::{
-    IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
-};
+use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
 use pgrx::{pg_sys, PgBox, PgOid, PgRelation};
 use std::collections::HashMap;
-use tantivy::Index;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
-
-use crate::postgres::storage::block::METADATA_BLOCKNO;
-use crate::postgres::storage::utils::BM25BufferCache;
-
-/// Open the underlying [`SearchIndex`] for the specified Postgres index relation
-pub fn open_search_index(
-    index_relation: &PgRelation,
-) -> anyhow::Result<SearchIndex, SearchIndexError> {
-    let index_oid = index_relation.oid();
-    let cache = unsafe { BM25BufferCache::open(index_oid) };
-    let lock = unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
-
-    let (fields, key_field_index) = unsafe { get_fields(index_relation) };
-    let schema = SearchIndexSchema::new(fields, key_field_index)?;
-    let tantivy_dir = BlockingDirectory::new(index_oid);
-    let mut underlying_index = Index::open(tantivy_dir)?;
-
-    SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
-
-    unsafe { pg_sys::UnlockReleaseBuffer(lock) };
-
-    Ok(SearchIndex {
-        schema,
-        underlying_index,
-        index_oid,
-    })
-}
 
 type Fields = Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>;
 type KeyFieldIndex = usize;
@@ -197,5 +165,12 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
         .iter()
         .position(|(name, _, _)| name == &key_field)
         .expect("key field not found in columns"); // key field is already validated by now.
+
+    // If there's only two fields in the vector, then those are just the Key and Ctid fields,
+    // which we added above, and the user has not specified any fields to index.
+    if fields.len() == 2 {
+        panic!("no fields specified")
+    }
+
     (fields, key_field_index)
 }

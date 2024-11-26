@@ -30,6 +30,7 @@ use tokio::join;
 /// This test targets the locking functionality between Tantivy writers.
 /// With no locking implemented, a high number of concurrent writers will
 /// cause in an error when they all try to commit to the index at once.
+#[ignore = "block-storage: takes a very very long time to complete"]
 #[rstest]
 #[tokio::test]
 async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {

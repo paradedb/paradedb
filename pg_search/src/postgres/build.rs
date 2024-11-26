@@ -15,15 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::{SearchIndex, WriterResources};
-use crate::postgres::index::get_fields;
-use crate::postgres::insert::init_insert_state;
+use crate::index::writer::index::SearchIndexWriter;
+use crate::index::{create_new_index, open_search_writer, WriterResources};
 use crate::postgres::storage::block::{
     MetaPageData, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO,
     META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
 };
 use crate::postgres::storage::utils::BM25BufferCache;
 use crate::postgres::utils::row_to_search_document;
+use crate::schema::SearchIndexSchema;
 use pgrx::*;
 use std::ffi::CStr;
 use std::time::Instant;
@@ -35,16 +35,25 @@ struct BuildState {
     index_info: *mut pg_sys::IndexInfo,
     tupdesc: PgTupleDesc<'static>,
     start: Instant,
+    writer: SearchIndexWriter,
+    schema: SearchIndexSchema,
 }
 
 impl BuildState {
-    fn new(indexrel: &PgRelation, index_info: *mut pg_sys::IndexInfo) -> Self {
+    fn new(
+        indexrel: &PgRelation,
+        index_info: *mut pg_sys::IndexInfo,
+        writer: SearchIndexWriter,
+    ) -> Self {
+        let schema = writer.schema.clone();
         BuildState {
             count: 0,
             memctx: PgMemoryContexts::new("pg_search_index_build"),
             index_info,
             tupdesc: unsafe { PgTupleDesc::from_pg_copy(indexrel.rd_att) },
             start: Instant::now(),
+            writer,
+            schema,
         }
     }
 }
@@ -83,25 +92,11 @@ pub extern "C" fn ambuild(
         }
     }
 
-    let (fields, key_field_index) = unsafe { get_fields(&index_relation) };
-    // If there's only two fields in the vector, then those are just the Key and Ctid fields,
-    // which we added above, and the user has not specified any fields to index.
-    if fields.len() == 2 {
-        panic!("no fields specified")
-    }
-
-    SearchIndex::create_index(index_oid, fields, key_field_index)
-        .expect("error creating new index instance");
-
-    let state = do_heap_scan(index_info, &heap_relation, &index_relation);
-    unsafe {
-        let insert_state = init_insert_state(indexrel, index_info, WriterResources::CreateIndex);
-        (*insert_state).try_commit().expect("commit should succeed");
-    }
+    let tuple_count = do_heap_scan(index_info, &heap_relation, &index_relation);
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
-    result.heap_tuples = state.count as f64;
-    result.index_tuples = state.count as f64;
+    result.heap_tuples = tuple_count as f64;
+    result.index_tuples = tuple_count as f64;
     result.into_pg()
 }
 
@@ -112,9 +107,13 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
-) -> BuildState {
-    let mut state = BuildState::new(index_relation, index_info);
+) -> usize {
     unsafe {
+        let writer = create_new_index(&index_relation, WriterResources::CreateIndex)
+            .expect("should be able to open a SearchIndexWriter");
+
+        let mut state = BuildState::new(index_relation, index_info, writer);
+
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),
@@ -123,45 +122,23 @@ fn do_heap_scan<'a>(
             &mut state,
         );
 
-        let insert_state = init_insert_state(
-            index_relation.as_ptr(),
-            index_info,
-            WriterResources::CreateIndex,
-        );
-        if let Some(writer) = (*insert_state).writer.take() {
-            writer
-                .commit()
-                .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
+        state
+            .writer
+            .commit()
+            .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
-            // writer
-            //     .underlying_writer
-            //     .wait_merging_threads()
-            //     .unwrap_or_else(|e| panic!("failed to wait for index merge: {e}"));
-        }
+        state.count
     }
-
-    state
 }
 
 #[pg_guard]
 unsafe extern "C" fn build_callback(
-    index: pg_sys::Relation,
+    indexrel: pg_sys::Relation,
     ctid: pg_sys::ItemPointer,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     _tuple_is_alive: bool,
     state: *mut std::os::raw::c_void,
-) {
-    build_callback_internal(*ctid, values, isnull, state, index);
-}
-
-#[inline(always)]
-unsafe fn build_callback_internal(
-    ctid: pg_sys::ItemPointerData,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    state: *mut std::os::raw::c_void,
-    indexrel: pg_sys::Relation,
 ) {
     check_for_interrupts!();
     let build_state = (state as *mut BuildState)
@@ -169,17 +146,8 @@ unsafe fn build_callback_internal(
         .expect("BuildState pointer should not be null");
 
     let tupdesc = &build_state.tupdesc;
-    let insert_state = init_insert_state(
-        indexrel,
-        build_state.index_info,
-        WriterResources::CreateIndex,
-    );
-    let search_index = &(*insert_state).index;
-    let writer = (*insert_state)
-        .writer
-        .as_mut()
-        .expect("writer should not be null");
-    let schema = &(*insert_state).index.schema;
+    let schema = &build_state.schema;
+    let mut writer = &mut build_state.writer;
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a
     // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it
@@ -192,15 +160,15 @@ unsafe fn build_callback_internal(
         build_state.memctx.reset();
         build_state.memctx.switch_to(|_| {
             let search_document =
-                row_to_search_document(ctid, tupdesc, values, isnull, schema).unwrap_or_else(|err| {
+                row_to_search_document(*ctid, tupdesc, values, isnull, schema).unwrap_or_else(|err| {
                     panic!(
                         "error creating index entries for index '{}': {err}",
                         CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr())
                             .to_string_lossy()
                     );
                 });
-            search_index
-                .insert(writer, search_document)
+            writer
+                .insert(search_document)
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });

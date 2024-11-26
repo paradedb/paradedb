@@ -19,7 +19,7 @@ use crate::index::blocking::BlockingDirectory;
 use crate::index::channel::{
     ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
 };
-use crate::index::WriterResources;
+use crate::index::{open_search_writer, WriterResources};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{DirectoryEntry, MetaPageData, METADATA_BLOCKNO};
 use crate::postgres::storage::linked_list::LinkedItemList;
@@ -43,82 +43,47 @@ pub extern "C" fn amvacuumcleanup(
 
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
     let index_oid = index_relation.oid();
-    let options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-    let (parallelism, memory_budget, _, _) =
-        WriterResources::Vacuum.resources(unsafe { options.as_ref().unwrap() });
 
-    let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
-    let (response_sender, response_receiver) = crossbeam::channel::unbounded::<ChannelResponse>();
-    let (request_sender_clone, response_receiver_clone) =
-        (request_sender.clone(), response_receiver.clone());
+    let writer = open_search_writer(&index_relation, WriterResources::Vacuum)
+        .expect("amvacuumcleanup: should be able to open a SearchIndexWriter");
 
-    // Let Tantivy merge and garbage collect segments
-    std::thread::scope(|s| {
-        s.spawn(|| {
-            let channel_directory = ChannelDirectory::new(
-                request_sender_clone.clone(),
-                response_receiver_clone.clone(),
-            );
-            let channel_index = Index::open(channel_directory).expect("channel index should open");
-            let mut writer: IndexWriter = channel_index
-                .writer_with_num_threads(parallelism.into(), memory_budget)
-                .unwrap();
+    let blocking_stats = writer
+        .vacuum()
+        .expect("amvacuumcleanup: writer vacuum failed");
 
-            // Commit does garbage collect as well, no need to explicitly call it
-            writer.commit().unwrap();
-            writer.wait_merging_threads().unwrap();
+    // Vacuum the linked list of segment components
+    let cache = unsafe { BM25BufferCache::open(index_oid) };
+    let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
+    let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
 
-            request_sender_clone
-                .send(ChannelRequest::Terminate)
-                .unwrap();
-        });
+    unsafe {
+        vacuum_directory(index_oid, blocking_stats.deleted_paths)
+            .expect("vacuum segment components should succeed");
+    }
 
-        let blocking_directory = BlockingDirectory::new(index_oid);
-        let mut handler = ChannelRequestHandler::open(
-            blocking_directory,
-            index_oid,
-            response_sender.clone(),
-            request_receiver.clone(),
-        );
+    // Return all recyclable pages to the free space map
+    let nblocks = unsafe {
+        pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM)
+    };
 
-        let blocking_stats = handler
-            .receive_blocking(Some(|_| false))
-            .expect("blocking handler should succeed");
-
-        // Vacuum the linked list of segment components
-        let cache = unsafe { BM25BufferCache::open(index_oid) };
-        let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
-        let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
-
+    for blockno in 0..nblocks {
         unsafe {
-            vacuum_directory(index_oid, blocking_stats.deleted_paths)
-                .expect("vacuum segment components should succeed");
-        }
-
-        // Return all recyclable pages to the free space map
-        let nblocks = unsafe {
-            pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM)
-        };
-
-        for blockno in 0..nblocks {
-            unsafe {
-                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-                let page = pg_sys::BufferGetPage(buffer);
-                if page.recyclable(heap_relation) {
-                    cache.record_free_index_page(blockno);
-                }
-                pg_sys::UnlockReleaseBuffer(buffer);
+            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let page = pg_sys::BufferGetPage(buffer);
+            if page.recyclable(heap_relation) {
+                cache.record_free_index_page(blockno);
             }
+            pg_sys::UnlockReleaseBuffer(buffer);
         }
+    }
 
-        unsafe {
-            pg_sys::RelationClose(heap_relation);
-            pg_sys::IndexFreeSpaceMapVacuum(info.index)
-        };
+    unsafe {
+        pg_sys::RelationClose(heap_relation);
+        pg_sys::IndexFreeSpaceMapVacuum(info.index)
+    };
 
-        // TODO: Update stats
-        stats
-    })
+    // TODO: Update stats
+    stats
 }
 
 fn alive_segment_components(

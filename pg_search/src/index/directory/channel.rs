@@ -1,13 +1,16 @@
 use anyhow::Result;
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::{Receiver, Sender, TryRecvError};
+use pgrx::check_for_interrupts;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::thread::{Scope, ScopedJoinHandle};
 use std::{io, io::Write, ops::Range, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
-    DirectoryLock, FileHandle, Lock, TerminatingWrite, WatchCallback, WatchHandle, WritePtr,
+    DirectoryClone, DirectoryLock, FileHandle, Lock, TerminatingWrite, WatchCallback, WatchHandle,
+    WritePtr,
 };
 use tantivy::Directory;
 
@@ -209,6 +212,7 @@ impl Directory for ChannelDirectory {
     }
 }
 
+#[derive(Clone)]
 pub struct ChannelRequestHandler {
     directory: BlockingDirectory,
     relation_oid: pgrx::pg_sys::Oid,
@@ -222,6 +226,8 @@ pub struct ChannelRequestHandler {
 pub struct ChannelRequestStats {
     pub deleted_paths: Vec<PathBuf>,
 }
+
+pub type ShouldTerminate = bool;
 
 impl ChannelRequestHandler {
     pub fn open(
@@ -240,86 +246,140 @@ impl ChannelRequestHandler {
         }
     }
 
+    pub fn as_blocking_directory(&self) -> Box<dyn Directory> {
+        self.directory.box_clone()
+    }
+
+    pub fn wait_for<T, F: FnOnce() -> T>(&mut self, func: F) -> std::thread::Result<T>
+    where
+        F: Send + Sync,
+        T: Send + Sync,
+    {
+        std::thread::scope(|scope| self.wait_for_inner(scope.spawn(func)))
+    }
+
+    #[inline(always)]
+    fn wait_for_inner<T>(&mut self, scope: ScopedJoinHandle<T>) -> std::thread::Result<T>
+    where
+        T: Send + Sync,
+    {
+        while !scope.is_finished() {
+            let response = self.try_recv();
+            match response {
+                Ok(terminate) if terminate => break,
+                Ok(_) => continue,
+                Err(e) => match e.downcast_ref::<TryRecvError>() {
+                    Some(TryRecvError::Empty) => continue,
+                    None => return Err(Box::new(e)),
+                    Some(err) => match err {
+                        // no message to process
+                        TryRecvError::Empty => continue,
+
+                        // the sender has been dropped, which is fine for us
+                        TryRecvError::Disconnected => break,
+                    },
+                },
+            }
+        }
+        scope.join()
+    }
+
+    pub fn try_recv(&mut self) -> Result<ShouldTerminate> {
+        let message = self.receiver.try_recv()?;
+        self.process_message(message, &Some(|_| false), &mut vec![])
+    }
+
     pub fn receive_blocking(
         &mut self,
         should_delete: Option<impl Fn(u64) -> bool>,
     ) -> Result<ChannelRequestStats> {
         let mut deleted_paths: Vec<PathBuf> = vec![];
 
-        for message in self.receiver.iter() {
-            match message {
-                ChannelRequest::AcquireLock(lock) => {
-                    let blocking_lock = unsafe { self.directory.acquire_blocking_lock(&lock)? };
-                    self.sender
-                        .send(ChannelResponse::AcquiredLock(blocking_lock))?;
-                }
-                ChannelRequest::AtomicRead(path) => {
-                    let data = self.directory.atomic_read(&path)?;
-                    self.sender.send(ChannelResponse::Bytes(data))?;
-                }
-                ChannelRequest::AtomicWrite(path, data) => {
-                    self.directory.atomic_write(&path, &data)?;
-                }
-                ChannelRequest::ListManagedFiles() => {
-                    let managed_files = self.directory.list_managed_files()?;
-                    self.sender
-                        .send(ChannelResponse::ManagedFiles(managed_files))?;
-                }
-                ChannelRequest::RegisterFilesAsManaged(files, overwrite) => {
-                    self.directory.register_files_as_managed(files, overwrite)?;
-                }
-                ChannelRequest::GetSegmentComponent(path) => {
-                    let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
-                    self.sender.send(ChannelResponse::DirectoryEntry(opaque))?;
-                }
-                ChannelRequest::ReleaseBlockingLock(blocking_lock) => {
-                    drop(blocking_lock);
-                }
-                ChannelRequest::SegmentRead(range, handle) => {
-                    let reader =
-                        self.readers
-                            .entry(handle.path.clone())
-                            .or_insert_with(|| unsafe {
-                                SegmentComponentReader::new(self.relation_oid, handle)
-                            });
-                    let data = reader.read_bytes(range)?;
-                    self.sender
-                        .send(ChannelResponse::Bytes(data.as_slice().to_owned()))?;
-                }
-                ChannelRequest::SegmentWrite(path, data) => {
-                    let writer = self.writers.entry(path.clone()).or_insert_with(|| unsafe {
-                        SegmentComponentWriter::new(self.relation_oid, &path)
-                    });
-                    writer.write_all(&data)?;
-                }
-                ChannelRequest::SegmentWriteTerminate(path) => {
-                    let writer = self.writers.remove(&path).expect("writer should exist");
-                    writer.terminate()?;
-                }
-                ChannelRequest::SegmentDelete(path) => {
-                    if (self.directory.try_delete(&path)?).is_some() {
-                        deleted_paths.push(path);
-                    }
-                }
-                ChannelRequest::ShouldDeleteCtids(ctids) => {
-                    if let Some(ref should_delete) = should_delete {
-                        let filtered_ctids: Vec<u64> = ctids
-                            .into_iter()
-                            .filter(|&ctid_val| should_delete(ctid_val))
-                            .collect();
-                        self.sender
-                            .send(ChannelResponse::ShouldDeleteCtids(filtered_ctids))?;
-                    } else {
-                        self.sender
-                            .send(ChannelResponse::ShouldDeleteCtids(vec![]))?;
-                    }
-                }
-                ChannelRequest::Terminate => {
-                    break;
-                }
-            }
+        let receiver = self.receiver.clone();
+        for message in receiver.into_iter() {
+            self.process_message(message, &should_delete, &mut deleted_paths)?;
         }
 
         Ok(ChannelRequestStats { deleted_paths })
+    }
+
+    fn process_message(
+        &mut self,
+        message: ChannelRequest,
+        should_delete: &Option<impl Fn(u64) -> bool>,
+        deleted_paths: &mut Vec<PathBuf>,
+    ) -> Result<ShouldTerminate> {
+        match message {
+            ChannelRequest::AcquireLock(lock) => {
+                let blocking_lock = unsafe { self.directory.acquire_blocking_lock(&lock)? };
+                self.sender
+                    .send(ChannelResponse::AcquiredLock(blocking_lock))?;
+            }
+            ChannelRequest::AtomicRead(path) => {
+                let data = self.directory.atomic_read(&path)?;
+                self.sender.send(ChannelResponse::Bytes(data))?;
+            }
+            ChannelRequest::AtomicWrite(path, data) => {
+                self.directory.atomic_write(&path, &data)?;
+            }
+            ChannelRequest::ListManagedFiles() => {
+                let managed_files = self.directory.list_managed_files()?;
+                self.sender
+                    .send(ChannelResponse::ManagedFiles(managed_files))?;
+            }
+            ChannelRequest::RegisterFilesAsManaged(files, overwrite) => {
+                self.directory.register_files_as_managed(files, overwrite)?;
+            }
+            ChannelRequest::GetSegmentComponent(path) => {
+                let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
+                self.sender.send(ChannelResponse::DirectoryEntry(opaque))?;
+            }
+            ChannelRequest::ReleaseBlockingLock(blocking_lock) => {
+                drop(blocking_lock);
+            }
+            ChannelRequest::SegmentRead(range, handle) => {
+                let reader = self
+                    .readers
+                    .entry(handle.path.clone())
+                    .or_insert_with(|| unsafe {
+                        SegmentComponentReader::new(self.relation_oid, handle)
+                    });
+                let data = reader.read_bytes(range)?;
+                self.sender
+                    .send(ChannelResponse::Bytes(data.as_slice().to_owned()))?;
+            }
+            ChannelRequest::SegmentWrite(path, data) => {
+                let writer = self.writers.entry(path.clone()).or_insert_with(|| unsafe {
+                    SegmentComponentWriter::new(self.relation_oid, &path)
+                });
+                writer.write_all(&data)?;
+            }
+            ChannelRequest::SegmentWriteTerminate(path) => {
+                let writer = self.writers.remove(&path).expect("writer should exist");
+                writer.terminate()?;
+            }
+            ChannelRequest::SegmentDelete(path) => {
+                if (self.directory.try_delete(&path)?).is_some() {
+                    deleted_paths.push(path);
+                }
+            }
+            ChannelRequest::ShouldDeleteCtids(ctids) => {
+                if let Some(ref should_delete) = should_delete {
+                    let filtered_ctids: Vec<u64> = ctids
+                        .into_iter()
+                        .filter(|&ctid_val| should_delete(ctid_val))
+                        .collect();
+                    self.sender
+                        .send(ChannelResponse::ShouldDeleteCtids(filtered_ctids))?;
+                } else {
+                    self.sender
+                        .send(ChannelResponse::ShouldDeleteCtids(vec![]))?;
+                }
+            }
+            ChannelRequest::Terminate => {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }

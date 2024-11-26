@@ -15,125 +15,127 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::channel::{ChannelRequestHandler, ChannelRequestStats};
+use crate::index::merge_policy::NPlusOneMergePolicy;
+use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::{
-    index::SearchIndex,
     postgres::types::TantivyValueError,
-    schema::{
-        SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
-    },
+    schema::{SearchDocument, SearchIndexSchema},
 };
 use anyhow::Result;
-use tantivy::directory::{Lock, INDEX_WRITER_LOCK};
-use tantivy::{
-    indexer::{AddOperation, SegmentWriter},
-    IndexSettings,
-};
-use tantivy::{Directory, Index};
+use std::num::NonZeroUsize;
+use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
+use tantivy::Index;
+use tantivy::IndexWriter;
 use thiserror::Error;
-
-use crate::index::directory::blocking::{BlockingDirectory, META_FILEPATH};
-use crate::index::WriterResources;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
-    pub underlying_writer: SegmentWriter,
-    pub current_opstamp: tantivy::Opstamp,
-    pub wants_merge: bool,
-    pub commit_opstamp: tantivy::Opstamp,
-    pub segment: tantivy::Segment,
+    pub writer: IndexWriter,
+    pub schema: SearchIndexSchema,
+    pub handler: ChannelRequestHandler,
 }
 
 impl SearchIndexWriter {
     pub fn new(
-        index: &Index,
+        index: Index,
+        schema: SearchIndexSchema,
+        handler: ChannelRequestHandler,
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
     ) -> Result<Self> {
-        let (_, memory_budget, _, _) = resources.resources(index_options);
-        let segment = index.new_segment();
-        let current_opstamp = index.load_metas()?.opstamp;
-        let underlying_writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
+        let (parallelism, memory_budget, target_segment_count, merge_on_insert) =
+            resources.resources(&index_options);
+
+        let memory_budget = memory_budget / parallelism.get();
+        let parallelism = NonZeroUsize::new(1).unwrap();
+
+        let (wants_merge, merge_policy) = match resources {
+            // During a CREATE INDEX we use `target_segment_count` but require twice
+            // as many segments before we'll do a merge.
+            WriterResources::CreateIndex => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: target_segment_count * 2,
+                });
+                (true, policy)
+            }
+
+            // During a VACUUM we want to merge down to our `target_segment_count`
+            WriterResources::Vacuum => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: 0,
+                });
+                (true, policy)
+            }
+
+            // During regular INSERT/UPDATE/COPY statements, if we were asked to "merge_on_insert"
+            // then we use our `NPlusOneMergePolicy` which will ensure we don't more than
+            // `target_segment_count` segments, requiring at least 2 to merge together.
+            // The idea being that only the very smallest segments will be merged together, reducing write amplification
+            WriterResources::Statement if merge_on_insert => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: 2,
+                });
+                (true, policy)
+            }
+
+            // During regular INSERT/UPDATE/COPY statements, if we were told not to "merge_on_insert"
+            // then we don't do any merging at all.
+            WriterResources::Statement => {
+                let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
+                (false, policy)
+            }
+        };
+
+        let mut handler = handler.clone();
+        let writer = handler
+            .wait_for(|| index.writer_with_num_threads(parallelism.get(), memory_budget))
+            .expect("scoped thread should not fail")?;
+        writer.set_merge_policy(merge_policy);
 
         Ok(Self {
-            underlying_writer,
-            current_opstamp,
-            commit_opstamp: current_opstamp,
-            // TODO: Merge on insert
-            wants_merge: false,
-            segment,
+            writer,
+            schema,
+            handler,
         })
     }
 
     pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
         // Add the Tantivy document to the index.
         let tantivy_document: tantivy::TantivyDocument = document.into();
-        self.current_opstamp += 1;
-        self.underlying_writer.add_document(AddOperation {
-            opstamp: self.current_opstamp,
-            document: tantivy_document,
-        })?;
 
+        let _opstamp = self
+            .handler
+            .wait_for(|| self.writer.add_document(tantivy_document))
+            .expect("spawned thread should not fail")?;
         Ok(())
     }
 
     pub fn commit(mut self) -> Result<()> {
-        self.current_opstamp += 1;
-        let max_doc = self.underlying_writer.max_doc();
-        self.underlying_writer.finalize()?;
-        let segment = self.segment.with_max_doc(max_doc);
-        let index = segment.index();
-
-        // An index writer lock is needed here to guard against the scenario
-        // where we commit a segment in the middle of another process' merge/vacuum. For instance:
-        // Process A sees files A,B,C,D but only A,B,C committed
-        // Process A thinks D is tombstoned and puts up D as a deletion candidate
-        // Process B commits D
-        // Process A sees that D has been committed AND is a deletion candidate, so it mistakenly deletes D
-        // In order to prevent this, we would need to hold a lock across Tantivy's entire commit process which spans multiple functions,
-        // and an index writer lock is a good stopgap for now.
-        let _index_writer_lock = index.directory().acquire_lock(&Lock {
-            filepath: INDEX_WRITER_LOCK.filepath.clone(),
-            is_blocking: true,
-        });
-
-        let committed_meta = index.load_metas()?;
-        let mut segments = committed_meta.segments.clone();
-        segments.push(segment.meta().clone());
-
-        let new_meta = tantivy::IndexMeta {
-            segments,
-            opstamp: self.current_opstamp,
-            index_settings: committed_meta.index_settings,
-            schema: committed_meta.schema,
-            payload: committed_meta.payload,
-        };
-
-        index
-            .directory()
-            .atomic_write(*META_FILEPATH, &serde_json::to_vec(&new_meta)?)?;
-
+        let _opstamp = self
+            .handler
+            .wait_for(|| {
+                let opstamp = self.writer.commit()?;
+                self.writer.wait_merging_threads()?;
+                tantivy::Result::Ok(opstamp)
+            })
+            .expect("spawned thread should not fail")?;
         Ok(())
     }
 
-    pub fn create_index(
-        index_oid: pgrx::pg_sys::Oid,
-        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
-        key_field_index: usize,
-    ) -> Result<SearchIndex> {
-        let schema = SearchIndexSchema::new(fields, key_field_index)?;
-        let tantivy_dir = BlockingDirectory::new(index_oid);
-        let settings = IndexSettings {
-            docstore_compress_dedicated_thread: false,
-            ..IndexSettings::default()
-        };
-        let mut underlying_index = Index::create(tantivy_dir, schema.schema.clone(), settings)?;
+    pub fn vacuum(mut self) -> Result<ChannelRequestStats> {
+        std::thread::scope(|scope| {
+            let opstampt = scope.spawn(|| {
+                let opstamp = self.writer.commit()?;
+                self.writer.wait_merging_threads()?;
+                tantivy::Result::Ok(opstamp)
+            });
 
-        SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
-        Ok(SearchIndex {
-            index_oid,
-            underlying_index,
-            schema,
+            self.handler.receive_blocking(Some(|_| false))
         })
     }
 }

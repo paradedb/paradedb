@@ -19,9 +19,8 @@ use crate::index::directory::blocking::BlockingDirectory;
 use crate::index::directory::channel::{
     ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
 };
-use crate::index::SearchIndex;
 use crate::query::SearchQueryInput;
-use crate::schema::{SearchFieldName, SearchIndexSchema};
+use crate::schema::{SearchField, SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::cmp::Ordering;
@@ -32,8 +31,8 @@ use tantivy::index::Index;
 use tantivy::query::QueryParser;
 use tantivy::schema::FieldType;
 use tantivy::{
-    query::Query, DocAddress, DocId, Order, Score, Searcher, SegmentOrdinal, TantivyDocument,
-    TantivyError,
+    query::Query, DocAddress, DocId, IndexReader, Order, Score, Searcher, SegmentOrdinal,
+    TantivyDocument, TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
@@ -206,24 +205,52 @@ pub struct SearchIndexReader {
     pub index_oid: pg_sys::Oid,
     pub searcher: Searcher,
     pub schema: SearchIndexSchema,
-    pub underlying_reader: tantivy::IndexReader,
+    pub underlying_reader: IndexReader,
+    pub underlying_index: Index,
 }
 
 impl SearchIndexReader {
-    pub fn new(search_index: &SearchIndex) -> Result<Self> {
-        let schema = search_index.schema.clone();
-        let reader = search_index
-            .underlying_index
-            .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::Manual)
-            .try_into()?;
-        let searcher = reader.searcher();
-        Ok(SearchIndexReader {
-            index_oid: search_index.index_oid,
+    pub fn new(
+        index_relation: &PgRelation,
+        index: Index,
+        searcher: Searcher,
+        reader: IndexReader,
+        schema: SearchIndexSchema,
+    ) -> Self {
+        Self {
+            // NB:  holds the relation open with an AccessShareLock, which seems appropriate
+            index_oid: index_relation.oid(),
             searcher,
-            schema: schema.clone(),
+            schema,
             underlying_reader: reader,
-        })
+            underlying_index: index,
+        }
+    }
+
+    pub fn key_field(&self) -> SearchField {
+        self.schema.key_field()
+    }
+
+    pub fn query(&self, search_query_input: &SearchQueryInput) -> Box<dyn Query> {
+        let mut parser = QueryParser::for_index(
+            &self.underlying_index,
+            self.schema
+                .fields
+                .iter()
+                .map(|search_field| search_field.id.0)
+                .collect::<Vec<_>>(),
+        );
+        search_query_input
+            .clone()
+            .into_tantivy_query(
+                &(
+                    unsafe { &PgRelation::with_lock(self.index_oid, pg_sys::AccessShareLock as _) },
+                    &self.schema,
+                ),
+                &mut parser,
+                &self.searcher,
+            )
+            .expect("must be able to parse query")
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {
@@ -239,7 +266,11 @@ impl SearchIndexReader {
             .map(|space| space.total().get_bytes())?)
     }
 
-    pub fn snippet_generator(&self, field_name: &str, query: &dyn Query) -> SnippetGenerator {
+    pub fn snippet_generator(
+        &self,
+        field_name: &str,
+        query: &SearchQueryInput,
+    ) -> SnippetGenerator {
         let field = self
             .schema
             .get_search_field(&SearchFieldName(field_name.into()))
@@ -247,7 +278,7 @@ impl SearchIndexReader {
 
         match self.schema.schema.get_field_entry(field.into()).field_type() {
             FieldType::Str(_) => {
-                SnippetGenerator::create(&self.searcher, query, field.into())
+                SnippetGenerator::create(&self.searcher, &self.query(query), field.into())
                     .unwrap_or_else(|err| panic!("failed to create snippet generator for field: {field_name}... {err}"))
             }
             _ => panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")
@@ -265,8 +296,7 @@ impl SearchIndexReader {
         &self,
         need_scores: bool,
         _sort_segments_by_ctid: bool,
-        executor: &'static Executor,
-        query: &dyn Query,
+        query: &SearchQueryInput,
         _estimated_rows: Option<usize>,
     ) -> SearchResults {
         // let estimated_rows = estimated_rows.unwrap_or(0);
@@ -354,8 +384,7 @@ impl SearchIndexReader {
         // }
 
         let cache = unsafe { BM25BufferCache::open(self.index_oid) };
-        let lock =
-            unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
+        let lock = unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE)) };
 
         let (search_sender, search_receiver) = crossbeam::channel::unbounded();
         let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
@@ -364,7 +393,7 @@ impl SearchIndexReader {
 
         let collector = channel::ChannelCollector::new(need_scores, search_sender);
 
-        let owned_query = query.box_clone();
+        let owned_query = self.query(&query);
         std::thread::spawn(move || {
             let channel_directory =
                 ChannelDirectory::new(request_sender.clone(), response_receiver.clone());
@@ -381,7 +410,7 @@ impl SearchIndexReader {
                 .search_with_executor(
                     &owned_query,
                     &collector,
-                    executor,
+                    &Executor::SingleThread,
                     if need_scores {
                         tantivy::query::EnableScoring::Enabled {
                             searcher: &searcher,
@@ -408,7 +437,7 @@ impl SearchIndexReader {
         );
         let _ = handler.receive_blocking(Some(|_| false)).unwrap();
 
-        unsafe { pgrx::pg_sys::UnlockReleaseBuffer(lock) };
+        unsafe { pg_sys::UnlockReleaseBuffer(lock) };
         SearchResults::Channel(search_receiver.into_iter())
     }
 
@@ -422,10 +451,11 @@ impl SearchIndexReader {
         &self,
         need_scores: bool,
         segment_ord: SegmentOrdinal,
-        query: &dyn Query,
+        query: &SearchQueryInput,
     ) -> SearchResults {
         let collector = vec_collector::VecCollector::new(need_scores);
-        let weight = query
+        let weight = self
+            .query(query)
             .weight(if need_scores {
                 tantivy::query::EnableScoring::Enabled {
                     searcher: &self.searcher,
@@ -454,23 +484,21 @@ impl SearchIndexReader {
     /// handle that, if it's necessary.
     pub fn search_top_n(
         &self,
-        executor: &'static Executor,
-        query: &dyn Query,
+        query: &SearchQueryInput,
         sort_field: Option<String>,
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
         if let Some(sort_field) = sort_field {
-            self.top_by_field(executor, query, sort_field, sortdir, n)
+            self.top_by_field(query, sort_field, sortdir, n)
         } else {
-            self.top_by_score(executor, query, sortdir, n)
+            self.top_by_score(query, sortdir, n)
         }
     }
 
     fn top_by_field(
         &self,
-        executor: &Executor,
-        query: &dyn Query,
+        query: &SearchQueryInput,
         sort_field: String,
         sortdir: SortDirection,
         n: usize,
@@ -494,9 +522,9 @@ impl SearchIndexReader {
         let top_docs = self
             .searcher
             .search_with_executor(
-                query,
+                &self.query(query),
                 &collector,
-                executor,
+                &Executor::SingleThread,
                 tantivy::query::EnableScoring::Enabled {
                     searcher: &self.searcher,
                     statistics_provider: &self.searcher,
@@ -525,8 +553,7 @@ impl SearchIndexReader {
 
     fn top_by_score(
         &self,
-        executor: &Executor,
-        query: &dyn Query,
+        query: &SearchQueryInput,
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
@@ -546,9 +573,9 @@ impl SearchIndexReader {
         let top_docs = self
             .searcher
             .search_with_executor(
-                query,
+                &self.query(query),
                 &collector,
-                executor,
+                &Executor::SingleThread,
                 tantivy::query::EnableScoring::Enabled {
                     searcher: &self.searcher,
                     statistics_provider: &self.searcher,
@@ -560,12 +587,7 @@ impl SearchIndexReader {
         SearchResults::TopNByScore(top_docs.len(), top_docs.into_iter())
     }
 
-    pub fn estimate_docs(
-        &self,
-        indexrel: &PgRelation,
-        mut query_parser: QueryParser,
-        search_query_input: SearchQueryInput,
-    ) -> Option<usize> {
+    pub fn estimate_docs(&self, search_query_input: &SearchQueryInput) -> Option<usize> {
         let readers = self.searcher.segment_readers();
         let (ordinal, largest_reader) = readers
             .iter()
@@ -574,10 +596,7 @@ impl SearchIndexReader {
 
         let collector = tantivy::collector::Count;
         let schema = self.schema.schema.clone();
-        let query = &search_query_input
-            .clone()
-            .into_tantivy_query(&(indexrel, &self.schema), &mut query_parser, &self.searcher)
-            .expect("must be able to parse query");
+        let query = self.query(search_query_input);
         let weight = match query.weight(tantivy::query::EnableScoring::Disabled {
             schema: &schema,
             searcher_opt: Some(&self.searcher),

@@ -36,9 +36,8 @@ use super::lock::BlockingLock;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, BlockNumberList,
-    DirectoryEntry, SegmentMetaEntry, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO,
-    META_LOCK_BLOCKNO,
+    bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, DirectoryEntry,
+    SegmentMetaEntry, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, META_LOCK_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList, PgItem};
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -362,6 +361,7 @@ impl Directory for BlockingDirectory {
             metadata.schema_start,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
+
         let deserialized_schema = serde_json::from_slice(unsafe { &schema.read_all() })
             .expect("expected to deserialize valid Schema");
 

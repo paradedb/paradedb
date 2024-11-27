@@ -7,7 +7,7 @@ use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
-use crate::postgres::storage::block::{bm25_max_free_space, BlockNumberList, DirectoryEntry};
+use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 use crate::postgres::storage::linked_list::LinkedBytesList;
 use crate::postgres::storage::utils::BM25BufferCache;
 
@@ -25,13 +25,12 @@ impl SegmentComponentReader {
             entry.start,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
-        let blocks: BlockNumberList = block_list.read_all().into();
-        pgrx::info!("reading blocks {:?} starting at {}", blocks.0, entry.start);
+        let blocks = block_list.get_all_blocks();
 
         Self {
             entry,
             relation_oid,
-            blocks: blocks.0,
+            blocks,
         }
     }
 }

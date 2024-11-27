@@ -88,7 +88,6 @@ impl BM25BufferCache {
                 let page = pg_sys::BufferGetPage(buffer);
                 if page.recyclable(self.heaprel.as_ptr()) {
                     page.init(pg_sys::BufferGetPageSize(buffer));
-                    pgrx::info!("created buffer with blockno {:?}", blockno);
                     return buffer;
                 }
 

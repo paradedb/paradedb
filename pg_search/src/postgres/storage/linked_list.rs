@@ -224,6 +224,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         Ok(items)
     }
 
+    pub unsafe fn get_all_blocks(&self) -> Vec<pg_sys::BlockNumber> {
+        let cache = BM25BufferCache::open(self.relation_oid);
+        get_all_blocks(self.lock_buffer, &cache)
+    }
+
     unsafe fn get_start_blockno(&self) -> pg_sys::BlockNumber {
         get_start_blockno(self.lock_buffer)
     }
@@ -400,6 +405,11 @@ impl LinkedBytesList {
         }
     }
 
+    pub unsafe fn get_all_blocks(&self) -> Vec<pg_sys::BlockNumber> {
+        let cache = BM25BufferCache::open(self.relation_oid);
+        get_all_blocks(self.lock_buffer, &cache)
+    }
+
     unsafe fn get_start_blockno(&self) -> pg_sys::BlockNumber {
         get_start_blockno(self.lock_buffer)
     }
@@ -457,7 +467,11 @@ fn get_last_blockno(lock_buffer: pg_sys::Buffer) -> pg_sys::BlockNumber {
 }
 
 #[inline]
-unsafe fn set_last_blockno(lock_buffer: pg_sys::Buffer, lock: Option<u32>, blockno: pg_sys::BlockNumber) {
+unsafe fn set_last_blockno(
+    lock_buffer: pg_sys::Buffer,
+    lock: Option<u32>,
+    blockno: pg_sys::BlockNumber,
+) {
     assert!(
         lock == Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
         "an exclusive lock is required to write to linked list"
@@ -467,6 +481,26 @@ unsafe fn set_last_blockno(lock_buffer: pg_sys::Buffer, lock: Option<u32>, block
     let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
     (*metadata).last_blockno = blockno;
     pg_sys::MarkBufferDirty(lock_buffer);
+}
+
+#[inline]
+unsafe fn get_all_blocks(
+    lock_buffer: pg_sys::Buffer,
+    cache: &BM25BufferCache,
+) -> Vec<pg_sys::BlockNumber> {
+    let mut blockno = get_start_blockno(lock_buffer);
+    let mut blocks = vec![];
+
+    while blockno != pg_sys::InvalidBlockNumber {
+        blocks.push(blockno);
+        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+        let page = pg_sys::BufferGetPage(buffer);
+        let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+        blockno = (*special).next_blockno;
+        pg_sys::UnlockReleaseBuffer(buffer);
+    }
+
+    blocks
 }
 
 #[cfg(any(test, feature = "pg_test"))]

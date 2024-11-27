@@ -169,37 +169,6 @@ pub unsafe fn bm25_metadata(relation_oid: pg_sys::Oid) -> MetaPageData {
     data
 }
 
-pub struct BlockNumberList(pub Vec<pg_sys::BlockNumber>);
-
-impl From<&[u8]> for BlockNumberList {
-    fn from(bytes: &[u8]) -> Self {
-        let mut blocks = vec![];
-        let mut cursor = Cursor::new(bytes);
-        while cursor.position() < bytes.len() as u64 {
-            let mut block_bytes = [0u8; std::mem::size_of::<pg_sys::BlockNumber>()];
-            cursor.read_exact(&mut block_bytes).unwrap();
-            blocks.push(u32::from_le_bytes(block_bytes) as pg_sys::BlockNumber);
-        }
-        BlockNumberList(blocks)
-    }
-}
-
-impl From<Vec<u8>> for BlockNumberList {
-    fn from(bytes: Vec<u8>) -> Self {
-        BlockNumberList::from(&bytes[..])
-    }
-}
-
-impl From<BlockNumberList> for Vec<u8> {
-    fn from(val: BlockNumberList) -> Self {
-        let mut bytes = vec![];
-        for blockno in val.0 {
-            bytes.extend_from_slice(&blockno.to_le_bytes());
-        }
-        bytes
-    }
-}
-
 impl From<PgItem> for DirectoryEntry {
     fn from(pg_item: PgItem) -> Self {
         let PgItem(item, size) = pg_item;
@@ -277,15 +246,6 @@ mod tests {
     use super::*;
     use tantivy::index::SegmentId;
     use uuid::Uuid;
-
-    #[pg_test]
-    unsafe fn test_block_number_list() {
-        let blocknos = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        let blockno_list = BlockNumberList(blocknos.clone());
-        let bytes: Vec<u8> = blockno_list.into();
-        let blockno_list_from_bytes = BlockNumberList::from(&bytes[..]);
-        assert_eq!(blocknos, blockno_list_from_bytes.0);
-    }
 
     #[pg_test]
     unsafe fn test_directory_entry_into() {

@@ -9,7 +9,8 @@ use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWrite
 use tantivy::directory::{
     DirectoryLock, FileHandle, Lock, TerminatingWrite, WatchCallback, WatchHandle, WritePtr,
 };
-use tantivy::Directory;
+use tantivy::index::SegmentMetaInventory;
+use tantivy::{Directory, IndexMeta};
 
 use crate::index::directory::blocking::BlockingDirectory;
 use crate::index::directory::lock::BlockingLock;
@@ -19,7 +20,6 @@ use crate::index::writer::channel::ChannelWriter;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
-#[derive(Debug)]
 pub enum ChannelRequest {
     AtomicRead(PathBuf),
     AtomicWrite(PathBuf, Vec<u8>),
@@ -32,6 +32,8 @@ pub enum ChannelRequest {
     SegmentDelete(PathBuf),
     GetSegmentComponent(PathBuf),
     ShouldDeleteCtids(Vec<u64>),
+    SaveMetas(IndexMeta),
+    LoadMetas(SegmentMetaInventory),
     Terminate,
 }
 
@@ -41,6 +43,7 @@ pub enum ChannelResponse {
     Bytes(Vec<u8>),
     DirectoryEntry(DirectoryEntry),
     ShouldDeleteCtids(Vec<u64>),
+    LoadMetas(IndexMeta),
 }
 
 impl Debug for ChannelResponse {
@@ -51,6 +54,7 @@ impl Debug for ChannelResponse {
             ChannelResponse::Bytes(_) => write!(f, "Bytes"),
             ChannelResponse::DirectoryEntry(_) => write!(f, "DirectoryEntry"),
             ChannelResponse::ShouldDeleteCtids(_) => write!(f, "ShouldDeleteCtids"),
+            ChannelResponse::LoadMetas(_) => write!(f, "LoadMetas"),
         }
     }
 }
@@ -190,6 +194,28 @@ impl Directory for ChannelDirectory {
 
         Ok(())
     }
+
+    fn save_metas(&self, meta: &IndexMeta) -> tantivy::Result<()> {
+        self.sender
+            .send(ChannelRequest::SaveMetas(meta.clone()))
+            .unwrap();
+
+        Ok(())
+    }
+
+    fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
+        self.sender
+            .send(ChannelRequest::LoadMetas(inventory.clone()))
+            .unwrap();
+
+        match self.receiver.recv().unwrap() {
+            ChannelResponse::LoadMetas(metas) => Ok(metas),
+            unexpected => Err(tantivy::TantivyError::ErrorInThread(format!(
+                "load_metas unexpected response {:?}",
+                unexpected
+            ))),
+        }
+    }
 }
 
 pub struct ChannelRequestHandler {
@@ -291,6 +317,13 @@ impl ChannelRequestHandler {
                         self.sender
                             .send(ChannelResponse::ShouldDeleteCtids(vec![]))?;
                     }
+                }
+                ChannelRequest::SaveMetas(metas) => {
+                    self.directory.save_metas(&metas)?;
+                }
+                ChannelRequest::LoadMetas(inventory) => {
+                    let metas = self.directory.load_metas(&inventory)?;
+                    self.sender.send(ChannelResponse::LoadMetas(metas))?;
                 }
                 ChannelRequest::Terminate => {
                     break;

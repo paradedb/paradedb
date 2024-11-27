@@ -68,6 +68,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         (*metadata).start_blockno = start_blockno;
         (*metadata).last_blockno = start_blockno;
 
+        pg_sys::MarkBufferDirty(lock_buffer);
+        pg_sys::MarkBufferDirty(start_buffer);
         pg_sys::UnlockReleaseBuffer(start_buffer);
 
         Self {
@@ -292,6 +294,8 @@ impl LinkedBytesList {
         (*metadata).start_blockno = start_blockno;
         (*metadata).last_blockno = start_blockno;
 
+        pg_sys::MarkBufferDirty(lock_buffer);
+        pg_sys::MarkBufferDirty(start_buffer);
         pg_sys::UnlockReleaseBuffer(start_buffer);
 
         Self {

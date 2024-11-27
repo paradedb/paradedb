@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::Result;
+use pgrx::pg_sys;
 use tantivy::{
     indexer::{AddOperation, SegmentWriter},
     IndexSettings,
@@ -27,6 +28,8 @@ use crate::index::directory::blocking::{BlockingDirectory, META_FILEPATH};
 use crate::index::directory::lock::index_writer_lock;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::storage::block::bm25_metadata;
+use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::{
     index::SearchIndex,
     postgres::storage::block::SegmentMetaEntry,
@@ -43,6 +46,7 @@ pub struct SearchIndexWriter {
     pub wants_merge: bool,
     pub commit_opstamp: tantivy::Opstamp,
     pub segment: tantivy::Segment,
+    relation_oid: pg_sys::Oid,
 }
 
 impl SearchIndexWriter {
@@ -50,6 +54,7 @@ impl SearchIndexWriter {
         index: &Index,
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
+        relation_oid: pg_sys::Oid,
     ) -> Result<Self> {
         let (_, memory_budget, _, _) = resources.resources(index_options);
         let segment = index.new_segment();
@@ -63,6 +68,7 @@ impl SearchIndexWriter {
             // TODO: Merge on insert
             wants_merge: false,
             segment,
+            relation_oid,
         })
     }
 
@@ -92,14 +98,15 @@ impl SearchIndexWriter {
             xmax: pgrx::pg_sys::InvalidTransactionId,
         };
 
-        // let metadata = bm25_metadata(index.relation_oid);
-        // let PgItem(item, size) = entry.into();
-        // let segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
-        //     index.relation_oid,
-        //     index.directory_start,
-        //     Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        // );
-        // TODO: Write to block
+        unsafe {
+            let metadata = bm25_metadata(self.relation_oid);
+            let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+                self.relation_oid,
+                metadata.segment_metas_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            segment_metas.write(vec![entry]).unwrap();
+        }
 
         Ok(())
     }

@@ -26,6 +26,7 @@ impl SegmentComponentReader {
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
         let blocks: BlockNumberList = block_list.read_all().into();
+        pgrx::info!("reading blocks {:?} starting at {}", blocks.0, entry.start);
 
         Self {
             entry,

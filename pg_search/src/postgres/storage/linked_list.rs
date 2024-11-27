@@ -24,6 +24,8 @@ use std::fmt::Debug;
 use std::io::{Cursor, Read};
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
+use crate::postgres::storage::block::bm25_metadata;
+
 pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 /// Linked list implementation over block storage,
@@ -98,6 +100,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     pub unsafe fn write(&mut self, items: Vec<T>) -> Result<()> {
         let cache = BM25BufferCache::open(self.relation_oid);
         let insert_blockno = self.get_last_blockno();
+
         let mut insert_buffer =
             cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
         let mut insert_page = pg_sys::BufferGetPage(insert_buffer);
@@ -222,27 +225,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 
     unsafe fn get_start_blockno(&self) -> pg_sys::BlockNumber {
-        let page = pg_sys::BufferGetPage(self.lock_buffer);
-        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        (*metadata).start_blockno
+        get_start_blockno(self.lock_buffer)
     }
 
     unsafe fn get_last_blockno(&self) -> pg_sys::BlockNumber {
-        let page = pg_sys::BufferGetPage(self.lock_buffer);
-        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        (*metadata).last_blockno
+        get_last_blockno(self.lock_buffer)
     }
 
     unsafe fn set_last_blockno(&self, blockno: pg_sys::BlockNumber) {
-        assert!(
-            self.lock == Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            "an exclusive lock is required to write to linked list"
-        );
-
-        let page = pg_sys::BufferGetPage(self.lock_buffer);
-        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        (*metadata).last_blockno = blockno;
-        pg_sys::MarkBufferDirty(self.lock_buffer);
+        set_last_blockno(self.lock_buffer, self.lock, blockno);
     }
 }
 
@@ -276,7 +267,6 @@ impl LinkedBytesList {
     ) -> Self {
         let cache = unsafe { BM25BufferCache::open(relation_oid) };
         let lock_buffer = unsafe { cache.get_buffer(lock_blockno, lock) };
-
         Self {
             relation_oid,
             lock_buffer,
@@ -398,29 +388,85 @@ impl LinkedBytesList {
         pg_sys::MarkBufferDirty(self.lock_buffer);
     }
 
+    pub fn is_empty(&self) -> bool {
+        unsafe {
+            let cache = BM25BufferCache::open(self.relation_oid);
+            let start_blockno = self.get_start_blockno();
+            let start_buffer = cache.get_buffer(start_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let start_page = pg_sys::BufferGetPage(start_buffer);
+            let is_empty = pg_sys::PageIsEmpty(start_page);
+            pg_sys::UnlockReleaseBuffer(start_buffer);
+            is_empty
+        }
+    }
+
     unsafe fn get_start_blockno(&self) -> pg_sys::BlockNumber {
-        let page = pg_sys::BufferGetPage(self.lock_buffer);
-        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        (*metadata).start_blockno
+        get_start_blockno(self.lock_buffer)
     }
 
     unsafe fn get_last_blockno(&self) -> pg_sys::BlockNumber {
-        let page = pg_sys::BufferGetPage(self.lock_buffer);
-        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        (*metadata).last_blockno
+        get_last_blockno(self.lock_buffer)
     }
 
     unsafe fn set_last_blockno(&self, blockno: pg_sys::BlockNumber) {
-        assert!(
-            self.lock == Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            "an exclusive lock is required to write to linked list"
-        );
-
-        let page = pg_sys::BufferGetPage(self.lock_buffer);
-        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        (*metadata).last_blockno = blockno;
-        pg_sys::MarkBufferDirty(self.lock_buffer);
+        set_last_blockno(self.lock_buffer, self.lock, blockno);
     }
+}
+
+impl Drop for LinkedBytesList {
+    fn drop(&mut self) {
+        unsafe {
+            if pg_sys::IsTransactionState() {
+                if let Some(lock) = self.lock {
+                    pg_sys::UnlockReleaseBuffer(self.lock_buffer);
+                } else {
+                    pg_sys::ReleaseBuffer(self.lock_buffer);
+                }
+            }
+        };
+    }
+}
+
+#[inline]
+unsafe fn get_list_metadata(lock_buffer: pg_sys::Buffer) -> LinkedListData {
+    let page = pg_sys::BufferGetPage(lock_buffer);
+    let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
+
+    LinkedListData {
+        start_blockno: (*metadata).start_blockno,
+        last_blockno: (*metadata).last_blockno,
+    }
+}
+
+#[inline]
+fn get_start_blockno(lock_buffer: pg_sys::Buffer) -> pg_sys::BlockNumber {
+    let metadata = unsafe { get_list_metadata(lock_buffer) };
+    let start_blockno = metadata.start_blockno;
+    assert!(start_blockno != 0);
+    assert!(start_blockno != pg_sys::InvalidBlockNumber);
+    start_blockno
+}
+
+#[inline]
+fn get_last_blockno(lock_buffer: pg_sys::Buffer) -> pg_sys::BlockNumber {
+    let metadata = unsafe { get_list_metadata(lock_buffer) };
+    let last_blockno = metadata.last_blockno;
+    assert!(last_blockno != 0);
+    assert!(last_blockno != pg_sys::InvalidBlockNumber);
+    last_blockno
+}
+
+#[inline]
+unsafe fn set_last_blockno(lock_buffer: pg_sys::Buffer, lock: Option<u32>, blockno: pg_sys::BlockNumber) {
+    assert!(
+        lock == Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        "an exclusive lock is required to write to linked list"
+    );
+
+    let page = pg_sys::BufferGetPage(lock_buffer);
+    let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
+    (*metadata).last_blockno = blockno;
+    pg_sys::MarkBufferDirty(lock_buffer);
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -516,11 +562,25 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let cache = BM25BufferCache::open(relation_oid);
-        let mut linked_list = LinkedBytesList::create(relation_oid);
-
+        // Test read/write from newly created linked list
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-        linked_list.write(&bytes).unwrap();
+        let start_blockno = {
+            let cache = BM25BufferCache::open(relation_oid);
+            let mut linked_list = LinkedBytesList::create(relation_oid);
+            let blocks_created = linked_list.write(&bytes).unwrap();
+            let read_bytes = linked_list.read_all();
+            assert_eq!(bytes, read_bytes);
+            assert!(blocks_created.len() > 0);
+
+            pg_sys::BufferGetBlockNumber(linked_list.lock_buffer)
+        };
+
+        // Test read from already created linked list
+        let linked_list = LinkedBytesList::open_with_lock(
+            relation_oid,
+            start_blockno,
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
         let read_bytes = linked_list.read_all();
         assert_eq!(bytes, read_bytes);
     }

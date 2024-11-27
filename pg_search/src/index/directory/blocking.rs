@@ -38,7 +38,7 @@ use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
     bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, BlockNumberList,
     DirectoryEntry, SegmentMetaEntry, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO,
-    META_LOCK_BLOCKNO, TANTIVY_META_BLOCKNO,
+    META_LOCK_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList, PgItem};
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -55,20 +55,6 @@ pub struct BlockingDirectory {
 impl BlockingDirectory {
     pub fn new(relation_oid: pg_sys::Oid) -> Self {
         Self { relation_oid }
-    }
-
-    pub unsafe fn acquire_blocking_lock(&self, lock: &Lock) -> Result<BlockingLock> {
-        let blockno = if lock.filepath == META_LOCK.filepath {
-            META_LOCK_BLOCKNO
-        } else if lock.filepath == MANAGED_LOCK.filepath {
-            MANAGED_LOCK_BLOCKNO
-        } else if lock.filepath == INDEX_WRITER_LOCK.filepath {
-            INDEX_WRITER_LOCK_BLOCKNO
-        } else {
-            bail!("acquire_lock unexpected lock {:?}", lock)
-        };
-
-        Ok(BlockingLock::new(self.relation_oid, blockno))
     }
 
     /// ambulkdelete wants to know how many pages were deleted, but the Directory trait doesn't let delete
@@ -136,6 +122,7 @@ impl BlockingDirectory {
 
 impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
+        let metadata = unsafe { bm25_metadata(self.relation_oid) };
         let (opaque, _, _) = unsafe {
             self.directory_lookup(path)
                 .map_err(|err| OpenReadError::IoError {
@@ -160,6 +147,7 @@ impl Directory for BlockingDirectory {
     /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
     /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
     fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
+        eprintln!("blocking called atomic write");
         unimplemented!("atomic_write should not be called for {:?}", path);
     }
 
@@ -178,12 +166,12 @@ impl Directory for BlockingDirectory {
         Ok(true)
     }
 
+    // We have done the work to ensure that Tantivy locks are not needed, only Postgres locks
     fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
-        let blocking_lock = unsafe {
-            self.acquire_blocking_lock(lock)
-                .expect("acquire blocking lock should succeed")
-        };
-        Ok(DirectoryLock::from(Box::new(blocking_lock)))
+        Ok(DirectoryLock::from(Box::new(Lock {
+            filepath: lock.filepath.clone(),
+            is_blocking: true,
+        })))
     }
 
     // Internally, tantivy only uses this API to detect new commits to implement the
@@ -229,8 +217,45 @@ impl Directory for BlockingDirectory {
         Ok(())
     }
 
-    fn save_meta(&self, meta: &IndexMeta) -> tantivy::Result<()> {
+    fn save_metas(&self, meta: &IndexMeta) -> tantivy::Result<()> {
         let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+        let metadata = unsafe { bm25_metadata(self.relation_oid) };
+
+        // Save Tantivy Schema if this is the first commit
+        {
+            let mut schema = LinkedBytesList::open_with_lock(
+                self.relation_oid,
+                metadata.schema_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+
+            if schema.is_empty() {
+                let bytes =
+                    serde_json::to_vec(&meta.schema).expect("expected to serialize valid Schema");
+                unsafe { schema.write(&bytes).expect("write schema should succeed") };
+            }
+        }
+
+        // Save Tantivy IndexSettings if this is the first commit
+        {
+            let mut settings = LinkedBytesList::open_with_lock(
+                self.relation_oid,
+                metadata.settings_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+
+            if settings.is_empty() {
+                let bytes = serde_json::to_vec(&meta.index_settings)
+                    .expect("expected to serialize valid IndexSettings");
+                unsafe {
+                    settings
+                        .write(&bytes)
+                        .expect("write settings should succeed")
+                };
+            }
+        }
+
+        // Update SegmentMeta entries
         let opstamp = meta.opstamp;
         let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
 
@@ -242,10 +267,11 @@ impl Directory for BlockingDirectory {
 
         let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
             self.relation_oid,
-            unsafe { bm25_metadata(self.relation_oid).segment_metas_start },
+            metadata.segment_metas_start,
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
         );
 
+        // Mark old SegmentMeta entries as deleted
         unsafe {
             for (entry, blockno, offsetno) in segment_metas.list_all_items().unwrap() {
                 if let Some(index) = new_segments
@@ -275,6 +301,7 @@ impl Directory for BlockingDirectory {
             }
         }
 
+        // Save new SegmentMeta entries
         let entries = new_segments
             .iter()
             .map(|segment| SegmentMetaEntry {
@@ -295,9 +322,10 @@ impl Directory for BlockingDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
+        let metadata = unsafe { bm25_metadata(self.relation_oid) };
         let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
             self.relation_oid,
-            unsafe { bm25_metadata(self.relation_oid).segment_metas_start },
+            metadata.segment_metas_start,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
 
@@ -319,12 +347,39 @@ impl Directory for BlockingDirectory {
             if !invisible {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));
-                opstamp = opstamp.max(entry.opstamp);
-                max_xmin = max_xmin.max(entry.xmin);
+
+                if entry.xmin > max_xmin {
+                    max_xmin = entry.xmin;
+                    opstamp = entry.opstamp;
+                } else if entry.xmin == max_xmin {
+                    opstamp = entry.opstamp.max(opstamp);
+                }
             }
         }
 
-        todo!()
+        let schema = LinkedBytesList::open_with_lock(
+            self.relation_oid,
+            metadata.schema_start,
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
+        let deserialized_schema = serde_json::from_slice(unsafe { &schema.read_all() })
+            .expect("expected to deserialize valid Schema");
+
+        let settings = LinkedBytesList::open_with_lock(
+            self.relation_oid,
+            metadata.settings_start,
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
+        let deserialized_settings = serde_json::from_slice(unsafe { &settings.read_all() })
+            .expect("expected to deserialize valid IndexSettings");
+
+        Ok(IndexMeta {
+            segments: alive_segments,
+            schema: deserialized_schema,
+            index_settings: deserialized_settings,
+            opstamp,
+            payload: None,
+        })
     }
 }
 

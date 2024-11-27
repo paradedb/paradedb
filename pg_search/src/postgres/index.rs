@@ -36,7 +36,7 @@ pub fn open_search_index(
 ) -> anyhow::Result<SearchIndex, SearchIndexError> {
     let index_oid = index_relation.oid();
     let cache = unsafe { BM25BufferCache::open(index_oid) };
-    let lock = unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
+    // let lock = unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
 
     let (fields, key_field_index) = unsafe { get_fields(index_relation) };
     let schema = SearchIndexSchema::new(fields, key_field_index)?;
@@ -45,7 +45,7 @@ pub fn open_search_index(
 
     SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
 
-    unsafe { pg_sys::UnlockReleaseBuffer(lock) };
+    // unsafe { pg_sys::UnlockReleaseBuffer(lock) };
 
     Ok(SearchIndex {
         schema,

@@ -85,16 +85,6 @@ impl SearchIndexWriter {
         let segment = self.segment.with_max_doc(max_doc);
         let index = segment.index();
 
-        // An index writer lock is needed here to guard against the scenario
-        // where we commit a segment in the middle of another process' merge/vacuum. For instance:
-        // Process A sees files A,B,C,D but only A,B,C committed
-        // Process A thinks D is tombstoned and puts up D as a deletion candidate
-        // Process B commits D
-        // Process A sees that D has been committed AND is a deletion candidate, so it mistakenly deletes D
-        // In order to prevent this, we would need to hold a lock across Tantivy's entire commit process which spans multiple functions,
-        // and an index writer lock is a good stopgap for now.
-        let _index_writer_lock = index.directory().acquire_lock(&index_writer_lock())?;
-
         let entry = SegmentMetaEntry {
             meta: segment.meta().tracked.as_ref().clone(),
             opstamp: self.current_opstamp,
@@ -102,6 +92,13 @@ impl SearchIndexWriter {
             xmax: pgrx::pg_sys::InvalidTransactionId,
         };
 
+        // let metadata = bm25_metadata(index.relation_oid);
+        // let PgItem(item, size) = entry.into();
+        // let segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+        //     index.relation_oid,
+        //     index.directory_start,
+        //     Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        // );
         // TODO: Write to block
 
         Ok(())

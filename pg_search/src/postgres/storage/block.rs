@@ -61,7 +61,7 @@ use super::linked_list::PgItem;
 use super::utils::BM25BufferCache;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Write};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
@@ -71,21 +71,25 @@ pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the 
 pub const INDEX_WRITER_LOCK_BLOCKNO: pg_sys::BlockNumber = 1; // Used for Tantivy's INDEX_WRITER_LOCK
 pub const META_LOCK_BLOCKNO: pg_sys::BlockNumber = 2; // Used for Tantivy's META_LOCK
 pub const MANAGED_LOCK_BLOCKNO: pg_sys::BlockNumber = 3; // Used for Tantivy's MANAGED_LOCK
-pub const TANTIVY_META_BLOCKNO: pg_sys::BlockNumber = 4; // Used for Tantivy's meta.json
 
 /// Special data struct for the metadata page, located at METADATA_BLOCKNO
+#[derive(Debug)]
 pub struct MetaPageData {
     pub directory_start: pg_sys::BlockNumber,
     pub segment_metas_start: pg_sys::BlockNumber,
+    pub schema_start: pg_sys::BlockNumber,
+    pub settings_start: pg_sys::BlockNumber,
 }
 
 /// Special data struct for all other pages except the metadata page and lock pages
+#[derive(Debug)]
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
     pub delete_xid: pg_sys::FullTransactionId,
 }
 
 /// Every linked list should start with a page that holds metadata about the linked list
+#[derive(Debug)]
 pub struct LinkedListData {
     pub start_blockno: pg_sys::BlockNumber,
     pub last_blockno: pg_sys::BlockNumber,
@@ -152,9 +156,14 @@ pub unsafe fn bm25_metadata(relation_oid: pg_sys::Oid) -> MetaPageData {
     let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
     let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
     let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+
+    let header = metadata_page as *const pg_sys::PageHeaderData;
+
     let data = MetaPageData {
         directory_start: (*metadata).directory_start,
         segment_metas_start: (*metadata).segment_metas_start,
+        schema_start: (*metadata).schema_start,
+        settings_start: (*metadata).settings_start,
     };
     pg_sys::UnlockReleaseBuffer(metadata_buffer);
     data
@@ -216,19 +225,44 @@ impl From<DirectoryEntry> for PgItem {
 
 impl From<PgItem> for SegmentMetaEntry {
     fn from(pg_item: PgItem) -> Self {
-        let PgItem(item, size) = pg_item;
-        let decoded: SegmentMetaEntry = unsafe {
-            bincode::deserialize(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid SegmentMetaEntry")
-        };
-        decoded
+        let data =
+            unsafe { std::slice::from_raw_parts(pg_item.0 as *const u8, pg_item.1 as usize) };
+
+        assert!(
+            data.len() >= 16,
+            "PgItem data is too small to contain xmin and xmax"
+        );
+
+        let xmin = u32::from_le_bytes(data[0..4].try_into().expect("Failed to read xmin"));
+        let xmax = u32::from_le_bytes(data[4..8].try_into().expect("Failed to read xmax"));
+        let opstamp = u64::from_le_bytes(data[8..16].try_into().expect("Failed to read opstamp"));
+
+        let meta_str = String::from_utf8(data[16..].to_vec()).expect("Failed to read meta");
+        let meta: InnerSegmentMeta =
+            serde_json::from_str(&meta_str).expect("Failed to deserialize InnerSegmentMeta");
+
+        SegmentMetaEntry {
+            meta,
+            opstamp,
+            xmin,
+            xmax,
+        }
     }
 }
 
 impl From<SegmentMetaEntry> for PgItem {
     fn from(val: SegmentMetaEntry) -> Self {
-        let bytes: Vec<u8> =
-            bincode::serialize(&val).expect("expected to serialize valid SegmentMetaEntry");
+        // Serialize only the `meta` and `opstamp` fields of the SegmentMetaEntry as JSON
+        let mut buffer = serde_json::to_vec_pretty(&val.meta).unwrap();
+        writeln!(&mut buffer).unwrap();
+
+        // First 16 bytes for xmin, xmax, and opstamp
+        let mut bytes = Vec::with_capacity(16 + buffer.len());
+        bytes.extend_from_slice(&val.xmin.to_le_bytes());
+        bytes.extend_from_slice(&val.xmax.to_le_bytes());
+        bytes.extend_from_slice(&val.opstamp.to_le_bytes());
+        bytes.extend_from_slice(&buffer[..]);
+
         let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
         unsafe {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
@@ -241,6 +275,7 @@ impl From<SegmentMetaEntry> for PgItem {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use tantivy::index::SegmentId;
     use uuid::Uuid;
 
     #[pg_test]

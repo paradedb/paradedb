@@ -16,23 +16,22 @@ pub struct SegmentComponentWriter {
     cache: BM25BufferCache,
     path: PathBuf,
     blocks: Vec<pg_sys::BlockNumber>,
+    lock_blockno: pg_sys::BlockNumber,
     total_bytes: usize,
 }
 
 impl SegmentComponentWriter {
     pub unsafe fn new(relation_oid: pg_sys::Oid, path: &Path) -> Self {
         let cache = BM25BufferCache::open(relation_oid);
-        let current_buffer = cache.new_buffer();
-        let blockno = pg_sys::BufferGetBlockNumber(current_buffer);
-
-        pg_sys::MarkBufferDirty(current_buffer);
-        pg_sys::UnlockReleaseBuffer(current_buffer);
+        let segment_component = LinkedBytesList::create(relation_oid);
+        let lock_blockno = unsafe { pg_sys::BufferGetBlockNumber(segment_component.lock_buffer) };
 
         Self {
             relation_oid,
             cache,
             path: path.to_path_buf(),
-            blocks: vec![blockno],
+            blocks: vec![],
+            lock_blockno,
             total_bytes: 0,
         }
     }
@@ -42,7 +41,7 @@ impl Write for SegmentComponentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
         let mut segment_component = LinkedBytesList::open_with_lock(
             self.relation_oid,
-            self.blocks[0],
+            self.lock_blockno,
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
         );
         let mut block_created =
@@ -59,31 +58,15 @@ impl Write for SegmentComponentWriter {
 
 impl TerminatingWrite for SegmentComponentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
-        // Store segment component's block numbers
-        let cache = &self.cache;
-        let new_buffer = unsafe { cache.new_buffer() };
-        let blockno = unsafe { pg_sys::BufferGetBlockNumber(new_buffer) };
-
-        unsafe {
-            pg_sys::MarkBufferDirty(new_buffer);
-            pg_sys::UnlockReleaseBuffer(new_buffer);
-        }
-
-        // TODO: Set special data for blockno
-        let mut block_list = LinkedBytesList::open_with_lock(
-            self.relation_oid,
-            blockno,
-            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        );
+        let mut block_list = unsafe { LinkedBytesList::create(self.relation_oid) };
         let bytes: Vec<u8> = BlockNumberList(self.blocks.clone()).into();
         unsafe {
             block_list.write(&bytes).expect("write should succeed");
         }
+        let blockno = unsafe { pg_sys::BufferGetBlockNumber(block_list.lock_buffer) };
 
         unsafe {
             let blocking_directory = BlockingDirectory::new(self.relation_oid);
-            let _lock = blocking_directory.acquire_lock(&managed_lock());
-
             let metadata = bm25_metadata(self.relation_oid);
             let start_blockno = metadata.directory_start;
             let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
@@ -104,6 +87,8 @@ impl TerminatingWrite for SegmentComponentWriter {
                 .write(vec![opaque.clone()])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
+
+        let metadata = unsafe { bm25_metadata(self.relation_oid) };
 
         Ok(())
     }

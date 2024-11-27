@@ -136,36 +136,36 @@ fn alive_segment_components(
 }
 
 unsafe fn vacuum_directory(relation_oid: pg_sys::Oid, paths_deleted: Vec<PathBuf>) -> Result<()> {
-    let directory = BlockingDirectory::new(relation_oid);
-    let cache = BM25BufferCache::open(relation_oid);
-    // This lock is necessary because we are reading the segment components list, appending, and then overwriting
-    // If another process were to insert a segment component while we are doing this, that component would be forever lost
-    let _lock = directory.acquire_lock(&Lock {
-        filepath: MANAGED_LOCK.filepath.clone(),
-        is_blocking: true,
-    });
+    // let directory = BlockingDirectory::new(relation_oid);
+    // let cache = BM25BufferCache::open(relation_oid);
+    // // This lock is necessary because we are reading the segment components list, appending, and then overwriting
+    // // If another process were to insert a segment component while we are doing this, that component would be forever lost
+    // let _lock = directory.acquire_lock(&Lock {
+    //     filepath: MANAGED_LOCK.filepath.clone(),
+    //     is_blocking: true,
+    // });
 
-    let mut new_segment_components = LinkedItemList::<DirectoryEntry>::create(relation_oid);
-    let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-    let page = pg_sys::BufferGetPage(buffer);
-    let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
-    let start_blockno = (*metadata).directory_start;
+    // let mut new_segment_components = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+    // let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+    // let page = pg_sys::BufferGetPage(buffer);
+    // let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
+    // let start_blockno = (*metadata).directory_start;
 
-    let old_segment_components = LinkedItemList::<DirectoryEntry>::open_with_lock(
-        relation_oid,
-        start_blockno,
-        Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-    );
-    let alive_segment_components =
-        alive_segment_components(&old_segment_components, paths_deleted.clone())?;
+    // let old_segment_components = LinkedItemList::<DirectoryEntry>::open_with_lock(
+    //     relation_oid,
+    //     start_blockno,
+    //     Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+    // );
+    // let alive_segment_components =
+    //     alive_segment_components(&old_segment_components, paths_deleted.clone())?;
 
-    old_segment_components.delete();
+    // old_segment_components.delete();
 
-    (*metadata).directory_start = pg_sys::BufferGetBlockNumber(new_segment_components.lock_buffer);
-    new_segment_components.write(alive_segment_components)?;
+    // (*metadata).directory_start = pg_sys::BufferGetBlockNumber(new_segment_components.lock_buffer);
+    // new_segment_components.write(alive_segment_components)?;
 
-    pg_sys::MarkBufferDirty(buffer);
-    pg_sys::UnlockReleaseBuffer(buffer);
+    // pg_sys::MarkBufferDirty(buffer);
+    // pg_sys::UnlockReleaseBuffer(buffer);
 
     Ok(())
 }

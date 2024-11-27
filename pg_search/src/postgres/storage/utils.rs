@@ -88,6 +88,7 @@ impl BM25BufferCache {
                 let page = pg_sys::BufferGetPage(buffer);
                 if page.recyclable(self.heaprel.as_ptr()) {
                     page.init(pg_sys::BufferGetPageSize(buffer));
+                    pgrx::info!("created buffer with blockno {:?}", blockno);
                     return buffer;
                 }
 
@@ -109,7 +110,6 @@ impl BM25BufferCache {
         page.init(pg_sys::BufferGetPageSize(buffer));
 
         pg_sys::UnlockRelationForExtension(self.indexrel.as_ptr(), pg_sys::ExclusiveLock as i32);
-
         buffer
     }
 

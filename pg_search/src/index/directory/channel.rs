@@ -21,7 +21,6 @@ use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
 #[derive(Debug)]
 pub enum ChannelRequest {
-    AcquireLock(Lock),
     AtomicRead(PathBuf),
     AtomicWrite(PathBuf, Vec<u8>),
     ListManagedFiles(),
@@ -123,6 +122,7 @@ impl Directory for ChannelDirectory {
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+        eprintln!("channel calling atomic write");
         self.sender
             .send(ChannelRequest::AtomicWrite(
                 path.to_path_buf(),
@@ -147,28 +147,10 @@ impl Directory for ChannelDirectory {
     }
 
     fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
-        self.sender
-            .send(ChannelRequest::AcquireLock(Lock {
-                filepath: lock.filepath.clone(),
-                is_blocking: lock.is_blocking,
-            }))
-            .unwrap();
-
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::AcquiredLock(blocking_lock) => {
-                Ok(DirectoryLock::from(Box::new(ChannelLock {
-                    lock: Some(blocking_lock),
-                    sender: self.sender.clone(),
-                })))
-            }
-            unexpected => Err(LockError::IoError(
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("acquire_lock unexpected response {:?}", unexpected),
-                )
-                .into(),
-            )),
-        }
+        Ok(DirectoryLock::from(Box::new(Lock {
+            filepath: lock.filepath.clone(),
+            is_blocking: true,
+        })))
     }
 
     // Internally, tantivy only uses this API to detect new commits to implement the
@@ -249,11 +231,6 @@ impl ChannelRequestHandler {
 
         for message in self.receiver.iter() {
             match message {
-                ChannelRequest::AcquireLock(lock) => {
-                    let blocking_lock = unsafe { self.directory.acquire_blocking_lock(&lock)? };
-                    self.sender
-                        .send(ChannelResponse::AcquiredLock(blocking_lock))?;
-                }
                 ChannelRequest::AtomicRead(path) => {
                     let data = self.directory.atomic_read(&path)?;
                     self.sender.send(ChannelResponse::Bytes(data))?;

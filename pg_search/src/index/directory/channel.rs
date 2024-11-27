@@ -13,7 +13,6 @@ use tantivy::index::SegmentMetaInventory;
 use tantivy::{Directory, IndexMeta};
 
 use crate::index::directory::blocking::BlockingDirectory;
-use crate::index::directory::lock::BlockingLock;
 use crate::index::reader::channel::ChannelReader;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::channel::ChannelWriter;
@@ -25,7 +24,6 @@ pub enum ChannelRequest {
     AtomicWrite(PathBuf, Vec<u8>),
     ListManagedFiles(),
     RegisterFilesAsManaged(Vec<PathBuf>, bool),
-    ReleaseBlockingLock(BlockingLock),
     SegmentRead(Range<usize>, DirectoryEntry),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
@@ -39,7 +37,6 @@ pub enum ChannelRequest {
 
 pub enum ChannelResponse {
     ManagedFiles(HashSet<PathBuf>),
-    AcquiredLock(BlockingLock),
     Bytes(Vec<u8>),
     DirectoryEntry(DirectoryEntry),
     ShouldDeleteCtids(Vec<u64>),
@@ -49,28 +46,11 @@ pub enum ChannelResponse {
 impl Debug for ChannelResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChannelResponse::AcquiredLock(_) => write!(f, "AcquiredLock"),
             ChannelResponse::ManagedFiles(_) => write!(f, "ManagedFiles"),
             ChannelResponse::Bytes(_) => write!(f, "Bytes"),
             ChannelResponse::DirectoryEntry(_) => write!(f, "DirectoryEntry"),
             ChannelResponse::ShouldDeleteCtids(_) => write!(f, "ShouldDeleteCtids"),
             ChannelResponse::LoadMetas(_) => write!(f, "LoadMetas"),
-        }
-    }
-}
-
-pub struct ChannelLock {
-    // This is an Option because we need to take ownership of the lock in the Drop implementation
-    lock: Option<BlockingLock>,
-    sender: Sender<ChannelRequest>,
-}
-
-impl Drop for ChannelLock {
-    fn drop(&mut self) {
-        if let Some(lock) = self.lock.take() {
-            self.sender
-                .send(ChannelRequest::ReleaseBlockingLock(lock))
-                .expect("should be able to release channel lock");
         }
     }
 }
@@ -126,7 +106,6 @@ impl Directory for ChannelDirectory {
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        eprintln!("channel calling atomic write");
         self.sender
             .send(ChannelRequest::AtomicWrite(
                 path.to_path_buf(),
@@ -275,9 +254,6 @@ impl ChannelRequestHandler {
                 ChannelRequest::GetSegmentComponent(path) => {
                     let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
                     self.sender.send(ChannelResponse::DirectoryEntry(opaque))?;
-                }
-                ChannelRequest::ReleaseBlockingLock(blocking_lock) => {
-                    drop(blocking_lock);
                 }
                 ChannelRequest::SegmentRead(range, handle) => {
                     let reader =

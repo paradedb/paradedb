@@ -107,7 +107,12 @@ impl SearchIndex {
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
     ) -> Result<SearchIndexWriter> {
-        SearchIndexWriter::new(&self.underlying_index, resources, index_options, self.index_oid)
+        SearchIndexWriter::new(
+            &self.underlying_index,
+            resources,
+            index_options,
+            self.index_oid,
+        )
     }
 
     #[allow(static_mut_refs)]

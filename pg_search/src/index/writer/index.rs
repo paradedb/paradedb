@@ -17,15 +17,14 @@
 
 use anyhow::Result;
 use pgrx::pg_sys;
+use tantivy::Index;
 use tantivy::{
     indexer::{AddOperation, SegmentWriter},
     IndexSettings,
 };
-use tantivy::{Directory, Index};
 use thiserror::Error;
 
-use crate::index::directory::blocking::{BlockingDirectory, META_FILEPATH};
-use crate::index::directory::lock::index_writer_lock;
+use crate::index::directory::blocking::BlockingDirectory;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::bm25_metadata;
@@ -89,7 +88,6 @@ impl SearchIndexWriter {
         let max_doc = self.underlying_writer.max_doc();
         self.underlying_writer.finalize()?;
         let segment = self.segment.with_max_doc(max_doc);
-        let index = segment.index();
 
         let entry = SegmentMetaEntry {
             meta: segment.meta().tracked.as_ref().clone(),

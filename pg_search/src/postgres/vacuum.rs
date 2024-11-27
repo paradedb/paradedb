@@ -21,15 +21,17 @@ use crate::index::channel::{
 };
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::{DirectoryEntry, MetaPageData, METADATA_BLOCKNO};
+use crate::postgres::storage::block::{
+    DirectoryEntry, MVCCEntry, MetaPageData, PgItem, SegmentMetaEntry, METADATA_BLOCKNO, bm25_metadata
+};
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use anyhow::Result;
 use pgrx::*;
+use std::fmt::Debug;
 use std::path::PathBuf;
-use tantivy::directory::{Lock, MANAGED_LOCK};
 use tantivy::index::Index;
-use tantivy::{Directory, IndexWriter};
+use tantivy::IndexWriter;
 
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
@@ -67,7 +69,6 @@ pub extern "C" fn amvacuumcleanup(
             // Commit does garbage collect as well, no need to explicitly call it
             writer.commit().unwrap();
             writer.wait_merging_threads().unwrap();
-
             request_sender_clone
                 .send(ChannelRequest::Terminate)
                 .unwrap();
@@ -84,15 +85,39 @@ pub extern "C" fn amvacuumcleanup(
         let blocking_stats = handler
             .receive_blocking(Some(|_| false))
             .expect("blocking handler should succeed");
-
-        // Vacuum the linked list of segment components
+        
+        // Vacuum all linked lists
+        // If a new LinkedItemList is created, it should be vacuumed here
         let cache = unsafe { BM25BufferCache::open(index_oid) };
         let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
         let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
 
+        // Hold an exclusive lock on the metadata page since we're changing the addresses of the
+        // linked lists
         unsafe {
-            vacuum_directory(index_oid, blocking_stats.deleted_paths)
-                .expect("vacuum segment components should succeed");
+            let metadata_buffer =
+                cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
+            let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
+
+            let new_directory_start = vacuum_entries::<DirectoryEntry>(
+                index_oid,
+                heap_relation,
+                (*metadata).directory_start,
+            )
+            .expect("vacuum entries should succeed");
+
+            let new_segment_metas_start = vacuum_entries::<SegmentMetaEntry>(
+                index_oid,
+                heap_relation,
+                (*metadata).segment_metas_start,
+            )
+            .expect("vacuum entries should succeed");
+
+            (*metadata).directory_start = new_directory_start;
+            (*metadata).segment_metas_start = new_segment_metas_start;
+            pg_sys::MarkBufferDirty(metadata_buffer);
+            pg_sys::UnlockReleaseBuffer(metadata_buffer);
         }
 
         // Return all recyclable pages to the free space map
@@ -115,59 +140,37 @@ pub extern "C" fn amvacuumcleanup(
             pg_sys::RelationClose(heap_relation);
             pg_sys::IndexFreeSpaceMapVacuum(info.index)
         };
-
-        // TODO: Update stats
-        stats
-    })
+    });
+    // TODO: Update stats
+    stats
 }
 
-fn alive_segment_components(
-    segment_components_list: &LinkedItemList<DirectoryEntry>,
-    paths_to_delete: Vec<PathBuf>,
-) -> Result<Vec<DirectoryEntry>> {
-    unsafe {
-        Ok(segment_components_list
-            .list_all_items()?
-            .into_iter()
-            .map(|(entry, _, _)| entry)
-            .filter(|entry| !paths_to_delete.contains(&entry.path))
-            .collect::<Vec<_>>())
+unsafe fn vacuum_entries<T>(
+    index_oid: pg_sys::Oid,
+    heap_relation: pg_sys::Relation,
+    start: pg_sys::BlockNumber,
+) -> Result<pg_sys::BlockNumber>
+where
+    T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry,
+{
+    let old_list =
+        LinkedItemList::<T>::open_with_lock(index_oid, start, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+   
+    let mut entries_to_keep = vec![];
+    for (entry, _, _) in old_list.list_all_items()? {
+        let xmax = entry.xmax();
+        if xmax == pg_sys::InvalidTransactionId {
+            entries_to_keep.push(entry);
+        } else if !pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.xmax()) {
+            entries_to_keep.push(entry);
+        } else {
+            eprintln!("Actually deleting {:?}", entry);
+        }
     }
-}
 
-unsafe fn vacuum_directory(relation_oid: pg_sys::Oid, paths_deleted: Vec<PathBuf>) -> Result<()> {
-    // let directory = BlockingDirectory::new(relation_oid);
-    // let cache = BM25BufferCache::open(relation_oid);
-    // // This lock is necessary because we are reading the segment components list, appending, and then overwriting
-    // // If another process were to insert a segment component while we are doing this, that component would be forever lost
-    // let _lock = directory.acquire_lock(&Lock {
-    //     filepath: MANAGED_LOCK.filepath.clone(),
-    //     is_blocking: true,
-    // });
-
-    // let mut new_segment_components = LinkedItemList::<DirectoryEntry>::create(relation_oid);
-    // let buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-    // let page = pg_sys::BufferGetPage(buffer);
-    // let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
-    // let start_blockno = (*metadata).directory_start;
-
-    // let old_segment_components = LinkedItemList::<DirectoryEntry>::open_with_lock(
-    //     relation_oid,
-    //     start_blockno,
-    //     Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-    // );
-    // let alive_segment_components =
-    //     alive_segment_components(&old_segment_components, paths_deleted.clone())?;
-
-    // old_segment_components.delete();
-
-    // (*metadata).directory_start = pg_sys::BufferGetBlockNumber(new_segment_components.lock_buffer);
-    // new_segment_components.write(alive_segment_components)?;
-
-    // pg_sys::MarkBufferDirty(buffer);
-    // pg_sys::UnlockReleaseBuffer(buffer);
-
-    Ok(())
+    let mut new_list = LinkedItemList::<T>::create(index_oid);
+    new_list.write(entries_to_keep)?;
+    Ok(pg_sys::BufferGetBlockNumber(new_list.lock_buffer))
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -180,141 +183,4 @@ mod tests {
     use crate::postgres::storage::block::DirectoryEntry;
     use crate::postgres::storage::block::{bm25_metadata, BM25PageSpecialData};
     use crate::postgres::storage::linked_list::LinkedItemList;
-
-    #[pg_test]
-    unsafe fn test_alive_segment_components() {
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-        let relation_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-                .expect("spi should succeed")
-                .unwrap();
-
-        let metadata = bm25_metadata(relation_oid);
-        let start_blockno = metadata.directory_start;
-        let mut segment_components_list = LinkedItemList::<DirectoryEntry>::open_with_lock(
-            relation_oid,
-            start_blockno,
-            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        );
-
-        let paths = (0..3)
-            .map(|_| PathBuf::from(format!("{:?}.term", Uuid::new_v4())))
-            .collect::<Vec<_>>();
-
-        let segments_to_vacuum = paths
-            .iter()
-            .map(|path| DirectoryEntry {
-                path: path.to_path_buf(),
-                start: 0,
-                total_bytes: 100,
-                xmin: pg_sys::GetCurrentTransactionId(),
-                xmax: pg_sys::InvalidTransactionId,
-            })
-            .collect::<Vec<_>>();
-
-        segment_components_list
-            .write(segments_to_vacuum.clone())
-            .unwrap();
-
-        let dead_paths = vec![paths[0].clone(), paths[2].clone()];
-        let alive_segments =
-            alive_segment_components(&segment_components_list, dead_paths).unwrap();
-        assert!(!alive_segments.contains(&segments_to_vacuum[0]));
-        assert!(!alive_segments.contains(&segments_to_vacuum[2]));
-    }
-
-    #[pg_test]
-    unsafe fn test_vacuum_directory() {
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-        let relation_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-                .expect("spi should succeed")
-                .unwrap();
-
-        let old_start_blockno = bm25_metadata(relation_oid).directory_start;
-        let mut old_directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
-            relation_oid,
-            old_start_blockno,
-            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        );
-
-        let paths = (0..3)
-            .map(|_| PathBuf::from(format!("{:?}.term", Uuid::new_v4())))
-            .collect::<Vec<_>>();
-
-        let segments_to_vacuum = paths
-            .iter()
-            .map(|path| DirectoryEntry {
-                path: path.to_path_buf(),
-                start: 0,
-                total_bytes: 100,
-                xmin: pg_sys::GetCurrentTransactionId(),
-                xmax: pg_sys::InvalidTransactionId,
-            })
-            .collect::<Vec<_>>();
-
-        old_directory.write(segments_to_vacuum.clone()).unwrap();
-
-        // Test that old directory contains dead entries
-        let alive_segments = old_directory
-            .list_all_items()
-            .unwrap()
-            .into_iter()
-            .map(|(entry, _, _)| entry)
-            .collect::<Vec<_>>();
-        assert!(alive_segments.contains(&segments_to_vacuum[0]));
-        assert!(alive_segments.contains(&segments_to_vacuum[2]));
-
-        // Perform vacuum
-        let dead_paths = vec![paths[0].clone(), paths[2].clone()];
-        vacuum_directory(relation_oid, dead_paths).unwrap();
-
-        let cache = BM25BufferCache::open(relation_oid);
-        let mut blockno = old_start_blockno;
-
-        // Test that entries were marked as dead after vacuum
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            assert_ne!(
-                (*special).delete_xid.value,
-                pg_sys::FullTransactionId::default().value
-            );
-            blockno = (*special).next_blockno;
-            pg_sys::UnlockReleaseBuffer(buffer);
-        }
-
-        // Test that a new directory was created
-        let new_start_blockno = bm25_metadata(relation_oid).directory_start;
-        assert_ne!(old_start_blockno, new_start_blockno);
-
-        // Test that new directory does not contain dead entries
-        let new_directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
-            relation_oid,
-            new_start_blockno,
-            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        );
-        let alive_segments = new_directory
-            .list_all_items()
-            .unwrap()
-            .into_iter()
-            .map(|(entry, _, _)| entry)
-            .collect::<Vec<_>>();
-        assert!(!alive_segments.contains(&segments_to_vacuum[0]));
-        assert!(!alive_segments.contains(&segments_to_vacuum[2]));
-
-        // Test that old entries were not physically deleted
-        let (entry, _, _) = old_directory
-            .lookup(paths[0].clone(), |entry, path| entry.path == *path)
-            .unwrap();
-        assert_eq!(entry.path, paths[0]);
-
-        let (entry, _, _) = old_directory
-            .lookup(paths[2].clone(), |entry, path| entry.path == *path)
-            .unwrap();
-        assert_eq!(entry.path, paths[2]);
-    }
 }

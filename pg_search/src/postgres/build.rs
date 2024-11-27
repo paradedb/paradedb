@@ -19,8 +19,7 @@ use crate::index::{SearchIndex, WriterResources};
 use crate::postgres::index::get_fields;
 use crate::postgres::insert::init_insert_state;
 use crate::postgres::storage::block::{
-    DirectoryEntry, MetaPageData, SegmentMetaEntry, INDEX_WRITER_LOCK_BLOCKNO,
-    MANAGED_LOCK_BLOCKNO, METADATA_BLOCKNO, META_LOCK_BLOCKNO,
+    DirectoryEntry, MetaPageData, SegmentMetaEntry, METADATA_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
@@ -236,10 +235,6 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     let page = pg_sys::BufferGetPage(metadata_buffer);
     let metadata = pg_sys::PageGetContents(page) as *mut MetaPageData;
 
-    let writer_lock_buffer = cache.new_buffer();
-    let meta_lock_buffer = cache.new_buffer();
-    let managed_lock_buffer = cache.new_buffer();
-
     let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid);
     let directory_blockno = pg_sys::BufferGetBlockNumber(directory.lock_buffer);
     (*metadata).directory_start = directory_blockno;
@@ -257,17 +252,6 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     (*metadata).settings_start = settings_blockno;
 
     assert!(pg_sys::BufferGetBlockNumber(metadata_buffer) == METADATA_BLOCKNO);
-    assert!(pg_sys::BufferGetBlockNumber(writer_lock_buffer) == INDEX_WRITER_LOCK_BLOCKNO);
-    assert!(pg_sys::BufferGetBlockNumber(meta_lock_buffer) == META_LOCK_BLOCKNO);
-    assert!(pg_sys::BufferGetBlockNumber(managed_lock_buffer) == MANAGED_LOCK_BLOCKNO);
-
     pg_sys::MarkBufferDirty(metadata_buffer);
-    pg_sys::MarkBufferDirty(writer_lock_buffer);
-    pg_sys::MarkBufferDirty(meta_lock_buffer);
-    pg_sys::MarkBufferDirty(managed_lock_buffer);
-
     pg_sys::UnlockReleaseBuffer(metadata_buffer);
-    pg_sys::UnlockReleaseBuffer(writer_lock_buffer);
-    pg_sys::UnlockReleaseBuffer(meta_lock_buffer);
-    pg_sys::UnlockReleaseBuffer(managed_lock_buffer);
 }

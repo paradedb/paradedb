@@ -40,16 +40,6 @@
 // ...LP_UPPER
 // LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
 
-// # segment file blocknumber list
-
-// ...LP_LOWER
-// [BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber]
-// [BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber]
-// [BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber]
-// [BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber][BlockNumber]
-// ...LP_UPPER
-// LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
-
 // # segment file data
 
 // ...LP_LOWER
@@ -57,20 +47,16 @@
 // ...LP_UPPER
 // LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
 
-use super::linked_list::PgItem;
 use super::utils::BM25BufferCache;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
-use std::io::{Cursor, Read, Write};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
 use tantivy::index::InnerSegmentMeta;
 
 pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the entire index
-pub const INDEX_WRITER_LOCK_BLOCKNO: pg_sys::BlockNumber = 1; // Used for Tantivy's INDEX_WRITER_LOCK
-pub const META_LOCK_BLOCKNO: pg_sys::BlockNumber = 2; // Used for Tantivy's META_LOCK
-pub const MANAGED_LOCK_BLOCKNO: pg_sys::BlockNumber = 3; // Used for Tantivy's MANAGED_LOCK
+pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 /// Special data struct for the metadata page, located at METADATA_BLOCKNO
 #[derive(Debug)]
@@ -121,28 +107,84 @@ pub struct SegmentMetaEntry {
     pub xmax: pg_sys::TransactionId,
 }
 
-/// Defined in `src/include/c.h`
-const fn typealign_down(align_val: usize, len: usize) -> usize {
-    // #define TYPEALIGN_DOWN(ALIGNVAL,LEN)  \
-    // (((uintptr_t) (LEN)) & ~((uintptr_t) ((ALIGNVAL) - 1)))
-    len & !(align_val - 1)
+impl From<DirectoryEntry> for PgItem {
+    fn from(val: DirectoryEntry) -> Self {
+        let bytes: Vec<u8> =
+            bincode::serialize(&val).expect("expected to serialize valid DirectoryEntry");
+        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
+        }
+        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+    }
 }
 
-/// Defined in `src/include/c.h`
-const fn maxalign_down(len: usize) -> usize {
-    // #define MAXALIGN_DOWN(LEN)
-    // TYPEALIGN_DOWN(MAXIMUM_ALIGNOF, (LEN))
-    typealign_down(pg_sys::MAXIMUM_ALIGNOF as usize, len)
+impl From<SegmentMetaEntry> for PgItem {
+    fn from(val: SegmentMetaEntry) -> Self {
+        // let buffer = serde_json::to_vec_pretty(&val.meta).unwrap();
+
+        // // First 16 bytes for xmin, xmax, and opstamp
+        // let mut bytes = Vec::with_capacity(16 + buffer.len());
+        // bytes.extend_from_slice(&val.xmin.to_le_bytes());
+        // bytes.extend_from_slice(&val.xmax.to_le_bytes());
+        // bytes.extend_from_slice(&val.opstamp.to_le_bytes());
+        // bytes.extend_from_slice(&buffer[..]);
+
+        let bytes: Vec<u8> =
+            bincode::serialize(&val).expect("expected to serialize valid SegmentMetaEntry");
+        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
+        }
+        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+    }
 }
 
-pub const unsafe fn bm25_max_item_size() -> usize {
-    maxalign_down(
-        pg_sys::BLCKSZ as usize
-            - pg_sys::MAXALIGN(
-                offset_of!(pg_sys::PageHeaderData, pd_linp) + size_of::<pg_sys::ItemIdData>(),
-            )
-            - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>()),
-    )
+impl From<PgItem> for DirectoryEntry {
+    fn from(pg_item: PgItem) -> Self {
+        let PgItem(item, size) = pg_item;
+        let decoded: DirectoryEntry = unsafe {
+            bincode::deserialize(from_raw_parts(item as *const u8, size))
+                .expect("expected to deserialize valid DirectoryEntry")
+        };
+        decoded
+    }
+}
+
+impl From<PgItem> for SegmentMetaEntry {
+    fn from(pg_item: PgItem) -> Self {
+        let PgItem(item, size) = pg_item;
+        let decoded: SegmentMetaEntry = unsafe {
+            bincode::deserialize(from_raw_parts(item as *const u8, size))
+                .expect("expected to deserialize valid SegmentMetaEntry")
+        };
+        decoded
+    }
+}
+
+pub trait MVCCEntry {
+    fn xmin(&self) -> pg_sys::TransactionId;
+    fn xmax(&self) -> pg_sys::TransactionId;
+}
+
+impl MVCCEntry for DirectoryEntry {
+    fn xmin(&self) -> pg_sys::TransactionId {
+        self.xmin
+    }
+
+    fn xmax(&self) -> pg_sys::TransactionId {
+        self.xmax
+    }
+}
+
+impl MVCCEntry for SegmentMetaEntry {
+    fn xmin(&self) -> pg_sys::TransactionId {
+        self.xmin
+    }
+
+    fn xmax(&self) -> pg_sys::TransactionId {
+        self.xmax
+    }
 }
 
 pub const unsafe fn bm25_max_free_space() -> usize {
@@ -156,9 +198,6 @@ pub unsafe fn bm25_metadata(relation_oid: pg_sys::Oid) -> MetaPageData {
     let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
     let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
     let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-
-    let header = metadata_page as *const pg_sys::PageHeaderData;
-
     let data = MetaPageData {
         directory_start: (*metadata).directory_start,
         segment_metas_start: (*metadata).segment_metas_start,
@@ -166,78 +205,17 @@ pub unsafe fn bm25_metadata(relation_oid: pg_sys::Oid) -> MetaPageData {
         settings_start: (*metadata).settings_start,
     };
     pg_sys::UnlockReleaseBuffer(metadata_buffer);
+
+    assert!(data.directory_start != 0);
+    assert!(data.segment_metas_start != 0);
+    assert!(data.schema_start != 0);
+    assert!(data.settings_start != 0);
+    assert!(data.directory_start != pg_sys::InvalidBlockNumber);
+    assert!(data.segment_metas_start != pg_sys::InvalidBlockNumber);
+    assert!(data.schema_start != pg_sys::InvalidBlockNumber);
+    assert!(data.settings_start != pg_sys::InvalidBlockNumber);
+
     data
-}
-
-impl From<PgItem> for DirectoryEntry {
-    fn from(pg_item: PgItem) -> Self {
-        let PgItem(item, size) = pg_item;
-        let decoded: DirectoryEntry = unsafe {
-            bincode::deserialize(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid SegmentComponent")
-        };
-        decoded
-    }
-}
-
-impl From<DirectoryEntry> for PgItem {
-    fn from(val: DirectoryEntry) -> Self {
-        let bytes: Vec<u8> =
-            bincode::serialize(&val).expect("expected to serialize valid SegmentComponent");
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
-    }
-}
-
-impl From<PgItem> for SegmentMetaEntry {
-    fn from(pg_item: PgItem) -> Self {
-        let data =
-            unsafe { std::slice::from_raw_parts(pg_item.0 as *const u8, pg_item.1 as usize) };
-
-        assert!(
-            data.len() >= 16,
-            "PgItem data is too small to contain xmin and xmax"
-        );
-
-        let xmin = u32::from_le_bytes(data[0..4].try_into().expect("Failed to read xmin"));
-        let xmax = u32::from_le_bytes(data[4..8].try_into().expect("Failed to read xmax"));
-        let opstamp = u64::from_le_bytes(data[8..16].try_into().expect("Failed to read opstamp"));
-
-        let meta_str = String::from_utf8(data[16..].to_vec()).expect("Failed to read meta");
-        let meta: InnerSegmentMeta =
-            serde_json::from_str(&meta_str).expect("Failed to deserialize InnerSegmentMeta");
-
-        SegmentMetaEntry {
-            meta,
-            opstamp,
-            xmin,
-            xmax,
-        }
-    }
-}
-
-impl From<SegmentMetaEntry> for PgItem {
-    fn from(val: SegmentMetaEntry) -> Self {
-        // Serialize only the `meta` and `opstamp` fields of the SegmentMetaEntry as JSON
-        let mut buffer = serde_json::to_vec_pretty(&val.meta).unwrap();
-        writeln!(&mut buffer).unwrap();
-
-        // First 16 bytes for xmin, xmax, and opstamp
-        let mut bytes = Vec::with_capacity(16 + buffer.len());
-        bytes.extend_from_slice(&val.xmin.to_le_bytes());
-        bytes.extend_from_slice(&val.xmax.to_le_bytes());
-        bytes.extend_from_slice(&val.opstamp.to_le_bytes());
-        bytes.extend_from_slice(&buffer[..]);
-
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
-    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

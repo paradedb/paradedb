@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedListData};
+use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedListData, MVCCEntry, PgItem};
 use super::utils::{BM25BufferCache, BM25Page};
 use anyhow::{bail, Result};
 use pgrx::pg_sys;
@@ -24,20 +24,16 @@ use std::fmt::Debug;
 use std::io::{Cursor, Read};
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
-use crate::postgres::storage::block::bm25_metadata;
-
-pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
-
 /// Linked list implementation over block storage,
 /// where each node in the list is a pg_sys::Item
-pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone> {
+pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
     relation_oid: pg_sys::Oid,
     pub lock_buffer: pg_sys::Buffer,
     lock: Option<u32>,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
     /// Open an existing linked list and holds the specified lock on it until the linked list is dropped
     pub fn open_with_lock(
         relation_oid: pg_sys::Oid,
@@ -59,7 +55,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
         let cache = BM25BufferCache::open(relation_oid);
         let lock_buffer = cache.new_buffer();
-        let lock_blockno = pg_sys::BufferGetBlockNumber(lock_buffer);
         let start_buffer = cache.new_buffer();
         let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
 
@@ -82,21 +77,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
 
     pub unsafe fn delete(&self) {
         let cache = BM25BufferCache::open(self.relation_oid);
-        let mut blockno = self.get_start_blockno();
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            blockno = (*special).next_blockno;
-            page.mark_deleted();
-
-            pg_sys::MarkBufferDirty(buffer);
-            pg_sys::UnlockReleaseBuffer(buffer);
-        }
-
-        let lock_page = pg_sys::BufferGetPage(self.lock_buffer);
-        lock_page.mark_deleted();
-        pg_sys::MarkBufferDirty(self.lock_buffer);
+        delete(self.lock_buffer, &cache);
     }
 
     pub unsafe fn write(&mut self, items: Vec<T>) -> Result<()> {
@@ -109,7 +90,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
 
         for item in items {
             let PgItem(pg_item, size) = item.clone().into();
-            eprintln!("inserting item: {:?} size {}", item, size);
             let mut offsetno = pg_sys::PageAddItemExtended(
                 insert_page,
                 pg_item,
@@ -226,11 +206,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         Ok(items)
     }
 
-    pub unsafe fn get_all_blocks(&self) -> Vec<pg_sys::BlockNumber> {
-        let cache = BM25BufferCache::open(self.relation_oid);
-        get_all_blocks(self.lock_buffer, &cache)
-    }
-
     unsafe fn get_start_blockno(&self) -> pg_sys::BlockNumber {
         get_start_blockno(self.lock_buffer)
     }
@@ -244,11 +219,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Drop for LinkedItemList<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for LinkedItemList<T> {
     fn drop(&mut self) {
         unsafe {
             if pg_sys::IsTransactionState() {
-                if let Some(lock) = self.lock {
+                if self.lock.is_some() {
                     pg_sys::UnlockReleaseBuffer(self.lock_buffer);
                 } else {
                     pg_sys::ReleaseBuffer(self.lock_buffer);
@@ -285,7 +260,6 @@ impl LinkedBytesList {
     pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
         let cache = BM25BufferCache::open(relation_oid);
         let lock_buffer = cache.new_buffer();
-        let lock_blockno = pg_sys::BufferGetBlockNumber(lock_buffer);
         let start_buffer = cache.new_buffer();
         let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
 
@@ -380,21 +354,7 @@ impl LinkedBytesList {
 
     pub unsafe fn delete(&self) {
         let cache = BM25BufferCache::open(self.relation_oid);
-        let mut blockno = self.get_start_blockno();
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            blockno = (*special).next_blockno;
-            page.mark_deleted();
-
-            pg_sys::MarkBufferDirty(buffer);
-            pg_sys::UnlockReleaseBuffer(buffer);
-        }
-
-        let lock_page = pg_sys::BufferGetPage(self.lock_buffer);
-        lock_page.mark_deleted();
-        pg_sys::MarkBufferDirty(self.lock_buffer);
+        delete(self.lock_buffer, &cache);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -431,7 +391,7 @@ impl Drop for LinkedBytesList {
     fn drop(&mut self) {
         unsafe {
             if pg_sys::IsTransactionState() {
-                if let Some(lock) = self.lock {
+                if self.lock.is_some() {
                     pg_sys::UnlockReleaseBuffer(self.lock_buffer);
                 } else {
                     pg_sys::ReleaseBuffer(self.lock_buffer);
@@ -445,7 +405,6 @@ impl Drop for LinkedBytesList {
 unsafe fn get_list_metadata(lock_buffer: pg_sys::Buffer) -> LinkedListData {
     let page = pg_sys::BufferGetPage(lock_buffer);
     let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-
     LinkedListData {
         start_blockno: (*metadata).start_blockno,
         last_blockno: (*metadata).last_blockno,
@@ -505,6 +464,25 @@ unsafe fn get_all_blocks(
     }
 
     blocks
+}
+
+#[inline]
+unsafe fn delete(lock_buffer: pg_sys::Buffer, cache: &BM25BufferCache) {
+    let mut blockno = get_start_blockno(lock_buffer);
+    while blockno != pg_sys::InvalidBlockNumber {
+        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+        let page = pg_sys::BufferGetPage(buffer);
+        let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+        blockno = (*special).next_blockno;
+        page.mark_deleted();
+
+        pg_sys::MarkBufferDirty(buffer);
+        pg_sys::UnlockReleaseBuffer(buffer);
+    }
+
+    let lock_page = pg_sys::BufferGetPage(lock_buffer);
+    lock_page.mark_deleted();
+    pg_sys::MarkBufferDirty(lock_buffer);
 }
 
 #[cfg(any(test, feature = "pg_test"))]

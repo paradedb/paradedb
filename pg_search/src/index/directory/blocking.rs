@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Result};
-use once_cell::sync::Lazy;
+use anyhow::Result;
 use pgrx::pg_sys;
 use std::collections::HashSet;
 use std::path::Path;
@@ -27,23 +26,17 @@ use std::{io, result};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
 use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
-    directory::{INDEX_WRITER_LOCK, MANAGED_LOCK, META_LOCK},
     error::TantivyError,
 };
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
-use super::lock::BlockingLock;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_max_item_size, bm25_metadata, BM25PageSpecialData, DirectoryEntry,
-    SegmentMetaEntry, INDEX_WRITER_LOCK_BLOCKNO, MANAGED_LOCK_BLOCKNO, META_LOCK_BLOCKNO,
+    bm25_max_free_space, bm25_metadata, DirectoryEntry, PgItem, SegmentMetaEntry,
 };
-use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList, PgItem};
-use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
-
-/// Defined by Tantivy in core/mod.rs
-pub static META_FILEPATH: Lazy<&'static Path> = Lazy::new(|| Path::new("meta.json"));
+use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::utils::BM25BufferCache;
 
 /// Tantivy Directory trait implementation over block storage
 #[derive(Clone, Debug)]
@@ -60,11 +53,19 @@ impl BlockingDirectory {
     /// return a value, so we implement our own delete method
     pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
         let (entry, blockno, offsetno) = unsafe { self.directory_lookup(path)? };
+        let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
+        // TODO: Wrap this in a struct
+        let snapshot_xmin = unsafe { (*snapshot).xmin };
+        let in_progress: &[u32] =
+            unsafe { from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize) };
+        let invisible = entry.xmin >= snapshot_xmin
+            || in_progress.contains(&entry.xmin)
+            || unsafe { !pg_sys::TransactionIdDidCommit(entry.xmin) };
+        let aborted = unsafe { pg_sys::TransactionIdDidAbort(entry.xmin) };
 
-        if unsafe {
-            pg_sys::TransactionIdDidCommit(entry.xmin) || pg_sys::TransactionIdDidAbort(entry.xmin)
-        } {
+        if !invisible || aborted {
             unsafe {
+                eprintln!("Deleting {:?}", path);
                 let entry_with_xmax = DirectoryEntry {
                     xmax: pg_sys::GetCurrentTransactionId(),
                     ..entry.clone()
@@ -80,24 +81,12 @@ impl BlockingDirectory {
                 pg_sys::UnlockReleaseBuffer(buffer);
             }
 
-            // TODO: Move this over to linked_list
-            // let block_list = LinkedBytesList::open_with_lock(self.relation_oid, entry.start, Some(pg_sys::BUFFER_LOCK_SHARE));
-            // let BlockNumberList(blocks) = unsafe { block_list.read_all().into() };
-            // let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
-
-            // // Mark pages as deleted, but don't actually free them
-            // // It's important that only VACUUM frees pages, because pages might still be used by other transactions
-            // for blockno in blocks {
-            //     unsafe {
-            //         let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            //         let page = pg_sys::BufferGetPage(buffer);
-            //         page.mark_deleted();
-
-            //         pg_sys::MarkBufferDirty(buffer);
-            //         pg_sys::UnlockReleaseBuffer(buffer);
-            //     }
-            // }
-
+            let block_list = LinkedBytesList::open_with_lock(
+                self.relation_oid,
+                entry.start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            unsafe { block_list.delete() };
             Ok(Some(entry))
         } else {
             Ok(None)
@@ -121,7 +110,6 @@ impl BlockingDirectory {
 
 impl Directory for BlockingDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        let metadata = unsafe { bm25_metadata(self.relation_oid) };
         let (opaque, _, _) = unsafe {
             self.directory_lookup(path)
                 .map_err(|err| OpenReadError::IoError {
@@ -146,7 +134,6 @@ impl Directory for BlockingDirectory {
     /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
     /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
     fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
-        eprintln!("blocking called atomic write");
         unimplemented!("atomic_write should not be called for {:?}", path);
     }
 
@@ -259,11 +246,6 @@ impl Directory for BlockingDirectory {
         let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
 
         let mut new_segments = meta.segments.clone();
-        let new_segment_ids = new_segments
-            .iter()
-            .map(|segment| segment.id())
-            .collect::<Vec<_>>();
-
         let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
             self.relation_oid,
             metadata.segment_metas_start,
@@ -322,7 +304,7 @@ impl Directory for BlockingDirectory {
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
         let metadata = unsafe { bm25_metadata(self.relation_oid) };
-        let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+        let segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
             self.relation_oid,
             metadata.segment_metas_start,
             Some(pg_sys::BUFFER_LOCK_SHARE),
@@ -336,17 +318,17 @@ impl Directory for BlockingDirectory {
             unsafe { from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize) };
         let snapshot_xmin = unsafe { (*snapshot).xmin };
         let snapshot_xmax = unsafe { (*snapshot).xmax };
-
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
             let invisible = entry.xmin >= snapshot_xmin
                 || entry.xmax >= snapshot_xmax
-                || in_progress.contains(&snapshot_xmin)
+                || in_progress.contains(&entry.xmin)
                 || unsafe { !pg_sys::TransactionIdDidCommit(entry.xmin) };
 
             if !invisible {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));
 
+                // TODO: Store optstamps separately
                 if entry.xmin > max_xmin {
                     max_xmin = entry.xmin;
                     opstamp = entry.opstamp;
@@ -361,7 +343,6 @@ impl Directory for BlockingDirectory {
             metadata.schema_start,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
-
         let deserialized_schema = serde_json::from_slice(unsafe { &schema.read_all() })
             .expect("expected to deserialize valid Schema");
 
@@ -373,6 +354,8 @@ impl Directory for BlockingDirectory {
         let deserialized_settings = serde_json::from_slice(unsafe { &settings.read_all() })
             .expect("expected to deserialize valid IndexSettings");
 
+        eprintln!("Metas loaded {:?}", alive_segments);
+            
         Ok(IndexMeta {
             segments: alive_segments,
             schema: deserialized_schema,

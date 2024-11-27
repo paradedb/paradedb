@@ -429,7 +429,7 @@ impl SearchIndexReader {
         });
 
         let blocking_directory = BlockingDirectory::new(self.index_oid);
-        let mut handler = ChannelRequestHandler::open(
+        let handler = ChannelRequestHandler::open(
             blocking_directory,
             self.index_oid,
             response_sender,

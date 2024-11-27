@@ -25,6 +25,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::{Index, Opstamp, TantivyError, Term};
 use tantivy::{IndexWriter, TantivyDocument};
@@ -40,7 +41,7 @@ pub struct SearchIndexWriter {
 
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
-    writer: IndexWriter,
+    writer: Arc<IndexWriter>,
     handler: ChannelRequestHandler,
     wants_merge: bool,
     insert_queue: Vec<TantivyDocument>,
@@ -101,12 +102,12 @@ impl SearchIndexWriter {
         };
 
         let writer = handler
-            .wait_for(|| index.writer_with_num_threads(parallelism.get(), memory_budget))
+            .wait_for(move || index.writer_with_num_threads(parallelism.get(), memory_budget))
             .expect("scoped thread should not fail")?;
         writer.set_merge_policy(merge_policy);
 
         Ok(Self {
-            writer,
+            writer: Arc::new(writer),
             schema,
             handler,
             wants_merge,
@@ -114,9 +115,10 @@ impl SearchIndexWriter {
         })
     }
 
-    pub fn delete_term(&mut self, term: Term) -> Opstamp {
+    pub fn delete_term(&self, term: Term) -> Opstamp {
+        let writer = self.writer.clone();
         self.handler
-            .wait_for(|| self.writer.delete_term(term))
+            .wait_for(move || writer.delete_term(term))
             .expect("scoped thread should not fail")
     }
 
@@ -132,12 +134,14 @@ impl SearchIndexWriter {
 
     pub fn commit(mut self) -> Result<()> {
         self.drain_insert_queue()?;
+        let mut writer =
+            Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
         let _opstamp = self
             .handler
-            .wait_for(|| {
-                let opstamp = self.writer.commit()?;
+            .wait_for(move || {
+                let opstamp = writer.commit()?;
                 if self.wants_merge {
-                    self.writer.wait_merging_threads()?;
+                    writer.wait_merging_threads()?;
                 }
                 tantivy::Result::Ok(opstamp)
             })
@@ -146,23 +150,27 @@ impl SearchIndexWriter {
     }
 
     fn drain_insert_queue(&mut self) -> Result<Option<Opstamp>, TantivyError> {
-        // Add the Tantivy document to the index.
+        let insert_queue = std::mem::take(&mut self.insert_queue);
+        let writer = self.writer.clone();
         self.handler
-            .wait_for(|| {
+            .wait_for(move || {
                 let mut opstamp = None;
-                for tantivy_document in self.insert_queue.drain(..) {
-                    opstamp = Some(self.writer.add_document(tantivy_document)?);
+                for tantivy_document in insert_queue {
+                    opstamp = Some(writer.add_document(tantivy_document)?);
                 }
                 tantivy::Result::Ok(opstamp)
             })
             .expect("spawned thread should not fail")
     }
 
-    pub fn vacuum(mut self) -> Result<ChannelRequestStats> {
-        std::thread::scope(|scope| {
+    pub fn vacuum(self) -> Result<ChannelRequestStats> {
+        let mut writer =
+            Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
+
+        std::thread::scope(move |scope| {
             let _opstamp = scope.spawn(|| {
-                let opstamp = self.writer.commit()?;
-                self.writer.wait_merging_threads()?;
+                let opstamp = writer.commit()?;
+                writer.wait_merging_threads()?;
                 tantivy::Result::Ok(opstamp)
             });
 

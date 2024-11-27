@@ -1,12 +1,14 @@
 use anyhow::Result;
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use parking_lot::Mutex;
+use pgrx::pg_sys;
 use rustc_hash::FxHashMap;
+use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread::ScopedJoinHandle;
+use std::thread::JoinHandle;
 use std::{io, io::Write, ops::Range, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
@@ -209,13 +211,19 @@ impl Directory for ChannelDirectory {
     }
 }
 
+type Action = Box<dyn FnOnce() -> Reply + Send + Sync>;
+type Reply = Box<dyn Any + Send + Sync>;
 pub struct ChannelRequestHandler {
     directory: BlockingDirectory,
-    relation_oid: pgrx::pg_sys::Oid,
+    relation_oid: pg_sys::Oid,
     sender: Sender<ChannelResponse>,
     receiver: Receiver<ChannelRequest>,
     writers: Mutex<FxHashMap<PathBuf, SegmentComponentWriter>>,
     readers: Mutex<FxHashMap<PathBuf, SegmentComponentReader>>,
+
+    action: (Sender<Action>, Receiver<Action>),
+    reply: (Sender<Reply>, Receiver<Reply>),
+    _worker: JoinHandle<()>,
 }
 
 #[derive(Debug)]
@@ -228,10 +236,12 @@ pub type ShouldTerminate = bool;
 impl ChannelRequestHandler {
     pub fn open(
         directory: BlockingDirectory,
-        relation_oid: pgrx::pg_sys::Oid,
+        relation_oid: pg_sys::Oid,
         sender: Sender<ChannelResponse>,
         receiver: Receiver<ChannelRequest>,
     ) -> Self {
+        let (action_sender, action_receiver) = crossbeam::channel::bounded(1);
+        let (reply_sender, reply_receiver) = crossbeam::channel::bounded(1);
         Self {
             directory,
             relation_oid,
@@ -239,31 +249,58 @@ impl ChannelRequestHandler {
             sender,
             writers: Default::default(),
             readers: Default::default(),
+            action: (action_sender, action_receiver.clone()),
+            reply: (reply_sender.clone(), reply_receiver),
+            _worker: std::thread::spawn(move || {
+                for message in action_receiver {
+                    if reply_sender.send(message()).is_err() {
+                        // channel was dropped and that's okay
+                        break;
+                    }
+                }
+            }),
         }
     }
 
-    pub fn wait_for<T: Send + Sync, F: FnOnce() -> T + Send + Sync>(
+    pub fn wait_for<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
         &self,
         func: F,
-    ) -> std::thread::Result<T> {
-        std::thread::scope(|scope| self.wait_for_inner(scope.spawn(func)))
-    }
+    ) -> Result<T> {
+        let func: Action = Box::new(move || Box::new(func()));
+        self.action.0.send(func)?;
+        loop {
+            match self.reply.1.try_recv() {
+                // `func` has finished and we have its reply
+                Ok(reply) => {
+                    return match reply.downcast::<T>() {
+                        // the reply is exactly what we hoped for
+                        Ok(reply) => Ok(*reply),
 
-    #[inline(always)]
-    fn wait_for_inner<T: Send + Sync>(&self, scope: ScopedJoinHandle<T>) -> std::thread::Result<T> {
-        'scope: while !scope.is_finished() {
-            for message in self.receiver.try_iter() {
-                match self.process_message(message, &mut vec![]) {
-                    Ok(should_terminate) if should_terminate => break 'scope,
-                    Ok(_) => continue,
-                    Err(e) => return Err(Box::new(e)),
+                        // it's something else, so transform into a generic error
+                        Err(e) => Err(anyhow::anyhow!("unexpected reply {:?}", e)),
+                    };
+                }
+
+                // we have no reply yet, so process any messages it may have generated
+                Err(TryRecvError::Empty) => {
+                    for message in self.receiver.try_iter() {
+                        match self.process_message(message, &mut vec![]) {
+                            Ok(should_terminate) if should_terminate => break,
+                            Ok(_) => continue,
+                            Err(e) => return Err(e),
+                        }
+                    }
+                }
+
+                // the reply channel was closed, so lets just return that as the error
+                Err(TryRecvError::Disconnected) => {
+                    return Err(anyhow::anyhow!("reply channel disconnected"))
                 }
             }
         }
-        scope.join()
     }
 
-    pub fn receive_blocking(&mut self) -> Result<ChannelRequestStats> {
+    pub fn receive_blocking(&self) -> Result<ChannelRequestStats> {
         let mut deleted_paths: Vec<PathBuf> = vec![];
 
         let receiver = self.receiver.clone();

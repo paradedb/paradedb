@@ -33,7 +33,7 @@ pub extern "C" fn ambulkdelete(
 
     let reader = open_search_reader(&index_relation)
         .expect("ambulkdelete: should be able to open SearchIndexReader");
-    let mut writer = open_search_writer(&index_relation, WriterResources::Vacuum)
+    let writer = open_search_writer(&index_relation, WriterResources::Vacuum)
         .expect("ambulkdelete: should be able to open SearchIndexWriter");
     let ctid_field = reader
         .schema

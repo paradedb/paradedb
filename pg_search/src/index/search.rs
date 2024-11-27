@@ -128,7 +128,10 @@ impl SearchIndex {
     }
 
     fn prepare_index<
-        F: FnOnce(Box<dyn Directory>, &SearchIndexSchema) -> tantivy::Result<Index> + Send + Sync,
+        F: FnOnce(Box<dyn Directory>, &SearchIndexSchema) -> tantivy::Result<Index>
+            + Send
+            + Sync
+            + 'static,
     >(
         index_relation: &PgRelation,
         schema: SearchIndexSchema,
@@ -142,17 +145,20 @@ impl SearchIndex {
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let (resp_sender, resp_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let tantivy_dir = BlockingDirectory::new(index_oid);
-        let channel_dir = ChannelDirectory::new(req_sender, resp_receiver);
+        let channel_dir = ChannelDirectory::new(req_sender, resp_receiver).box_clone();
         let handler =
             ChannelRequestHandler::open(tantivy_dir, index_oid, resp_sender, req_receiver);
 
-        let underlying_index = handler
-            .wait_for(|| {
-                let mut index = opener(channel_dir.box_clone(), &schema)?;
-                SearchIndex::setup_tokenizers(&mut index, &schema);
-                tantivy::Result::Ok(index)
-            })
-            .expect("scoped thread should not fail")?;
+        let underlying_index = {
+            let schema = schema.clone();
+            handler
+                .wait_for(move || {
+                    let mut index = opener(channel_dir, &schema)?;
+                    SearchIndex::setup_tokenizers(&mut index, &schema);
+                    tantivy::Result::Ok(index)
+                })
+                .expect("scoped thread should not fail")?
+        };
 
         unsafe { pg_sys::UnlockReleaseBuffer(lock) };
 

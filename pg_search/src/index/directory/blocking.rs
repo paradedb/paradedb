@@ -231,7 +231,7 @@ impl Directory for BlockingDirectory {
                     .position(|segment| segment.id() == entry.meta.segment_id)
                 {
                     new_segments.remove(index);
-                } else {
+                } else if entry.xmax == pg_sys::InvalidTransactionId {
                     let entry_with_xmax = SegmentMetaEntry {
                         xmax: current_xid,
                         ..entry.clone()
@@ -282,7 +282,9 @@ impl Directory for BlockingDirectory {
             for (entry, blockno, offsetno) in directory.list_all_items().unwrap() {
                 let SegmentComponentId(entry_segment_id) =
                     SegmentComponentPath(entry.path.clone()).try_into().unwrap();
-                if !segment_ids.contains(&entry_segment_id) {
+                if !segment_ids.contains(&entry_segment_id)
+                    && entry.xmax == pg_sys::InvalidTransactionId
+                {
                     let entry_with_xmax = DirectoryEntry {
                         xmax: current_xid,
                         ..entry.clone()
@@ -319,30 +321,28 @@ impl Directory for BlockingDirectory {
         let mut opstamp = 0;
         let mut max_xmin = 0;
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        // let in_progress = unsafe {
-        //     Vec::from_raw_parts(
-        //         (*snapshot).xip,
-        //         (*snapshot).xcnt as usize,
-        //         (*snapshot).xcnt as usize,
-        //     )
-        // };
+        let in_progress: &[u32] = if snapshot.is_null() || unsafe { (*snapshot).xip.is_null() } {
+            &[]
+        } else {
+            unsafe { from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize) }
+        };
 
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
             let visible = unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) };
 
-            // unsafe {
-            //     crate::log_message(&format!(
-            //         "-- CHECKING {} {:?}: VISIBLE {}, ENTRY XMIN {}, ENTRY XMAX {}, SNAPSHOT XMIN {}, SNAPSHOT XMAX {}, SNAPSHOT XIP {:?}",
-            //         unsafe { pg_sys::GetCurrentTransactionId() },
-            //         entry.meta.segment_id.short_uuid_string(),
-            //         visible,
-            //         entry.xmin,
-            //         entry.xmax,
-            //         (*snapshot).xmin,
-            //         (*snapshot).xmax,
-            //         in_progress
-            //     ));
-            // }
+            unsafe {
+                crate::log_message(&format!(
+                    "-- CHECKING {} {:?}: VISIBLE {}, ENTRY XMIN {}, ENTRY XMAX {}, SNAPSHOT XMIN {}, SNAPSHOT XMAX {}, SNAPSHOT XIP {:?}",
+                    unsafe { pg_sys::GetCurrentTransactionId() },
+                    entry.meta.segment_id.short_uuid_string(),
+                    visible,
+                    entry.xmin,
+                    entry.xmax,
+                    (*snapshot).xmin,
+                    (*snapshot).xmax,
+                    in_progress.to_vec()
+                ));
+            }
 
             if visible {
                 let segment_meta = entry.meta.clone();

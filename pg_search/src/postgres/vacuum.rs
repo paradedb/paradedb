@@ -22,7 +22,8 @@ use crate::index::channel::{
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
-    DirectoryEntry, MVCCEntry, MetaPageData, PgItem, SegmentMetaEntry, METADATA_BLOCKNO, bm25_metadata
+    bm25_metadata, DirectoryEntry, MVCCEntry, MetaPageData, PgItem, SegmentMetaEntry,
+    METADATA_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -85,7 +86,7 @@ pub extern "C" fn amvacuumcleanup(
         let blocking_stats = handler
             .receive_blocking(Some(|_| false))
             .expect("blocking handler should succeed");
-        
+
         // Vacuum all linked lists
         // If a new LinkedItemList is created, it should be vacuumed here
         let cache = unsafe { BM25BufferCache::open(index_oid) };
@@ -155,7 +156,7 @@ where
 {
     let old_list =
         LinkedItemList::<T>::open_with_lock(index_oid, start, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-   
+
     let mut entries_to_keep = vec![];
     for (entry, _, _) in old_list.list_all_items()? {
         let xmax = entry.xmax();
@@ -163,8 +164,6 @@ where
             entries_to_keep.push(entry);
         } else if !pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.xmax()) {
             entries_to_keep.push(entry);
-        } else {
-            eprintln!("Actually deleting {:?}", entry);
         }
     }
 

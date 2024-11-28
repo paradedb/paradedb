@@ -38,6 +38,8 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
 
+use itertools::Itertools;
+
 /// Tantivy Directory trait implementation over block storage
 #[derive(Clone, Debug)]
 pub struct BlockingDirectory {
@@ -54,22 +56,27 @@ impl BlockingDirectory {
     pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
         let (entry, blockno, offsetno) = unsafe { self.directory_lookup(path)? };
         let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
-        // TODO: Wrap this in a struct
-        let snapshot_xmin = unsafe { (*snapshot).xmin };
-        let in_progress: &[u32] =
-            unsafe { from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize) };
-        let invisible = entry.xmin >= snapshot_xmin
-            || in_progress.contains(&entry.xmin)
-            || unsafe { !pg_sys::TransactionIdDidCommit(entry.xmin) };
-        let aborted = unsafe { pg_sys::TransactionIdDidAbort(entry.xmin) };
+        let already_deleted = entry.xmax != pg_sys::InvalidTransactionId;
 
-        if !invisible || aborted {
+        if already_deleted {
+            return Ok(None);
+        }
+
+        let visible = unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) };
+        let aborted = unsafe { pg_sys::TransactionIdDidAbort(entry.xmin) };
+        if visible || aborted {
             unsafe {
-                eprintln!("Deleting {:?}", path);
                 let entry_with_xmax = DirectoryEntry {
                     xmax: pg_sys::GetCurrentTransactionId(),
                     ..entry.clone()
                 };
+
+                crate::log_message(&format!(
+                    "-- DELETING {} {:?}",
+                    pg_sys::GetCurrentTransactionId(),
+                    entry_with_xmax.meta.segment_id.short_uuid_string()
+                ));
+
                 let cache = BM25BufferCache::open(self.relation_oid);
                 let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
                 let page = pg_sys::BufferGetPage(buffer);
@@ -252,6 +259,18 @@ impl Directory for BlockingDirectory {
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
         );
 
+        crate::log_message(&format!(
+            "-- SAVING {} {:?}",
+            current_xid,
+            new_segments
+                .clone()
+                .into_iter()
+                .map(|s| s.id().short_uuid_string())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .sorted()
+        ));
+
         // Mark old SegmentMeta entries as deleted
         unsafe {
             for (entry, blockno, offsetno) in segment_metas.list_all_items().unwrap() {
@@ -314,17 +333,23 @@ impl Directory for BlockingDirectory {
         let mut opstamp = 0;
         let mut max_xmin = 0;
         let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
-        let in_progress: &[u32] =
-            unsafe { from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize) };
-        let snapshot_xmin = unsafe { (*snapshot).xmin };
-        let snapshot_xmax = unsafe { (*snapshot).xmax };
-        for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
-            let invisible = entry.xmin >= snapshot_xmin
-                || entry.xmax >= snapshot_xmax
-                || in_progress.contains(&entry.xmin)
-                || unsafe { !pg_sys::TransactionIdDidCommit(entry.xmin) };
 
-            if !invisible {
+        for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
+            unsafe {
+                crate::log_message(&format!(
+                    "-- CHECKING {} {:?}: VISIBLE {}, ENTRY XMIN {}, ENTRY XMAX {}, SNAPSHOT XMIN {}, SNAPSHOT XMAX {}",
+                    unsafe { pg_sys::GetCurrentTransactionId() },
+                    entry.meta.segment_id.short_uuid_string(),
+                    unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) },
+                    entry.xmin,
+                    entry.xmax,
+                    (*snapshot).xmin,
+                    (*snapshot).xmax
+                ));
+            }
+
+            let visible = unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) };
+            if visible {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));
 
@@ -337,6 +362,18 @@ impl Directory for BlockingDirectory {
                 }
             }
         }
+
+        crate::log_message(&format!(
+            "-- LOADED {} {:?}",
+            unsafe { pg_sys::GetCurrentTransactionId() },
+            alive_segments
+                .clone()
+                .into_iter()
+                .map(|s| s.id().short_uuid_string())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .sorted()
+        ));
 
         let schema = LinkedBytesList::open_with_lock(
             self.relation_oid,
@@ -354,8 +391,6 @@ impl Directory for BlockingDirectory {
         let deserialized_settings = serde_json::from_slice(unsafe { &settings.read_all() })
             .expect("expected to deserialize valid IndexSettings");
 
-        eprintln!("Metas loaded {:?}", alive_segments);
-            
         Ok(IndexMeta {
             segments: alive_segments,
             schema: deserialized_schema,
@@ -364,6 +399,19 @@ impl Directory for BlockingDirectory {
             payload: None,
         })
     }
+}
+
+unsafe fn is_entry_visible(
+    xmin: pg_sys::TransactionId,
+    xmax: pg_sys::TransactionId,
+    snapshot: pg_sys::Snapshot,
+) -> bool {
+    let xmin_visible =
+        !pg_sys::XidInMVCCSnapshot(xmin, snapshot) && pg_sys::TransactionIdDidCommit(xmin);
+    let deleted = xmax != pg_sys::InvalidTransactionId
+        && !pg_sys::XidInMVCCSnapshot(xmax, snapshot)
+        && pg_sys::TransactionIdDidCommit(xmax);
+    xmin_visible && !deleted
 }
 
 #[cfg(any(test, feature = "pg_test"))]

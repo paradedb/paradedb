@@ -319,22 +319,31 @@ impl Directory for BlockingDirectory {
         let mut opstamp = 0;
         let mut max_xmin = 0;
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        // let in_progress = unsafe {
+        //     Vec::from_raw_parts(
+        //         (*snapshot).xip,
+        //         (*snapshot).xcnt as usize,
+        //         (*snapshot).xcnt as usize,
+        //     )
+        // };
 
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
-            unsafe {
-                crate::log_message(&format!(
-                    "-- CHECKING {} {:?}: VISIBLE {}, ENTRY XMIN {}, ENTRY XMAX {}, SNAPSHOT XMIN {}, SNAPSHOT XMAX {}",
-                    unsafe { pg_sys::GetCurrentTransactionId() },
-                    entry.meta.segment_id.short_uuid_string(),
-                    unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) },
-                    entry.xmin,
-                    entry.xmax,
-                    (*snapshot).xmin,
-                    (*snapshot).xmax
-                ));
-            }
-
             let visible = unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) };
+
+            // unsafe {
+            //     crate::log_message(&format!(
+            //         "-- CHECKING {} {:?}: VISIBLE {}, ENTRY XMIN {}, ENTRY XMAX {}, SNAPSHOT XMIN {}, SNAPSHOT XMAX {}, SNAPSHOT XIP {:?}",
+            //         unsafe { pg_sys::GetCurrentTransactionId() },
+            //         entry.meta.segment_id.short_uuid_string(),
+            //         visible,
+            //         entry.xmin,
+            //         entry.xmax,
+            //         (*snapshot).xmin,
+            //         (*snapshot).xmax,
+            //         in_progress
+            //     ));
+            // }
+
             if visible {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));

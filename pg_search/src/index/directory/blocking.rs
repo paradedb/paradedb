@@ -33,7 +33,8 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_metadata, DirectoryEntry, PgItem, SegmentMetaEntry,
+    bm25_max_free_space, bm25_metadata, DirectoryEntry, PgItem, SegmentComponentId,
+    SegmentComponentPath, SegmentMetaEntry,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
@@ -49,55 +50,6 @@ pub struct BlockingDirectory {
 impl BlockingDirectory {
     pub fn new(relation_oid: pg_sys::Oid) -> Self {
         Self { relation_oid }
-    }
-
-    /// ambulkdelete wants to know how many pages were deleted, but the Directory trait doesn't let delete
-    /// return a value, so we implement our own delete method
-    pub fn try_delete(&self, path: &Path) -> Result<Option<DirectoryEntry>> {
-        let (entry, blockno, offsetno) = unsafe { self.directory_lookup(path)? };
-        let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
-        let already_deleted = entry.xmax != pg_sys::InvalidTransactionId;
-
-        if already_deleted {
-            return Ok(None);
-        }
-
-        let visible = unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) };
-        let aborted = unsafe { pg_sys::TransactionIdDidAbort(entry.xmin) };
-        if visible || aborted {
-            unsafe {
-                let entry_with_xmax = DirectoryEntry {
-                    xmax: pg_sys::GetCurrentTransactionId(),
-                    ..entry.clone()
-                };
-
-                crate::log_message(&format!(
-                    "-- DELETING {} {:?}",
-                    pg_sys::GetCurrentTransactionId(),
-                    entry_with_xmax.meta.segment_id.short_uuid_string()
-                ));
-
-                let cache = BM25BufferCache::open(self.relation_oid);
-                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                let page = pg_sys::BufferGetPage(buffer);
-                let PgItem(item, size) = entry_with_xmax.clone().into();
-                let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
-                assert!(overwrite, "setting xmax for {:?} should succeed", path);
-
-                pg_sys::MarkBufferDirty(buffer);
-                pg_sys::UnlockReleaseBuffer(buffer);
-            }
-
-            let block_list = LinkedBytesList::open_with_lock(
-                self.relation_oid,
-                entry.start,
-                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            );
-            unsafe { block_list.delete() };
-            Ok(Some(entry))
-        } else {
-            Ok(None)
-        }
     }
 
     pub unsafe fn directory_lookup(
@@ -318,6 +270,40 @@ impl Directory for BlockingDirectory {
                 .expect("save new metas should succeed");
         }
 
+        // Mark old DirectoryEntry entries as deleted
+        let directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
+            self.relation_oid,
+            metadata.directory_start,
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        );
+        let segment_ids = meta.segments.iter().map(|s| s.id()).collect::<HashSet<_>>();
+
+        unsafe {
+            for (entry, blockno, offsetno) in directory.list_all_items().unwrap() {
+                let SegmentComponentId(entry_segment_id) =
+                    SegmentComponentPath(entry.path.clone()).try_into().unwrap();
+                if !segment_ids.contains(&entry_segment_id) {
+                    let entry_with_xmax = DirectoryEntry {
+                        xmax: current_xid,
+                        ..entry.clone()
+                    };
+
+                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                    let page = pg_sys::BufferGetPage(buffer);
+                    let PgItem(item, size) = entry_with_xmax.clone().into();
+                    let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
+                    assert!(
+                        overwrite,
+                        "setting xmax for {:?} should succeed",
+                        entry_segment_id
+                    );
+
+                    pg_sys::MarkBufferDirty(buffer);
+                    pg_sys::UnlockReleaseBuffer(buffer);
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -332,7 +318,7 @@ impl Directory for BlockingDirectory {
         let mut alive_segments = vec![];
         let mut opstamp = 0;
         let mut max_xmin = 0;
-        let snapshot = unsafe { pg_sys::GetTransactionSnapshot() };
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
 
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
             unsafe {

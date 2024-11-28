@@ -48,12 +48,13 @@
 // LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
 
 use super::utils::BM25BufferCache;
+use anyhow::bail;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
-use tantivy::index::InnerSegmentMeta;
+use tantivy::index::{InnerSegmentMeta, SegmentComponent, SegmentId};
 
 pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the entire index
 pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
@@ -88,8 +89,6 @@ pub struct DirectoryEntry {
     pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
     // This is the transaction ID that created this entry
-    // An entry is a candidate for being marked as deleted if this transaction ID has been committed or aborted
-    // which guarantees that we don't mark in-progress entries as deleted
     pub xmin: pg_sys::TransactionId,
     // The transaction ID that marks this entry as deleted
     // Vacuum will physically delete this entry if this transaction ID is no longer visible to any existing transactions
@@ -104,6 +103,7 @@ pub struct SegmentMetaEntry {
     // The transaction ID that created this entry
     pub xmin: pg_sys::TransactionId,
     // The transaction ID that marks this entry as deleted
+    // Vacuum will physically delete this entry if this transaction ID is no longer visible to any existing transactions
     pub xmax: pg_sys::TransactionId,
 }
 
@@ -121,15 +121,6 @@ impl From<DirectoryEntry> for PgItem {
 
 impl From<SegmentMetaEntry> for PgItem {
     fn from(val: SegmentMetaEntry) -> Self {
-        // let buffer = serde_json::to_vec_pretty(&val.meta).unwrap();
-
-        // // First 16 bytes for xmin, xmax, and opstamp
-        // let mut bytes = Vec::with_capacity(16 + buffer.len());
-        // bytes.extend_from_slice(&val.xmin.to_le_bytes());
-        // bytes.extend_from_slice(&val.xmax.to_le_bytes());
-        // bytes.extend_from_slice(&val.opstamp.to_le_bytes());
-        // bytes.extend_from_slice(&buffer[..]);
-
         let bytes: Vec<u8> =
             bincode::serialize(&val).expect("expected to serialize valid SegmentMetaEntry");
         let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
@@ -184,6 +175,27 @@ impl MVCCEntry for SegmentMetaEntry {
 
     fn xmax(&self) -> pg_sys::TransactionId {
         self.xmax
+    }
+}
+
+// Converts a SegmentID + SegmentComponent into a PathBuf
+pub struct SegmentComponentPath(pub PathBuf);
+pub struct SegmentComponentId(pub SegmentId);
+
+impl TryFrom<SegmentComponentPath> for SegmentComponentId {
+    type Error = anyhow::Error;
+
+    fn try_from(val: SegmentComponentPath) -> Result<Self, Self::Error> {
+        let path_str = val.0.to_str().ok_or_else(|| {
+            anyhow::anyhow!("Invalid segment path: {:?}", val.0.to_str().unwrap())
+        })?;
+        if let Some(pos) = path_str.find('.') {
+            Ok(SegmentComponentId(SegmentId::from_uuid_string(
+                &path_str[..pos],
+            )?))
+        } else {
+            bail!("Invalid segment path: {}", path_str);
+        }
     }
 }
 
@@ -258,5 +270,24 @@ mod tests {
         let PgItem(_, size1) = segment1.into();
         let PgItem(_, size2) = segment2.into();
         assert_eq!(size1, size2);
+    }
+
+    #[pg_test]
+    fn test_segment_component_path_to_id() {
+        let path = SegmentComponentPath(PathBuf::from("00000000-0000-0000-0000-000000000000.ext"));
+        let id = SegmentComponentId::try_from(path).unwrap();
+        assert_eq!(
+            id.0,
+            SegmentId::from_uuid_string("00000000-0000-0000-0000-000000000000").unwrap()
+        );
+
+        let path = SegmentComponentPath(PathBuf::from(
+            "00000000-0000-0000-0000-000000000000.123.del",
+        ));
+        let id = SegmentComponentId::try_from(path).unwrap();
+        assert_eq!(
+            id.0,
+            SegmentId::from_uuid_string("00000000-0000-0000-0000-000000000000").unwrap()
+        );
     }
 }

@@ -67,7 +67,6 @@ pub extern "C" fn amvacuumcleanup(
                 .writer_with_num_threads(parallelism.into(), memory_budget)
                 .unwrap();
 
-            // Commit does garbage collect as well, no need to explicitly call it
             writer.commit().unwrap();
             writer.wait_merging_threads().unwrap();
             request_sender_clone

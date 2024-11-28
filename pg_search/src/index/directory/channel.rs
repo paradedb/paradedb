@@ -27,7 +27,6 @@ pub enum ChannelRequest {
     SegmentRead(Range<usize>, DirectoryEntry),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
-    SegmentDelete(PathBuf),
     GetSegmentComponent(PathBuf),
     ShouldDeleteCtids(Vec<u64>),
     SaveMetas(IndexMeta),
@@ -116,11 +115,9 @@ impl Directory for ChannelDirectory {
         Ok(())
     }
 
+    // This is called by Tantivy's garbage collect process, which we do not want to implement
+    // because we use Postgres MVCC rules for our own garbage collection in amvacuumcleanup
     fn delete(&self, path: &Path) -> result::Result<(), DeleteError> {
-        self.sender
-            .send(ChannelRequest::SegmentDelete(path.to_path_buf()))
-            .unwrap();
-
         Ok(())
     }
 
@@ -275,11 +272,6 @@ impl ChannelRequestHandler {
                 ChannelRequest::SegmentWriteTerminate(path) => {
                     let writer = self.writers.remove(&path).expect("writer should exist");
                     writer.terminate()?;
-                }
-                ChannelRequest::SegmentDelete(path) => {
-                    if (self.directory.try_delete(&path)?).is_some() {
-                        deleted_paths.push(path);
-                    }
                 }
                 ChannelRequest::ShouldDeleteCtids(ctids) => {
                     if let Some(ref should_delete) = should_delete {

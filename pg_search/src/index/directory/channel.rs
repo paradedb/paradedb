@@ -185,11 +185,6 @@ pub struct ChannelRequestHandler {
     readers: HashMap<PathBuf, SegmentComponentReader>,
 }
 
-#[derive(Debug)]
-pub struct ChannelRequestStats {
-    pub deleted_paths: Vec<PathBuf>,
-}
-
 impl ChannelRequestHandler {
     pub fn open(
         directory: BlockingDirectory,
@@ -207,12 +202,7 @@ impl ChannelRequestHandler {
         }
     }
 
-    pub fn receive_blocking(
-        &mut self,
-        should_delete: Option<impl Fn(u64) -> bool>,
-    ) -> Result<ChannelRequestStats> {
-        let mut deleted_paths: Vec<PathBuf> = vec![];
-
+    pub fn receive_blocking(&mut self, should_delete: Option<impl Fn(u64) -> bool>) -> Result<()> {
         for message in self.receiver.iter() {
             match message {
                 ChannelRequest::ListManagedFiles() => {
@@ -274,6 +264,6 @@ impl ChannelRequestHandler {
             }
         }
 
-        Ok(ChannelRequestStats { deleted_paths })
+        Ok(())
     }
 }

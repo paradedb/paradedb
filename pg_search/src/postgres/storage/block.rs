@@ -157,8 +157,6 @@ pub trait MVCCEntry {
     // Required methods
     fn get_xmin(&self) -> pg_sys::TransactionId;
     fn get_xmax(&self) -> pg_sys::TransactionId;
-    fn set_xmin(&mut self, xid: pg_sys::TransactionId);
-    fn set_xmax(&mut self, xid: pg_sys::TransactionId);
 
     // Optional methods
     unsafe fn satisfies_snapshot(&self, snapshot: pg_sys::Snapshot) -> bool {
@@ -175,11 +173,6 @@ pub trait MVCCEntry {
     fn is_deleted(&self) -> bool {
         self.get_xmax() != pg_sys::InvalidTransactionId
     }
-
-    unsafe fn mark_deleted(&mut self) {
-        assert!(self.get_xmax() == pg_sys::InvalidTransactionId);
-        self.set_xmax(pg_sys::GetCurrentTransactionId());
-    }
 }
 
 impl MVCCEntry for DirectoryEntry {
@@ -189,12 +182,6 @@ impl MVCCEntry for DirectoryEntry {
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
     }
-    fn set_xmin(&mut self, xid: pg_sys::TransactionId) {
-        self.xmin = xid;
-    }
-    fn set_xmax(&mut self, xid: pg_sys::TransactionId) {
-        self.xmax = xid;
-    }
 }
 
 impl MVCCEntry for SegmentMetaEntry {
@@ -203,12 +190,6 @@ impl MVCCEntry for SegmentMetaEntry {
     }
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
-    }
-    fn set_xmin(&mut self, xid: pg_sys::TransactionId) {
-        self.xmin = xid;
-    }
-    fn set_xmax(&mut self, xid: pg_sys::TransactionId) {
-        self.xmax = xid;
     }
 }
 

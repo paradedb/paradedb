@@ -80,7 +80,7 @@ pub extern "C" fn amvacuumcleanup(
             request_receiver.clone(),
         );
 
-        let blocking_stats = handler
+        handler
             .receive_blocking(Some(|_| false))
             .expect("blocking handler should succeed");
 

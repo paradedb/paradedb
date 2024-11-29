@@ -3184,7 +3184,6 @@ dependencies = [
  "derive_more",
  "fixture",
  "humansize",
- "itertools 0.13.0",
  "json5",
  "libc",
  "memoffset",

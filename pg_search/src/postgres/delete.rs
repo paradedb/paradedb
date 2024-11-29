@@ -96,7 +96,7 @@ pub extern "C" fn ambulkdelete(
             }
         });
 
-        let blocking_stats = handler.receive_blocking(should_delete).unwrap();
+        handler.receive_blocking(should_delete).unwrap();
 
         if stats.is_null() {
             stats = unsafe {
@@ -107,7 +107,7 @@ pub extern "C" fn ambulkdelete(
             stats.pages_deleted = 0;
         }
 
-        stats.pages_deleted += blocking_stats.deleted_paths.len() as u32;
+        // TODO: Update stats
         stats.into_pg()
     })
 }

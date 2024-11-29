@@ -17,6 +17,7 @@
 
 use anyhow::Result;
 use pgrx::pg_sys;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -229,9 +230,7 @@ impl Directory for BlockingDirectory {
                     .position(|segment| segment.id() == entry.meta.segment_id)
                 {
                     new_segments.remove(index);
-                } else if entry.xmax == pg_sys::InvalidTransactionId
-                    && entry.satisfies_snapshot(snapshot)
-                {
+                } else if !entry.is_deleted() && entry.satisfies_snapshot(snapshot) {
                     let entry_with_xmax = SegmentMetaEntry {
                         xmax: current_xid,
                         ..entry.clone()
@@ -345,11 +344,15 @@ impl Directory for BlockingDirectory {
 
                 // TODO: Verify if this is correct
                 // Are opstamps of successive commits guaranteed to be monotonically increasing?
-                if entry.xmin > max_xmin {
-                    max_xmin = entry.xmin;
-                    opstamp = entry.opstamp;
-                } else if entry.xmin == max_xmin {
-                    opstamp = entry.opstamp.max(opstamp);
+                match entry.xmin.cmp(&max_xmin) {
+                    Ordering::Greater => {
+                        max_xmin = entry.xmin;
+                        opstamp = entry.opstamp;
+                    }
+                    Ordering::Equal => {
+                        opstamp = entry.opstamp.max(opstamp);
+                    }
+                    Ordering::Less => {}
                 }
             }
         }

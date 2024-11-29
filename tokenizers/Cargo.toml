@@ -4,7 +4,7 @@ version = { workspace = true }
 edition = { workspace = true }
 
 [features]
-icu = ["rust_icu_ubrk", "rust_icu_sys", "rust_icu_uloc", "rust_icu_ustring"]
+icu = ["rust_icu"]
 
 [dependencies]
 anyhow = "1.0.87"
@@ -26,28 +26,13 @@ tracing = "0.1.40"
 strum_macros = "0.26.4"
 strum = { version = "0.26.3", features = ["derive"] }
 
-[dependencies.rust_icu_ubrk]
+[dependencies.rust_icu]
 version = "5.0.0"
 optional = true
-
-[dependencies.rust_icu_sys]
-version = "5.0.0"
-optional = true
-
-[dependencies.rust_icu_ustring]
-version = "5.0.0"
-optional = true
-
-[dependencies.rust_icu_uloc]
-version = "5.0.0"
-optional = true
+features = ["static"]
 
 [dev-dependencies]
 rstest = "0.18.2"
 
-[dependencies.rust_icu_common]
-version = "5.0.0"
-optional = true
-
 [package.metadata.cargo-machete]
-ignored = ["rust_icu_common", "strum"]
+ignored = ["rust_icu", "strum"]

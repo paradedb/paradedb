@@ -355,4 +355,42 @@ mod tests {
             .lookup(entries_to_delete[1].clone(), |a, b| a.path == b.path)
             .is_ok());
     }
+
+    #[pg_test]
+    unsafe fn test_linked_items_list_all_items() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+        let entries = vec![
+            DirectoryEntry {
+                path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+                start: 10,
+                total_bytes: 100 as usize,
+                xmin: 1,
+                xmax: 2,
+            },
+            DirectoryEntry {
+                path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+                start: 12,
+                total_bytes: 200 as usize,
+                xmin: 3,
+                xmax: 4,
+            },
+        ];
+
+        list.add_items(entries.clone()).unwrap();
+        let items = list.list_all_items().unwrap();
+        assert_eq!(
+            items
+                .into_iter()
+                .map(|(entry, _, _)| entry)
+                .collect::<Vec<_>>(),
+            entries
+        );
+    }
 }

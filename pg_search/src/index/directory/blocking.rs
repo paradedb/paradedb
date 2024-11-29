@@ -39,8 +39,6 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
 
-use itertools::Itertools;
-
 /// Tantivy Directory trait implementation over block storage
 #[derive(Clone, Debug)]
 pub struct BlockingDirectory {
@@ -68,6 +66,7 @@ impl BlockingDirectory {
 }
 
 impl Directory for BlockingDirectory {
+    /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
         let (opaque, _, _) = unsafe {
             self.directory_lookup(path)
@@ -81,7 +80,7 @@ impl Directory for BlockingDirectory {
             SegmentComponentReader::new(self.relation_oid, opaque)
         }))
     }
-
+    /// Returns a segment writer that implements std::io::Write
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
         let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
         Ok(io::BufWriter::with_capacity(
@@ -89,21 +88,20 @@ impl Directory for BlockingDirectory {
             Box::new(result),
         ))
     }
-
     /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
     /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
     fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
         unimplemented!("atomic_write should not be called for {:?}", path);
     }
-
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
     /// This function should never be called by our Tantivy fork because we read from them ourselves
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
         unimplemented!("atomic_read should not be called for {:?}", path);
     }
-
+    /// delete is called by Tantivy's garbage collection
+    /// We handle this ourselves in amvacuumcleanup
     fn delete(&self, _path: &Path) -> result::Result<(), DeleteError> {
-        unimplemented!("BlockingDirectory should not call delete");
+        Ok(())
     }
 
     // Internally, Tantivy only uses this for meta.json, which should always exist
@@ -112,6 +110,7 @@ impl Directory for BlockingDirectory {
     }
 
     // We have done the work to ensure that Tantivy locks are not needed, only Postgres locks
+    // This is a no-op, returning a lock doesn't actually lock anything
     fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
         Ok(DirectoryLock::from(Box::new(Lock {
             filepath: lock.filepath.clone(),
@@ -119,9 +118,8 @@ impl Directory for BlockingDirectory {
         })))
     }
 
-    // Internally, tantivy only uses this API to detect new commits to implement the
-    // `OnCommitWithDelay` `ReloadPolicy`. Not implementing watch in a `Directory` only prevents
-    // the `OnCommitWithDelay` `ReloadPolicy` to work properly.
+    // Tantivy only uses this API to detect new commits to implement the
+    // `OnCommitWithDelay` `ReloadPolicy`. We do not want this reload policy in Postgres.
     fn watch(&self, _watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
         unimplemented!("OnCommitWithDelay ReloadPolicy not supported");
     }
@@ -132,6 +130,8 @@ impl Directory for BlockingDirectory {
         Ok(())
     }
 
+    /// Returns a list of all segment components to Tantivy,
+    /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
         unsafe {
             let metadata = bm25_metadata(self.relation_oid);
@@ -162,6 +162,7 @@ impl Directory for BlockingDirectory {
         Ok(())
     }
 
+    /// Saves a Tantivy IndexMeta to block storage
     fn save_metas(&self, meta: &IndexMeta) -> tantivy::Result<()> {
         let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
         let metadata = unsafe { bm25_metadata(self.relation_oid) };
@@ -213,19 +214,12 @@ impl Directory for BlockingDirectory {
 
         crate::log_message(&format!(
             "-- SAVING {} {:?}",
-            current_xid,
-            new_segments
-                .clone()
-                .into_iter()
-                .map(|s| s.id().short_uuid_string())
-                .collect::<Vec<_>>()
-                .into_iter()
-                .sorted()
+            unsafe { pg_sys::GetCurrentTransactionId() },
+            new_segments.iter().map(|s| s.id()).collect::<Vec<_>>()
         ));
 
         // Mark old SegmentMeta entries as deleted
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-
         unsafe {
             for (entry, blockno, offsetno) in segment_metas.list_all_items().unwrap() {
                 if let Some(index) = new_segments
@@ -290,11 +284,7 @@ impl Directory for BlockingDirectory {
                     && entry.xmax == pg_sys::InvalidTransactionId
                     && is_entry_visible(entry.xmin, entry.xmax, snapshot)
                 {
-                    crate::log_message(&format!(
-                        "-- DELETED directory entry {} {:?}",
-                        current_xid, entry.path
-                    ));
-
+                    // Delete the entry
                     let entry_with_xmax = DirectoryEntry {
                         xmax: current_xid,
                         ..entry.clone()
@@ -312,6 +302,20 @@ impl Directory for BlockingDirectory {
 
                     pg_sys::MarkBufferDirty(buffer);
                     pg_sys::UnlockReleaseBuffer(buffer);
+
+                    // Delete the corresponding segment component
+                    let segment_component = LinkedBytesList::open_with_lock(
+                        self.relation_oid,
+                        entry.start,
+                        Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+                    );
+                    crate::log_message(&format!(
+                        "-- DELETING COMPONENT {} blockno {} {:?}",
+                        unsafe { pg_sys::GetCurrentTransactionId() },
+                        entry.start.clone(),
+                        entry.path.clone()
+                    ));
+                    segment_component.delete();
                 }
             }
         }
@@ -331,19 +335,13 @@ impl Directory for BlockingDirectory {
         let mut opstamp = 0;
         let mut max_xmin = 0;
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let in_progress: &[u32] = if snapshot.is_null() || unsafe { (*snapshot).xip.is_null() } {
-            &[]
-        } else {
-            unsafe { from_raw_parts((*snapshot).xip, (*snapshot).xcnt as usize) }
-        };
-
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
             let visible = unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) };
             if visible {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));
 
-                // TODO: Store optstamps separately
+                // TODO: Is this okay? Are opstamps of successive commits guaranteed to be increasing?
                 if entry.xmin > max_xmin {
                     max_xmin = entry.xmin;
                     opstamp = entry.opstamp;

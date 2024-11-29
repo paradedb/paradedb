@@ -72,7 +72,7 @@ pub struct MetaPageData {
 #[derive(Debug)]
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
-    pub xmax: pg_sys::TransactionId,
+    pub xmax: pg_sys::FullTransactionId,
 }
 
 /// Every linked list should start with a page that holds metadata about the linked list
@@ -154,27 +154,61 @@ impl From<PgItem> for SegmentMetaEntry {
 }
 
 pub trait MVCCEntry {
-    fn xmin(&self) -> pg_sys::TransactionId;
-    fn xmax(&self) -> pg_sys::TransactionId;
+    // Required methods
+    fn get_xmin(&self) -> pg_sys::TransactionId;
+    fn get_xmax(&self) -> pg_sys::TransactionId;
+    fn set_xmin(&mut self, xid: pg_sys::TransactionId);
+    fn set_xmax(&mut self, xid: pg_sys::TransactionId);
+
+    // Optional methods
+    unsafe fn satisfies_snapshot(&self, snapshot: pg_sys::Snapshot) -> bool {
+        let xmin = self.get_xmin();
+        let xmax = self.get_xmax();
+        let xmin_visible =
+            !pg_sys::XidInMVCCSnapshot(xmin, snapshot) && pg_sys::TransactionIdDidCommit(xmin);
+        let deleted = xmax != pg_sys::InvalidTransactionId
+            && !pg_sys::XidInMVCCSnapshot(xmax, snapshot)
+            && pg_sys::TransactionIdDidCommit(xmax);
+        xmin_visible && !deleted
+    }
+
+    fn is_deleted(&self) -> bool {
+        self.get_xmax() != pg_sys::InvalidTransactionId
+    }
+
+    unsafe fn mark_deleted(&mut self) {
+        assert!(self.get_xmax() == pg_sys::InvalidTransactionId);
+        self.set_xmax(pg_sys::GetCurrentTransactionId());
+    }
 }
 
 impl MVCCEntry for DirectoryEntry {
-    fn xmin(&self) -> pg_sys::TransactionId {
+    fn get_xmin(&self) -> pg_sys::TransactionId {
         self.xmin
     }
-
-    fn xmax(&self) -> pg_sys::TransactionId {
+    fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
+    }
+    fn set_xmin(&mut self, xid: pg_sys::TransactionId) {
+        self.xmin = xid;
+    }
+    fn set_xmax(&mut self, xid: pg_sys::TransactionId) {
+        self.xmax = xid;
     }
 }
 
 impl MVCCEntry for SegmentMetaEntry {
-    fn xmin(&self) -> pg_sys::TransactionId {
+    fn get_xmin(&self) -> pg_sys::TransactionId {
         self.xmin
     }
-
-    fn xmax(&self) -> pg_sys::TransactionId {
+    fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
+    }
+    fn set_xmin(&mut self, xid: pg_sys::TransactionId) {
+        self.xmin = xid;
+    }
+    fn set_xmax(&mut self, xid: pg_sys::TransactionId) {
+        self.xmax = xid;
     }
 }
 

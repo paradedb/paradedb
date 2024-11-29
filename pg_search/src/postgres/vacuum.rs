@@ -130,6 +130,10 @@ pub extern "C" fn amvacuumcleanup(
                 let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
                 let page = pg_sys::BufferGetPage(buffer);
                 if page.recyclable(heap_relation) {
+                    crate::log_message(&format!(
+                        "Returning recyclable page {} to the free space map",
+                        blockno
+                    ));
                     cache.record_free_index_page(blockno);
                 }
                 pg_sys::UnlockReleaseBuffer(buffer);
@@ -158,15 +162,17 @@ where
 
     let mut entries_to_keep = vec![];
     for (entry, _, _) in old_list.list_all_items()? {
-        let xmax = entry.xmax();
+        let xmax = entry.get_xmax();
         if xmax == pg_sys::InvalidTransactionId
-            || !pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.xmax())
+            || !pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
         {
             entries_to_keep.push(entry);
         } else {
             crate::log_message(&format!("-- Vacuuming entry {:?}", entry));
         }
     }
+
+    old_list.delete();
 
     let mut new_list = LinkedItemList::<T>::create(index_oid);
     new_list.write(entries_to_keep)?;

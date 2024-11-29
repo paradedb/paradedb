@@ -31,13 +31,12 @@ impl BM25Page for pg_sys::Page {
 
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
         (*special).next_blockno = pg_sys::InvalidBlockNumber;
-        (*special).xmax = pg_sys::InvalidTransactionId;
+        (*special).xmax = pg_sys::FullTransactionId::default();
     }
 
     unsafe fn mark_deleted(self) {
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
-        (*special).next_blockno = pg_sys::InvalidBlockNumber;
-        (*special).xmax = pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
+        (*special).xmax = pg_sys::ReadNextFullTransactionId();
     }
 
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool {
@@ -46,11 +45,16 @@ impl BM25Page for pg_sys::Page {
         }
 
         let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
-        if (*special).xmax == pg_sys::InvalidTransactionId {
+        if (*special).xmax.value == pg_sys::FullTransactionId::default().value {
             return false;
         }
 
-        pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
+        // let snapshot = pg_sys::GetActiveSnapshot();
+        // if pg_sys::XidInMVCCSnapshot((*special).xmax.value as u32, snapshot) {
+        //     return false;
+        // }
+
+        pg_sys::GlobalVisCheckRemovableFullXid(heap_relation, (*special).xmax)
     }
 }
 

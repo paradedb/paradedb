@@ -28,7 +28,7 @@ use crate::index::directory::blocking::BlockingDirectory;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::SEGMENT_METAS_START;
-use crate::postgres::storage::linked_list::LinkedItemList;
+use crate::postgres::storage::LinkedItemList;
 use crate::{
     index::SearchIndex,
     postgres::storage::block::SegmentMetaEntry,

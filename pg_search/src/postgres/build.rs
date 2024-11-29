@@ -22,7 +22,7 @@ use crate::postgres::storage::block::{
     DirectoryEntry, SegmentMetaEntry, DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START,
     SETTINGS_START,
 };
-use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::row_to_search_document;
 use pgrx::*;
 use std::ffi::CStr;

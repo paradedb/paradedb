@@ -8,8 +8,8 @@ use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
-use crate::postgres::storage::linked_list::LinkedBytesList;
 use crate::postgres::storage::utils::BM25BufferCache;
+use crate::postgres::storage::LinkedBytesList;
 
 #[derive(Clone, Debug)]
 pub struct SegmentComponentReader {

@@ -37,8 +37,8 @@ use crate::postgres::storage::block::{
     bm25_max_free_space, DirectoryEntry, MVCCEntry, PgItem, SegmentMetaEntry, DIRECTORY_START,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
-use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 
 /// Tantivy Directory trait implementation over block storage
 #[derive(Clone, Debug)]

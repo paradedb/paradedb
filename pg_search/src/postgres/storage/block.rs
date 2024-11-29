@@ -60,6 +60,8 @@ pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the 
 pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 /// Special data struct for the metadata page, located at METADATA_BLOCKNO
+/// This values should be set once at index build and never changed
+/// Changing them will introduce significant complexity around MVCC correctness
 #[derive(Debug)]
 pub struct MetaPageData {
     pub directory_start: pg_sys::BlockNumber,

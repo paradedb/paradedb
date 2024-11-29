@@ -161,10 +161,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         pg_sys::UnlockReleaseBuffer(start_buffer);
 
         // Write garbage collected entries
-        self.write(entries_to_keep)
+        self.add_items(entries_to_keep)
     }
 
-    pub unsafe fn write(&mut self, items: Vec<T>) -> Result<()> {
+    pub unsafe fn add_items(&mut self, items: Vec<T>) -> Result<()> {
         let cache = BM25BufferCache::open(self.relation_oid);
         let insert_blockno = self.get_last_blockno();
 
@@ -302,5 +302,57 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for Linked
                 }
             }
         };
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    use crate::postgres::storage::block::DirectoryEntry;
+
+    #[pg_test]
+    unsafe fn test_linked_items_garbage_collect() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let snapshot = pg_sys::GetActiveSnapshot();
+        let delete_xid = (*snapshot).xmin - 1;
+        let keep_xid = (*snapshot).xmin + 1;
+
+        let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+        let entries_to_delete = vec![
+            DirectoryEntry {
+                path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+                start: 10,
+                total_bytes: 100 as usize,
+                xmin: delete_xid,
+                xmax: delete_xid,
+            },
+            DirectoryEntry {
+                path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+                start: 12,
+                total_bytes: 200 as usize,
+                xmin: keep_xid,
+                xmax: keep_xid,
+            },
+        ];
+        list.add_items(entries_to_delete.clone()).unwrap();
+        list.garbage_collect().unwrap();
+
+        assert!(list
+            .lookup(entries_to_delete[0].clone(), |a, b| a.path == b.path)
+            .is_err());
+        assert!(list
+            .lookup(entries_to_delete[1].clone(), |a, b| a.path == b.path)
+            .is_ok());
     }
 }

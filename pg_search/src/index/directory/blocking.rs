@@ -257,7 +257,7 @@ impl Directory for BlockingDirectory {
 
         unsafe {
             segment_metas
-                .write(entries)
+                .add_items(entries)
                 .expect("save new metas should succeed");
         }
 

@@ -72,7 +72,7 @@ pub struct MetaPageData {
 #[derive(Debug)]
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
-    pub xmax: pg_sys::FullTransactionId,
+    pub xmax: pg_sys::TransactionId,
 }
 
 /// Every linked list should start with a page that holds metadata about the linked list

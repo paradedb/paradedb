@@ -159,10 +159,12 @@ where
     let mut entries_to_keep = vec![];
     for (entry, _, _) in old_list.list_all_items()? {
         let xmax = entry.xmax();
-        if xmax == pg_sys::InvalidTransactionId {
+        if xmax == pg_sys::InvalidTransactionId
+            || !pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.xmax())
+        {
             entries_to_keep.push(entry);
-        } else if !pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.xmax()) {
-            entries_to_keep.push(entry);
+        } else {
+            crate::log_message(&format!("-- Vacuuming entry {:?}", entry));
         }
     }
 

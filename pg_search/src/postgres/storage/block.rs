@@ -38,14 +38,14 @@
 // ...
 // Item: [<PathBuf>, BlockNumber, ssize_t, TransactionId]
 // ...LP_UPPER
-// LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
+// LP_SPECIAL: [next_page BlockNumber, xmax TransactionId]
 
 // # segment file data
 
 // ...LP_LOWER
 // [u8 byte data]
 // ...LP_UPPER
-// LP_SPECIAL: [next_page BlockNumber, delete_xid TransactionId]
+// LP_SPECIAL: [next_page BlockNumber, xmax TransactionId]
 
 use super::utils::BM25BufferCache;
 use anyhow::bail;
@@ -72,7 +72,7 @@ pub struct MetaPageData {
 #[derive(Debug)]
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
-    pub delete_xid: pg_sys::FullTransactionId,
+    pub xmax: pg_sys::TransactionId,
 }
 
 /// Every linked list should start with a page that holds metadata about the linked list

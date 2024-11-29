@@ -279,12 +279,19 @@ impl Directory for BlockingDirectory {
         let segment_ids = meta.segments.iter().map(|s| s.id()).collect::<HashSet<_>>();
 
         unsafe {
+            let snapshot = pg_sys::GetActiveSnapshot();
             for (entry, blockno, offsetno) in directory.list_all_items().unwrap() {
                 let SegmentComponentId(entry_segment_id) =
                     SegmentComponentPath(entry.path.clone()).try_into().unwrap();
                 if !segment_ids.contains(&entry_segment_id)
                     && entry.xmax == pg_sys::InvalidTransactionId
+                    && is_entry_visible(entry.xmin, entry.xmax, snapshot)
                 {
+                    crate::log_message(&format!(
+                        "-- DELETED directory entry {} {:?}",
+                        current_xid, entry.path
+                    ));
+
                     let entry_with_xmax = DirectoryEntry {
                         xmax: current_xid,
                         ..entry.clone()
@@ -329,21 +336,6 @@ impl Directory for BlockingDirectory {
 
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
             let visible = unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) };
-
-            unsafe {
-                crate::log_message(&format!(
-                    "-- CHECKING {} {:?}: VISIBLE {}, ENTRY XMIN {}, ENTRY XMAX {}, SNAPSHOT XMIN {}, SNAPSHOT XMAX {}, SNAPSHOT XIP {:?}",
-                    unsafe { pg_sys::GetCurrentTransactionId() },
-                    entry.meta.segment_id.short_uuid_string(),
-                    visible,
-                    entry.xmin,
-                    entry.xmax,
-                    (*snapshot).xmin,
-                    (*snapshot).xmax,
-                    in_progress.to_vec()
-                ));
-            }
-
             if visible {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));
@@ -357,18 +349,6 @@ impl Directory for BlockingDirectory {
                 }
             }
         }
-
-        crate::log_message(&format!(
-            "-- LOADED {} {:?}",
-            unsafe { pg_sys::GetCurrentTransactionId() },
-            alive_segments
-                .clone()
-                .into_iter()
-                .map(|s| s.id().short_uuid_string())
-                .collect::<Vec<_>>()
-                .into_iter()
-                .sorted()
-        ));
 
         let schema = LinkedBytesList::open_with_lock(
             self.relation_oid,

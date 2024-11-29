@@ -15,10 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::blocking::BlockingDirectory;
+use crate::index::channel::{
+    ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
+};
 use crate::index::WriterResources;
-use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::storage::block::{bm25_metadata, DirectoryEntry, SegmentMetaEntry};
+use crate::postgres::storage::linked_list::LinkedItemList;
+use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use pgrx::*;
+use tantivy::index::Index;
+use tantivy::IndexWriter;
 
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
@@ -26,46 +34,97 @@ pub extern "C" fn amvacuumcleanup(
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = unsafe { PgBox::from_pg(info) };
-    let mut stats = stats;
-
     if info.analyze_only {
         return stats;
     }
 
-    if stats.is_null() {
-        stats =
-            unsafe { pg_sys::palloc0(std::mem::size_of::<pg_sys::IndexBulkDeleteResult>()).cast() };
-    }
-
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
-    let index_name = index_relation.name();
-
-    let search_index =
-        open_search_index(&index_relation).expect("should be able to open search index");
+    let index_oid = index_relation.oid();
     let options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-    let mut writer = search_index
-        .get_writer(WriterResources::Vacuum, unsafe {
-            options.as_ref().unwrap()
-        })
-        .unwrap_or_else(|err| panic!("error loading index writer from directory: {err}"));
+    let (parallelism, memory_budget, _, _) =
+        WriterResources::Vacuum.resources(unsafe { options.as_ref().unwrap() });
 
-    // Garbage collect the index and clear the writer cache to free up locks.
-    search_index
-        .vacuum(&writer)
-        .unwrap_or_else(|err| panic!("error during vacuum on index {index_name}: {err:?}"));
+    let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
+    let (response_sender, response_receiver) = crossbeam::channel::unbounded::<ChannelResponse>();
+    let (request_sender_clone, response_receiver_clone) =
+        (request_sender.clone(), response_receiver.clone());
 
-    // we also need to make sure segments get merged.
-    //
-    // we can force this by doing a .commit(), even tho we don't have changes
-    // then directly taking control of the underlying_writer and waiting for the merge threads
-    // to complete
-    writer.commit().expect("commit should succeed");
-    writer
-        .underlying_writer
-        .take()
-        .unwrap()
-        .wait_merging_threads()
-        .expect("wait_merging_threads() should succeed");
+    // Let Tantivy merge and garbage collect segments
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let channel_directory = ChannelDirectory::new(
+                request_sender_clone.clone(),
+                response_receiver_clone.clone(),
+            );
+            let channel_index = Index::open(channel_directory).expect("channel index should open");
+            let mut writer: IndexWriter = channel_index
+                .writer_with_num_threads(parallelism.into(), memory_budget)
+                .unwrap();
 
+            writer.commit().unwrap();
+            writer.wait_merging_threads().unwrap();
+            request_sender_clone
+                .send(ChannelRequest::Terminate)
+                .unwrap();
+        });
+
+        let blocking_directory = BlockingDirectory::new(index_oid);
+        let mut handler = ChannelRequestHandler::open(
+            blocking_directory,
+            index_oid,
+            response_sender.clone(),
+            request_receiver.clone(),
+        );
+
+        handler
+            .receive_blocking(Some(|_| false))
+            .expect("blocking handler should succeed");
+
+        // Garbage collect linked lists
+        // If new LinkedItemLists are created they should be garbage collected here
+        let metadata = unsafe { bm25_metadata(index_oid) };
+        unsafe {
+            let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
+                index_oid,
+                metadata.directory_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            directory
+                .garbage_collect()
+                .expect("garbage collection should succeed");
+        }
+        unsafe {
+            let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
+                index_oid,
+                metadata.segment_metas_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            segment_metas
+                .garbage_collect()
+                .expect("garbage collection should succeed");
+        }
+
+        // Return all recyclable pages to the free space map
+        unsafe {
+            let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+                info.index,
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            );
+            let cache = BM25BufferCache::open(index_oid);
+            let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
+            let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
+
+            for blockno in 0..nblocks {
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                let page = pg_sys::BufferGetPage(buffer);
+                if page.recyclable(heap_relation) {
+                    cache.record_free_index_page(blockno);
+                }
+                pg_sys::UnlockReleaseBuffer(buffer);
+            }
+            pg_sys::IndexFreeSpaceMapVacuum(info.index);
+        }
+    });
+    // TODO: Update stats
     stats
 }

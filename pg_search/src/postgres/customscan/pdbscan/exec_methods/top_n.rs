@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::index::SearchIndex;
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};

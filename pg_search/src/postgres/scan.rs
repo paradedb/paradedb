@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::reader::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::index::SearchIndex;
 use crate::postgres::index::open_search_index;
 use crate::postgres::options::SearchIndexCreateOptions;

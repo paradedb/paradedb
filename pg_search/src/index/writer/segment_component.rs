@@ -3,7 +3,7 @@ use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 use tantivy::directory::{AntiCallToken, TerminatingWrite};
 
-use crate::postgres::storage::block::{bm25_metadata, DirectoryEntry};
+use crate::postgres::storage::block::{DirectoryEntry, DIRECTORY_START};
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 
 #[derive(Clone, Debug)]
@@ -48,10 +48,9 @@ impl Write for SegmentComponentWriter {
 impl TerminatingWrite for SegmentComponentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
         unsafe {
-            let metadata = bm25_metadata(self.relation_oid);
             let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
                 self.relation_oid,
-                metadata.directory_start,
+                DIRECTORY_START,
                 Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
             );
             let entry = DirectoryEntry {

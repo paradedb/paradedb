@@ -15,13 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::directory::blocking::BlockingDirectory;
-use crate::index::directory::channel::{
-    ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
-};
-use crate::index::SearchIndex;
-use crate::query::SearchQueryInput;
-use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::cmp::Ordering;
@@ -37,8 +30,13 @@ use tantivy::{
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
-use crate::postgres::storage::block::METADATA_BLOCKNO;
-use crate::postgres::storage::utils::BM25BufferCache;
+use crate::index::directory::blocking::BlockingDirectory;
+use crate::index::directory::channel::{
+    ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
+};
+use crate::index::SearchIndex;
+use crate::query::SearchQueryInput;
+use crate::schema::{SearchFieldName, SearchIndexSchema};
 
 /// Represents a matching document from a tantivy search.  Typically it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -353,10 +351,6 @@ impl SearchIndexReader {
         //     SearchResults::Channel(receiver.into_iter())
         // }
 
-        let cache = unsafe { BM25BufferCache::open(self.index_oid) };
-        let lock =
-            unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
-
         let (search_sender, search_receiver) = crossbeam::channel::unbounded();
         let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
         let (response_sender, response_receiver) =
@@ -407,8 +401,6 @@ impl SearchIndexReader {
             request_receiver,
         );
         handler.receive_blocking(Some(|_| false)).unwrap();
-
-        unsafe { pgrx::pg_sys::UnlockReleaseBuffer(lock) };
         SearchResults::Channel(search_receiver.into_iter())
     }
 

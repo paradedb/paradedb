@@ -33,8 +33,9 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_metadata, DirectoryEntry, MVCCEntry, PgItem, SegmentComponentId,
-    SegmentComponentPath, SegmentMetaEntry,
+    bm25_max_free_space, DirectoryEntry, MVCCEntry, PgItem, SegmentComponentId,
+    SegmentComponentPath, SegmentMetaEntry, DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START,
+    SETTINGS_START,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;
@@ -54,10 +55,9 @@ impl BlockingDirectory {
         &self,
         path: &Path,
     ) -> Result<(DirectoryEntry, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        let metadata = bm25_metadata(self.relation_oid);
         let directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
             self.relation_oid,
-            metadata.directory_start,
+            DIRECTORY_START,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
         let result = directory.lookup(path, |opaque, path| opaque.path == *path)?;
@@ -137,10 +137,9 @@ impl Directory for BlockingDirectory {
     /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
         unsafe {
-            let metadata = bm25_metadata(self.relation_oid);
             let segment_components = LinkedItemList::<DirectoryEntry>::open_with_lock(
                 self.relation_oid,
-                metadata.directory_start,
+                DIRECTORY_START,
                 Some(pg_sys::BUFFER_LOCK_SHARE),
             );
 
@@ -168,13 +167,12 @@ impl Directory for BlockingDirectory {
     /// Saves a Tantivy IndexMeta to block storage
     fn save_metas(&self, meta: &IndexMeta) -> tantivy::Result<()> {
         let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
-        let metadata = unsafe { bm25_metadata(self.relation_oid) };
 
         // Save Tantivy Schema if this is the first commit
         {
             let mut schema = LinkedBytesList::open_with_lock(
                 self.relation_oid,
-                metadata.schema_start,
+                SCHEMA_START,
                 Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
             );
 
@@ -189,7 +187,7 @@ impl Directory for BlockingDirectory {
         {
             let mut settings = LinkedBytesList::open_with_lock(
                 self.relation_oid,
-                metadata.settings_start,
+                SETTINGS_START,
                 Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
             );
 
@@ -211,7 +209,7 @@ impl Directory for BlockingDirectory {
         let mut new_segments = meta.segments.clone();
         let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
             self.relation_oid,
-            metadata.segment_metas_start,
+            SEGMENT_METAS_START,
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
         );
 
@@ -266,7 +264,7 @@ impl Directory for BlockingDirectory {
         // Mark old DirectoryEntry entries as deleted
         let directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
             self.relation_oid,
-            metadata.directory_start,
+            DIRECTORY_START,
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
         );
         let segment_ids = meta.segments.iter().map(|s| s.id()).collect::<HashSet<_>>();
@@ -313,10 +311,9 @@ impl Directory for BlockingDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        let metadata = unsafe { bm25_metadata(self.relation_oid) };
         let segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
             self.relation_oid,
-            metadata.segment_metas_start,
+            SEGMENT_METAS_START,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
 
@@ -346,7 +343,7 @@ impl Directory for BlockingDirectory {
 
         let schema = LinkedBytesList::open_with_lock(
             self.relation_oid,
-            metadata.schema_start,
+            SCHEMA_START,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
         let deserialized_schema = serde_json::from_slice(unsafe { &schema.read_all() })
@@ -354,7 +351,7 @@ impl Directory for BlockingDirectory {
 
         let settings = LinkedBytesList::open_with_lock(
             self.relation_oid,
-            metadata.settings_start,
+            SETTINGS_START,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
         let deserialized_settings = serde_json::from_slice(unsafe { &settings.read_all() })

@@ -21,14 +21,10 @@ use crate::index::channel::{
 };
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::{
-    DirectoryEntry, MVCCEntry, MetaPageData, PgItem, SegmentMetaEntry, METADATA_BLOCKNO,
-};
+use crate::postgres::storage::block::{bm25_metadata, DirectoryEntry, SegmentMetaEntry};
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
-use anyhow::Result;
 use pgrx::*;
-use std::fmt::Debug;
 use tantivy::index::Index;
 use tantivy::IndexWriter;
 
@@ -84,44 +80,36 @@ pub extern "C" fn amvacuumcleanup(
             .receive_blocking(Some(|_| false))
             .expect("blocking handler should succeed");
 
-        // Vacuum all linked lists
-        // If a new LinkedItemList is created, it should be vacuumed here
-        let cache = unsafe { BM25BufferCache::open(index_oid) };
-        let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
-        let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
-
-        // Hold an exclusive lock on the metadata page since we're changing the addresses of the
-        // linked lists
+        let metadata = unsafe { bm25_metadata(index_oid) };
         unsafe {
-            let metadata_buffer =
-                cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-            let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-
-            let new_directory_start = vacuum_entries::<DirectoryEntry>(
+            let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
                 index_oid,
-                heap_relation,
-                (*metadata).directory_start,
-            )
-            .expect("vacuum entries should succeed");
-
-            let new_segment_metas_start = vacuum_entries::<SegmentMetaEntry>(
+                metadata.directory_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            directory
+                .garbage_collect()
+                .expect("garbage collection should succeed");
+        }
+        unsafe {
+            let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
                 index_oid,
-                heap_relation,
-                (*metadata).segment_metas_start,
-            )
-            .expect("vacuum entries should succeed");
-
-            (*metadata).directory_start = new_directory_start;
-            (*metadata).segment_metas_start = new_segment_metas_start;
-            pg_sys::MarkBufferDirty(metadata_buffer);
-            pg_sys::UnlockReleaseBuffer(metadata_buffer);
+                metadata.segment_metas_start,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            segment_metas
+                .garbage_collect()
+                .expect("garbage collection should succeed");
         }
 
         // Return all recyclable pages to the free space map
         let nblocks = unsafe {
             pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM)
         };
+
+        let cache = unsafe { BM25BufferCache::open(index_oid) };
+        let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
+        let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
 
         for blockno in 0..nblocks {
             unsafe {
@@ -134,43 +122,8 @@ pub extern "C" fn amvacuumcleanup(
             }
         }
 
-        unsafe {
-            pg_sys::RelationClose(heap_relation);
-            pg_sys::IndexFreeSpaceMapVacuum(info.index)
-        };
+        unsafe { pg_sys::IndexFreeSpaceMapVacuum(info.index) };
     });
     // TODO: Update stats
     stats
-}
-
-unsafe fn vacuum_entries<T>(
-    index_oid: pg_sys::Oid,
-    heap_relation: pg_sys::Relation,
-    start: pg_sys::BlockNumber,
-) -> Result<pg_sys::BlockNumber>
-where
-    T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry,
-{
-    let old_list =
-        LinkedItemList::<T>::open_with_lock(index_oid, start, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-
-    let mut entries_to_keep = vec![];
-    let snapshot = pg_sys::GetActiveSnapshot();
-
-    for (entry, _, _) in old_list.list_all_items()? {
-        let definitely_deleted = entry.is_deleted()
-            && !pg_sys::XidInMVCCSnapshot(entry.get_xmax(), snapshot)
-            && pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.get_xmax());
-        if !definitely_deleted {
-            entries_to_keep.push(entry);
-        } else {
-            crate::log_message(&format!("-- VACUUM DELETING {:?}", entry));
-        }
-    }
-
-    old_list.mark_deleted();
-
-    let mut new_list = LinkedItemList::<T>::create(index_oid);
-    new_list.write(entries_to_keep)?;
-    Ok(pg_sys::BufferGetBlockNumber(new_list.lock_buffer))
 }

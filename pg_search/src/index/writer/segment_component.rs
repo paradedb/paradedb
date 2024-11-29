@@ -62,6 +62,12 @@ impl TerminatingWrite for SegmentComponentWriter {
                 xmax: pg_sys::InvalidTransactionId,
             };
 
+            crate::log_message(&format!(
+                "-- ADDING {} {:?}",
+                pg_sys::GetCurrentTransactionId(),
+                entry.path.clone()
+            ));
+
             directory
                 .write(vec![entry])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;

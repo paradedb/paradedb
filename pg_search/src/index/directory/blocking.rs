@@ -343,7 +343,7 @@ impl Directory for BlockingDirectory {
                 alive_segments.push(segment_meta.track(inventory));
 
                 // TODO: Verify if this is correct
-                // Are opstamps of successive commits guaranteed to be monotonically increasing?
+                // Do opstamps of successive commits monotonically increase?
                 match entry.xmin.cmp(&max_xmin) {
                     Ordering::Greater => {
                         max_xmin = entry.xmin;

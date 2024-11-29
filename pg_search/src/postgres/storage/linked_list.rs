@@ -75,9 +75,49 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
-    pub unsafe fn mark_deleted(&self) {
+    pub unsafe fn garbage_collect(&mut self) -> Result<()> {
+        // Collect all entries that are not definitely deleted
+        let mut entries_to_keep = vec![];
+        let snapshot = pg_sys::GetActiveSnapshot();
+        let heap_oid = unsafe { pg_sys::IndexGetRelation(self.relation_oid, false) };
+        let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
+
+        for (entry, _, _) in self.list_all_items()? {
+            let definitely_deleted = entry.is_deleted()
+                && !pg_sys::XidInMVCCSnapshot(entry.get_xmax(), snapshot)
+                && pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.get_xmax());
+            if !definitely_deleted {
+                entries_to_keep.push(entry);
+            }
+        }
+
+        // Mark all buffer as deleted besides the lock buffer
         let cache = BM25BufferCache::open(self.relation_oid);
-        mark_deleted(self.lock_buffer, &cache);
+        let mut blockno = get_start_blockno(self.lock_buffer);
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            blockno = (*special).next_blockno;
+            page.mark_deleted();
+
+            pg_sys::MarkBufferDirty(buffer);
+            pg_sys::UnlockReleaseBuffer(buffer);
+        }
+
+        let start_buffer = cache.new_buffer();
+        let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
+        let lock_page = pg_sys::BufferGetPage(self.lock_buffer);
+        let metadata = pg_sys::PageGetContents(lock_page) as *mut LinkedListData;
+        (*metadata).start_blockno = start_blockno;
+        (*metadata).last_blockno = start_blockno;
+
+        pg_sys::MarkBufferDirty(self.lock_buffer);
+        pg_sys::MarkBufferDirty(start_buffer);
+        pg_sys::UnlockReleaseBuffer(start_buffer);
+
+        // Write garbage collected entries
+        self.write(entries_to_keep)
     }
 
     pub unsafe fn write(&mut self, items: Vec<T>) -> Result<()> {
@@ -354,7 +394,21 @@ impl LinkedBytesList {
 
     pub unsafe fn mark_deleted(&self) {
         let cache = BM25BufferCache::open(self.relation_oid);
-        mark_deleted(self.lock_buffer, &cache);
+        let mut blockno = get_start_blockno(self.lock_buffer);
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            blockno = (*special).next_blockno;
+            page.mark_deleted();
+
+            pg_sys::MarkBufferDirty(buffer);
+            pg_sys::UnlockReleaseBuffer(buffer);
+        }
+
+        let lock_page = pg_sys::BufferGetPage(self.lock_buffer);
+        lock_page.mark_deleted();
+        pg_sys::MarkBufferDirty(self.lock_buffer);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -464,25 +518,6 @@ unsafe fn get_all_blocks(
     }
 
     blocks
-}
-
-#[inline]
-unsafe fn mark_deleted(lock_buffer: pg_sys::Buffer, cache: &BM25BufferCache) {
-    let mut blockno = get_start_blockno(lock_buffer);
-    while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        let page = pg_sys::BufferGetPage(buffer);
-        let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-        blockno = (*special).next_blockno;
-        page.mark_deleted();
-
-        pg_sys::MarkBufferDirty(buffer);
-        pg_sys::UnlockReleaseBuffer(buffer);
-    }
-
-    let lock_page = pg_sys::BufferGetPage(lock_buffer);
-    lock_page.mark_deleted();
-    pg_sys::MarkBufferDirty(lock_buffer);
 }
 
 #[cfg(any(test, feature = "pg_test"))]

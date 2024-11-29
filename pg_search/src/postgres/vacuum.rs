@@ -80,6 +80,8 @@ pub extern "C" fn amvacuumcleanup(
             .receive_blocking(Some(|_| false))
             .expect("blocking handler should succeed");
 
+        // Garbage collect linked lists
+        // If new LinkedItemLists are created they should be garbage collected here
         let metadata = unsafe { bm25_metadata(index_oid) };
         unsafe {
             let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
@@ -103,16 +105,16 @@ pub extern "C" fn amvacuumcleanup(
         }
 
         // Return all recyclable pages to the free space map
-        let nblocks = unsafe {
-            pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM)
-        };
+        unsafe {
+            let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+                info.index,
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            );
+            let cache = BM25BufferCache::open(index_oid);
+            let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
+            let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
-        let cache = unsafe { BM25BufferCache::open(index_oid) };
-        let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, false) };
-        let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
-
-        for blockno in 0..nblocks {
-            unsafe {
+            for blockno in 0..nblocks {
                 let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
                 let page = pg_sys::BufferGetPage(buffer);
                 if page.recyclable(heap_relation) {
@@ -120,9 +122,8 @@ pub extern "C" fn amvacuumcleanup(
                 }
                 pg_sys::UnlockReleaseBuffer(buffer);
             }
+            pg_sys::IndexFreeSpaceMapVacuum(info.index);
         }
-
-        unsafe { pg_sys::IndexFreeSpaceMapVacuum(info.index) };
     });
     // TODO: Update stats
     stats

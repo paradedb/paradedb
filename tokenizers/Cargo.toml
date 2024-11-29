@@ -29,7 +29,6 @@ strum = { version = "0.26.3", features = ["derive"] }
 [dependencies.rust_icu]
 version = "5.0.0"
 optional = true
-features = ["static"]
 
 [dev-dependencies]
 rstest = "0.18.2"

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use tantivy::directory::{AntiCallToken, TerminatingWrite};
 
 use crate::postgres::storage::block::{DirectoryEntry, DIRECTORY_START};
-use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 
 #[derive(Clone, Debug)]
 pub struct SegmentComponentWriter {

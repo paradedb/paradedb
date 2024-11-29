@@ -231,7 +231,6 @@ pub const unsafe fn bm25_max_free_space() -> usize {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use tantivy::index::SegmentId;
     use uuid::Uuid;
 
     #[pg_test]

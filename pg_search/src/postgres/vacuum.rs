@@ -24,8 +24,8 @@ use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
     DirectoryEntry, SegmentMetaEntry, DIRECTORY_START, SEGMENT_METAS_START,
 };
-use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
+use crate::postgres::storage::LinkedItemList;
 use pgrx::*;
 use tantivy::index::Index;
 use tantivy::IndexWriter;

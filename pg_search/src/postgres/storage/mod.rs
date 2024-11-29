@@ -86,5 +86,9 @@
 // +-------------------------------------------------------------+
 
 pub mod block;
-pub mod linked_list;
+pub mod linked_bytes;
+pub mod linked_items;
 pub mod utils;
+
+pub use self::linked_bytes::LinkedBytesList;
+pub use self::linked_items::LinkedItemList;

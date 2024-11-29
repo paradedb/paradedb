@@ -47,7 +47,6 @@
 // ...LP_UPPER
 // LP_SPECIAL: [next_page BlockNumber, xmax TransactionId]
 
-use super::utils::BM25BufferCache;
 use anyhow::bail;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
@@ -56,19 +55,12 @@ use std::path::PathBuf;
 use std::slice::from_raw_parts;
 use tantivy::index::{InnerSegmentMeta, SegmentId};
 
-pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the entire index
-pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
+pub const SCHEMA_START: pg_sys::BlockNumber = 0;
+pub const SETTINGS_START: pg_sys::BlockNumber = 2;
+pub const DIRECTORY_START: pg_sys::BlockNumber = 4;
+pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
-/// Special data struct for the metadata page, located at METADATA_BLOCKNO
-/// This values should be set once at index build and never changed
-/// Changing them will introduce significant complexity around MVCC correctness
-#[derive(Debug)]
-pub struct MetaPageData {
-    pub directory_start: pg_sys::BlockNumber,
-    pub segment_metas_start: pg_sys::BlockNumber,
-    pub schema_start: pg_sys::BlockNumber,
-    pub settings_start: pg_sys::BlockNumber,
-}
+pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 /// Special data struct for all other pages except the metadata page and lock pages
 #[derive(Debug)]
@@ -220,31 +212,6 @@ pub const unsafe fn bm25_max_free_space() -> usize {
     (pg_sys::BLCKSZ as usize)
         - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
         - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
-}
-
-pub unsafe fn bm25_metadata(relation_oid: pg_sys::Oid) -> MetaPageData {
-    let cache = BM25BufferCache::open(relation_oid);
-    let metadata_buffer = cache.get_buffer(METADATA_BLOCKNO, Some(pg_sys::BUFFER_LOCK_SHARE));
-    let metadata_page = pg_sys::BufferGetPage(metadata_buffer);
-    let metadata = pg_sys::PageGetContents(metadata_page) as *mut MetaPageData;
-    let data = MetaPageData {
-        directory_start: (*metadata).directory_start,
-        segment_metas_start: (*metadata).segment_metas_start,
-        schema_start: (*metadata).schema_start,
-        settings_start: (*metadata).settings_start,
-    };
-    pg_sys::UnlockReleaseBuffer(metadata_buffer);
-
-    assert!(data.directory_start != 0);
-    assert!(data.segment_metas_start != 0);
-    assert!(data.schema_start != 0);
-    assert!(data.settings_start != 0);
-    assert!(data.directory_start != pg_sys::InvalidBlockNumber);
-    assert!(data.segment_metas_start != pg_sys::InvalidBlockNumber);
-    assert!(data.schema_start != pg_sys::InvalidBlockNumber);
-    assert!(data.settings_start != pg_sys::InvalidBlockNumber);
-
-    data
 }
 
 #[cfg(any(test, feature = "pg_test"))]

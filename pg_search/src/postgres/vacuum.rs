@@ -21,7 +21,9 @@ use crate::index::channel::{
 };
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::{bm25_metadata, DirectoryEntry, SegmentMetaEntry};
+use crate::postgres::storage::block::{
+    DirectoryEntry, SegmentMetaEntry, DIRECTORY_START, SEGMENT_METAS_START,
+};
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use pgrx::*;
@@ -82,11 +84,10 @@ pub extern "C" fn amvacuumcleanup(
 
         // Garbage collect linked lists
         // If new LinkedItemLists are created they should be garbage collected here
-        let metadata = unsafe { bm25_metadata(index_oid) };
         unsafe {
             let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
                 index_oid,
-                metadata.directory_start,
+                DIRECTORY_START,
                 Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
             );
             directory
@@ -96,7 +97,7 @@ pub extern "C" fn amvacuumcleanup(
         unsafe {
             let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
                 index_oid,
-                metadata.segment_metas_start,
+                SEGMENT_METAS_START,
                 Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
             );
             segment_metas

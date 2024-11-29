@@ -27,7 +27,7 @@ use thiserror::Error;
 use crate::index::directory::blocking::BlockingDirectory;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::bm25_metadata;
+use crate::postgres::storage::block::SEGMENT_METAS_START;
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::{
     index::SearchIndex,
@@ -97,10 +97,9 @@ impl SearchIndexWriter {
         };
 
         unsafe {
-            let metadata = bm25_metadata(self.relation_oid);
             let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
                 self.relation_oid,
-                metadata.segment_metas_start,
+                SEGMENT_METAS_START,
                 Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
             );
             segment_metas.write(vec![entry]).unwrap();

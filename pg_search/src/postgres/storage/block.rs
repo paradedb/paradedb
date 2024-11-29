@@ -187,7 +187,7 @@ pub trait MVCCEntry {
     fn get_xmax(&self) -> pg_sys::TransactionId;
 
     // Provided methods
-    unsafe fn satisfies_snapshot(&self, snapshot: pg_sys::Snapshot) -> bool {
+    unsafe fn is_visible(&self, snapshot: pg_sys::Snapshot) -> bool {
         let xmin = self.get_xmin();
         let xmax = self.get_xmax();
         let xmin_visible =

@@ -222,7 +222,7 @@ impl Directory for BlockingDirectory {
                     .position(|segment| segment.id() == entry.meta.segment_id)
                 {
                     new_segments.remove(index);
-                } else if !entry.is_deleted() && entry.satisfies_snapshot(snapshot) {
+                } else if !entry.is_deleted() && entry.is_visible(snapshot) {
                     let entry_with_xmax = SegmentMetaEntry {
                         xmax: current_xid,
                         ..entry.clone()
@@ -275,7 +275,7 @@ impl Directory for BlockingDirectory {
                     SegmentComponentPath(entry.path.clone()).try_into().unwrap();
                 if !segment_ids.contains(&entry_segment_id)
                     && !entry.is_deleted()
-                    && entry.satisfies_snapshot(snapshot)
+                    && entry.is_visible(snapshot)
                 {
                     // Delete the entry
                     let entry_with_xmax = DirectoryEntry {
@@ -322,7 +322,7 @@ impl Directory for BlockingDirectory {
         let mut max_xmin = 0;
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
-            if unsafe { entry.satisfies_snapshot(snapshot) } {
+            if unsafe { entry.is_visible(snapshot) } {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));
 

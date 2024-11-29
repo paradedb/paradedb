@@ -99,35 +99,30 @@ mod tests {
     use std::path::Path;
     use tantivy::directory::TerminatingWrite;
 
-    fn setup_index() -> pg_sys::Oid {
+    #[pg_test]
+    unsafe fn test_segment_component_read_bytes() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-        let index_oid: pg_sys::Oid =
+        let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
                 .unwrap();
 
-        index_oid
-    }
-
-    #[pg_test]
-    unsafe fn test_segment_component_read_bytes() {
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-        let index_oid = setup_index();
         let segment = format!("{}.term", uuid::Uuid::new_v4());
         let path = Path::new(segment.as_str());
 
-        let mut writer = unsafe { SegmentComponentWriter::new(index_oid, path) };
+        let mut writer = unsafe { SegmentComponentWriter::new(relation_oid, path) };
         writer.write_all(&bytes).unwrap();
         writer.terminate().unwrap();
 
-        let directory = BlockingDirectory::new(index_oid);
+        let directory = BlockingDirectory::new(relation_oid);
         let (entry, _, _) = unsafe {
             directory
                 .directory_lookup(&path)
                 .expect("open directory entry should succeed")
         };
-        let reader = SegmentComponentReader::new(index_oid, entry.clone());
+        let reader = SegmentComponentReader::new(relation_oid, entry.clone());
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

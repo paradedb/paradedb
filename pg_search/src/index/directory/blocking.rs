@@ -20,7 +20,6 @@ use pgrx::pg_sys;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
-use std::slice::from_raw_parts;
 use std::sync::Arc;
 use std::{io, result};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
@@ -33,7 +32,7 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, bm25_metadata, DirectoryEntry, PgItem, SegmentComponentId,
+    bm25_max_free_space, bm25_metadata, DirectoryEntry, MVCCEntry, PgItem, SegmentComponentId,
     SegmentComponentPath, SegmentMetaEntry,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
@@ -88,16 +87,19 @@ impl Directory for BlockingDirectory {
             Box::new(result),
         ))
     }
+
     /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
     /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
     fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
         unimplemented!("atomic_write should not be called for {:?}", path);
     }
+
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
     /// This function should never be called by our Tantivy fork because we read from them ourselves
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
         unimplemented!("atomic_read should not be called for {:?}", path);
     }
+
     /// delete is called by Tantivy's garbage collection
     /// We handle this ourselves in amvacuumcleanup
     fn delete(&self, _path: &Path) -> result::Result<(), DeleteError> {
@@ -228,7 +230,7 @@ impl Directory for BlockingDirectory {
                 {
                     new_segments.remove(index);
                 } else if entry.xmax == pg_sys::InvalidTransactionId
-                    && is_entry_visible(entry.xmin, entry.xmax, snapshot)
+                    && entry.satisfies_snapshot(snapshot)
                 {
                     let entry_with_xmax = SegmentMetaEntry {
                         xmax: current_xid,
@@ -281,8 +283,8 @@ impl Directory for BlockingDirectory {
                 let SegmentComponentId(entry_segment_id) =
                     SegmentComponentPath(entry.path.clone()).try_into().unwrap();
                 if !segment_ids.contains(&entry_segment_id)
-                    && entry.xmax == pg_sys::InvalidTransactionId
-                    && is_entry_visible(entry.xmin, entry.xmax, snapshot)
+                    && !entry.is_deleted()
+                    && entry.satisfies_snapshot(snapshot)
                 {
                     // Delete the entry
                     let entry_with_xmax = DirectoryEntry {
@@ -309,13 +311,14 @@ impl Directory for BlockingDirectory {
                         entry.start,
                         Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
                     );
+
                     crate::log_message(&format!(
-                        "-- DELETING COMPONENT {} blockno {} {:?}",
-                        unsafe { pg_sys::GetCurrentTransactionId() },
-                        entry.start.clone(),
+                        "-- DELETING {} {:?}",
+                        pg_sys::GetCurrentTransactionId(),
                         entry.path.clone()
                     ));
-                    segment_component.delete();
+
+                    segment_component.mark_deleted();
                 }
             }
         }
@@ -336,12 +339,12 @@ impl Directory for BlockingDirectory {
         let mut max_xmin = 0;
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
-            let visible = unsafe { is_entry_visible(entry.xmin, entry.xmax, snapshot) };
-            if visible {
+            if unsafe { entry.satisfies_snapshot(snapshot) } {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));
 
-                // TODO: Is this okay? Are opstamps of successive commits guaranteed to be increasing?
+                // TODO: Verify if this is correct
+                // Are opstamps of successive commits guaranteed to be monotonically increasing?
                 if entry.xmin > max_xmin {
                     max_xmin = entry.xmin;
                     opstamp = entry.opstamp;
@@ -375,19 +378,6 @@ impl Directory for BlockingDirectory {
             payload: None,
         })
     }
-}
-
-unsafe fn is_entry_visible(
-    xmin: pg_sys::TransactionId,
-    xmax: pg_sys::TransactionId,
-    snapshot: pg_sys::Snapshot,
-) -> bool {
-    let xmin_visible =
-        !pg_sys::XidInMVCCSnapshot(xmin, snapshot) && pg_sys::TransactionIdDidCommit(xmin);
-    let deleted = xmax != pg_sys::InvalidTransactionId
-        && !pg_sys::XidInMVCCSnapshot(xmax, snapshot)
-        && pg_sys::TransactionIdDidCommit(xmax);
-    xmin_visible && !deleted
 }
 
 #[cfg(any(test, feature = "pg_test"))]

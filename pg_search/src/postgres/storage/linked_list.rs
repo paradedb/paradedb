@@ -75,9 +75,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
-    pub unsafe fn delete(&self) {
+    pub unsafe fn mark_deleted(&self) {
         let cache = BM25BufferCache::open(self.relation_oid);
-        delete(self.lock_buffer, &cache);
+        mark_deleted(self.lock_buffer, &cache);
     }
 
     pub unsafe fn write(&mut self, items: Vec<T>) -> Result<()> {
@@ -352,9 +352,9 @@ impl LinkedBytesList {
         bytes
     }
 
-    pub unsafe fn delete(&self) {
+    pub unsafe fn mark_deleted(&self) {
         let cache = BM25BufferCache::open(self.relation_oid);
-        delete(self.lock_buffer, &cache);
+        mark_deleted(self.lock_buffer, &cache);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -467,7 +467,7 @@ unsafe fn get_all_blocks(
 }
 
 #[inline]
-unsafe fn delete(lock_buffer: pg_sys::Buffer, cache: &BM25BufferCache) {
+unsafe fn mark_deleted(lock_buffer: pg_sys::Buffer, cache: &BM25BufferCache) {
     let mut blockno = get_start_blockno(lock_buffer);
     while blockno != pg_sys::InvalidBlockNumber {
         let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));

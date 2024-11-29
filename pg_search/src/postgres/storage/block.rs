@@ -54,7 +54,7 @@ use serde::{Deserialize, Serialize};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
-use tantivy::index::{InnerSegmentMeta, SegmentComponent, SegmentId};
+use tantivy::index::{InnerSegmentMeta, SegmentId};
 
 pub const METADATA_BLOCKNO: pg_sys::BlockNumber = 0; // Stores metadata for the entire index
 pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);

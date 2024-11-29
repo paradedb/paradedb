@@ -20,8 +20,6 @@ use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
 pub enum ChannelRequest {
-    AtomicRead(PathBuf),
-    AtomicWrite(PathBuf, Vec<u8>),
     ListManagedFiles(),
     RegisterFilesAsManaged(Vec<PathBuf>, bool),
     SegmentRead(Range<usize>, DirectoryEntry),
@@ -87,37 +85,21 @@ impl Directory for ChannelDirectory {
         ))
     }
 
-    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        self.sender
-            .send(ChannelRequest::AtomicRead(path.to_path_buf()))
-            .unwrap();
-
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::Bytes(bytes) => Ok(bytes),
-            unexpected => Err(OpenReadError::wrap_io_error(
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("atomic_read unexpected response {:?}", unexpected),
-                ),
-                path.to_path_buf(),
-            )),
-        }
+    /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
+    /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
+    fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
+        unimplemented!("atomic_write should not be called for {:?}", path);
     }
 
-    fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        self.sender
-            .send(ChannelRequest::AtomicWrite(
-                path.to_path_buf(),
-                data.to_vec(),
-            ))
-            .unwrap();
-
-        Ok(())
+    /// atomic_read is used by Tantivy to read from managed.json and meta.json
+    /// This function should never be called by our Tantivy fork because we read from them ourselves
+    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        unimplemented!("atomic_read should not be called for {:?}", path);
     }
 
     // This is called by Tantivy's garbage collect process, which we do not want to implement
     // because we use Postgres MVCC rules for our own garbage collection in amvacuumcleanup
-    fn delete(&self, path: &Path) -> result::Result<(), DeleteError> {
+    fn delete(&self, _path: &Path) -> result::Result<(), DeleteError> {
         Ok(())
     }
 
@@ -233,13 +215,6 @@ impl ChannelRequestHandler {
 
         for message in self.receiver.iter() {
             match message {
-                ChannelRequest::AtomicRead(path) => {
-                    let data = self.directory.atomic_read(&path)?;
-                    self.sender.send(ChannelResponse::Bytes(data))?;
-                }
-                ChannelRequest::AtomicWrite(path, data) => {
-                    self.directory.atomic_write(&path, &data)?;
-                }
                 ChannelRequest::ListManagedFiles() => {
                     let managed_files = self.directory.list_managed_files()?;
                     self.sender

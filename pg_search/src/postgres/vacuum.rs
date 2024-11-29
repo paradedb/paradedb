@@ -22,15 +22,13 @@ use crate::index::channel::{
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
-    bm25_metadata, DirectoryEntry, MVCCEntry, MetaPageData, PgItem, SegmentMetaEntry,
-    METADATA_BLOCKNO,
+    DirectoryEntry, MVCCEntry, MetaPageData, PgItem, SegmentMetaEntry, METADATA_BLOCKNO,
 };
 use crate::postgres::storage::linked_list::LinkedItemList;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use anyhow::Result;
 use pgrx::*;
 use std::fmt::Debug;
-use std::path::PathBuf;
 use tantivy::index::Index;
 use tantivy::IndexWriter;
 
@@ -130,10 +128,6 @@ pub extern "C" fn amvacuumcleanup(
                 let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
                 let page = pg_sys::BufferGetPage(buffer);
                 if page.recyclable(heap_relation) {
-                    crate::log_message(&format!(
-                        "Returning recyclable page {} to the free space map",
-                        blockno
-                    ));
                     cache.record_free_index_page(blockno);
                 }
                 pg_sys::UnlockReleaseBuffer(buffer);
@@ -161,18 +155,20 @@ where
         LinkedItemList::<T>::open_with_lock(index_oid, start, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
 
     let mut entries_to_keep = vec![];
+    let snapshot = pg_sys::GetActiveSnapshot();
+
     for (entry, _, _) in old_list.list_all_items()? {
-        let xmax = entry.get_xmax();
-        if xmax == pg_sys::InvalidTransactionId
-            || !pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
-        {
+        let definitely_deleted = entry.is_deleted()
+            && !pg_sys::XidInMVCCSnapshot(entry.get_xmax(), snapshot)
+            && pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.get_xmax());
+        if !definitely_deleted {
             entries_to_keep.push(entry);
         } else {
-            crate::log_message(&format!("-- Vacuuming entry {:?}", entry));
+            crate::log_message(&format!("-- VACUUM DELETING {:?}", entry));
         }
     }
 
-    old_list.delete();
+    old_list.mark_deleted();
 
     let mut new_list = LinkedItemList::<T>::create(index_oid);
     new_list.write(entries_to_keep)?;

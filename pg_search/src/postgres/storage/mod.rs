@@ -15,6 +15,76 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+// ---------------------------------------------------------------
+// BM25 block storage layout
+// A block storage representation of a Tantivy index
+// ---------------------------------------------------------------
+
+// ---------------------------------------------------------------
+// Metadata blocks
+// These blocks are created at index build
+// Their block numbers should never change
+// ---------------------------------------------------------------
+
+// +-------------------------------------------------------------+
+// |                          Schema Block                       |
+// +-------------------------------------------------------------+
+// | Serialized Tantivy Schema                                   |
+// +-------------------------------------------------------------+
+// | LP_SPECIAL                                                  |
+// | [next_blockno: BlockNumber, xmax: TransactionId]            |
+// +-------------------------------------------------------------+
+
+// +-------------------------------------------------------------+
+// |                        Settings Block                       |
+// +-------------------------------------------------------------+
+// | Serialized Tantivy IndexSettings                            |
+// +-------------------------------------------------------------+
+// | LP_SPECIAL                                                  |
+// | [next_blockno: BlockNumber, xmax: TransactionId]            |
+// +-------------------------------------------------------------+
+
+// +-------------------------------------------------------------+
+// |                   Directory Entries Block                   |
+// +-------------------------------------------------------------+
+// | Serialized DirectoryEntry Items                             |
+// | [DirectoryEntry]                                            |
+// | [DirectoryEntry]                                            |
+// | [DirectoryEntry]                                            |
+// | ...                                                         |
+// +-------------------------------------------------------------+
+// | LP_SPECIAL                                                  |
+// | [next_blockno: BlockNumber, xmax: TransactionId]            |
+// +-------------------------------------------------------------+
+
+// +-------------------------------------------------------------+
+// |                 Segment Meta Entries Block                  |
+// +-------------------------------------------------------------+
+// | Serialized SegmentMetaEntry Items                           |
+// | [SegmentMetaEntry]                                          |
+// | [SegmentMetaEntry]                                          |
+// | [SegmentMetaEntry]                                          |
+// | ...                                                         |
+// +-------------------------------------------------------------+
+// | LP_SPECIAL                                                  |
+// | [next_blockno: BlockNumber, xmax: TransactionId]            |
+// +-------------------------------------------------------------+
+
+// ---------------------------------------------------------------
+// Remaining blocks: Segment component blocks
+// These blocks are created when Tantivy writes new segments
+// Can be picked up by vacuum
+// ---------------------------------------------------------------
+
+// +-------------------------------------------------------------+
+// |                 Segment Component <uuid.ext>                |
+// +-------------------------------------------------------------+
+// | Serialized SegmentComponent data                            |
+// +-------------------------------------------------------------+
+// | LP_SPECIAL                                                  |
+// | [next_blockno: BlockNumber, xmax: TransactionId]            |
+// +-------------------------------------------------------------+
+
 pub mod block;
 pub mod linked_list;
 pub mod utils;

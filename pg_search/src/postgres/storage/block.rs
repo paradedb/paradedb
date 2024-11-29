@@ -15,66 +15,89 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// ----------------------------------------------------------------
-// 						Block storage layout
-// ----------------------------------------------------------------
-
-// # metadata
-
-// ...LP_LOWER
-// [directory_start BlockNumber]
-// ...LP_UPPER
-// LP_SPECIAL: <nothing>
-
-// TODO: DOCUMENT META BLOCKS
-// TODO: Get rid of deleted flag
-
-// # directory entries
-
-// ...LP_LOWER
-// Item: [<PathBuf>, BlockNumber, ssize_t, TransactionId]
-// Item: [<PathBuf>, BlockNumber, ssize_t, TransactionId]
-// Item: [<PathBuf>, BlockNumber, ssize_t, TransactionId]
-// ...
-// Item: [<PathBuf>, BlockNumber, ssize_t, TransactionId]
-// ...LP_UPPER
-// LP_SPECIAL: [next_page BlockNumber, xmax TransactionId]
-
-// # segment file data
-
-// ...LP_LOWER
-// [u8 byte data]
-// ...LP_UPPER
-// LP_SPECIAL: [next_page BlockNumber, xmax TransactionId]
-
-use anyhow::bail;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
-use tantivy::index::{InnerSegmentMeta, SegmentId};
+use tantivy::index::InnerSegmentMeta;
 
 pub const SCHEMA_START: pg_sys::BlockNumber = 0;
 pub const SETTINGS_START: pg_sys::BlockNumber = 2;
 pub const DIRECTORY_START: pg_sys::BlockNumber = 4;
 pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
-pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
+// ---------------------------------------------------------
+// BM25 page special data
+// ---------------------------------------------------------
 
-/// Special data struct for all other pages except the metadata page and lock pages
+// Struct for all page's LP_SPECIAL data
 #[derive(Debug)]
 pub struct BM25PageSpecialData {
     pub next_blockno: pg_sys::BlockNumber,
     pub xmax: pg_sys::TransactionId,
 }
 
-/// Every linked list should start with a page that holds metadata about the linked list
+// ---------------------------------------------------------
+// Linked lists
+// ---------------------------------------------------------
+
+/// Struct held in the first buffer of every linked list's content area
 #[derive(Debug)]
 pub struct LinkedListData {
     pub start_blockno: pg_sys::BlockNumber,
     pub last_blockno: pg_sys::BlockNumber,
 }
+
+/// Every linked list must implement this trait
+pub trait LinkedList {
+    // Required methods
+    fn get_lock_buffer(&self) -> pg_sys::Buffer;
+    fn get_lock(&self) -> Option<u32>;
+
+    // Provided methods
+    fn get_start_blockno(&self) -> pg_sys::BlockNumber {
+        let metadata = unsafe { self.get_linked_list_data() };
+        let start_blockno = metadata.start_blockno;
+        assert!(start_blockno != 0);
+        assert!(start_blockno != pg_sys::InvalidBlockNumber);
+        start_blockno
+    }
+
+    fn get_last_blockno(&self) -> pg_sys::BlockNumber {
+        let metadata = unsafe { self.get_linked_list_data() };
+        let last_blockno = metadata.last_blockno;
+        assert!(last_blockno != 0);
+        assert!(last_blockno != pg_sys::InvalidBlockNumber);
+        last_blockno
+    }
+
+    unsafe fn set_last_blockno(&self, blockno: pg_sys::BlockNumber) {
+        assert!(
+            self.get_lock() == Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            "an exclusive lock is required to write to linked list"
+        );
+
+        let lock_buffer = self.get_lock_buffer();
+        let page = pg_sys::BufferGetPage(lock_buffer);
+        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
+        (*metadata).last_blockno = blockno;
+        pg_sys::MarkBufferDirty(lock_buffer);
+    }
+
+    unsafe fn get_linked_list_data(&self) -> LinkedListData {
+        let page = pg_sys::BufferGetPage(self.get_lock_buffer());
+        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
+        LinkedListData {
+            start_blockno: (*metadata).start_blockno,
+            last_blockno: (*metadata).last_blockno,
+        }
+    }
+}
+
+// ---------------------------------------------------------
+// Linked list entry structs
+// ---------------------------------------------------------
 
 /// Metadata for tracking segment components
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -100,6 +123,13 @@ pub struct SegmentMetaEntry {
     // Vacuum will physically delete this entry if this transaction ID is no longer visible to any existing transactions
     pub xmax: pg_sys::TransactionId,
 }
+
+// ---------------------------------------------------------
+// Linked list entry <-> PgItem
+// ---------------------------------------------------------
+
+/// Wrapper for pg_sys::Item that also stores its size
+pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 impl From<DirectoryEntry> for PgItem {
     fn from(val: DirectoryEntry) -> Self {
@@ -147,12 +177,16 @@ impl From<PgItem> for SegmentMetaEntry {
     }
 }
 
+// ---------------------------------------------------------
+// Linked list entry MVCC methods
+// ---------------------------------------------------------
+
 pub trait MVCCEntry {
     // Required methods
     fn get_xmin(&self) -> pg_sys::TransactionId;
     fn get_xmax(&self) -> pg_sys::TransactionId;
 
-    // Optional methods
+    // Provided methods
     unsafe fn satisfies_snapshot(&self, snapshot: pg_sys::Snapshot) -> bool {
         let xmin = self.get_xmin();
         let xmax = self.get_xmax();
@@ -184,27 +218,6 @@ impl MVCCEntry for SegmentMetaEntry {
     }
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
-    }
-}
-
-// Converts a SegmentID + SegmentComponent into a PathBuf
-pub struct SegmentComponentPath(pub PathBuf);
-pub struct SegmentComponentId(pub SegmentId);
-
-impl TryFrom<SegmentComponentPath> for SegmentComponentId {
-    type Error = anyhow::Error;
-
-    fn try_from(val: SegmentComponentPath) -> Result<Self, Self::Error> {
-        let path_str = val.0.to_str().ok_or_else(|| {
-            anyhow::anyhow!("Invalid segment path: {:?}", val.0.to_str().unwrap())
-        })?;
-        if let Some(pos) = path_str.find('.') {
-            Ok(SegmentComponentId(SegmentId::from_uuid_string(
-                &path_str[..pos],
-            )?))
-        } else {
-            bail!("Invalid segment path: {}", path_str);
-        }
     }
 }
 
@@ -254,24 +267,5 @@ mod tests {
         let PgItem(_, size1) = segment1.into();
         let PgItem(_, size2) = segment2.into();
         assert_eq!(size1, size2);
-    }
-
-    #[pg_test]
-    fn test_segment_component_path_to_id() {
-        let path = SegmentComponentPath(PathBuf::from("00000000-0000-0000-0000-000000000000.ext"));
-        let id = SegmentComponentId::try_from(path).unwrap();
-        assert_eq!(
-            id.0,
-            SegmentId::from_uuid_string("00000000-0000-0000-0000-000000000000").unwrap()
-        );
-
-        let path = SegmentComponentPath(PathBuf::from(
-            "00000000-0000-0000-0000-000000000000.123.del",
-        ));
-        let id = SegmentComponentId::try_from(path).unwrap();
-        assert_eq!(
-            id.0,
-            SegmentId::from_uuid_string("00000000-0000-0000-0000-000000000000").unwrap()
-        );
     }
 }

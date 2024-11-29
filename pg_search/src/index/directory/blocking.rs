@@ -30,12 +30,12 @@ use tantivy::{
 };
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
+use super::utils::{SegmentComponentId, SegmentComponentPath};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, DirectoryEntry, MVCCEntry, PgItem, SegmentComponentId,
-    SegmentComponentPath, SegmentMetaEntry, DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START,
-    SETTINGS_START,
+    bm25_max_free_space, DirectoryEntry, MVCCEntry, PgItem, SegmentMetaEntry, DIRECTORY_START,
+    SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::linked_list::{LinkedBytesList, LinkedItemList};
 use crate::postgres::storage::utils::BM25BufferCache;

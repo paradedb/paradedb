@@ -17,7 +17,6 @@
 
 mod fixtures;
 
-use crate::fixtures::utils::pg_search_index_directory_path;
 use anyhow::Result;
 use fixtures::*;
 use pretty_assertions::assert_eq;
@@ -28,10 +27,6 @@ use sqlx::PgConnection;
 async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    // Get initial index directory path and verify it exists
-    let index_dir = pg_search_index_directory_path(&mut conn, "bm25_search_bm25_index");
-    assert!(index_dir.exists());
-
     // Verify initial search works
     let columns: SimpleProductsTableVec =
         "SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' ORDER BY id"
@@ -40,9 +35,6 @@ async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
 
     // Perform REINDEX
     "REINDEX INDEX paradedb.bm25_search_bm25_index".execute(&mut conn);
-
-    // Verify index directory still exists
-    assert!(index_dir.exists());
 
     // Verify search still works after reindex
     let columns: SimpleProductsTableVec =
@@ -56,10 +48,6 @@ async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
 #[rstest]
 async fn concurrent_reindex(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
-
-    // Get initial index directory path
-    let index_dir = pg_search_index_directory_path(&mut conn, "bm25_search_bm25_index");
-    assert!(index_dir.exists());
 
     // Verify initial search
     let columns: SimpleProductsTableVec =

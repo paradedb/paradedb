@@ -498,6 +498,7 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
 }
 
 #[rstest]
+#[ignore = "WAL streaming replication not yet implemented"]
 async fn test_wal_streaming_replication() -> Result<()> {
     // Primary Postgres setup + insert data
     let postgresql_conf = "

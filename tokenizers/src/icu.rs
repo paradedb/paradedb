@@ -8,10 +8,10 @@
  *
  */
 
-use rust_icu_sys::UBreakIteratorType;
-use rust_icu_ubrk::UBreakIterator;
-use rust_icu_uloc;
-use rust_icu_ustring::UChar;
+use rust_icu::brk::UBreakIterator;
+use rust_icu::sys::UBreakIteratorType;
+use rust_icu::loc::get_default;
+use rust_icu::string::UChar;
 use std::str::Chars;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
@@ -42,7 +42,7 @@ impl<'a> std::fmt::Debug for ICUBreakingWord<'a> {
 
 impl<'a> From<&'a str> for ICUBreakingWord<'a> {
     fn from(text: &'a str) -> Self {
-        let loc = rust_icu_uloc::get_default();
+        let loc = get_default();
         let ustr = &UChar::try_from(text).expect("text should be an encodable character");
         // Implementation from a similar fix in https://github.com/jiegec/tantivy-jieba/pull/5
         // referenced by Tantivy issue https://github.com/quickwit-oss/tantivy/issues/1134

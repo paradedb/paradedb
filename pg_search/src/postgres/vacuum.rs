@@ -174,15 +174,3 @@ where
     new_list.write(entries_to_keep)?;
     Ok(pg_sys::BufferGetBlockNumber(new_list.lock_buffer))
 }
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-    use uuid::Uuid;
-
-    use crate::postgres::storage::block::DirectoryEntry;
-    use crate::postgres::storage::block::{bm25_metadata, BM25PageSpecialData};
-    use crate::postgres::storage::linked_list::LinkedItemList;
-}

@@ -489,11 +489,10 @@ unsafe fn mark_deleted(lock_buffer: pg_sys::Buffer, cache: &BM25BufferCache) {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use pgrx::pg_sys::AsPgCStr;
     use pgrx::prelude::*;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
-    use uuid::Uuid;
+
+    // TODO: Add tests for LinkedItemList
+    // TODO: Test all functions above
 
     #[pg_test]
     unsafe fn test_linked_bytes() {
@@ -509,7 +508,6 @@ mod tests {
         // Test read/write from newly created linked list
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let start_blockno = {
-            let cache = BM25BufferCache::open(relation_oid);
             let mut linked_list = LinkedBytesList::create(relation_oid);
             let blocks_created = linked_list.write(&bytes).unwrap();
             let read_bytes = linked_list.read_all();

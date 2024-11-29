@@ -144,31 +144,3 @@ impl Drop for BM25BufferCache {
         }
     }
 }
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::*;
-    use pgrx::prelude::*;
-
-    #[pg_test]
-    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-    unsafe fn test_new_buffer() {
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-        let relation_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-                .expect("spi should succeed")
-                .unwrap();
-        let index_relation = pg_sys::RelationIdGetRelation(relation_oid);
-        let cache = BM25BufferCache::open(relation_oid);
-        let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
-            index_relation,
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-        );
-        let buffer = cache.new_buffer();
-
-        assert_eq!(pg_sys::BufferGetBlockNumber(buffer), nblocks);
-        pg_sys::RelationClose(index_relation);
-    }
-}

@@ -9,9 +9,9 @@
  */
 
 use rust_icu::brk::UBreakIterator;
-use rust_icu::sys::UBreakIteratorType;
 use rust_icu::loc::get_default;
 use rust_icu::string::UChar;
+use rust_icu::sys::UBreakIteratorType;
 use std::str::Chars;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 

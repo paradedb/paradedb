@@ -112,9 +112,8 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<Vec<pg_sys::BlockNumber>> {
+    pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<()> {
         let cache = BM25BufferCache::open(self.relation_oid);
-        let mut blocks_created = vec![];
         let insert_blockno = self.get_last_blockno();
         let mut insert_buffer =
             cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
@@ -140,7 +139,6 @@ impl LinkedBytesList {
                     pg_sys::UnlockReleaseBuffer(insert_buffer);
 
                     insert_buffer = new_buffer;
-                    blocks_created.push(new_blockno);
                     self.set_last_blockno(new_blockno);
                     continue;
                 }
@@ -160,7 +158,7 @@ impl LinkedBytesList {
             pg_sys::UnlockReleaseBuffer(insert_buffer);
         };
 
-        Ok(blocks_created)
+        Ok(())
     }
 
     pub unsafe fn read_all(&self) -> Vec<u8> {
@@ -254,15 +252,10 @@ mod tests {
     use super::*;
     use pgrx::prelude::*;
 
-    // TODO: Add tests for LinkedItemList
-    // TODO: Test all functions above
-
     #[pg_test]
-    unsafe fn test_linked_bytes() {
+    unsafe fn test_linked_bytes_read_write() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        // TODO: Swap back to bm25 index once this works
-        Spi::run("CREATE INDEX t_idx ON t(id, data)").unwrap();
-        // Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
                 .expect("spi should succeed")
@@ -272,10 +265,9 @@ mod tests {
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let start_blockno = {
             let mut linked_list = LinkedBytesList::create(relation_oid);
-            let blocks_created = linked_list.write(&bytes).unwrap();
+            linked_list.write(&bytes).unwrap();
             let read_bytes = linked_list.read_all();
             assert_eq!(bytes, read_bytes);
-            assert!(blocks_created.len() > 0);
 
             pg_sys::BufferGetBlockNumber(linked_list.lock_buffer)
         };

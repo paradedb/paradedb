@@ -102,7 +102,7 @@ impl SearchIndexWriter {
                 SEGMENT_METAS_START,
                 Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
             );
-            segment_metas.write(vec![entry]).unwrap();
+            segment_metas.add_items(vec![entry]).unwrap();
         }
 
         Ok(())

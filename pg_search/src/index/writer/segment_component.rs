@@ -62,7 +62,7 @@ impl TerminatingWrite for SegmentComponentWriter {
             };
 
             directory
-                .write(vec![entry])
+                .add_items(vec![entry])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
 

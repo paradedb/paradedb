@@ -1,4 +1,6 @@
 use anyhow::{anyhow, bail};
+#[cfg(any(test, feature = "pg_test"))]
+use pgrx::pg_test;
 use std::path::PathBuf;
 use tantivy::index::SegmentId;
 

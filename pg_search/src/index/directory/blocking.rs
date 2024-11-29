@@ -224,6 +224,8 @@ impl Directory for BlockingDirectory {
         ));
 
         // Mark old SegmentMeta entries as deleted
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+
         unsafe {
             for (entry, blockno, offsetno) in segment_metas.list_all_items().unwrap() {
                 if let Some(index) = new_segments
@@ -231,7 +233,9 @@ impl Directory for BlockingDirectory {
                     .position(|segment| segment.id() == entry.meta.segment_id)
                 {
                     new_segments.remove(index);
-                } else if entry.xmax == pg_sys::InvalidTransactionId {
+                } else if entry.xmax == pg_sys::InvalidTransactionId
+                    && is_entry_visible(entry.xmin, entry.xmax, snapshot)
+                {
                     let entry_with_xmax = SegmentMetaEntry {
                         xmax: current_xid,
                         ..entry.clone()
@@ -279,7 +283,6 @@ impl Directory for BlockingDirectory {
         let segment_ids = meta.segments.iter().map(|s| s.id()).collect::<HashSet<_>>();
 
         unsafe {
-            let snapshot = pg_sys::GetActiveSnapshot();
             for (entry, blockno, offsetno) in directory.list_all_items().unwrap() {
                 let SegmentComponentId(entry_segment_id) =
                     SegmentComponentPath(entry.path.clone()).try_into().unwrap();

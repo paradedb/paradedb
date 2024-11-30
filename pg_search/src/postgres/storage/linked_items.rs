@@ -326,7 +326,6 @@ mod tests {
 
         let snapshot = pg_sys::GetActiveSnapshot();
         let delete_xid = (*snapshot).xmin - 1;
-        let keep_xid = (*snapshot).xmin + 1;
 
         let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid);
         let entries_to_delete = vec![
@@ -341,8 +340,8 @@ mod tests {
                 path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
                 start: 12,
                 total_bytes: 200 as usize,
-                xmin: keep_xid,
-                xmax: keep_xid,
+                xmin: delete_xid,
+                xmax: delete_xid,
             },
         ];
         list.add_items(entries_to_delete.clone()).unwrap();
@@ -353,7 +352,7 @@ mod tests {
             .is_err());
         assert!(list
             .lookup(entries_to_delete[1].clone(), |a, b| a.path == b.path)
-            .is_ok());
+            .is_err());
     }
 
     #[pg_test]

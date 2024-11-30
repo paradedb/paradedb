@@ -250,6 +250,7 @@ impl Drop for LinkedBytesList {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::storage::block::BM25PageSpecialData;
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -280,5 +281,47 @@ mod tests {
         );
         let read_bytes = linked_list.read_all();
         assert_eq!(bytes, read_bytes);
+    }
+
+    #[pg_test]
+    unsafe fn test_linked_bytes_is_empty() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let mut linked_list = LinkedBytesList::create(relation_oid);
+        assert!(linked_list.is_empty());
+
+        let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
+        linked_list.write(&bytes).unwrap();
+        assert!(!linked_list.is_empty());
+    }
+
+    #[pg_test]
+    unsafe fn test_linked_bytes_mark_deleted() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let mut linked_list = LinkedBytesList::create(relation_oid);
+        let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
+        linked_list.write(&bytes).unwrap();
+        linked_list.mark_deleted();
+
+        let all_blocks = linked_list.get_all_blocks();
+        for blockno in all_blocks {
+            let buffer = BM25BufferCache::open(relation_oid)
+                .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            assert!((*special).xmax != pg_sys::InvalidTransactionId);
+            pg_sys::UnlockReleaseBuffer(buffer);
+        }
     }
 }

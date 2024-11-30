@@ -24,8 +24,8 @@ use crate::{
     schema::{SearchDocument, SearchIndexSchema},
 };
 use anyhow::Result;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tantivy::indexer::UserOperation;
 use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::{Index, Opstamp, TantivyError, Term};
 use tantivy::{IndexWriter, TantivyDocument};
@@ -44,7 +44,7 @@ pub struct SearchIndexWriter {
     writer: Arc<IndexWriter>,
     handler: ChannelRequestHandler,
     wants_merge: bool,
-    insert_queue: Vec<TantivyDocument>,
+    insert_queue: Vec<UserOperation>,
 }
 
 impl SearchIndexWriter {
@@ -58,8 +58,8 @@ impl SearchIndexWriter {
         let (parallelism, memory_budget, target_segment_count, merge_on_insert) =
             resources.resources(index_options);
 
-        let memory_budget = memory_budget / parallelism.get();
-        let parallelism = NonZeroUsize::new(1).unwrap();
+        // let memory_budget = memory_budget / parallelism.get();
+        // let parallelism = std::num::NonZeroUsize::new(12).unwrap();
 
         let (wants_merge, merge_policy) = match resources {
             // During a CREATE INDEX we use `target_segment_count` but require twice
@@ -102,9 +102,12 @@ impl SearchIndexWriter {
         };
 
         let writer = handler
-            .wait_for(move || index.writer_with_num_threads(parallelism.get(), memory_budget))
+            .wait_for(move || {
+                let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
+                writer.set_merge_policy(merge_policy);
+                tantivy::Result::Ok(writer)
+            })
             .expect("scoped thread should not fail")?;
-        writer.set_merge_policy(merge_policy);
 
         Ok(Self {
             writer: Arc::new(writer),
@@ -124,7 +127,7 @@ impl SearchIndexWriter {
 
     pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
         let tantivy_document: TantivyDocument = document.into();
-        self.insert_queue.push(tantivy_document);
+        self.insert_queue.push(UserOperation::Add(tantivy_document));
 
         if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
             self.drain_insert_queue()?;
@@ -149,17 +152,11 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    fn drain_insert_queue(&mut self) -> Result<Option<Opstamp>, TantivyError> {
+    fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
         let insert_queue = std::mem::take(&mut self.insert_queue);
         let writer = self.writer.clone();
         self.handler
-            .wait_for(move || {
-                let mut opstamp = None;
-                for tantivy_document in insert_queue {
-                    opstamp = Some(writer.add_document(tantivy_document)?);
-                }
-                tantivy::Result::Ok(opstamp)
-            })
+            .wait_for(move || writer.run(insert_queue))
             .expect("spawned thread should not fail")
     }
 

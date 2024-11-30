@@ -29,8 +29,7 @@ use crate::schema::{SearchFieldConfig, SearchIndexSchema, SearchIndexSchemaError
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::num::NonZeroUsize;
-use tantivy::directory::DirectoryClone;
-use tantivy::{Directory, Index, IndexSettings, ReloadPolicy};
+use tantivy::{Index, IndexSettings, ReloadPolicy};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::trace;
@@ -128,7 +127,7 @@ impl SearchIndex {
     }
 
     fn prepare_index<
-        F: FnOnce(Box<dyn Directory>, &SearchIndexSchema) -> tantivy::Result<Index>
+        F: FnOnce(ChannelDirectory, &SearchIndexSchema) -> tantivy::Result<Index>
             + Send
             + Sync
             + 'static,
@@ -143,11 +142,9 @@ impl SearchIndex {
             unsafe { cache.get_buffer(METADATA_BLOCKNO, Some(pgrx::pg_sys::BUFFER_LOCK_SHARE)) };
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
-        let (resp_sender, resp_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let tantivy_dir = BlockingDirectory::new(index_oid);
-        let channel_dir = ChannelDirectory::new(req_sender, resp_receiver).box_clone();
-        let handler =
-            ChannelRequestHandler::open(tantivy_dir, index_oid, resp_sender, req_receiver);
+        let channel_dir = ChannelDirectory::new(req_sender);
+        let handler = ChannelRequestHandler::open(tantivy_dir, index_oid, req_receiver);
 
         let underlying_index = {
             let schema = schema.clone();

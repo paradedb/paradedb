@@ -16,9 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::directory::blocking::BlockingDirectory;
-use crate::index::directory::channel::{
-    ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
-};
+use crate::index::directory::channel::{ChannelDirectory, ChannelRequest, ChannelRequestHandler};
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchField, SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
@@ -388,15 +386,12 @@ impl SearchIndexReader {
 
         let (search_sender, search_receiver) = crossbeam::channel::unbounded();
         let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
-        let (response_sender, response_receiver) =
-            crossbeam::channel::unbounded::<ChannelResponse>();
 
         let collector = channel::ChannelCollector::new(need_scores, search_sender);
 
         let owned_query = self.query(query);
         std::thread::spawn(move || {
-            let channel_directory =
-                ChannelDirectory::new(request_sender.clone(), response_receiver.clone());
+            let channel_directory = ChannelDirectory::new(request_sender.clone());
             let channel_index = Index::open(channel_directory).expect("channel index should open");
             let reader = channel_index
                 .reader_builder()
@@ -429,12 +424,8 @@ impl SearchIndexReader {
         });
 
         let blocking_directory = BlockingDirectory::new(self.index_oid);
-        let handler = ChannelRequestHandler::open(
-            blocking_directory,
-            self.index_oid,
-            response_sender,
-            request_receiver,
-        );
+        let handler =
+            ChannelRequestHandler::open(blocking_directory, self.index_oid, request_receiver);
         let _ = handler.receive_blocking().unwrap();
 
         unsafe { pg_sys::UnlockReleaseBuffer(lock) };

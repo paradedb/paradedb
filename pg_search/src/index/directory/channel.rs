@@ -5,7 +5,7 @@ use pgrx::pg_sys;
 use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::HashSet;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -25,36 +25,18 @@ use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
 #[derive(Debug)]
 pub enum ChannelRequest {
-    AcquireLock(Lock),
-    AtomicRead(PathBuf),
+    AcquireLock(Lock, oneshot::Sender<BlockingLock>),
+    AtomicRead(PathBuf, oneshot::Sender<Vec<u8>>),
     AtomicWrite(PathBuf, Vec<u8>),
-    ListManagedFiles(),
+    ListManagedFiles(oneshot::Sender<HashSet<PathBuf>>),
     RegisterFilesAsManaged(Vec<PathBuf>, bool),
     ReleaseBlockingLock(BlockingLock),
-    SegmentRead(Range<usize>, DirectoryEntry),
+    SegmentRead(Range<usize>, DirectoryEntry, oneshot::Sender<Vec<u8>>),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
     SegmentDelete(PathBuf),
-    GetSegmentComponent(PathBuf),
+    GetSegmentComponent(PathBuf, oneshot::Sender<DirectoryEntry>),
     Terminate,
-}
-
-pub enum ChannelResponse {
-    ManagedFiles(HashSet<PathBuf>),
-    AcquiredLock(BlockingLock),
-    Bytes(Vec<u8>),
-    DirectoryEntry(DirectoryEntry),
-}
-
-impl Debug for ChannelResponse {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ChannelResponse::AcquiredLock(_) => write!(f, "AcquiredLock"),
-            ChannelResponse::ManagedFiles(_) => write!(f, "ManagedFiles"),
-            ChannelResponse::Bytes(_) => write!(f, "Bytes"),
-            ChannelResponse::DirectoryEntry(_) => write!(f, "DirectoryEntry"),
-        }
-    }
 }
 
 pub struct ChannelLock {
@@ -76,21 +58,20 @@ impl Drop for ChannelLock {
 #[derive(Clone, Debug)]
 pub struct ChannelDirectory {
     sender: Sender<ChannelRequest>,
-    receiver: Receiver<ChannelResponse>,
 }
 
 // A directory that actually forwards all read/write requests to a channel
 // This channel is used to communicate with the actual storage implementation
 impl ChannelDirectory {
-    pub fn new(sender: Sender<ChannelRequest>, receiver: Receiver<ChannelResponse>) -> Self {
-        Self { sender, receiver }
+    pub fn new(sender: Sender<ChannelRequest>) -> Self {
+        Self { sender }
     }
 }
 
 impl Directory for ChannelDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
         Ok(Arc::new(unsafe {
-            ChannelReader::new(path, self.sender.clone(), self.receiver.clone()).map_err(|e| {
+            ChannelReader::new(path, self.sender.clone()).map_err(|e| {
                 OpenReadError::wrap_io_error(
                     io::Error::new(io::ErrorKind::Other, format!("{:?}", e)),
                     path.to_path_buf(),
@@ -107,20 +88,15 @@ impl Directory for ChannelDirectory {
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
-            .send(ChannelRequest::AtomicRead(path.to_path_buf()))
+            .send(ChannelRequest::AtomicRead(
+                path.to_path_buf(),
+                oneshot_sender,
+            ))
             .unwrap();
 
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::Bytes(bytes) => Ok(bytes),
-            unexpected => Err(OpenReadError::wrap_io_error(
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("atomic_read unexpected response {:?}", unexpected),
-                ),
-                path.to_path_buf(),
-            )),
-        }
+        Ok(oneshot_receiver.recv().unwrap())
     }
 
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
@@ -148,28 +124,22 @@ impl Directory for ChannelDirectory {
     }
 
     fn acquire_lock(&self, lock: &Lock) -> result::Result<DirectoryLock, LockError> {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
-            .send(ChannelRequest::AcquireLock(Lock {
-                filepath: lock.filepath.clone(),
-                is_blocking: lock.is_blocking,
-            }))
+            .send(ChannelRequest::AcquireLock(
+                Lock {
+                    filepath: lock.filepath.clone(),
+                    is_blocking: lock.is_blocking,
+                },
+                oneshot_sender,
+            ))
             .unwrap();
 
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::AcquiredLock(blocking_lock) => {
-                Ok(DirectoryLock::from(Box::new(ChannelLock {
-                    lock: Some(blocking_lock),
-                    sender: self.sender.clone(),
-                })))
-            }
-            unexpected => Err(LockError::IoError(
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("acquire_lock unexpected response {:?}", unexpected),
-                )
-                .into(),
-            )),
-        }
+        let blocking_block = oneshot_receiver.recv().unwrap();
+        Ok(DirectoryLock::from(Box::new(ChannelLock {
+            lock: Some(blocking_block),
+            sender: self.sender.clone(),
+        })))
     }
 
     // Internally, tantivy only uses this API to detect new commits to implement the
@@ -185,17 +155,12 @@ impl Directory for ChannelDirectory {
     }
 
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
-            .send(ChannelRequest::ListManagedFiles())
+            .send(ChannelRequest::ListManagedFiles(oneshot_sender))
             .unwrap();
 
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::ManagedFiles(files) => Ok(files),
-            unexpected => Err(tantivy::TantivyError::ErrorInThread(format!(
-                "list_managed_files unexpected response {:?}",
-                unexpected
-            ))),
-        }
+        Ok(oneshot_receiver.recv().unwrap())
     }
 
     fn register_files_as_managed(
@@ -216,7 +181,6 @@ type Reply = Box<dyn Any + Send + Sync>;
 pub struct ChannelRequestHandler {
     directory: BlockingDirectory,
     relation_oid: pg_sys::Oid,
-    sender: Sender<ChannelResponse>,
     receiver: Receiver<ChannelRequest>,
     writers: Mutex<FxHashMap<PathBuf, SegmentComponentWriter>>,
     readers: Mutex<FxHashMap<PathBuf, SegmentComponentReader>>,
@@ -237,7 +201,6 @@ impl ChannelRequestHandler {
     pub fn open(
         directory: BlockingDirectory,
         relation_oid: pg_sys::Oid,
-        sender: Sender<ChannelResponse>,
         receiver: Receiver<ChannelRequest>,
     ) -> Self {
         let (action_sender, action_receiver) = crossbeam::channel::bounded(1);
@@ -246,7 +209,6 @@ impl ChannelRequestHandler {
             directory,
             relation_oid,
             receiver,
-            sender,
             writers: Default::default(),
             readers: Default::default(),
             action: (action_sender, action_receiver.clone()),
@@ -294,17 +256,17 @@ impl ChannelRequestHandler {
 
                 // the reply channel was closed, so lets just return that as the error
                 Err(TryRecvError::Disconnected) => {
-                    return Err(anyhow::anyhow!("reply channel disconnected"))
+                    return Err(anyhow::anyhow!("reply channel disconnected"));
                 }
             }
         }
     }
 
-    pub fn receive_blocking(&self) -> Result<ChannelRequestStats> {
+    pub fn receive_blocking(self) -> Result<ChannelRequestStats> {
         let mut deleted_paths: Vec<PathBuf> = vec![];
 
         let receiver = self.receiver.clone();
-        for message in receiver.into_iter() {
+        for message in receiver {
             self.process_message(message, &mut deleted_paths)?;
         }
 
@@ -317,43 +279,39 @@ impl ChannelRequestHandler {
         deleted_paths: &mut Vec<PathBuf>,
     ) -> Result<ShouldTerminate> {
         match message {
-            ChannelRequest::AcquireLock(lock) => {
+            ChannelRequest::AcquireLock(lock, sender) => {
                 let blocking_lock = unsafe { self.directory.acquire_blocking_lock(&lock)? };
-                self.sender
-                    .send(ChannelResponse::AcquiredLock(blocking_lock))?;
+                sender.send(blocking_lock)?;
             }
-            ChannelRequest::AtomicRead(path) => {
+            ChannelRequest::AtomicRead(path, sender) => {
                 let data = self.directory.atomic_read(&path)?;
-                self.sender.send(ChannelResponse::Bytes(data))?;
+                sender.send(data)?;
             }
             ChannelRequest::AtomicWrite(path, data) => {
                 self.directory.atomic_write(&path, &data)?;
             }
-            ChannelRequest::ListManagedFiles() => {
+            ChannelRequest::ListManagedFiles(sender) => {
                 let managed_files = self.directory.list_managed_files()?;
-                self.sender
-                    .send(ChannelResponse::ManagedFiles(managed_files))?;
+                sender.send(managed_files)?;
             }
             ChannelRequest::RegisterFilesAsManaged(files, overwrite) => {
                 self.directory.register_files_as_managed(files, overwrite)?;
             }
-            ChannelRequest::GetSegmentComponent(path) => {
+            ChannelRequest::GetSegmentComponent(path, sender) => {
                 let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
-                self.sender.send(ChannelResponse::DirectoryEntry(opaque))?;
+                sender.send(opaque)?;
             }
             ChannelRequest::ReleaseBlockingLock(blocking_lock) => {
                 drop(blocking_lock);
             }
-            ChannelRequest::SegmentRead(range, handle) => {
+            ChannelRequest::SegmentRead(range, handle, sender) => {
                 let mut mutex = self.readers.lock();
                 let reader = mutex.entry(handle.path.clone()).or_insert_with(|| unsafe {
                     SegmentComponentReader::new(self.relation_oid, handle)
                 });
                 let data = reader.read_bytes(range)?;
                 drop(mutex);
-
-                self.sender
-                    .send(ChannelResponse::Bytes(data.as_slice().to_owned()))?;
+                sender.send(data.as_slice().to_owned())?;
             }
             ChannelRequest::SegmentWrite(path, data) => {
                 let mut mutex = self.writers.lock();

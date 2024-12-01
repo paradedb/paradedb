@@ -22,6 +22,8 @@ use std::path::PathBuf;
 use std::slice::from_raw_parts;
 use tantivy::index::InnerSegmentMeta;
 
+use super::utils::BM25BufferCache;
+
 pub const SCHEMA_START: pg_sys::BlockNumber = 0;
 pub const SETTINGS_START: pg_sys::BlockNumber = 2;
 pub const DIRECTORY_START: pg_sys::BlockNumber = 4;
@@ -52,8 +54,8 @@ pub struct LinkedListData {
 /// Every linked list must implement this trait
 pub trait LinkedList {
     // Required methods
-    fn get_lock_buffer(&self) -> pg_sys::Buffer;
-    fn get_lock(&self) -> Option<u32>;
+    fn get_header_blockno(&self) -> pg_sys::BlockNumber;
+    fn get_relation_oid(&self) -> pg_sys::Oid;
 
     // Provided methods
     fn get_start_blockno(&self) -> pg_sys::BlockNumber {
@@ -72,26 +74,19 @@ pub trait LinkedList {
         last_blockno
     }
 
-    unsafe fn set_last_blockno(&self, blockno: pg_sys::BlockNumber) {
-        assert!(
-            self.get_lock() == Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            "an exclusive lock is required to write to linked list"
-        );
-
-        let lock_buffer = self.get_lock_buffer();
-        let page = pg_sys::BufferGetPage(lock_buffer);
-        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        (*metadata).last_blockno = blockno;
-        pg_sys::MarkBufferDirty(lock_buffer);
-    }
-
     unsafe fn get_linked_list_data(&self) -> LinkedListData {
-        let page = pg_sys::BufferGetPage(self.get_lock_buffer());
+        let cache = BM25BufferCache::open(self.get_relation_oid());
+        let header_buffer =
+            cache.get_buffer(self.get_header_blockno(), Some(pg_sys::BUFFER_LOCK_SHARE));
+        let page = pg_sys::BufferGetPage(header_buffer);
         let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        LinkedListData {
+        let data = LinkedListData {
             start_blockno: (*metadata).start_blockno,
             last_blockno: (*metadata).last_blockno,
-        }
+        };
+
+        pg_sys::UnlockReleaseBuffer(header_buffer);
+        data
     }
 }
 

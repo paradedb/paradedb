@@ -86,7 +86,6 @@ impl BM25BufferCache {
             if pg_sys::ConditionalLockBuffer(buffer) {
                 let page = pg_sys::BufferGetPage(buffer);
                 if page.recyclable(self.heaprel.as_ptr()) {
-                    page.init(pg_sys::BufferGetPageSize(buffer));
                     return buffer;
                 }
 
@@ -104,8 +103,6 @@ impl BM25BufferCache {
             pg_sys::InvalidBlockNumber,
             Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
         );
-        let page = pg_sys::BufferGetPage(buffer);
-        page.init(pg_sys::BufferGetPageSize(buffer));
 
         pg_sys::UnlockRelationForExtension(self.indexrel.as_ptr(), pg_sys::ExclusiveLock as i32);
         buffer
@@ -131,6 +128,10 @@ impl BM25BufferCache {
 
     pub unsafe fn record_free_index_page(&self, blockno: pg_sys::BlockNumber) {
         pg_sys::RecordFreeIndexPage(self.indexrel.as_ptr(), blockno);
+    }
+
+    pub unsafe fn start_xlog(&self) -> *mut pg_sys::GenericXLogState {
+        pg_sys::GenericXLogStart(self.indexrel.as_ptr())
     }
 }
 

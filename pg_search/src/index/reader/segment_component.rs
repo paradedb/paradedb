@@ -20,11 +20,7 @@ pub struct SegmentComponentReader {
 
 impl SegmentComponentReader {
     pub unsafe fn new(relation_oid: pg_sys::Oid, entry: DirectoryEntry) -> Self {
-        let block_list = LinkedBytesList::open_with_lock(
-            relation_oid,
-            entry.start,
-            Some(pg_sys::BUFFER_LOCK_SHARE),
-        );
+        let block_list = LinkedBytesList::open(relation_oid, entry.start);
         let blocks = block_list.get_all_blocks();
 
         Self {

@@ -85,21 +85,14 @@ pub extern "C" fn amvacuumcleanup(
         // Garbage collect linked lists
         // If new LinkedItemLists are created they should be garbage collected here
         unsafe {
-            let mut directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
-                index_oid,
-                DIRECTORY_START,
-                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            );
+            let mut directory = LinkedItemList::<DirectoryEntry>::open(index_oid, DIRECTORY_START);
             directory
                 .garbage_collect()
                 .expect("garbage collection should succeed");
         }
         unsafe {
-            let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
-                index_oid,
-                SEGMENT_METAS_START,
-                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            );
+            let mut segment_metas =
+                LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START);
             segment_metas
                 .garbage_collect()
                 .expect("garbage collection should succeed");

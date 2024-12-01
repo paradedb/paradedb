@@ -161,7 +161,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     && !pg_sys::XidInMVCCSnapshot(entry.get_xmax(), snapshot)
                     && pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.get_xmax());
                 if !definitely_deleted {
+                    crate::log_message(&format!("-- KEEPING {:?}", entry.clone()));
                     entries_to_keep.push(entry);
+                } else {
+                    crate::log_message(&format!("-- DELETING {:?}", entry));
                 }
             }
 
@@ -456,7 +459,15 @@ mod tests {
                 xmax: delete_xid,
             },
         ];
+        let entries_to_keep = vec![DirectoryEntry {
+            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
+            start: 10,
+            total_bytes: 100 as usize,
+            xmin: (*snapshot).xmin - 1,
+            xmax: pg_sys::InvalidTransactionId,
+        }];
         list.add_items(entries_to_delete.clone()).unwrap();
+        list.add_items(entries_to_keep.clone()).unwrap();
         list.garbage_collect().unwrap();
 
         assert!(list
@@ -465,6 +476,9 @@ mod tests {
         assert!(list
             .lookup(entries_to_delete[1].clone(), |a, b| a.path == b.path)
             .is_err());
+        assert!(list
+            .lookup(entries_to_keep[0].clone(), |a, b| a.path == b.path)
+            .is_ok());
     }
 
     #[pg_test]

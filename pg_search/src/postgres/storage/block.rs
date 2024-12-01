@@ -103,7 +103,6 @@ pub struct DirectoryEntry {
     // This is the transaction ID that created this entry
     pub xmin: pg_sys::TransactionId,
     // The transaction ID that marks this entry as deleted
-    // Vacuum will physically delete this entry if this transaction ID is no longer visible to any existing transactions
     pub xmax: pg_sys::TransactionId,
 }
 
@@ -115,7 +114,6 @@ pub struct SegmentMetaEntry {
     // The transaction ID that created this entry
     pub xmin: pg_sys::TransactionId,
     // The transaction ID that marks this entry as deleted
-    // Vacuum will physically delete this entry if this transaction ID is no longer visible to any existing transactions
     pub xmax: pg_sys::TransactionId,
 }
 

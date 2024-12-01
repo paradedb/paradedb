@@ -498,7 +498,6 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
 }
 
 #[rstest]
-#[ignore = "WAL streaming replication not yet implemented"]
 async fn test_wal_streaming_replication() -> Result<()> {
     // Primary Postgres setup + insert data
     let postgresql_conf = "
@@ -573,19 +572,11 @@ async fn test_wal_streaming_replication() -> Result<()> {
 
     thread::sleep(Duration::from_millis(1000));
 
-    match "SELECT id FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
-        .fetch_result::<(i32,)>(&mut target_conn)
-    {
-        Ok(_) => panic!("index WAL replication not yet implemented"),
-        Err(err) => {
-            if !err
-                .to_string()
-                .contains("should be able to open search index")
-            {
-                panic!("expected an error, but not this one: {err}");
-            }
-        }
-    }
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
+            .fetch(&mut target_conn);
+
+    assert_eq!(rows.len(), 3);
 
     Ok(())
 }

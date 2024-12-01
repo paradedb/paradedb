@@ -116,6 +116,7 @@ pub extern "C" fn amvacuumcleanup(
                 }
                 pg_sys::UnlockReleaseBuffer(buffer);
             }
+            pg_sys::RelationClose(heap_relation);
             pg_sys::IndexFreeSpaceMapVacuum(info.index);
         }
     });

@@ -30,7 +30,7 @@ use std::slice::{from_raw_parts, from_raw_parts_mut};
 // ---------------------------------------------------------------
 
 // +-------------------------------------------------------------+
-// |                        Lock Buffer                          |
+// |                       Header Buffer                         |
 // +-------------------------------------------------------------+
 // | LinkedListData                                              |
 // +-------------------------------------------------------------+
@@ -81,7 +81,6 @@ impl LinkedBytesList {
         }
     }
 
-    /// Create a new linked list and holds an exclusive lock on it until the linked list is dropped
     pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
         let cache = BM25BufferCache::open(relation_oid);
         let state = cache.start_xlog();

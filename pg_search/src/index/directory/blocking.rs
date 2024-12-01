@@ -55,11 +55,7 @@ impl BlockingDirectory {
         &self,
         path: &Path,
     ) -> Result<(DirectoryEntry, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        let directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
-            self.relation_oid,
-            DIRECTORY_START,
-            Some(pg_sys::BUFFER_LOCK_SHARE),
-        );
+        let directory = LinkedItemList::<DirectoryEntry>::open(self.relation_oid, DIRECTORY_START);
         let result = directory.lookup(path, |opaque, path| opaque.path == *path)?;
         Ok(result)
     }
@@ -137,11 +133,8 @@ impl Directory for BlockingDirectory {
     /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
         unsafe {
-            let segment_components = LinkedItemList::<DirectoryEntry>::open_with_lock(
-                self.relation_oid,
-                DIRECTORY_START,
-                Some(pg_sys::BUFFER_LOCK_SHARE),
-            );
+            let segment_components =
+                LinkedItemList::<DirectoryEntry>::open(self.relation_oid, DIRECTORY_START);
 
             Ok(segment_components
                 .list_all_items()
@@ -170,11 +163,7 @@ impl Directory for BlockingDirectory {
 
         // Save Tantivy Schema if this is the first commit
         {
-            let mut schema = LinkedBytesList::open_with_lock(
-                self.relation_oid,
-                SCHEMA_START,
-                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            );
+            let mut schema = LinkedBytesList::open(self.relation_oid, SCHEMA_START);
 
             if schema.is_empty() {
                 let bytes =
@@ -185,11 +174,7 @@ impl Directory for BlockingDirectory {
 
         // Save Tantivy IndexSettings if this is the first commit
         {
-            let mut settings = LinkedBytesList::open_with_lock(
-                self.relation_oid,
-                SETTINGS_START,
-                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            );
+            let mut settings = LinkedBytesList::open(self.relation_oid, SETTINGS_START);
 
             if settings.is_empty() {
                 let bytes = serde_json::to_vec(&meta.index_settings)
@@ -207,11 +192,8 @@ impl Directory for BlockingDirectory {
         let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
 
         let mut new_segments = meta.segments.clone();
-        let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
-            self.relation_oid,
-            SEGMENT_METAS_START,
-            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        );
+        let mut segment_metas =
+            LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
 
         // Mark old SegmentMeta entries as deleted
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
@@ -228,8 +210,9 @@ impl Directory for BlockingDirectory {
                         ..entry.clone()
                     };
 
+                    let state = cache.start_xlog();
                     let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                    let page = pg_sys::BufferGetPage(buffer);
+                    let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
                     let PgItem(item, size) = entry_with_xmax.clone().into();
                     let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
                     assert!(
@@ -238,7 +221,7 @@ impl Directory for BlockingDirectory {
                         entry.meta.segment_id
                     );
 
-                    pg_sys::MarkBufferDirty(buffer);
+                    pg_sys::GenericXLogFinish(state);
                     pg_sys::UnlockReleaseBuffer(buffer);
                 }
             }
@@ -262,11 +245,7 @@ impl Directory for BlockingDirectory {
         }
 
         // Mark old DirectoryEntry entries as deleted
-        let directory = LinkedItemList::<DirectoryEntry>::open_with_lock(
-            self.relation_oid,
-            DIRECTORY_START,
-            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-        );
+        let directory = LinkedItemList::<DirectoryEntry>::open(self.relation_oid, DIRECTORY_START);
         let segment_ids = meta.segments.iter().map(|s| s.id()).collect::<HashSet<_>>();
 
         unsafe {
@@ -283,8 +262,9 @@ impl Directory for BlockingDirectory {
                         ..entry.clone()
                     };
 
+                    let state = cache.start_xlog();
                     let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                    let page = pg_sys::BufferGetPage(buffer);
+                    let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
                     let PgItem(item, size) = entry_with_xmax.clone().into();
                     let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
                     assert!(
@@ -293,15 +273,11 @@ impl Directory for BlockingDirectory {
                         entry_segment_id
                     );
 
-                    pg_sys::MarkBufferDirty(buffer);
+                    pg_sys::GenericXLogFinish(state);
                     pg_sys::UnlockReleaseBuffer(buffer);
 
                     // Delete the corresponding segment component
-                    let segment_component = LinkedBytesList::open_with_lock(
-                        self.relation_oid,
-                        entry.start,
-                        Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-                    );
+                    let segment_component = LinkedBytesList::open(self.relation_oid, entry.start);
                     segment_component.mark_deleted();
                 }
             }
@@ -311,11 +287,8 @@ impl Directory for BlockingDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        let segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
-            self.relation_oid,
-            SEGMENT_METAS_START,
-            Some(pg_sys::BUFFER_LOCK_SHARE),
-        );
+        let segment_metas =
+            LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
 
         let mut alive_segments = vec![];
         let mut opstamp = 0;
@@ -341,19 +314,11 @@ impl Directory for BlockingDirectory {
             }
         }
 
-        let schema = LinkedBytesList::open_with_lock(
-            self.relation_oid,
-            SCHEMA_START,
-            Some(pg_sys::BUFFER_LOCK_SHARE),
-        );
+        let schema = LinkedBytesList::open(self.relation_oid, SCHEMA_START);
         let deserialized_schema = serde_json::from_slice(unsafe { &schema.read_all() })
             .expect("expected to deserialize valid Schema");
 
-        let settings = LinkedBytesList::open_with_lock(
-            self.relation_oid,
-            SETTINGS_START,
-            Some(pg_sys::BUFFER_LOCK_SHARE),
-        );
+        let settings = LinkedBytesList::open(self.relation_oid, SETTINGS_START);
         let deserialized_settings = serde_json::from_slice(unsafe { &settings.read_all() })
             .expect("expected to deserialize valid IndexSettings");
 

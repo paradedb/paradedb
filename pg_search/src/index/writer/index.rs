@@ -97,11 +97,8 @@ impl SearchIndexWriter {
         };
 
         unsafe {
-            let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open_with_lock(
-                self.relation_oid,
-                SEGMENT_METAS_START,
-                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            );
+            let mut segment_metas =
+                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
             segment_metas.add_items(vec![entry]).unwrap();
         }
 

@@ -57,35 +57,26 @@ use std::fmt::Debug;
 
 pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
     relation_oid: pg_sys::Oid,
-    pub lock_buffer: pg_sys::Buffer,
-    lock: Option<u32>,
+    pub header_blockno: pg_sys::BlockNumber,
     _marker: std::marker::PhantomData<T>,
 }
 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for LinkedItemList<T> {
-    fn get_lock_buffer(&self) -> pg_sys::Buffer {
-        self.lock_buffer
+    fn get_header_blockno(&self) -> pg_sys::BlockNumber {
+        self.header_blockno
     }
 
-    fn get_lock(&self) -> Option<u32> {
-        self.lock
+    fn get_relation_oid(&self) -> pg_sys::Oid {
+        self.relation_oid
     }
 }
 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
     /// Open an existing linked list and holds the specified lock on it until the linked list is dropped
-    pub fn open_with_lock(
-        relation_oid: pg_sys::Oid,
-        lock_blockno: pg_sys::BlockNumber,
-        lock: Option<u32>,
-    ) -> Self {
-        let cache = unsafe { BM25BufferCache::open(relation_oid) };
-        let lock_buffer = unsafe { cache.get_buffer(lock_blockno, lock) };
-
+    pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
             relation_oid,
-            lock_buffer,
-            lock,
+            header_blockno,
             _marker: std::marker::PhantomData,
         }
     }
@@ -93,33 +84,48 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     /// Create a new linked list and holds an exclusive lock on it until the linked list is dropped
     pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
         let cache = BM25BufferCache::open(relation_oid);
-        let lock_buffer = cache.new_buffer();
+        let state = cache.start_xlog();
+
+        let header_buffer = cache.new_buffer();
+        let header_blockno = pg_sys::BufferGetBlockNumber(header_buffer);
         let start_buffer = cache.new_buffer();
         let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
 
-        let lock_page = pg_sys::BufferGetPage(lock_buffer);
-        let metadata = pg_sys::PageGetContents(lock_page) as *mut LinkedListData;
+        let header_page = pg_sys::GenericXLogRegisterBuffer(
+            state,
+            header_buffer,
+            pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
+        );
+        header_page.init(pg_sys::BufferGetPageSize(header_buffer));
+
+        let start_page = pg_sys::GenericXLogRegisterBuffer(
+            state,
+            start_buffer,
+            pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
+        );
+        start_page.init(pg_sys::BufferGetPageSize(start_buffer));
+
+        let metadata = pg_sys::PageGetContents(header_page) as *mut LinkedListData;
         (*metadata).start_blockno = start_blockno;
         (*metadata).last_blockno = start_blockno;
 
-        pg_sys::MarkBufferDirty(lock_buffer);
-        pg_sys::MarkBufferDirty(start_buffer);
+        // Set pd_lower to the end of the metadata
+        // Without doing so, metadata will be lost if xlog.c compresses the page
+        let page_header = header_page as *mut pg_sys::PageHeaderData;
+        (*page_header).pd_lower = (metadata.add(1) as usize - header_page as usize) as u16;
+
+        pg_sys::GenericXLogFinish(state);
+        pg_sys::UnlockReleaseBuffer(header_buffer);
         pg_sys::UnlockReleaseBuffer(start_buffer);
 
         Self {
             relation_oid,
-            lock_buffer,
-            lock: Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            header_blockno,
             _marker: std::marker::PhantomData,
         }
     }
 
     pub unsafe fn garbage_collect(&mut self) -> Result<()> {
-        assert!(
-            self.lock == Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-            "an exclusive lock is required to garbage collect"
-        );
-
         // Collect all entries that are not definitely deleted
         let mut entries_to_keep = vec![];
         let snapshot = pg_sys::GetActiveSnapshot();
@@ -137,27 +143,39 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
         // Mark all buffer as deleted besides the lock buffer
         let cache = BM25BufferCache::open(self.relation_oid);
+
         let mut blockno = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
+            let state = cache.start_xlog();
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let page = pg_sys::BufferGetPage(buffer);
+            let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
             blockno = (*special).next_blockno;
             page.mark_deleted();
 
-            pg_sys::MarkBufferDirty(buffer);
+            pg_sys::GenericXLogFinish(state);
             pg_sys::UnlockReleaseBuffer(buffer);
         }
 
+        let state = cache.start_xlog();
         let start_buffer = cache.new_buffer();
+        let start_page = pg_sys::GenericXLogRegisterBuffer(
+            state,
+            start_buffer,
+            pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
+        );
+        start_page.init(pg_sys::BufferGetPageSize(start_buffer));
+
         let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
-        let lock_page = pg_sys::BufferGetPage(self.lock_buffer);
-        let metadata = pg_sys::PageGetContents(lock_page) as *mut LinkedListData;
+        let header_buffer =
+            cache.get_buffer(self.header_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+        let header_page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
+        let metadata = pg_sys::PageGetContents(header_page) as *mut LinkedListData;
         (*metadata).start_blockno = start_blockno;
         (*metadata).last_blockno = start_blockno;
 
-        pg_sys::MarkBufferDirty(self.lock_buffer);
-        pg_sys::MarkBufferDirty(start_buffer);
+        pg_sys::GenericXLogFinish(state);
+        pg_sys::UnlockReleaseBuffer(header_buffer);
         pg_sys::UnlockReleaseBuffer(start_buffer);
 
         // Write garbage collected entries
@@ -166,14 +184,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
     pub unsafe fn add_items(&mut self, items: Vec<T>) -> Result<()> {
         let cache = BM25BufferCache::open(self.relation_oid);
-        let insert_blockno = self.get_last_blockno();
-
-        let mut insert_buffer =
-            cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        let mut insert_page = pg_sys::BufferGetPage(insert_buffer);
 
         for item in items {
+            let insert_blockno = self.get_last_blockno();
+            let insert_buffer =
+                cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let state = cache.start_xlog();
+            let insert_page = pg_sys::GenericXLogRegisterBuffer(state, insert_buffer, 0);
             let PgItem(pg_item, size) = item.clone().into();
+
             let mut offsetno = pg_sys::PageAddItemExtended(
                 insert_page,
                 pg_item,
@@ -185,18 +204,27 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 let special =
                     pg_sys::PageGetSpecialPointer(insert_page) as *mut BM25PageSpecialData;
                 let new_buffer = cache.new_buffer();
+                let new_page = pg_sys::GenericXLogRegisterBuffer(
+                    state,
+                    new_buffer,
+                    pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
+                );
+                new_page.init(pg_sys::BufferGetPageSize(new_buffer));
+
                 let new_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
                 (*special).next_blockno = new_blockno;
 
-                pg_sys::MarkBufferDirty(insert_buffer);
-                pg_sys::UnlockReleaseBuffer(insert_buffer);
+                let header_buffer = cache.get_buffer(
+                    self.get_header_blockno(),
+                    Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+                );
 
-                insert_buffer = new_buffer;
-                insert_page = pg_sys::BufferGetPage(insert_buffer);
-                self.set_last_blockno(new_blockno);
+                let page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
+                let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
+                (*metadata).last_blockno = new_blockno;
 
                 offsetno = pg_sys::PageAddItemExtended(
-                    insert_page,
+                    new_page,
                     pg_item,
                     size,
                     pg_sys::InvalidOffsetNumber,
@@ -204,14 +232,22 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 );
 
                 if offsetno == pg_sys::InvalidOffsetNumber {
+                    pg_sys::GenericXLogAbort(state);
+                    pg_sys::UnlockReleaseBuffer(new_buffer);
                     pg_sys::UnlockReleaseBuffer(insert_buffer);
+                    pg_sys::UnlockReleaseBuffer(header_buffer);
                     bail!("Failed to add item");
                 }
+
+                pg_sys::GenericXLogFinish(state);
+                pg_sys::UnlockReleaseBuffer(new_buffer);
+                pg_sys::UnlockReleaseBuffer(insert_buffer);
+                pg_sys::UnlockReleaseBuffer(header_buffer);
+            } else {
+                pg_sys::GenericXLogFinish(state);
+                pg_sys::UnlockReleaseBuffer(insert_buffer);
             }
         }
-
-        pg_sys::MarkBufferDirty(insert_buffer);
-        pg_sys::UnlockReleaseBuffer(insert_buffer);
 
         Ok(())
     }
@@ -288,20 +324,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
 
         Ok(items)
-    }
-}
-
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for LinkedItemList<T> {
-    fn drop(&mut self) {
-        unsafe {
-            if pg_sys::IsTransactionState() {
-                if self.lock.is_some() {
-                    pg_sys::UnlockReleaseBuffer(self.lock_buffer);
-                } else {
-                    pg_sys::ReleaseBuffer(self.lock_buffer);
-                }
-            }
-        };
     }
 }
 

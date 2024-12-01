@@ -235,20 +235,8 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid);
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
 
-    assert_eq!(
-        pg_sys::BufferGetBlockNumber(schema.lock_buffer),
-        SCHEMA_START
-    );
-    assert_eq!(
-        pg_sys::BufferGetBlockNumber(settings.lock_buffer),
-        SETTINGS_START
-    );
-    assert_eq!(
-        pg_sys::BufferGetBlockNumber(directory.lock_buffer),
-        DIRECTORY_START
-    );
-    assert_eq!(
-        pg_sys::BufferGetBlockNumber(segment_metas.lock_buffer),
-        SEGMENT_METAS_START
-    );
+    assert_eq!(schema.header_blockno, SCHEMA_START);
+    assert_eq!(settings.header_blockno, SETTINGS_START);
+    assert_eq!(directory.header_blockno, DIRECTORY_START);
+    assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
 }

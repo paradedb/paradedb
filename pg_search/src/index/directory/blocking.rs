@@ -262,6 +262,8 @@ impl Directory for BlockingDirectory {
                         ..entry.clone()
                     };
 
+                    crate::log_message(&format!("-- MARKING DEL {:?}", entry));
+
                     let state = cache.start_xlog();
                     let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
                     let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);

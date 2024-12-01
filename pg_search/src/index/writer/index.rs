@@ -96,6 +96,8 @@ impl SearchIndexWriter {
             xmax: pgrx::pg_sys::InvalidTransactionId,
         };
 
+        crate::log_message(&format!("-- COMMITTED {:?}", entry.clone()));
+
         unsafe {
             let mut segment_metas =
                 LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);

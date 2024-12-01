@@ -267,7 +267,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let header_page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
         let metadata = pg_sys::PageGetContents(header_page) as *mut LinkedListData;
         (*metadata).start_blockno = start_blockno;
-        (*metadata).last_blockno = start_blockno;
+        (*metadata).last_blockno = insert_blockno;
+
+        eprintln!("-- GC SET START {} LAST {}", start_blockno, insert_blockno);
 
         pg_sys::GenericXLogFinish(state);
         pg_sys::UnlockReleaseBuffer(header_buffer);

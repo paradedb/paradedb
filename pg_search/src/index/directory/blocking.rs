@@ -369,7 +369,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let directory = BlockingDirectory { relation_oid };
+        let directory = BlockingDirectory::new(relation_oid);
         let listed_files = directory.list_managed_files().unwrap();
         assert_eq!(listed_files.len(), 6);
     }

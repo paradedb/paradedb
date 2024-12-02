@@ -18,7 +18,8 @@
 use anyhow::Result;
 use std::sync::Arc;
 use tantivy::indexer::{MergePolicy, NoMergePolicy, UserOperation};
-use tantivy::{Index, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
+use tantivy::schema::Field;
+use tantivy::{Index, IndexWriter, Opstamp, Searcher, TantivyDocument, TantivyError, Term};
 use thiserror::Error;
 
 use crate::index::channel::ChannelRequestHandler;
@@ -117,14 +118,23 @@ impl SearchIndexWriter {
         })
     }
 
-    pub fn delete_term(&self, term: Term) -> Opstamp {
-        let writer = self.writer.clone();
-        self.handler
-            .wait_for(move || writer.delete_term(term))
-            .expect("scoped thread should not fail")
+    pub fn searcher(&self) -> Result<Searcher> {
+        Ok(self.writer.index().reader()?.searcher())
     }
 
-    pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
+    pub fn get_ctid_field(&self) -> Result<Field> {
+        Ok(self.schema.schema.get_field("ctid")?)
+    }
+
+    pub fn delete_term(&mut self, term: Term) -> Result<()> {
+        self.insert_queue.push(UserOperation::Delete(term));
+        if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
+            self.drain_insert_queue()?;
+        }
+        Ok(())
+    }
+
+    pub fn insert(&mut self, document: SearchDocument) -> Result<()> {
         let tantivy_document: TantivyDocument = document.into();
         self.insert_queue.push(UserOperation::Add(tantivy_document));
 
@@ -149,6 +159,11 @@ impl SearchIndexWriter {
             })
             .expect("spawned thread should not fail")?;
         Ok(())
+    }
+
+    pub fn vacuum(self) -> Result<()> {
+        assert!(self.insert_queue.is_empty());
+        self.commit()
     }
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {

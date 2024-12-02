@@ -31,7 +31,6 @@ pub enum ChannelRequest {
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
     GetSegmentComponent(PathBuf, oneshot::Sender<DirectoryEntry>),
-    ShouldDeleteCtids(Vec<u64>, oneshot::Sender<Vec<u64>>),
     SaveMetas(IndexMeta),
     LoadMetas(SegmentMetaInventory, oneshot::Sender<IndexMeta>),
     Terminate,
@@ -215,7 +214,7 @@ impl ChannelRequestHandler {
                 // we have no reply yet, so process any messages it may have generated
                 Err(TryRecvError::Empty) => {
                     for message in self.receiver.try_iter() {
-                        match self.process_message(message, &|_| false) {
+                        match self.process_message(message) {
                             Ok(should_terminate) if should_terminate => break,
                             Ok(_) => continue,
                             Err(e) => return Err(e),
@@ -231,20 +230,16 @@ impl ChannelRequestHandler {
         }
     }
 
-    pub fn receive_blocking(self, should_delete: impl Fn(u64) -> bool) -> Result<()> {
+    pub fn receive_blocking(self) -> Result<()> {
         let receiver = self.receiver.clone();
         for message in receiver {
-            self.process_message(message, &should_delete)?;
+            self.process_message(message)?;
         }
 
         Ok(())
     }
 
-    fn process_message(
-        &self,
-        message: ChannelRequest,
-        should_delete: &impl Fn(u64) -> bool,
-    ) -> Result<ShouldTerminate> {
+    fn process_message(&self, message: ChannelRequest) -> Result<ShouldTerminate> {
         match message {
             ChannelRequest::ListManagedFiles(sender) => {
                 let managed_files = self.directory.list_managed_files()?;
@@ -277,13 +272,6 @@ impl ChannelRequestHandler {
                 let mut mutex = self.writers.lock();
                 let writer = mutex.remove(&path).expect("writer should exist");
                 writer.terminate()?;
-            }
-            ChannelRequest::ShouldDeleteCtids(ctids, sender) => {
-                let filtered_ctids: Vec<u64> = ctids
-                    .into_iter()
-                    .filter(|&ctid_val| should_delete(ctid_val))
-                    .collect();
-                sender.send(filtered_ctids)?;
             }
             ChannelRequest::SaveMetas(metas) => {
                 self.directory.save_metas(&metas)?;

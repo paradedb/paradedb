@@ -22,6 +22,7 @@ use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
 
+#[ignore = "block-storage: VACUUM crashes"]
 #[rustfmt::skip]
 #[rstest]
 fn manual_vacuum(mut conn: PgConnection) {

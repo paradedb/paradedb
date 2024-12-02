@@ -96,27 +96,6 @@ impl Directory for BlockingDirectory {
             }
         }
     }
-    /// Returns a segment writer that implements std::io::Write
-    fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
-        Ok(io::BufWriter::with_capacity(
-            unsafe { bm25_max_free_space() },
-            Box::new(result),
-        ))
-    }
-
-    /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
-    /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
-    fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
-        unimplemented!("atomic_write should not be called for {:?}", path);
-    }
-
-    /// atomic_read is used by Tantivy to read from managed.json and meta.json
-    /// This function should never be called by our Tantivy fork because we read from them ourselves
-    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
-        unimplemented!("atomic_read should not be called for {:?}", path);
-    }
-
     /// delete is called by Tantivy's garbage collection
     /// We handle this ourselves in amvacuumcleanup
     fn delete(&self, _path: &Path) -> result::Result<(), DeleteError> {
@@ -126,6 +105,33 @@ impl Directory for BlockingDirectory {
     // Internally, Tantivy only uses this for meta.json, which should always exist
     fn exists(&self, _path: &Path) -> Result<bool, OpenReadError> {
         Ok(true)
+    }
+
+    /// Returns a segment writer that implements std::io::Write
+    fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
+        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
+        Ok(io::BufWriter::with_capacity(
+            unsafe { bm25_max_free_space() },
+            Box::new(result),
+        ))
+    }
+
+    /// atomic_read is used by Tantivy to read from managed.json and meta.json
+    /// This function should never be called by our Tantivy fork because we read from them ourselves
+    fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {
+        unimplemented!("atomic_read should not be called for {:?}", path);
+    }
+
+    /// atomic_write is used by Tantivy to write to managed.json, meta.json, and create .lock files
+    /// This function should never be called by our Tantivy fork because we write to managed.json and meta.json ourselves
+    fn atomic_write(&self, path: &Path, _data: &[u8]) -> io::Result<()> {
+        unimplemented!("atomic_write should not be called for {:?}", path);
+    }
+
+    /// Postgres block storage handles flushing to disk for us
+    /// We do not need to and should not implement this ourselves
+    fn sync_directory(&self) -> io::Result<()> {
+        Ok(())
     }
 
     // We have done the work to ensure that Tantivy locks are not needed, only Postgres locks
@@ -141,12 +147,6 @@ impl Directory for BlockingDirectory {
     // `OnCommitWithDelay` `ReloadPolicy`. We do not want this reload policy in Postgres.
     fn watch(&self, _watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
         unimplemented!("OnCommitWithDelay ReloadPolicy not supported");
-    }
-
-    /// Postgres block storage handles flushing to disk for us
-    /// We do not need to and should not implement this ourselves
-    fn sync_directory(&self) -> io::Result<()> {
-        Ok(())
     }
 
     /// Returns a list of all segment components to Tantivy,

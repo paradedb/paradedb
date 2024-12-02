@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::open_search_reader;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
@@ -46,12 +45,10 @@ pub unsafe extern "C" fn amcostestimate(
         .expect("index relation must have a valid corresponding heap relation")
         .reltuples()
         .unwrap_or(1.0) as f64;
-    let page_estimate = {
-        assert!(!indexrel.rd_options.is_null());
-        let search_reader =
-            open_search_reader(&indexrel).expect("should be able to open a SearchIndexReader");
-        search_reader.byte_size().unwrap_or(0) / pg_sys::BLCKSZ as u64
-    };
+    let page_estimate = pg_sys::RelationGetNumberOfBlocksInFork(
+        indexrel.as_ptr(),
+        pg_sys::ForkNumber::MAIN_FORKNUM,
+    );
     drop(indexrel);
 
     // start these at zero

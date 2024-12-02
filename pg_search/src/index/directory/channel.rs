@@ -255,6 +255,7 @@ impl ChannelRequestHandler {
             ChannelRequest::SegmentRead(range, handle, sender) => {
                 let mut mutex = self.readers.lock();
                 let reader = mutex.entry(handle.path.clone()).or_insert_with(|| unsafe {
+                    pgrx::warning!("SegmentRead: handle={handle:?}");
                     SegmentComponentReader::new(self.relation_oid, handle)
                 });
                 let data = reader.read_bytes(range)?;

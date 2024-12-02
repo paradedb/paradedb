@@ -84,7 +84,7 @@ impl SearchIndex {
         index_relation: &PgRelation,
         resources: WriterResources,
     ) -> Result<SearchIndexWriter> {
-        let schema = make_schema(index_relation)?;
+        let schema = get_index_schema(index_relation)?;
         let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
 
         let settings = IndexSettings {
@@ -108,7 +108,7 @@ impl SearchIndex {
         index_relation: &PgRelation,
         resources: WriterResources,
     ) -> Result<SearchIndexWriter> {
-        let schema = make_schema(index_relation)?;
+        let schema = get_index_schema(index_relation)?;
         let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
 
         let search_index = Self::prepare_index(index_relation, schema, |directory, _| {
@@ -162,7 +162,7 @@ impl SearchIndex {
     fn open_reader(index_relation: &PgRelation) -> Result<SearchIndexReader> {
         let directory = BlockingDirectory::new(index_relation.oid());
         let mut index = Index::open(directory)?;
-        let schema = make_schema(index_relation)?;
+        let schema = get_index_schema(index_relation)?;
         SearchIndex::setup_tokenizers(&mut index, &schema);
         let reader = index
             .reader_builder()
@@ -222,7 +222,7 @@ pub enum SearchIndexError {
     AnyhowError(#[from] anyhow::Error),
 }
 
-fn make_schema(index_relation: &PgRelation) -> Result<SearchIndexSchema> {
+pub fn get_index_schema(index_relation: &PgRelation) -> Result<SearchIndexSchema> {
     if index_relation.rd_options.is_null() {
         panic!("must specify key field")
     }

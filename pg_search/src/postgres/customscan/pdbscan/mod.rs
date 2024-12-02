@@ -26,8 +26,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::{AsCStr, AsInt, Cardinality};
-use crate::index::open_search_reader;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::{get_index_schema, open_search_reader};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, OrderByStyle};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -50,6 +49,7 @@ use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod, Plain
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use exec_methods::normal::NormalScanExecState;
 use exec_methods::top_n::TopNScanExecState;
@@ -106,9 +106,9 @@ impl CustomScan for PdbScan {
             };
 
             let root = builder.args().root;
-            let search_reader = open_search_reader(&bm25_index)
-                .expect("should be able to open a SearchIndexReader");
-            let pathkey = pullup_orderby_pathkey(&mut builder, rti, &search_reader, root);
+            let schema =
+                get_index_schema(&bm25_index).expect("should be able to get the index schema");
+            let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
@@ -727,7 +727,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
 unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
     builder: &mut CustomPathBuilder<P>,
     rti: pg_sys::Index,
-    search_reader: &SearchIndexReader,
+    schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
 ) -> Option<OrderByStyle> {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
@@ -746,7 +746,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if search_reader.schema.is_field_lower_sortable(att.name()) {
+                    if schema.is_field_lower_sortable(att.name()) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }
@@ -756,7 +756,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if search_reader.schema.is_field_raw_sortable(att.name()) {
+                        if schema.is_field_raw_sortable(att.name()) {
                             return Some(OrderByStyle::Field(
                                 first_pathkey,
                                 att.name().to_string(),
@@ -772,7 +772,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if search_reader.schema.is_field_raw_sortable(att.name()) {
+                    if schema.is_field_raw_sortable(att.name()) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }

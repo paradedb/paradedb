@@ -51,7 +51,7 @@ impl SearchIndexWriter {
     pub fn new(
         index: Index,
         schema: SearchIndexSchema,
-        handler: ChannelRequestHandler,
+        mut handler: ChannelRequestHandler,
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
     ) -> Result<Self> {

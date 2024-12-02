@@ -139,7 +139,7 @@ impl SearchIndex {
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let tantivy_dir = BlockingDirectory::new(index_oid);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let handler = ChannelRequestHandler::open(tantivy_dir, index_oid, req_receiver);
+        let mut handler = ChannelRequestHandler::open(tantivy_dir, index_oid, req_receiver);
 
         let underlying_index = {
             let schema = schema.clone();

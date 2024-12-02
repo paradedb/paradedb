@@ -1,6 +1,5 @@
 use anyhow::Result;
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
-use parking_lot::Mutex;
 use pgrx::pg_sys;
 use rustc_hash::FxHashMap;
 use std::any::Any;
@@ -155,8 +154,8 @@ pub struct ChannelRequestHandler {
     directory: BlockingDirectory,
     relation_oid: pg_sys::Oid,
     receiver: Receiver<ChannelRequest>,
-    writers: Mutex<FxHashMap<PathBuf, SegmentComponentWriter>>,
-    readers: Mutex<FxHashMap<PathBuf, SegmentComponentReader>>,
+    writers: FxHashMap<PathBuf, SegmentComponentWriter>,
+    readers: FxHashMap<PathBuf, SegmentComponentReader>,
 
     action: (Sender<Action>, Receiver<Action>),
     reply: (Sender<Reply>, Receiver<Reply>),
@@ -193,7 +192,7 @@ impl ChannelRequestHandler {
     }
 
     pub fn wait_for<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
-        &self,
+        &mut self,
         func: F,
     ) -> Result<T> {
         let func: Action = Box::new(move || Box::new(func()));
@@ -213,7 +212,8 @@ impl ChannelRequestHandler {
 
                 // we have no reply yet, so process any messages it may have generated
                 Err(TryRecvError::Empty) => {
-                    for message in self.receiver.try_iter() {
+                    let receiver = self.receiver.clone();
+                    for message in receiver.try_iter() {
                         match self.process_message(message) {
                             Ok(should_terminate) if should_terminate => break,
                             Ok(_) => continue,
@@ -230,7 +230,7 @@ impl ChannelRequestHandler {
         }
     }
 
-    pub fn receive_blocking(self) -> Result<()> {
+    pub fn receive_blocking(mut self) -> Result<()> {
         let receiver = self.receiver.clone();
         for message in receiver {
             self.process_message(message)?;
@@ -239,7 +239,7 @@ impl ChannelRequestHandler {
         Ok(())
     }
 
-    fn process_message(&self, message: ChannelRequest) -> Result<ShouldTerminate> {
+    fn process_message(&mut self, message: ChannelRequest) -> Result<ShouldTerminate> {
         match message {
             ChannelRequest::ListManagedFiles(sender) => {
                 let managed_files = self.directory.list_managed_files()?;
@@ -253,24 +253,23 @@ impl ChannelRequestHandler {
                 sender.send(opaque)?;
             }
             ChannelRequest::SegmentRead(range, handle, sender) => {
-                let mut mutex = self.readers.lock();
-                let reader = mutex.entry(handle.path.clone()).or_insert_with(|| unsafe {
-                    SegmentComponentReader::new(self.relation_oid, handle)
-                });
+                let reader = self
+                    .readers
+                    .entry(handle.path.clone())
+                    .or_insert_with(|| unsafe {
+                        SegmentComponentReader::new(self.relation_oid, handle)
+                    });
                 let data = reader.read_bytes(range)?;
-                drop(mutex);
                 sender.send(data.as_slice().to_owned())?;
             }
             ChannelRequest::SegmentWrite(path, data) => {
-                let mut mutex = self.writers.lock();
-                let writer = mutex.entry(path.clone()).or_insert_with(|| unsafe {
+                let writer = self.writers.entry(path.clone()).or_insert_with(|| unsafe {
                     SegmentComponentWriter::new(self.relation_oid, &path)
                 });
                 writer.write_all(&data)?;
             }
             ChannelRequest::SegmentWriteTerminate(path) => {
-                let mut mutex = self.writers.lock();
-                let writer = mutex.remove(&path).expect("writer should exist");
+                let writer = self.writers.remove(&path).expect("writer should exist");
                 writer.terminate()?;
             }
             ChannelRequest::SaveMetas(metas) => {

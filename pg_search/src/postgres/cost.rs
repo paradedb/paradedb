@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::index::open_search_index;
+use crate::index::open_search_reader;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
@@ -48,14 +48,9 @@ pub unsafe extern "C" fn amcostestimate(
         .unwrap_or(1.0) as f64;
     let page_estimate = {
         assert!(!indexrel.rd_options.is_null());
-        let search_index =
-            open_search_index(&indexrel).expect("should be able to open search index");
-        search_index
-            .get_reader()
-            .expect("must be able to initialize index reader in amcostestimate")
-            .byte_size()
-            .unwrap_or(0)
-            / pg_sys::BLCKSZ as u64
+        let search_reader =
+            open_search_reader(&indexrel).expect("should be able to open a SearchIndexReader");
+        search_reader.byte_size().unwrap_or(0) / pg_sys::BLCKSZ as u64
     };
     drop(indexrel);
 

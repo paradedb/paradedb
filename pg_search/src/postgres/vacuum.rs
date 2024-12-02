@@ -16,9 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::blocking::BlockingDirectory;
-use crate::index::channel::{
-    ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
-};
+use crate::index::channel::{ChannelDirectory, ChannelRequest, ChannelRequestHandler};
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
@@ -47,17 +45,11 @@ pub extern "C" fn amvacuumcleanup(
         WriterResources::Vacuum.resources(unsafe { options.as_ref().unwrap() });
 
     let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
-    let (response_sender, response_receiver) = crossbeam::channel::unbounded::<ChannelResponse>();
-    let (request_sender_clone, response_receiver_clone) =
-        (request_sender.clone(), response_receiver.clone());
+    let channel_directory = ChannelDirectory::new(request_sender.clone());
 
     // Let Tantivy merge and garbage collect segments
     std::thread::scope(|s| {
         s.spawn(|| {
-            let channel_directory = ChannelDirectory::new(
-                request_sender_clone.clone(),
-                response_receiver_clone.clone(),
-            );
             let channel_index = Index::open(channel_directory).expect("channel index should open");
             let mut writer: IndexWriter = channel_index
                 .writer_with_num_threads(parallelism.into(), memory_budget)
@@ -65,21 +57,15 @@ pub extern "C" fn amvacuumcleanup(
 
             writer.commit().unwrap();
             writer.wait_merging_threads().unwrap();
-            request_sender_clone
-                .send(ChannelRequest::Terminate)
-                .unwrap();
+            request_sender.send(ChannelRequest::Terminate).unwrap();
         });
 
         let blocking_directory = BlockingDirectory::new(index_oid);
-        let mut handler = ChannelRequestHandler::open(
-            blocking_directory,
-            index_oid,
-            response_sender.clone(),
-            request_receiver.clone(),
-        );
+        let handler =
+            ChannelRequestHandler::open(blocking_directory, index_oid, request_receiver.clone());
 
         handler
-            .receive_blocking(Some(|_| false))
+            .receive_blocking(|_| false)
             .expect("blocking handler should succeed");
 
         // Garbage collect linked lists

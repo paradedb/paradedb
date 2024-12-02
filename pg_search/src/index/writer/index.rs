@@ -17,115 +17,147 @@
 
 use anyhow::Result;
 use pgrx::pg_sys;
-use tantivy::Index;
-use tantivy::{
-    indexer::{AddOperation, SegmentWriter},
-    IndexSettings,
-};
+use std::sync::Arc;
+use tantivy::indexer::{MergePolicy, NoMergePolicy, UserOperation};
+use tantivy::{Index, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
 use thiserror::Error;
 
-use crate::index::directory::blocking::BlockingDirectory;
+use crate::index::channel::{ChannelRequestHandler, ChannelRequestStats};
+use crate::index::merge_policy::NPlusOneMergePolicy;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::postgres::storage::block::SEGMENT_METAS_START;
-use crate::postgres::storage::LinkedItemList;
 use crate::{
-    index::SearchIndex,
-    postgres::storage::block::SegmentMetaEntry,
     postgres::types::TantivyValueError,
-    schema::{
-        SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
-    },
+    schema::{SearchDocument, SearchIndexSchema},
 };
+
+// NB:  should this be a GUC?  Could be useful or could just complicate things for the user
+/// How big should our insert queue get before we go ahead and add them to the tantivy index?
+const MAX_INSERT_QUEUE_SIZE: usize = 1000;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
-    pub underlying_writer: SegmentWriter,
-    pub current_opstamp: tantivy::Opstamp,
-    pub wants_merge: bool,
-    pub commit_opstamp: tantivy::Opstamp,
-    pub segment: tantivy::Segment,
-    relation_oid: pg_sys::Oid,
+    pub schema: SearchIndexSchema,
+
+    // keep all these private -- leaking them to the public API would allow callers to
+    // mis-use the IndexWriter in particular.
+    writer: Arc<IndexWriter>,
+    handler: ChannelRequestHandler,
+    wants_merge: bool,
+    insert_queue: Vec<UserOperation>,
 }
 
 impl SearchIndexWriter {
     pub fn new(
-        index: &Index,
+        index: Index,
+        schema: SearchIndexSchema,
+        handler: ChannelRequestHandler,
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
-        relation_oid: pg_sys::Oid,
     ) -> Result<Self> {
-        let (_, memory_budget, _, _) = resources.resources(index_options);
-        let segment = index.new_segment();
-        let current_opstamp = index.load_metas()?.opstamp;
-        let underlying_writer = SegmentWriter::for_segment(memory_budget, segment.clone())?;
+        let (parallelism, memory_budget, target_segment_count, merge_on_insert) =
+            resources.resources(index_options);
+
+        // let memory_budget = memory_budget / parallelism.get();
+        // let parallelism = std::num::NonZeroUsize::new(12).unwrap();
+
+        let (wants_merge, merge_policy) = match resources {
+            // During a CREATE INDEX we use `target_segment_count` but require twice
+            // as many segments before we'll do a merge.
+            WriterResources::CreateIndex => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: target_segment_count * 2,
+                });
+                (true, policy)
+            }
+
+            // During a VACUUM we want to merge down to our `target_segment_count`
+            WriterResources::Vacuum => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: 0,
+                });
+                (true, policy)
+            }
+
+            // During regular INSERT/UPDATE/COPY statements, if we were asked to "merge_on_insert"
+            // then we use our `NPlusOneMergePolicy` which will ensure we don't more than
+            // `target_segment_count` segments, requiring at least 2 to merge together.
+            // The idea being that only the very smallest segments will be merged together, reducing write amplification
+            WriterResources::Statement if merge_on_insert => {
+                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segment_count,
+                    min_num_segments: 2,
+                });
+                (true, policy)
+            }
+
+            // During regular INSERT/UPDATE/COPY statements, if we were told not to "merge_on_insert"
+            // then we don't do any merging at all.
+            WriterResources::Statement => {
+                let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
+                (false, policy)
+            }
+        };
+
+        let writer = handler
+            .wait_for(move || {
+                let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
+                writer.set_merge_policy(merge_policy);
+                tantivy::Result::Ok(writer)
+            })
+            .expect("scoped thread should not fail")?;
 
         Ok(Self {
-            underlying_writer,
-            current_opstamp,
-            commit_opstamp: current_opstamp,
-            // TODO: Merge on insert
-            wants_merge: false,
-            segment,
-            relation_oid,
+            writer: Arc::new(writer),
+            schema,
+            handler,
+            wants_merge,
+            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
         })
     }
 
-    pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
-        // Add the Tantivy document to the index.
-        let tantivy_document: tantivy::TantivyDocument = document.into();
-        self.current_opstamp += 1;
-        self.underlying_writer.add_document(AddOperation {
-            opstamp: self.current_opstamp,
-            document: tantivy_document,
-        })?;
+    pub fn delete_term(&self, term: Term) -> Opstamp {
+        let writer = self.writer.clone();
+        self.handler
+            .wait_for(move || writer.delete_term(term))
+            .expect("scoped thread should not fail")
+    }
 
+    pub fn insert(&mut self, document: SearchDocument) -> Result<(), IndexError> {
+        let tantivy_document: TantivyDocument = document.into();
+        self.insert_queue.push(UserOperation::Add(tantivy_document));
+
+        if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
+            self.drain_insert_queue()?;
+        }
         Ok(())
     }
 
     pub fn commit(mut self) -> Result<()> {
-        self.current_opstamp += 1;
-        let max_doc = self.underlying_writer.max_doc();
-        self.underlying_writer.finalize()?;
-        let segment = self.segment.with_max_doc(max_doc);
-
-        let entry = SegmentMetaEntry {
-            meta: segment.meta().tracked.as_ref().clone(),
-            opstamp: self.current_opstamp,
-            xmin: unsafe { pgrx::pg_sys::GetCurrentTransactionId() },
-            xmax: pgrx::pg_sys::InvalidTransactionId,
-        };
-
-        crate::log_message(&format!("-- COMMITTED {:?}", entry.clone()));
-
-        unsafe {
-            let mut segment_metas =
-                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
-            segment_metas.add_items(vec![entry]).unwrap();
-        }
-
+        self.drain_insert_queue()?;
+        let mut writer =
+            Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
+        let _opstamp = self
+            .handler
+            .wait_for(move || {
+                let opstamp = writer.commit()?;
+                if self.wants_merge {
+                    writer.wait_merging_threads()?;
+                }
+                tantivy::Result::Ok(opstamp)
+            })
+            .expect("spawned thread should not fail")?;
         Ok(())
     }
 
-    pub fn create_index(
-        index_oid: pgrx::pg_sys::Oid,
-        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
-        key_field_index: usize,
-    ) -> Result<SearchIndex> {
-        let schema = SearchIndexSchema::new(fields, key_field_index)?;
-        let tantivy_dir = BlockingDirectory::new(index_oid);
-        let settings = IndexSettings {
-            docstore_compress_dedicated_thread: false,
-            ..IndexSettings::default()
-        };
-        let mut underlying_index = Index::create(tantivy_dir, schema.schema.clone(), settings)?;
-
-        SearchIndex::setup_tokenizers(&mut underlying_index, &schema);
-        Ok(SearchIndex {
-            index_oid,
-            underlying_index,
-            schema,
-        })
+    fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
+        let insert_queue = std::mem::take(&mut self.insert_queue);
+        let writer = self.writer.clone();
+        self.handler
+            .wait_for(move || writer.run(insert_queue))
+            .expect("spawned thread should not fail")
     }
 }
 

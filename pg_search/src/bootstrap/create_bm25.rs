@@ -17,6 +17,12 @@
 
 use std::collections::HashMap;
 
+use crate::index::open_search_reader;
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::schema::IndexRecordOption;
+use crate::schema::SearchFieldConfig;
+use crate::schema::SearchFieldName;
+use crate::schema::SearchFieldType;
 use anyhow::bail;
 use anyhow::Result;
 use pgrx::prelude::*;
@@ -27,13 +33,6 @@ use serde_json::Value;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::SearchNormalizer;
 use tokenizers::SearchTokenizer;
-
-use crate::postgres::index::open_search_index;
-use crate::postgres::options::SearchIndexCreateOptions;
-use crate::schema::IndexRecordOption;
-use crate::schema::SearchFieldConfig;
-use crate::schema::SearchFieldName;
-use crate::schema::SearchFieldType;
 
 #[allow(clippy::too_many_arguments)]
 #[pg_extern]
@@ -299,8 +298,9 @@ fn index_info(
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
     // open the specified index
-    let index = open_search_index(&index).expect("should be able to open search index");
-    let data = index
+    let search_reader =
+        open_search_reader(&index).expect("should be able to open a SearchIndexReader");
+    let data = search_reader
         .underlying_index
         .searchable_segment_metas()?
         .into_iter()

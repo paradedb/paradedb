@@ -3188,6 +3188,7 @@ dependencies = [
  "libc",
  "memoffset",
  "once_cell",
+ "oneshot",
  "ordered-float",
  "os_info",
  "parking_lot",

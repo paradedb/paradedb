@@ -22,7 +22,7 @@ use tantivy::indexer::{MergePolicy, NoMergePolicy, UserOperation};
 use tantivy::{Index, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
 use thiserror::Error;
 
-use crate::index::channel::{ChannelRequestHandler, ChannelRequestStats};
+use crate::index::channel::ChannelRequestHandler;
 use crate::index::merge_policy::NPlusOneMergePolicy;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;

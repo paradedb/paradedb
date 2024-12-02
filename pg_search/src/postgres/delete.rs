@@ -16,9 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::directory::blocking::BlockingDirectory;
-use crate::index::directory::channel::{
-    ChannelDirectory, ChannelRequest, ChannelRequestHandler, ChannelResponse,
-};
+use crate::index::directory::channel::{ChannelDirectory, ChannelRequest, ChannelRequestHandler};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -41,12 +39,10 @@ pub extern "C" fn ambulkdelete(
     let (parallelism, memory_budget, _, _) =
         WriterResources::Vacuum.resources(unsafe { options.as_ref().unwrap() });
     let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
-    let (response_sender, response_receiver) = crossbeam::channel::unbounded::<ChannelResponse>();
 
     std::thread::scope(|s| {
         s.spawn(|| {
-            let channel_directory =
-                ChannelDirectory::new(request_sender.clone(), response_receiver.clone());
+            let channel_directory = ChannelDirectory::new(request_sender.clone());
             let channel_index = Index::open(channel_directory).expect("channel index should open");
             let reader = channel_index
                 .reader_builder()
@@ -62,13 +58,13 @@ pub extern "C" fn ambulkdelete(
                 let ctid_ff = FFType::new(fast_fields, "ctid");
                 if let FFType::U64(ff) = ctid_ff {
                     let ctids: Vec<u64> = ff.iter().collect();
+                    let (oneshot_sender, oneshot_receiver) = oneshot::channel();
                     request_sender
-                        .send(ChannelRequest::ShouldDeleteCtids(ctids))
+                        .send(ChannelRequest::ShouldDeleteCtids(ctids, oneshot_sender))
                         .unwrap();
-                    let ctids_to_delete = match response_receiver.recv().unwrap() {
-                        ChannelResponse::ShouldDeleteCtids(ctids) => ctids,
-                        _ => panic!("unexpected response in bulkdelete thread"),
-                    };
+                    let ctids_to_delete = oneshot_receiver
+                        .recv()
+                        .expect("ShouldDeleteCtids response should be valid");
                     for ctid in ctids_to_delete {
                         let ctid_field = channel_index.schema().get_field("ctid").unwrap();
                         let ctid_term = tantivy::Term::from_field_u64(ctid_field, ctid);
@@ -82,19 +78,15 @@ pub extern "C" fn ambulkdelete(
         });
 
         let blocking_directory = BlockingDirectory::new(index_oid);
-        let mut handler = ChannelRequestHandler::open(
-            blocking_directory,
-            index_oid,
-            response_sender,
-            request_receiver,
-        );
-        let should_delete = callback.map(|actual_callback| {
-            move |ctid_val: u64| unsafe {
-                let mut ctid = ItemPointerData::default();
-                crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
-                actual_callback(&mut ctid, callback_state)
-            }
-        });
+        let mut handler =
+            ChannelRequestHandler::open(blocking_directory, index_oid, request_receiver);
+        let callback =
+            callback.expect("the ambuilddelete() callbacks should be a valid function pointer");
+        let should_delete = move |ctid_val: u64| unsafe {
+            let mut ctid = ItemPointerData::default();
+            crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
+            callback(&mut ctid, callback_state)
+        };
 
         handler.receive_blocking(should_delete).unwrap();
 

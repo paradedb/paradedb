@@ -20,7 +20,6 @@ mod fixtures;
 
 use std::path::PathBuf;
 
-use fixtures::utils::pg_search_index_directory_path;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;

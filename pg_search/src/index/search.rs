@@ -18,27 +18,20 @@
 use super::reader::index::SearchIndexReader;
 use super::writer::index::IndexError;
 use crate::gucs;
+use crate::index::blocking::BlockingDirectory;
+use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::writer::index::SearchIndexWriter;
+use crate::postgres::index::get_fields;
 use crate::postgres::options::SearchIndexCreateOptions;
-use crate::query::SearchQueryInput;
-use crate::schema::{
-    SearchDocument, SearchField, SearchFieldConfig, SearchFieldName, SearchFieldType,
-    SearchIndexSchema, SearchIndexSchemaError,
-};
+use crate::postgres::storage::utils::BM25BufferCache;
+use crate::schema::{SearchFieldConfig, SearchIndexSchema, SearchIndexSchemaError};
 use anyhow::Result;
-use once_cell::sync::Lazy;
-use pgrx::PgRelation;
-use serde::Serialize;
+use pgrx::{pg_sys, PgRelation};
 use std::num::NonZeroUsize;
-use tantivy::query::Query;
-use tantivy::{query::QueryParser, Executor, Index};
+use tantivy::{Index, IndexSettings, ReloadPolicy};
 use thiserror::Error;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::trace;
-
-/// PostgreSQL operates in a process-per-client model, meaning every client connection
-/// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
-pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(Executor::single_thread);
 
 pub enum WriterResources {
     CreateIndex,
@@ -78,49 +71,116 @@ impl WriterResources {
     }
 }
 
-#[derive(Serialize)]
-pub struct SearchIndex {
-    pub schema: SearchIndexSchema,
-    pub index_oid: pgrx::pg_sys::Oid,
-    #[serde(skip_serializing)]
-    pub underlying_index: Index,
+/// How many messages should we buffer between the channels?
+const CHANNEL_QUEUE_LEN: usize = 1000;
+
+struct SearchIndex {
+    schema: SearchIndexSchema,
+    underlying_index: Index,
+    handler: ChannelRequestHandler,
 }
 
 impl SearchIndex {
-    pub fn create_index(
-        index_oid: pgrx::pg_sys::Oid,
-        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
-        key_field_index: usize,
-    ) -> Result<Self> {
-        SearchIndexWriter::create_index(index_oid, fields, key_field_index)
-    }
-
-    pub fn get_reader(&self) -> Result<SearchIndexReader> {
-        SearchIndexReader::new(self)
-    }
-
-    /// Retrieve an owned writer for a given index. This will block until this process
-    /// can get an exclusive lock on the Tantivy writer. The return type needs to
-    /// be entirely owned by the new process, with no references.
-    pub fn get_writer(
-        &self,
+    fn create_index(
+        index_relation: &PgRelation,
         resources: WriterResources,
-        index_options: &SearchIndexCreateOptions,
     ) -> Result<SearchIndexWriter> {
+        let schema = make_schema(index_relation)?;
+        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
+
+        let settings = IndexSettings {
+            docstore_compress_dedicated_thread: false,
+            ..IndexSettings::default()
+        };
+        let search_index = Self::prepare_index(index_relation, schema, |directory, schema| {
+            Index::create(directory, schema.schema.clone(), settings)
+        })?;
+
         SearchIndexWriter::new(
-            &self.underlying_index,
+            search_index.underlying_index,
+            search_index.schema,
+            search_index.handler,
             resources,
-            index_options,
-            self.index_oid,
+            unsafe { &*create_options },
         )
     }
 
-    #[allow(static_mut_refs)]
-    pub fn executor() -> &'static Executor {
-        unsafe { &SEARCH_EXECUTOR }
+    fn open_writer(
+        index_relation: &PgRelation,
+        resources: WriterResources,
+    ) -> Result<SearchIndexWriter> {
+        let schema = make_schema(index_relation)?;
+        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
+
+        let search_index = Self::prepare_index(index_relation, schema, |directory, _| {
+            Index::open(directory)
+        })?;
+
+        SearchIndexWriter::new(
+            search_index.underlying_index,
+            search_index.schema,
+            search_index.handler,
+            resources,
+            unsafe { &*create_options },
+        )
     }
 
-    pub fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
+    fn prepare_index<
+        F: FnOnce(ChannelDirectory, &SearchIndexSchema) -> tantivy::Result<Index>
+            + Send
+            + Sync
+            + 'static,
+    >(
+        index_relation: &PgRelation,
+        schema: SearchIndexSchema,
+        opener: F,
+    ) -> Result<Self, SearchIndexError> {
+        let index_oid = index_relation.oid();
+
+        let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
+        let tantivy_dir = BlockingDirectory::new(index_oid);
+        let channel_dir = ChannelDirectory::new(req_sender);
+        let handler = ChannelRequestHandler::open(tantivy_dir, index_oid, req_receiver);
+
+        let underlying_index = {
+            let schema = schema.clone();
+            handler
+                .wait_for(move || {
+                    let mut index = opener(channel_dir, &schema)?;
+                    SearchIndex::setup_tokenizers(&mut index, &schema);
+                    tantivy::Result::Ok(index)
+                })
+                .expect("scoped thread should not fail")?
+        };
+
+        Ok(SearchIndex {
+            schema,
+            underlying_index,
+            handler,
+        })
+    }
+
+    fn open_reader(index_relation: &PgRelation) -> Result<SearchIndexReader> {
+        let directory = BlockingDirectory::new(index_relation.oid());
+        let mut index = Index::open(directory)?;
+        let schema = make_schema(index_relation)?;
+        SearchIndex::setup_tokenizers(&mut index, &schema);
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        let searcher = reader.searcher();
+
+        Ok(SearchIndexReader::new(
+            index_relation,
+            index,
+            searcher,
+            reader,
+            schema,
+        ))
+    }
+
+    fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
         let tokenizers = schema
             .fields
             .iter()
@@ -138,48 +198,6 @@ impl SearchIndex {
 
         underlying_index.set_tokenizers(create_tokenizer_manager(tokenizers));
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
-    }
-
-    pub fn key_field(&self) -> SearchField {
-        self.schema.key_field()
-    }
-
-    pub fn key_field_name(&self) -> String {
-        self.key_field().name.to_string()
-    }
-
-    pub fn query_parser(&self) -> QueryParser {
-        QueryParser::for_index(
-            &self.underlying_index,
-            self.schema
-                .fields
-                .iter()
-                .map(|search_field| search_field.id.0)
-                .collect::<Vec<_>>(),
-        )
-    }
-
-    pub fn query(
-        &self,
-        indexrel: &PgRelation,
-        search_query_input: &SearchQueryInput,
-        reader: &SearchIndexReader,
-    ) -> Box<dyn Query> {
-        let mut parser = self.query_parser();
-        let searcher = reader.underlying_reader.searcher();
-        search_query_input
-            .clone()
-            .into_tantivy_query(&(indexrel, &self.schema), &mut parser, &searcher)
-            .expect("must be able to parse query")
-    }
-
-    pub fn insert(
-        &self,
-        writer: &mut SearchIndexWriter,
-        document: SearchDocument,
-    ) -> Result<(), SearchIndexError> {
-        writer.insert(document)?;
-        Ok(())
     }
 }
 
@@ -203,4 +221,34 @@ pub enum SearchIndexError {
 
     #[error(transparent)]
     AnyhowError(#[from] anyhow::Error),
+}
+
+fn make_schema(index_relation: &PgRelation) -> Result<SearchIndexSchema> {
+    if index_relation.rd_options.is_null() {
+        panic!("must specify key field")
+    }
+    let (fields, key_field_index) = unsafe { get_fields(index_relation) };
+    let schema = SearchIndexSchema::new(fields, key_field_index)?;
+    Ok(schema)
+}
+
+/// Open a (non-channel-based) [`SearchIndexReader`] for the specified Postgres index relation
+pub fn open_search_reader(index_relation: &PgRelation) -> Result<SearchIndexReader> {
+    SearchIndex::open_reader(index_relation)
+}
+
+/// Open an existing index for writing
+pub fn open_search_writer(
+    index_relation: &PgRelation,
+    resources: WriterResources,
+) -> Result<SearchIndexWriter> {
+    SearchIndex::open_writer(index_relation, resources)
+}
+
+/// Create a new, empty index for the specified Postgres index relation
+pub fn create_new_index(
+    index_relation: &PgRelation,
+    resources: WriterResources,
+) -> Result<SearchIndexWriter> {
+    SearchIndex::create_index(index_relation, resources)
 }

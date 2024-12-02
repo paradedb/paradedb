@@ -1,9 +1,14 @@
 use anyhow::Result;
-use crossbeam::channel::{Receiver, Sender};
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Formatter};
+use crossbeam::channel::{Receiver, Sender, TryRecvError};
+use parking_lot::Mutex;
+use pgrx::pg_sys;
+use rustc_hash::FxHashMap;
+use std::any::Any;
+use std::collections::HashSet;
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::{io, io::Write, ops::Range, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
@@ -20,56 +25,35 @@ use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
 pub enum ChannelRequest {
-    ListManagedFiles(),
+    ListManagedFiles(oneshot::Sender<HashSet<PathBuf>>),
     RegisterFilesAsManaged(Vec<PathBuf>, bool),
-    SegmentRead(Range<usize>, DirectoryEntry),
+    SegmentRead(Range<usize>, DirectoryEntry, oneshot::Sender<Vec<u8>>),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
-    GetSegmentComponent(PathBuf),
-    ShouldDeleteCtids(Vec<u64>),
+    GetSegmentComponent(PathBuf, oneshot::Sender<DirectoryEntry>),
+    ShouldDeleteCtids(Vec<u64>, oneshot::Sender<Vec<u64>>),
     SaveMetas(IndexMeta),
-    LoadMetas(SegmentMetaInventory),
+    LoadMetas(SegmentMetaInventory, oneshot::Sender<IndexMeta>),
     Terminate,
-}
-
-pub enum ChannelResponse {
-    ManagedFiles(HashSet<PathBuf>),
-    Bytes(Vec<u8>),
-    DirectoryEntry(DirectoryEntry),
-    ShouldDeleteCtids(Vec<u64>),
-    LoadMetas(IndexMeta),
-}
-
-impl Debug for ChannelResponse {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ChannelResponse::ManagedFiles(_) => write!(f, "ManagedFiles"),
-            ChannelResponse::Bytes(_) => write!(f, "Bytes"),
-            ChannelResponse::DirectoryEntry(_) => write!(f, "DirectoryEntry"),
-            ChannelResponse::ShouldDeleteCtids(_) => write!(f, "ShouldDeleteCtids"),
-            ChannelResponse::LoadMetas(_) => write!(f, "LoadMetas"),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
 pub struct ChannelDirectory {
     sender: Sender<ChannelRequest>,
-    receiver: Receiver<ChannelResponse>,
 }
 
 // A directory that actually forwards all read/write requests to a channel
 // This channel is used to communicate with the actual storage implementation
 impl ChannelDirectory {
-    pub fn new(sender: Sender<ChannelRequest>, receiver: Receiver<ChannelResponse>) -> Self {
-        Self { sender, receiver }
+    pub fn new(sender: Sender<ChannelRequest>) -> Self {
+        Self { sender }
     }
 }
 
 impl Directory for ChannelDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
         Ok(Arc::new(unsafe {
-            ChannelReader::new(path, self.sender.clone(), self.receiver.clone()).map_err(|e| {
+            ChannelReader::new(path, self.sender.clone()).map_err(|e| {
                 OpenReadError::wrap_io_error(
                     io::Error::new(io::ErrorKind::Other, format!("{:?}", e)),
                     path.to_path_buf(),
@@ -128,17 +112,12 @@ impl Directory for ChannelDirectory {
     }
 
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
-            .send(ChannelRequest::ListManagedFiles())
+            .send(ChannelRequest::ListManagedFiles(oneshot_sender))
             .unwrap();
 
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::ManagedFiles(files) => Ok(files),
-            unexpected => Err(tantivy::TantivyError::ErrorInThread(format!(
-                "list_managed_files unexpected response {:?}",
-                unexpected
-            ))),
-        }
+        Ok(oneshot_receiver.recv().unwrap())
     }
 
     fn register_files_as_managed(
@@ -162,108 +141,166 @@ impl Directory for ChannelDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
-            .send(ChannelRequest::LoadMetas(inventory.clone()))
+            .send(ChannelRequest::LoadMetas(inventory.clone(), oneshot_sender))
             .unwrap();
 
-        match self.receiver.recv().unwrap() {
-            ChannelResponse::LoadMetas(metas) => Ok(metas),
-            unexpected => Err(tantivy::TantivyError::ErrorInThread(format!(
-                "load_metas unexpected response {:?}",
-                unexpected
-            ))),
-        }
+        Ok(oneshot_receiver.recv().unwrap())
     }
 }
 
+type Action = Box<dyn FnOnce() -> Reply + Send + Sync>;
+type Reply = Box<dyn Any + Send + Sync>;
 pub struct ChannelRequestHandler {
     directory: BlockingDirectory,
-    relation_oid: pgrx::pg_sys::Oid,
-    sender: Sender<ChannelResponse>,
+    relation_oid: pg_sys::Oid,
     receiver: Receiver<ChannelRequest>,
-    writers: HashMap<PathBuf, SegmentComponentWriter>,
-    readers: HashMap<PathBuf, SegmentComponentReader>,
+    writers: Mutex<FxHashMap<PathBuf, SegmentComponentWriter>>,
+    readers: Mutex<FxHashMap<PathBuf, SegmentComponentReader>>,
+
+    action: (Sender<Action>, Receiver<Action>),
+    reply: (Sender<Reply>, Receiver<Reply>),
+    _worker: JoinHandle<()>,
 }
+
+#[derive(Debug)]
+pub struct ChannelRequestStats {
+    pub deleted_paths: Vec<PathBuf>,
+}
+
+pub type ShouldTerminate = bool;
 
 impl ChannelRequestHandler {
     pub fn open(
         directory: BlockingDirectory,
-        relation_oid: pgrx::pg_sys::Oid,
-        sender: Sender<ChannelResponse>,
+        relation_oid: pg_sys::Oid,
         receiver: Receiver<ChannelRequest>,
     ) -> Self {
+        let (action_sender, action_receiver) = crossbeam::channel::bounded(1);
+        let (reply_sender, reply_receiver) = crossbeam::channel::bounded(1);
         Self {
             directory,
             relation_oid,
             receiver,
-            sender,
-            writers: HashMap::new(),
-            readers: HashMap::new(),
+            writers: Default::default(),
+            readers: Default::default(),
+            action: (action_sender, action_receiver.clone()),
+            reply: (reply_sender.clone(), reply_receiver),
+            _worker: std::thread::spawn(move || {
+                for message in action_receiver {
+                    if reply_sender.send(message()).is_err() {
+                        // channel was dropped and that's okay
+                        break;
+                    }
+                }
+            }),
         }
     }
 
-    pub fn receive_blocking(&mut self, should_delete: Option<impl Fn(u64) -> bool>) -> Result<()> {
-        for message in self.receiver.iter() {
-            match message {
-                ChannelRequest::ListManagedFiles() => {
-                    let managed_files = self.directory.list_managed_files()?;
-                    self.sender
-                        .send(ChannelResponse::ManagedFiles(managed_files))?;
+    pub fn wait_for<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
+        &self,
+        func: F,
+    ) -> Result<T> {
+        let func: Action = Box::new(move || Box::new(func()));
+        self.action.0.send(func)?;
+        loop {
+            match self.reply.1.try_recv() {
+                // `func` has finished and we have its reply
+                Ok(reply) => {
+                    return match reply.downcast::<T>() {
+                        // the reply is exactly what we hoped for
+                        Ok(reply) => Ok(*reply),
+
+                        // it's something else, so transform into a generic error
+                        Err(e) => Err(anyhow::anyhow!("unexpected reply {:?}", e)),
+                    };
                 }
-                ChannelRequest::RegisterFilesAsManaged(files, overwrite) => {
-                    self.directory.register_files_as_managed(files, overwrite)?;
-                }
-                ChannelRequest::GetSegmentComponent(path) => {
-                    let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
-                    self.sender.send(ChannelResponse::DirectoryEntry(opaque))?;
-                }
-                ChannelRequest::SegmentRead(range, handle) => {
-                    let reader =
-                        self.readers
-                            .entry(handle.path.clone())
-                            .or_insert_with(|| unsafe {
-                                SegmentComponentReader::new(self.relation_oid, handle)
-                            });
-                    let data = reader.read_bytes(range)?;
-                    self.sender
-                        .send(ChannelResponse::Bytes(data.as_slice().to_owned()))?;
-                }
-                ChannelRequest::SegmentWrite(path, data) => {
-                    let writer = self.writers.entry(path.clone()).or_insert_with(|| unsafe {
-                        SegmentComponentWriter::new(self.relation_oid, &path)
-                    });
-                    writer.write_all(&data)?;
-                }
-                ChannelRequest::SegmentWriteTerminate(path) => {
-                    let writer = self.writers.remove(&path).expect("writer should exist");
-                    writer.terminate()?;
-                }
-                ChannelRequest::ShouldDeleteCtids(ctids) => {
-                    if let Some(ref should_delete) = should_delete {
-                        let filtered_ctids: Vec<u64> = ctids
-                            .into_iter()
-                            .filter(|&ctid_val| should_delete(ctid_val))
-                            .collect();
-                        self.sender
-                            .send(ChannelResponse::ShouldDeleteCtids(filtered_ctids))?;
-                    } else {
-                        self.sender
-                            .send(ChannelResponse::ShouldDeleteCtids(vec![]))?;
+
+                // we have no reply yet, so process any messages it may have generated
+                Err(TryRecvError::Empty) => {
+                    for message in self.receiver.try_iter() {
+                        match self.process_message(message, &|_| false) {
+                            Ok(should_terminate) if should_terminate => break,
+                            Ok(_) => continue,
+                            Err(e) => return Err(e),
+                        }
                     }
                 }
-                ChannelRequest::SaveMetas(metas) => {
-                    self.directory.save_metas(&metas)?;
-                }
-                ChannelRequest::LoadMetas(inventory) => {
-                    let metas = self.directory.load_metas(&inventory)?;
-                    self.sender.send(ChannelResponse::LoadMetas(metas))?;
-                }
-                ChannelRequest::Terminate => {
-                    break;
+
+                // the reply channel was closed, so lets just return that as the error
+                Err(TryRecvError::Disconnected) => {
+                    return Err(anyhow::anyhow!("reply channel disconnected"));
                 }
             }
         }
+    }
+
+    pub fn receive_blocking(self, should_delete: impl Fn(u64) -> bool) -> Result<()> {
+        let receiver = self.receiver.clone();
+        for message in receiver {
+            self.process_message(message, &should_delete)?;
+        }
 
         Ok(())
+    }
+
+    fn process_message(
+        &self,
+        message: ChannelRequest,
+        should_delete: &impl Fn(u64) -> bool,
+    ) -> Result<ShouldTerminate> {
+        match message {
+            ChannelRequest::ListManagedFiles(sender) => {
+                let managed_files = self.directory.list_managed_files()?;
+                sender.send(managed_files)?;
+            }
+            ChannelRequest::RegisterFilesAsManaged(files, overwrite) => {
+                self.directory.register_files_as_managed(files, overwrite)?;
+            }
+            ChannelRequest::GetSegmentComponent(path, sender) => {
+                let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
+                sender.send(opaque)?;
+            }
+            ChannelRequest::SegmentRead(range, handle, sender) => {
+                let mut mutex = self.readers.lock();
+                let reader = mutex.entry(handle.path.clone()).or_insert_with(|| unsafe {
+                    SegmentComponentReader::new(self.relation_oid, handle)
+                });
+                let data = reader.read_bytes(range)?;
+                drop(mutex);
+                sender.send(data.as_slice().to_owned())?;
+            }
+            ChannelRequest::SegmentWrite(path, data) => {
+                let mut mutex = self.writers.lock();
+                let writer = mutex.entry(path.clone()).or_insert_with(|| unsafe {
+                    SegmentComponentWriter::new(self.relation_oid, &path)
+                });
+                writer.write_all(&data)?;
+            }
+            ChannelRequest::SegmentWriteTerminate(path) => {
+                let mut mutex = self.writers.lock();
+                let writer = mutex.remove(&path).expect("writer should exist");
+                writer.terminate()?;
+            }
+            ChannelRequest::ShouldDeleteCtids(ctids, sender) => {
+                let filtered_ctids: Vec<u64> = ctids
+                    .into_iter()
+                    .filter(|&ctid_val| should_delete(ctid_val))
+                    .collect();
+                sender.send(filtered_ctids)?;
+            }
+            ChannelRequest::SaveMetas(metas) => {
+                self.directory.save_metas(&metas)?;
+            }
+            ChannelRequest::LoadMetas(inventory, sender) => {
+                let metas = self.directory.load_metas(&inventory)?;
+                sender.send(metas)?;
+            }
+            ChannelRequest::Terminate => {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }

@@ -145,3 +145,15 @@ impl Drop for BM25BufferCache {
         }
     }
 }
+
+pub trait BM25Buffer {
+    unsafe fn next_blockno(&self) -> pg_sys::BlockNumber;
+}
+
+impl BM25Buffer for pg_sys::Buffer {
+    unsafe fn next_blockno(&self) -> pg_sys::BlockNumber {
+        let page = pg_sys::BufferGetPage(*self);
+        let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+        (*special).next_blockno
+    }
+}

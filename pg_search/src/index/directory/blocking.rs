@@ -16,8 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::Result;
+use parking_lot::Mutex;
 use pgrx::pg_sys;
+use rustc_hash::FxHashMap;
 use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -44,11 +47,19 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 #[derive(Clone, Debug)]
 pub struct BlockingDirectory {
     relation_oid: pg_sys::Oid,
+
+    // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this BlockingDirectory is
+    // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
+    // it's cloned a lot!
+    readers: Arc<Mutex<FxHashMap<PathBuf, Arc<dyn FileHandle>>>>,
 }
 
 impl BlockingDirectory {
     pub fn new(relation_oid: pg_sys::Oid) -> Self {
-        Self { relation_oid }
+        Self {
+            relation_oid,
+            readers: Arc::new(Mutex::new(FxHashMap::default())),
+        }
     }
 
     pub unsafe fn directory_lookup(
@@ -64,17 +75,26 @@ impl BlockingDirectory {
 impl Directory for BlockingDirectory {
     /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        let (opaque, _, _) = unsafe {
-            self.directory_lookup(path)
-                .map_err(|err| OpenReadError::IoError {
-                    io_error: io::Error::new(io::ErrorKind::Other, err.to_string()).into(),
-                    filepath: PathBuf::from(path),
-                })?
-        };
-
-        Ok(Arc::new(unsafe {
-            SegmentComponentReader::new(self.relation_oid, opaque)
-        }))
+        match self.readers.lock().entry(path.to_path_buf()) {
+            Entry::Occupied(reader) => {
+                pgrx::warning!("cache hit FileHandler for {}", path.display());
+                Ok(reader.get().clone())
+            }
+            Entry::Vacant(vacant) => {
+                let (opaque, _, _) = unsafe {
+                    self.directory_lookup(path)
+                        .map_err(|err| OpenReadError::IoError {
+                            io_error: io::Error::new(io::ErrorKind::Other, err.to_string()).into(),
+                            filepath: PathBuf::from(path),
+                        })?
+                };
+                Ok(vacant
+                    .insert(Arc::new(unsafe {
+                        SegmentComponentReader::new(self.relation_oid, opaque)
+                    }))
+                    .clone())
+            }
+        }
     }
     /// Returns a segment writer that implements std::io::Write
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {

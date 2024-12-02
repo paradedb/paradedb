@@ -78,8 +78,7 @@ pub extern "C" fn ambulkdelete(
         });
 
         let blocking_directory = BlockingDirectory::new(index_oid);
-        let mut handler =
-            ChannelRequestHandler::open(blocking_directory, index_oid, request_receiver);
+        let handler = ChannelRequestHandler::open(blocking_directory, index_oid, request_receiver);
         let callback =
             callback.expect("the ambuilddelete() callbacks should be a valid function pointer");
         let should_delete = move |ctid_val: u64| unsafe {

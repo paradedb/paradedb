@@ -164,11 +164,6 @@ pub struct ChannelRequestHandler {
     _worker: JoinHandle<()>,
 }
 
-#[derive(Debug)]
-pub struct ChannelRequestStats {
-    pub deleted_paths: Vec<PathBuf>,
-}
-
 pub type ShouldTerminate = bool;
 
 impl ChannelRequestHandler {

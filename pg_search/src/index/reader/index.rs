@@ -420,7 +420,7 @@ impl SearchIndexReader {
         });
 
         let blocking_directory = BlockingDirectory::new(self.index_oid);
-        let mut handler =
+        let handler =
             ChannelRequestHandler::open(blocking_directory, self.index_oid, request_receiver);
         handler.receive_blocking(|_| false).unwrap();
         SearchResults::Channel(search_receiver.into_iter())

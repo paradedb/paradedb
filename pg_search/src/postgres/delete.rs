@@ -15,14 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::directory::blocking::BlockingDirectory;
-use crate::index::directory::channel::{ChannelDirectory, ChannelRequest, ChannelRequestHandler};
 use crate::index::fast_fields_helper::FFType;
-use crate::index::WriterResources;
-use crate::postgres::options::SearchIndexCreateOptions;
+use crate::index::{open_search_writer, WriterResources};
 use pgrx::{pg_sys::ItemPointerData, *};
-use tantivy::index::Index;
-use tantivy::indexer::IndexWriter;
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -34,71 +29,45 @@ pub extern "C" fn ambulkdelete(
     let info = unsafe { PgBox::from_pg(info) };
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
-    let index_oid = index_relation.oid();
-    let options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-    let (parallelism, memory_budget, _, _) =
-        WriterResources::Vacuum.resources(unsafe { options.as_ref().unwrap() });
-    let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
+    let callback =
+        callback.expect("the ambulkdelete() callback should be a valid function pointer");
+    let callback = move |ctid_val: u64| unsafe {
+        let mut ctid = ItemPointerData::default();
+        crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
+        callback(&mut ctid, callback_state)
+    };
 
-    std::thread::scope(|s| {
-        s.spawn(|| {
-            let channel_directory = ChannelDirectory::new(request_sender.clone());
-            let channel_index = Index::open(channel_directory).expect("channel index should open");
-            let reader = channel_index
-                .reader_builder()
-                .reload_policy(tantivy::ReloadPolicy::Manual)
-                .try_into()
-                .unwrap();
-            let mut writer: IndexWriter = channel_index
-                .writer_with_num_threads(parallelism.into(), memory_budget)
-                .unwrap();
-
-            for segment_reader in reader.searcher().segment_readers() {
-                let fast_fields = segment_reader.fast_fields();
-                let ctid_ff = FFType::new(fast_fields, "ctid");
-                if let FFType::U64(ff) = ctid_ff {
-                    let ctids: Vec<u64> = ff.iter().collect();
-                    let (oneshot_sender, oneshot_receiver) = oneshot::channel();
-                    request_sender
-                        .send(ChannelRequest::ShouldDeleteCtids(ctids, oneshot_sender))
-                        .unwrap();
-                    let ctids_to_delete = oneshot_receiver
-                        .recv()
-                        .expect("ShouldDeleteCtids response should be valid");
-                    for ctid in ctids_to_delete {
-                        let ctid_field = channel_index.schema().get_field("ctid").unwrap();
-                        let ctid_term = tantivy::Term::from_field_u64(ctid_field, ctid);
-                        writer.delete_term(ctid_term);
-                    }
-                }
+    let mut writer = open_search_writer(&index_relation, WriterResources::Vacuum)
+        .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    for segment_reader in writer
+        .searcher()
+        .expect("ambulkdelete: should be able to obtain a Searcher")
+        .segment_readers()
+    {
+        let fast_fields = segment_reader.fast_fields();
+        let ctid_ff = FFType::new(fast_fields, "ctid");
+        if let FFType::U64(ff) = ctid_ff {
+            let ctid_field = writer.get_ctid_field().expect("ctid field should exist");
+            for ctid in ff.iter().filter(|ctid| callback(*ctid)) {
+                writer
+                    .delete_term(tantivy::Term::from_field_u64(ctid_field, ctid))
+                    .expect("ambulkdelete: deleting ctid Term should succeed");
             }
-            writer.commit().unwrap();
-            writer.wait_merging_threads().unwrap();
-            request_sender.send(ChannelRequest::Terminate).unwrap();
-        });
-
-        let blocking_directory = BlockingDirectory::new(index_oid);
-        let handler = ChannelRequestHandler::open(blocking_directory, index_oid, request_receiver);
-        let callback =
-            callback.expect("the ambuilddelete() callbacks should be a valid function pointer");
-        let should_delete = move |ctid_val: u64| unsafe {
-            let mut ctid = ItemPointerData::default();
-            crate::postgres::utils::u64_to_item_pointer(ctid_val, &mut ctid);
-            callback(&mut ctid, callback_state)
-        };
-
-        handler.receive_blocking(should_delete).unwrap();
-
-        if stats.is_null() {
-            stats = unsafe {
-                PgBox::from_pg(
-                    pg_sys::palloc0(std::mem::size_of::<pg_sys::IndexBulkDeleteResult>()).cast(),
-                )
-            };
-            stats.pages_deleted = 0;
         }
+    }
+    writer
+        .commit()
+        .expect("ambulkdelete: commit should succeed");
 
-        // TODO: Update stats
-        stats.into_pg()
-    })
+    if stats.is_null() {
+        stats = unsafe {
+            PgBox::from_pg(
+                pg_sys::palloc0(std::mem::size_of::<pg_sys::IndexBulkDeleteResult>()).cast(),
+            )
+        };
+        stats.pages_deleted = 0;
+    }
+
+    // TODO: Update stats
+    stats.into_pg()
 }

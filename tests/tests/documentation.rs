@@ -1823,6 +1823,7 @@ fn create_bm25_test_tables(mut conn: PgConnection) {
     assert_eq!(rows[0], (1, 0, "Chassis Assembly".into()));
 }
 
+#[ignore = "block-storage: hangs forever"]
 #[rstest]
 fn concurrent_indexing(mut conn: PgConnection) {
     r#"

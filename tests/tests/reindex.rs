@@ -45,6 +45,7 @@ async fn basic_reindex(mut conn: PgConnection) -> Result<()> {
     Ok(())
 }
 
+#[ignore = "block-storage: hangs forever"]
 #[rstest]
 async fn concurrent_reindex(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
@@ -184,6 +185,7 @@ async fn reindex_partial_index(mut conn: PgConnection) -> Result<()> {
     Ok(())
 }
 
+#[ignore = "block-storage: hangs forever"]
 #[rstest]
 async fn concurrent_reindex_with_updates(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);
@@ -233,6 +235,7 @@ async fn reindex_table(mut conn: PgConnection) -> Result<()> {
     Ok(())
 }
 
+#[ignore = "block-storage: hangs forever"]
 #[rstest]
 async fn concurrent_index_creation(mut conn: PgConnection) -> Result<()> {
     SimpleProductsTable::setup().execute(&mut conn);

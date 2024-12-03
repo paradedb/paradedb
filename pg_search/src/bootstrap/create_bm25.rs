@@ -273,6 +273,7 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
     JsonB(serde_json::Value::from(fields))
 }
 
+#[allow(clippy::type_complexity)]
 #[pg_extern]
 fn index_info(
     index: PgRelation,
@@ -281,9 +282,16 @@ fn index_info(
         'static,
         (
             name!(segno, String),
-            name!(byte_size, i64),
-            name!(num_docs, i64),
-            name!(num_deleted, i64),
+            name!(byte_size, AnyNumeric),
+            name!(num_docs, AnyNumeric),
+            name!(num_deleted, AnyNumeric),
+            name!(termdict_bytes, AnyNumeric),
+            name!(postings_bytes, AnyNumeric),
+            name!(positions_bytes, AnyNumeric),
+            name!(fast_fields_bytes, AnyNumeric),
+            name!(fieldnorms_bytes, AnyNumeric),
+            name!(store_bytes, AnyNumeric),
+            name!(deletes_bytes, AnyNumeric),
         ),
     >,
 > {
@@ -301,19 +309,27 @@ fn index_info(
     let search_reader =
         open_search_reader(&index).expect("should be able to open a SearchIndexReader");
     let data = search_reader
-        .underlying_index
-        .searchable_segment_metas()?
-        .into_iter()
-        .map(|meta| {
-            let segno = meta.id().short_uuid_string();
-            // TODO
-            let byte_size = 0;
-            let num_docs = meta.num_docs() as i64;
-            let num_deleted = meta.num_deleted_docs() as i64;
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| {
+            let segno = segment_reader.segment_id().short_uuid_string();
+            let space_usage = segment_reader.space_usage()?;
 
-            (segno, byte_size, num_docs, num_deleted)
+            Ok((
+                segno,
+                space_usage.total().get_bytes().into(),
+                segment_reader.num_docs().into(),
+                segment_reader.num_deleted_docs().into(),
+                space_usage.termdict().total().get_bytes().into(),
+                space_usage.postings().total().get_bytes().into(),
+                space_usage.positions().total().get_bytes().into(),
+                space_usage.fast_fields().total().get_bytes().into(),
+                space_usage.fieldnorms().total().get_bytes().into(),
+                space_usage.store().total().get_bytes().into(),
+                space_usage.deletes().get_bytes().into(),
+            ))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(TableIterator::new(data))
 }

@@ -36,7 +36,7 @@ impl FileHandle for SegmentComponentReader {
             const ITEM_SIZE: usize = bm25_max_free_space();
             let start = range.start;
             let end = range.end.min(self.len());
-            if start >= end {
+            if start > end {
                 return Err(Error::new(ErrorKind::InvalidInput, "Invalid range"));
             }
             let start_block = start / ITEM_SIZE;

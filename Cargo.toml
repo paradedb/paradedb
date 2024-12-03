@@ -23,5 +23,5 @@ lto = "thin"
 codegen-units = 32
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "328179fb" }
-tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "328179fb" }
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "aded36d" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "aded36d" }

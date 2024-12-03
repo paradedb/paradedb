@@ -203,7 +203,7 @@ impl SearchResults {
 pub struct SearchIndexReader {
     index_oid: pg_sys::Oid,
     searcher: Searcher,
-    pub schema: SearchIndexSchema,
+    schema: SearchIndexSchema,
     underlying_reader: IndexReader,
     underlying_index: Index,
 }

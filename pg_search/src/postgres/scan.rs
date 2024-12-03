@@ -107,7 +107,7 @@ pub extern "C" fn amrescan(
     let search_reader =
         open_search_reader(&indexrel).expect("should be able to open a SearchIndexReader");
     unsafe {
-        parallel::maybe_init_parallel_scan(scan, &search_reader.searcher);
+        parallel::maybe_init_parallel_scan(scan, search_reader.searcher());
 
         let options = (*(*scan).indexRelation).rd_options as *mut SearchIndexCreateOptions;
         let key_field = (*options)

@@ -39,7 +39,6 @@ impl FFHelper {
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
         let fast_fields = reader
-            .searcher
             .segment_readers()
             .iter()
             .map(|reader| {

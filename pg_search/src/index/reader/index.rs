@@ -19,7 +19,9 @@ use crate::schema::SearchField;
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
+use std::path::PathBuf;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::fastfield::Column;
 use tantivy::index::Index;
@@ -199,11 +201,11 @@ impl SearchResults {
 
 #[derive(Clone)]
 pub struct SearchIndexReader {
-    pub index_oid: pg_sys::Oid,
-    pub searcher: Searcher,
+    index_oid: pg_sys::Oid,
+    searcher: Searcher,
     pub schema: SearchIndexSchema,
-    pub underlying_reader: IndexReader,
-    pub underlying_index: Index,
+    underlying_reader: IndexReader,
+    underlying_index: Index,
 }
 
 impl SearchIndexReader {
@@ -265,6 +267,18 @@ impl SearchIndexReader {
 
     pub fn segment_readers(&self) -> &[SegmentReader] {
         self.searcher.segment_readers()
+    }
+
+    pub fn schema(&self) -> &SearchIndexSchema {
+        &self.schema
+    }
+
+    pub fn searcher(&self) -> &Searcher {
+        &self.searcher
+    }
+
+    pub fn validate_checksum(&self) -> Result<HashSet<PathBuf>> {
+        Ok(self.underlying_index.validate_checksum()?)
     }
 
     pub fn snippet_generator(

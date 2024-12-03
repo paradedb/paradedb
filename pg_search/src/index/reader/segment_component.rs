@@ -7,26 +7,25 @@ use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
-use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
+use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry, LinkedList};
 use crate::postgres::storage::utils::BM25BufferCache;
 use crate::postgres::storage::LinkedBytesList;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SegmentComponentReader {
+    block_list: LinkedBytesList,
     entry: DirectoryEntry,
     relation_oid: pg_sys::Oid,
-    blocks: Vec<pg_sys::BlockNumber>,
 }
 
 impl SegmentComponentReader {
     pub unsafe fn new(relation_oid: pg_sys::Oid, entry: DirectoryEntry) -> Self {
         let block_list = LinkedBytesList::open(relation_oid, entry.start);
-        let blocks = block_list.get_all_blocks();
 
         Self {
+            block_list,
             entry,
             relation_oid,
-            blocks,
         }
     }
 }
@@ -34,45 +33,34 @@ impl SegmentComponentReader {
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
         unsafe {
-            const ITEM_SIZE: usize = unsafe { bm25_max_free_space() };
-            let cache = BM25BufferCache::open(self.relation_oid);
+            const ITEM_SIZE: usize = bm25_max_free_space();
             let start = range.start;
             let end = range.end.min(self.len());
             if start >= end {
                 return Err(Error::new(ErrorKind::InvalidInput, "Invalid range"));
             }
             let start_block = start / ITEM_SIZE;
-            let end_block = end / ITEM_SIZE;
-            let mut data: Vec<u8> = vec![];
 
-            for (i, blockno) in self
-                .blocks
-                .iter()
-                .enumerate()
-                .take(end_block + 1)
-                .skip(start_block)
-            {
-                let buffer = cache.get_buffer(*blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let cache = BM25BufferCache::open(self.relation_oid);
+
+            if start_block == self.block_list.npages() as usize {
+                let buffer = cache.get_buffer(
+                    self.block_list.get_last_blockno(),
+                    Some(pg_sys::BUFFER_LOCK_SHARE),
+                );
                 let page = pg_sys::BufferGetPage(buffer);
-                let slice_start = if i == start_block {
-                    start % ITEM_SIZE
-                } else {
-                    0
-                };
-                let slice_end = if i == end_block {
-                    end % ITEM_SIZE
-                } else {
-                    ITEM_SIZE
-                };
+                let slice_start = start % ITEM_SIZE;
+                let slice_end = end % ITEM_SIZE;
                 let slice_len = slice_end - slice_start;
                 let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
                 let slice =
                     from_raw_parts((page as *mut u8).add(slice_start + header_size), slice_len);
-                data.extend_from_slice(slice);
-
+                let data = OwnedBytes::new(slice.to_vec());
                 pg_sys::UnlockReleaseBuffer(buffer);
+                return Ok(data);
             }
 
+            let data = self.block_list.get_bytes_range(range.clone())?;
             Ok(OwnedBytes::new(data))
         }
     }

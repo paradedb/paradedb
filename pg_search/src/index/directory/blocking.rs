@@ -76,10 +76,7 @@ impl Directory for BlockingDirectory {
     /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
         match self.readers.lock().entry(path.to_path_buf()) {
-            Entry::Occupied(reader) => {
-                pgrx::warning!("cache hit FileHandler for {}", path.display());
-                Ok(reader.get().clone())
-            }
+            Entry::Occupied(reader) => Ok(reader.get().clone()),
             Entry::Vacant(vacant) => {
                 let (opaque, _, _) = unsafe {
                     self.directory_lookup(path)
@@ -111,7 +108,7 @@ impl Directory for BlockingDirectory {
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
         let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
         Ok(io::BufWriter::with_capacity(
-            unsafe { bm25_max_free_space() },
+            bm25_max_free_space(),
             Box::new(result),
         ))
     }

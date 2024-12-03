@@ -104,8 +104,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         start_page.init(pg_sys::BufferGetPageSize(start_buffer));
 
         let metadata = pg_sys::PageGetContents(header_page) as *mut LinkedListData;
-        (*metadata).start_blockno = start_blockno;
-        (*metadata).last_blockno = start_blockno;
+        (*metadata).skip_list[0] = start_blockno;
+        (*metadata).inner.last_blockno = start_blockno;
+        (*metadata).inner.npages = 0;
 
         // Set pd_lower to the end of the metadata
         // Without doing so, metadata will be lost if xlog.c compresses the page
@@ -138,7 +139,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let heap_oid = unsafe { pg_sys::IndexGetRelation(self.relation_oid, false) };
         let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
 
-        let mut blockno = (*metadata).start_blockno;
+        let mut blockno = (*metadata).skip_list[0];
         let mut entries_to_keep: Vec<T> = vec![];
 
         while blockno != pg_sys::InvalidBlockNumber {
@@ -249,7 +250,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
 
         // Mark the existing linked list as deleted
-        let mut blockno = (*metadata).start_blockno;
+        let mut blockno = (*metadata).skip_list[0];
         while blockno != pg_sys::InvalidBlockNumber {
             let state = cache.start_xlog();
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
@@ -266,8 +267,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let state = cache.start_xlog();
         let header_page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
         let metadata = pg_sys::PageGetContents(header_page) as *mut LinkedListData;
-        (*metadata).start_blockno = start_blockno;
-        (*metadata).last_blockno = insert_blockno;
+
+        // TODO:  how to set `(*metadata).skip_list entirely?
+        // TODO:  how to set `(*metadata).inner.npages?
+        (*metadata).skip_list[0] = start_blockno;
+        (*metadata).inner.last_blockno = insert_blockno;
 
         eprintln!("-- GC SET START {} LAST {}", start_blockno, insert_blockno);
 
@@ -316,7 +320,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
                 let page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
                 let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-                (*metadata).last_blockno = new_blockno;
+                (*metadata).inner.last_blockno = new_blockno;
+                (*metadata).inner.npages += 1;
 
                 offsetno = pg_sys::PageAddItemExtended(
                     new_page,

@@ -206,7 +206,16 @@ impl Directory for BlockingDirectory {
                 };
             }
         }
-        
+
+        crate::log_message(&format!(
+            "-- SAVING {} {:?}",
+            unsafe { pg_sys::GetCurrentTransactionId() },
+            meta.segments
+                .iter()
+                .map(|s| s.id())
+                .collect::<Vec<_>>()
+        ));
+
         if meta.segments.is_empty() {
             return Ok(());
         }
@@ -373,61 +382,28 @@ impl Directory for BlockingDirectory {
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
         let segment_metas =
             LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
+
         let mut alive_segments = vec![];
         let mut opstamp = 0;
         let mut max_xmin = 0;
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-
-        let mut segment_map: HashMap<u32, (u64, Vec<InnerSegmentMeta>)> = HashMap::new();
-        // It's important that load_meta returns segments in the order that they were saved
-        let mut segment_order: Vec<u32> = Vec::new();
-
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
             if unsafe { entry.is_visible(snapshot) } {
                 let segment_meta = entry.meta.clone();
-                let current_xmin = entry.xmin;
-                let current_opstamp = entry.opstamp;
+                alive_segments.push(segment_meta.track(inventory));
 
-                match current_xmin.cmp(&max_xmin) {
+                // TODO: Verify if this is correct
+                // Do opstamps of successive commits monotonically increase?
+                match entry.xmin.cmp(&max_xmin) {
                     Ordering::Greater => {
-                        max_xmin = current_xmin;
-                        opstamp = current_opstamp;
+                        max_xmin = entry.xmin;
+                        opstamp = entry.opstamp;
                     }
                     Ordering::Equal => {
-                        opstamp = current_opstamp.max(opstamp);
+                        opstamp = entry.opstamp.max(opstamp);
                     }
                     Ordering::Less => {}
                 }
-
-                if !segment_map.contains_key(&current_xmin) {
-                    segment_order.push(current_xmin);
-                }
-
-                segment_map
-                    .entry(current_xmin)
-                    .and_modify(|(stored_opstamp, stored_segment_metas)| {
-                        match current_opstamp.cmp(stored_opstamp) {
-                            Ordering::Greater => {
-                                *stored_opstamp = current_opstamp;
-                                *stored_segment_metas = vec![segment_meta.clone()];
-                            }
-                            Ordering::Equal => {
-                                stored_segment_metas.push(segment_meta.clone());
-                            }
-                            Ordering::Less => {}
-                        }
-                    })
-                    .or_insert((current_opstamp, vec![segment_meta]));
-            }
-        }
-
-        for xmin in segment_order {
-            if let Some((_, segment_metas)) = segment_map.remove(&xmin) {
-                alive_segments.extend(
-                    segment_metas
-                        .into_iter()
-                        .map(|segment_meta| segment_meta.track(inventory)),
-                );
             }
         }
 
@@ -440,11 +416,9 @@ impl Directory for BlockingDirectory {
             .expect("expected to deserialize valid IndexSettings");
 
         crate::log_message(&format!(
-            "loaded metas {} {:?}",
+            "-- LOADING {} {:?}",
             unsafe { pg_sys::GetCurrentTransactionId() },
-            alive_segments
-                .clone()
-                .into_iter()
+            alive_segments.clone().into_iter()
                 .map(|s| s.id())
                 .collect::<Vec<_>>()
         ));

@@ -27,7 +27,7 @@ use tantivy::query::QueryParser;
 use tantivy::schema::FieldType;
 use tantivy::{
     query::Query, DocAddress, DocId, IndexReader, Order, Score, Searcher, SegmentOrdinal,
-    TantivyDocument, TantivyError,
+    SegmentReader, TantivyDocument, TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
@@ -261,6 +261,10 @@ impl SearchIndexReader {
             .searcher()
             .space_usage()
             .map(|space| space.total().get_bytes())?)
+    }
+
+    pub fn segment_readers(&self) -> &[SegmentReader] {
+        self.searcher.segment_readers()
     }
 
     pub fn snippet_generator(

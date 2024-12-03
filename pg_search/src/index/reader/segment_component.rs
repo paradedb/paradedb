@@ -32,8 +32,9 @@ impl SegmentComponentReader {
 
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
-        unsafe {
+        let bytes = unsafe {
             const ITEM_SIZE: usize = bm25_max_free_space();
+
             let start = range.start;
             let end = range.end.min(self.len());
             if start >= end {
@@ -55,14 +56,15 @@ impl FileHandle for SegmentComponentReader {
                 let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
                 let slice =
                     from_raw_parts((page as *mut u8).add(slice_start + header_size), slice_len);
-                let data = OwnedBytes::new(slice.to_vec());
                 pg_sys::UnlockReleaseBuffer(buffer);
-                return Ok(data);
+                slice.to_vec()
+            } else {
+                // read one or more pages
+                self.block_list.get_bytes_range(range)
             }
+        };
 
-            let data = self.block_list.get_bytes_range(range.clone())?;
-            Ok(OwnedBytes::new(data))
-        }
+        Ok(OwnedBytes::new(bytes))
     }
 }
 

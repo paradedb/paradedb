@@ -41,8 +41,9 @@ impl FileHandle for ChannelReader {
             ))
             .unwrap();
 
-        let data = oneshot_receiver.recv().unwrap();
-        Ok(OwnedBytes::new(data))
+        oneshot_receiver
+            .recv()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, e))
     }
 }
 

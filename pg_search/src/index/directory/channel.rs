@@ -11,7 +11,8 @@ use std::thread::JoinHandle;
 use std::{io, io::Write, ops::Range, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
-    DirectoryLock, FileHandle, Lock, TerminatingWrite, WatchCallback, WatchHandle, WritePtr,
+    DirectoryLock, FileHandle, Lock, OwnedBytes, TerminatingWrite, WatchCallback, WatchHandle,
+    WritePtr,
 };
 use tantivy::index::SegmentMetaInventory;
 use tantivy::{Directory, IndexMeta};
@@ -26,13 +27,12 @@ use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 pub enum ChannelRequest {
     ListManagedFiles(oneshot::Sender<HashSet<PathBuf>>),
     RegisterFilesAsManaged(Vec<PathBuf>, bool),
-    SegmentRead(Range<usize>, DirectoryEntry, oneshot::Sender<Vec<u8>>),
+    SegmentRead(Range<usize>, DirectoryEntry, oneshot::Sender<OwnedBytes>),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
     GetSegmentComponent(PathBuf, oneshot::Sender<DirectoryEntry>),
     SaveMetas(IndexMeta),
     LoadMetas(SegmentMetaInventory, oneshot::Sender<IndexMeta>),
-    Terminate,
 }
 
 #[derive(Clone, Debug)]
@@ -230,15 +230,6 @@ impl ChannelRequestHandler {
         }
     }
 
-    pub fn receive_blocking(mut self) -> Result<()> {
-        let receiver = self.receiver.clone();
-        for message in receiver {
-            self.process_message(message)?;
-        }
-
-        Ok(())
-    }
-
     fn process_message(&mut self, message: ChannelRequest) -> Result<ShouldTerminate> {
         match message {
             ChannelRequest::ListManagedFiles(sender) => {
@@ -260,7 +251,7 @@ impl ChannelRequestHandler {
                         SegmentComponentReader::new(self.relation_oid, handle)
                     });
                 let data = reader.read_bytes(range)?;
-                sender.send(data.as_slice().to_owned())?;
+                sender.send(data)?;
             }
             ChannelRequest::SegmentWrite(path, data) => {
                 let writer = self.writers.entry(path.clone()).or_insert_with(|| unsafe {
@@ -278,9 +269,6 @@ impl ChannelRequestHandler {
             ChannelRequest::LoadMetas(inventory, sender) => {
                 let metas = self.directory.load_metas(&inventory)?;
                 sender.send(metas)?;
-            }
-            ChannelRequest::Terminate => {
-                return Ok(true);
             }
         }
         Ok(false)

@@ -53,7 +53,7 @@ impl BM25Page for pg_sys::Page {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct BM25BufferCache {
     indexrel: PgBox<pg_sys::RelationData>,
     heaprel: PgBox<pg_sys::RelationData>,

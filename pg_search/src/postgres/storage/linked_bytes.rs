@@ -216,7 +216,6 @@ impl LinkedBytesList {
 
     pub unsafe fn mark_deleted(&self) {
         let cache = BM25BufferCache::open(self.relation_oid);
-
         let mut blockno = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
             let state = cache.start_xlog();
@@ -252,13 +251,13 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> std::io::Result<Vec<u8>> {
+    pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> Vec<u8> {
         const ITEM_SIZE: usize = bm25_max_free_space();
 
         // find the closest block in the linked list to where `range` begins
+        let cache = BM25BufferCache::open(self.relation_oid);
         let start_block_ord = range.start / ITEM_SIZE;
         let (nearest_block, nearest_ord) = self.nearest_block_by_ord(start_block_ord);
-        let cache = BM25BufferCache::open(self.relation_oid);
         let mut blockno = nearest_block;
 
         // scan forward from that block skipping those that appear before our range begins
@@ -272,7 +271,7 @@ impl LinkedBytesList {
             skip -= 1;
         }
 
-        // finally, read in the bytes from the blocks that contain the rainge
+        // finally, read in the bytes from the blocks that contain the range
         let mut data = Vec::with_capacity(range.len());
         let mut first = true;
         let mut remaining = range.len();
@@ -296,7 +295,7 @@ impl LinkedBytesList {
             pg_sys::UnlockReleaseBuffer(buffer);
         }
 
-        Ok(data)
+        data
     }
 }
 

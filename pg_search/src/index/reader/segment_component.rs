@@ -41,9 +41,9 @@ impl FileHandle for SegmentComponentReader {
             }
             let start_block = start / ITEM_SIZE;
 
-            let cache = BM25BufferCache::open(self.relation_oid);
-
             if start_block == self.block_list.npages() as usize {
+                // short circuit direct access if the caller is specifically asking for the last page
+                let cache = BM25BufferCache::open(self.relation_oid);
                 let buffer = cache.get_buffer(
                     self.block_list.get_last_blockno(),
                     Some(pg_sys::BUFFER_LOCK_SHARE),

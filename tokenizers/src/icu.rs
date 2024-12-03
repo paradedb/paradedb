@@ -27,8 +27,8 @@ impl Tokenizer for ICUTokenizer {
 }
 
 struct ICUBreakingWord<'a> {
-    text: Chars<'a>,
-    char_indices: Vec<(usize, char)>,
+    text: &'a str,
+    utf16_indices_to_byte_offsets: Vec<usize>,
     default_breaking_iterator: UBreakIterator,
 }
 
@@ -44,17 +44,31 @@ impl<'a> From<&'a str> for ICUBreakingWord<'a> {
     fn from(text: &'a str) -> Self {
         let loc = rust_icu_uloc::get_default();
         let ustr = &UChar::try_from(text).expect("text should be an encodable character");
-        // Implementation from a similar fix in https://github.com/jiegec/tantivy-jieba/pull/5
-        // referenced by Tantivy issue https://github.com/quickwit-oss/tantivy/issues/1134
-        // Append null byte to the end because Tantivy defines the end of a token to be the
-        // "offset of the token's last byte + 1" https://docs.rs/tantivy/latest/tantivy/tokenizer/struct.Token.html
-        // which is equivalent to "offset of the first byte of the next token."
-        let mut char_indices = text.char_indices().collect::<Vec<_>>();
-        char_indices.push((text.len(), '\0'));
+
+        // Build mapping from UTF-16 code unit indices to byte offsets
+        let utf16_units: Vec<u16> = text.encode_utf16().collect();
+        let mut utf16_indices_to_byte_offsets = Vec::with_capacity(utf16_units.len() + 1);
+        let mut utf16_idx = 0;
+        let mut byte_offset = 0;
+        let bytes = text.as_bytes();
+
+        while byte_offset < bytes.len() {
+            let ch = text[byte_offset..].chars().next().unwrap();
+            let ch_utf16_len = ch.encode_utf16(&mut [0; 2]).len();
+            let ch_utf8_len = ch.len_utf8();
+
+            for _ in 0..ch_utf16_len {
+                utf16_indices_to_byte_offsets.push(byte_offset);
+                utf16_idx += 1;
+            }
+            byte_offset += ch_utf8_len;
+        }
+        // Append the final byte offset
+        utf16_indices_to_byte_offsets.push(byte_offset);
 
         ICUBreakingWord {
-            text: text.chars(),
-            char_indices,
+            text,
+            utf16_indices_to_byte_offsets,
             default_breaking_iterator: UBreakIterator::try_new_ustring(
                 UBreakIteratorType::UBRK_WORD,
                 &loc,
@@ -79,27 +93,24 @@ impl<'a> Iterator for ICUBreakingWord<'a> {
                 end = self.default_breaking_iterator.next();
             }
             if let Some(index) = end {
-                cont = !self
-                    .text
-                    .clone()
-                    .take(index as usize)
-                    .skip(start as usize)
-                    .any(char::is_alphanumeric);
+                let start_code_unit = start as usize;
+                let end_code_unit = index as usize;
+                let start_byte = self.utf16_indices_to_byte_offsets[start_code_unit];
+                let end_byte = self.utf16_indices_to_byte_offsets[end_code_unit];
+                let substring = &self.text[start_byte..end_byte];
+                cont = !substring.chars().any(char::is_alphanumeric);
             }
         }
 
         match end {
             None => None,
             Some(index) => {
-                let start_bytes = self.char_indices[start as usize].0;
-                let end_bytes = self.char_indices[index as usize].0;
-                let substring: String = self
-                    .text
-                    .clone()
-                    .take(index as usize)
-                    .skip(start as usize)
-                    .collect();
-                Some((substring, start_bytes as usize, end_bytes as usize))
+                let start_code_unit = start as usize;
+                let end_code_unit = index as usize;
+                let start_byte = self.utf16_indices_to_byte_offsets[start_code_unit];
+                let end_byte = self.utf16_indices_to_byte_offsets[end_code_unit];
+                let substring = &self.text[start_byte..end_byte];
+                Some((substring.to_string(), start_byte, end_byte))
             }
         }
     }
@@ -903,6 +914,288 @@ mod tests {
                 offset_to: 193,
                 position: 16,
                 text: "ܐܝܢܣܩܠܘܦܕܝܐ".to_string(),
+                position_length: 1,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_emoji_in_text() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("one🥜two");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 3,
+                position: 0,
+                text: "one".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 7,
+                offset_to: 10,
+                position: 1,
+                text: "two".to_string(),
+                position_length: 1,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_emoji_between_words() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("one🥜two three");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 3,
+                position: 0,
+                text: "one".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 7,
+                offset_to: 10,
+                position: 1,
+                text: "two".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 11,
+                offset_to: 16,
+                position: 2,
+                text: "three".to_string(),
+                position_length: 1,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_emoji_with_punctuation() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("one🥜two three.");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 3,
+                position: 0,
+                text: "one".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 7,
+                offset_to: 10,
+                position: 1,
+                text: "two".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 11,
+                offset_to: 16,
+                position: 2,
+                text: "three".to_string(),
+                position_length: 1,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_space_before_emoji() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("one🥜 two three.");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 3,
+                position: 0,
+                text: "one".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 8,
+                offset_to: 11,
+                position: 1,
+                text: "two".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 12,
+                offset_to: 17,
+                position: 2,
+                text: "three".to_string(),
+                position_length: 1,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_single_character_after_emoji() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("one🥜t");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 3,
+                position: 0,
+                text: "one".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 7,
+                offset_to: 8,
+                position: 1,
+                text: "t".to_string(),
+                position_length: 1,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_at_symbol_alone() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("@");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected: Vec<Token> = Vec::new(); // Expect no tokens as '@' is not alphanumeric
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_at_symbol_in_text() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("test@");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![Token {
+            offset_from: 0,
+            offset_to: 4,
+            position: 0,
+            text: "test".to_string(),
+            position_length: 1,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_at_symbol_prefix() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("@test");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![Token {
+            offset_from: 1,
+            offset_to: 5,
+            position: 0,
+            text: "test".to_string(),
+            position_length: 1,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_chinese_characters_with_emoji() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("📞统");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![Token {
+            offset_from: 4,
+            offset_to: 7,
+            position: 0,
+            text: "统".to_string(),
+            position_length: 1,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_mixed_language_text() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("hello 你好 🥜 world 世界");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 5,
+                position: 0,
+                text: "hello".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 6,
+                offset_to: 12,
+                position: 1,
+                text: "你好".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 18,
+                offset_to: 23,
+                position: 2,
+                text: "world".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 24,
+                offset_to: 30,
+                position: 3,
+                text: "世界".to_string(),
+                position_length: 1,
+            },
+        ];
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_emojis_only() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("🥜📞🚀");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected: Vec<Token> = Vec::new(); // Emojis are not alphanumeric
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn test_text_with_emojis_and_symbols() {
+        let tokenizer = &mut ICUTokenizerTokenStream::new("Call me at 📞123-456-7890!");
+        let result: Vec<Token> = tokenizer.collect();
+        let expected = vec![
+            Token {
+                offset_from: 0,
+                offset_to: 4,
+                position: 0,
+                text: "Call".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 5,
+                offset_to: 7,
+                position: 1,
+                text: "me".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 8,
+                offset_to: 10,
+                position: 2,
+                text: "at".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 15,
+                offset_to: 18,
+                position: 3,
+                text: "123".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 19,
+                offset_to: 22,
+                position: 4,
+                text: "456".to_string(),
+                position_length: 1,
+            },
+            Token {
+                offset_from: 23,
+                offset_to: 27,
+                position: 5,
+                text: "7890".to_string(),
                 position_length: 1,
             },
         ];

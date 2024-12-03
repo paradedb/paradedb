@@ -307,8 +307,7 @@ impl SearchIndexReader {
         }
     }
 
-    /// Search the Tantivy index for matching documents, in the background, streaming the matching
-    /// documents back as they're found.
+    /// Search the Tantivy index for matching documents.
     ///
     /// The order of returned docs is unspecified.
     ///

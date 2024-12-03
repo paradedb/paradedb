@@ -37,6 +37,7 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
             rte: *mut pg_sys::RangeTblEntry,
         ) {
             unsafe {
+                #[allow(static_mut_refs)]
                 if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
                     (*prev_hook)(root, rel, rti, rte);
                 }
@@ -45,6 +46,7 @@ pub fn register_rel_pathlist<CS: CustomScan + 'static>(_: CS) {
             }
         }
 
+        #[allow(static_mut_refs)]
         match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
             Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
             Entry::Vacant(entry) => entry.insert(pg_sys::set_rel_pathlist_hook),

@@ -207,14 +207,12 @@ impl Directory for BlockingDirectory {
             }
         }
 
-        crate::log_message(&format!(
-            "-- SAVING {} {:?}",
+        pgrx::info!(
+            "-- SAVING {} opstamp {} {:?}",
             unsafe { pg_sys::GetCurrentTransactionId() },
-            meta.segments
-                .iter()
-                .map(|s| s.id())
-                .collect::<Vec<_>>()
-        ));
+            meta.opstamp,
+            meta.segments.clone()
+        );
 
         if meta.segments.is_empty() {
             return Ok(());
@@ -251,19 +249,6 @@ impl Directory for BlockingDirectory {
                         .position(|segment| segment.id() == entry.meta.segment_id)
                     {
                         new_segments.remove(index);
-                    } else if entry.xmin == current_xid {
-                        let entry_with_xmax = SegmentMetaEntry {
-                            xmax: current_xid,
-                            ..entry.clone()
-                        };
-                        let PgItem(item, size) = entry_with_xmax.clone().into();
-                        let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
-                        assert!(
-                            overwrite,
-                            "setting xmax for {:?} should succeed",
-                            entry.meta.segment_id
-                        );
-                        overwritten = true;
                     } else if !entry.is_deleted() && entry.is_visible(snapshot) {
                         let entry_with_xmax = SegmentMetaEntry {
                             xmax: current_xid,
@@ -399,11 +384,13 @@ impl Directory for BlockingDirectory {
                         max_xmin = entry.xmin;
                         opstamp = entry.opstamp;
                     }
-                    Ordering::Equal => {
-                        opstamp = entry.opstamp.max(opstamp);
-                    }
-                    Ordering::Less => {}
+                    _ => {}
                 }
+            } else {
+                crate::log_message(&format!(
+                    "skipping segment {:?} with xmin {:?}",
+                    entry.meta.segment_id, entry.xmin
+                ));
             }
         }
 
@@ -415,13 +402,16 @@ impl Directory for BlockingDirectory {
         let deserialized_settings = serde_json::from_slice(unsafe { &settings.read_all() })
             .expect("expected to deserialize valid IndexSettings");
 
-        crate::log_message(&format!(
-            "-- LOADING {} {:?}",
+        pgrx::info!(
+            "-- LOADING {} opstamp {} {:?}",
             unsafe { pg_sys::GetCurrentTransactionId() },
-            alive_segments.clone().into_iter()
+            opstamp,
+            alive_segments
+                .clone()
+                .into_iter()
                 .map(|s| s.id())
                 .collect::<Vec<_>>()
-        ));
+        );
 
         Ok(IndexMeta {
             segments: alive_segments,

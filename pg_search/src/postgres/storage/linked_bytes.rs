@@ -17,13 +17,13 @@
 
 use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData};
 use super::utils::{BM25BufferCache, BM25Page};
+use crate::postgres::storage::SKIPLIST_FREQ;
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::cmp::min;
 use std::io::{Cursor, Read};
 use std::ops::Range;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
-
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node is a page filled with bm25_max_free_space()
@@ -110,7 +110,6 @@ impl LinkedBytesList {
         (*metadata).skip_list[0] = start_blockno;
         (*metadata).inner.last_blockno = start_blockno;
         (*metadata).inner.npages = 1;
-        (*metadata).inner.skiplist_len = 1;
 
         // Set pd_lower to the end of the metadata
         // Without doing so, metadata will be lost if xlog.c compresses the page
@@ -166,9 +165,9 @@ impl LinkedBytesList {
                     let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
                     (*metadata).inner.last_blockno = new_blockno;
                     (*metadata).inner.npages += 1;
-                    if (*metadata).inner.npages % 1000 == 0 {
-                        (*metadata).skip_list[(*metadata).inner.skiplist_len] = new_blockno;
-                        (*metadata).inner.skiplist_len += 1;
+                    if (*metadata).inner.npages as usize % SKIPLIST_FREQ == 0 {
+                        let idx = (*metadata).inner.npages as usize / SKIPLIST_FREQ;
+                        (*metadata).skip_list[idx] = new_blockno;
                     }
 
                     pg_sys::GenericXLogFinish(state);

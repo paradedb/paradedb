@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::BM25BufferCache;
+use crate::postgres::storage::SKIPLIST_FREQ;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -49,7 +50,8 @@ pub struct BM25PageSpecialData {
 pub struct LinkedListData {
     pub inner: Inner,
 
-    // element zero is always the first block number
+    /// contains every [`SKIPLIST_FREQ`]th BlockNumber in the list, and
+    /// element zero is always the first block number
     pub skip_list: [pg_sys::BlockNumber; {
         (bm25_max_free_space() - size_of::<Inner>()) / size_of::<pg_sys::BlockNumber>()
     }],
@@ -58,9 +60,11 @@ pub struct LinkedListData {
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct Inner {
+    /// Indicates the last BlockNumber of the linked list.
     pub last_blockno: pg_sys::BlockNumber,
+
+    /// Counts the total number of data pages in the linked list (excludes the header page)
     pub npages: u32,
-    pub skiplist_len: usize,
 }
 
 impl Debug for LinkedListData {
@@ -101,9 +105,9 @@ pub trait LinkedList {
     }
 
     fn nearest_block_by_ord(&self, ord: usize) -> (pg_sys::BlockNumber, usize) {
-        let index = ord / 1000;
+        let index = ord / SKIPLIST_FREQ;
         let metadata = unsafe { self.get_linked_list_data() };
-        (metadata.skip_list[index], index * 1000)
+        (metadata.skip_list[index], index * SKIPLIST_FREQ)
     }
 
     unsafe fn get_linked_list_data(&self) -> LinkedListData {

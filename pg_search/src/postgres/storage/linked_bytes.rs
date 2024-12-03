@@ -291,8 +291,9 @@ impl LinkedBytesList {
             data.extend_from_slice(slice);
 
             blockno = (*special).next_blockno;
-            remaining -= slice.len();
             pg_sys::UnlockReleaseBuffer(buffer);
+
+            remaining -= slice_len;
         }
 
         data

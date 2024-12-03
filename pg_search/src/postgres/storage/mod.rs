@@ -94,4 +94,4 @@ pub use self::linked_bytes::LinkedBytesList;
 pub use self::linked_items::LinkedItemList;
 
 /// How often should a linked list make a skip list entry?
-pub const SKIPLIST_FREQ: usize = 100;
+pub const SKIPLIST_FREQ: usize = 500;

@@ -353,7 +353,7 @@ impl Directory for BlockingDirectory {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
 
         // Use a HashMap to store the SegmentMeta with the highest opstamp for each xmin
-        let mut segment_map: HashMap<u32, (u64, InnerSegmentMeta)> = HashMap::new();
+        let mut segment_map: HashMap<u32, (u64, Vec<InnerSegmentMeta>)> = HashMap::new();
 
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
             if unsafe { entry.is_visible(snapshot) } {
@@ -373,16 +373,21 @@ impl Directory for BlockingDirectory {
                     Ordering::Less => {}
                 }
 
-                // Update the map to keep the SegmentMeta with the highest opstamp for each xmin
                 segment_map
                     .entry(current_xmin)
-                    .and_modify(|(stored_opstamp, stored_segment_meta)| {
-                        if current_opstamp > *stored_opstamp {
-                            *stored_opstamp = current_opstamp;
-                            *stored_segment_meta = segment_meta.clone();
+                    .and_modify(|(stored_opstamp, stored_segment_metas)| {
+                        match current_opstamp.cmp(stored_opstamp) {
+                            Ordering::Greater => {
+                                *stored_opstamp = current_opstamp;
+                                *stored_segment_metas = vec![segment_meta.clone()];
+                            }
+                            Ordering::Equal => {
+                                stored_segment_metas.push(segment_meta.clone());
+                            }
+                            Ordering::Less => {}
                         }
                     })
-                    .or_insert((current_opstamp, segment_meta));
+                    .or_insert((current_opstamp, vec![segment_meta]));
             }
         }
 
@@ -390,7 +395,8 @@ impl Directory for BlockingDirectory {
         alive_segments.extend(
             segment_map
                 .into_values()
-                .map(|(_, segment_meta)| segment_meta.track(inventory)),
+                .flat_map(|(_, segment_metas)| segment_metas.into_iter())
+                .map(|segment_meta| segment_meta.track(inventory)),
         );
 
         let schema = LinkedBytesList::open(self.relation_oid, SCHEMA_START);

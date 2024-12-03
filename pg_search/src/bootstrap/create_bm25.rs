@@ -334,5 +334,27 @@ fn index_info(
     Ok(TableIterator::new(data))
 }
 
+#[pg_extern]
+fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+
+    // open the specified index
+    let search_reader =
+        open_search_reader(&index).expect("should be able to open a SearchIndexReader");
+
+    let failed = search_reader.underlying_index.validate_checksum()?;
+    Ok(SetOfIterator::new(
+        failed.into_iter().map(|path| path.display().to_string()),
+    ))
+}
+
 #[pg_extern(sql = "")]
 fn create_bm25_jsonb() {}

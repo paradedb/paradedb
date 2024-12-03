@@ -339,7 +339,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             pg_sys::UnlockReleaseBuffer(buffer);
         }
 
-        crate::log_message(&format!("-- DID FIND {:?}", visited));
         bail!("failed to find {:?}", target);
     }
 

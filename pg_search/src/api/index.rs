@@ -61,7 +61,7 @@ pub fn schema(
 
     let search_reader =
         open_search_reader(&index).expect("should be able to open a SearchIndexReader");
-    let schema = search_reader.schema.schema.clone();
+    let schema = search_reader.schema().schema.clone();
     let mut field_entries: Vec<_> = schema.fields().collect();
 
     // To ensure consistent ordering of outputs, we'll sort the results by field name.

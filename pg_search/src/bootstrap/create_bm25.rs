@@ -350,7 +350,7 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     let search_reader =
         open_search_reader(&index).expect("should be able to open a SearchIndexReader");
 
-    let failed = search_reader.underlying_index.validate_checksum()?;
+    let failed = search_reader.validate_checksum()?;
     Ok(SetOfIterator::new(
         failed.into_iter().map(|path| path.display().to_string()),
     ))

@@ -207,6 +207,20 @@ impl Directory for BlockingDirectory {
             }
         }
 
+        crate::log_message(&format!(
+            "saving metas {} {:?}",
+            unsafe { pg_sys::GetCurrentTransactionId() },
+            meta.segments
+                .clone()
+                .into_iter()
+                .map(|s| s.id())
+                .collect::<Vec<_>>()
+        ));
+
+        if meta.segments.is_empty() {
+            return Ok(());
+        }
+
         // Update SegmentMeta entries
         let opstamp = meta.opstamp;
         let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
@@ -237,7 +251,9 @@ impl Directory for BlockingDirectory {
                         .iter()
                         .position(|segment| segment.id() == entry.meta.segment_id)
                     {
-                        new_segments.remove(index);
+                        if entry.xmin != current_xid {
+                            new_segments.remove(index);
+                        }
                     } else if !entry.is_deleted() && entry.is_visible(snapshot) {
                         let entry_with_xmax = SegmentMetaEntry {
                             xmax: current_xid,
@@ -266,6 +282,15 @@ impl Directory for BlockingDirectory {
         }
 
         // Save new SegmentMeta entries
+        crate::log_message(&format!(
+            "completely new segments are {:?}",
+            new_segments
+                .clone()
+                .into_iter()
+                .map(|s| s.id())
+                .collect::<Vec<_>>()
+        ));
+
         let entries = new_segments
             .iter()
             .map(|segment| SegmentMetaEntry {
@@ -412,6 +437,16 @@ impl Directory for BlockingDirectory {
         let settings = LinkedBytesList::open(self.relation_oid, SETTINGS_START);
         let deserialized_settings = serde_json::from_slice(unsafe { &settings.read_all() })
             .expect("expected to deserialize valid IndexSettings");
+
+        crate::log_message(&format!(
+            "loaded metas {} {:?}",
+            unsafe { pg_sys::GetCurrentTransactionId() },
+            alive_segments
+                .clone()
+                .into_iter()
+                .map(|s| s.id())
+                .collect::<Vec<_>>()
+        ));
 
         Ok(IndexMeta {
             segments: alive_segments,

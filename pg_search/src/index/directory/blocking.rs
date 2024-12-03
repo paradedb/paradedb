@@ -352,8 +352,9 @@ impl Directory for BlockingDirectory {
         let mut max_xmin = 0;
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
 
-        // Use a HashMap to store the SegmentMeta with the highest opstamp for each xmin
         let mut segment_map: HashMap<u32, (u64, Vec<InnerSegmentMeta>)> = HashMap::new();
+        // It's important that load_meta returns segments in the order that they were saved
+        let mut segment_order: Vec<u32> = Vec::new();
 
         for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
             if unsafe { entry.is_visible(snapshot) } {
@@ -361,7 +362,6 @@ impl Directory for BlockingDirectory {
                 let current_xmin = entry.xmin;
                 let current_opstamp = entry.opstamp;
 
-                // Compare and update max_xmin and opstamp based on your existing logic
                 match current_xmin.cmp(&max_xmin) {
                     Ordering::Greater => {
                         max_xmin = current_xmin;
@@ -371,6 +371,10 @@ impl Directory for BlockingDirectory {
                         opstamp = current_opstamp.max(opstamp);
                     }
                     Ordering::Less => {}
+                }
+
+                if !segment_map.contains_key(&current_xmin) {
+                    segment_order.push(current_xmin);
                 }
 
                 segment_map
@@ -391,13 +395,15 @@ impl Directory for BlockingDirectory {
             }
         }
 
-        // Extract the SegmentMeta from the map into alive_segments
-        alive_segments.extend(
-            segment_map
-                .into_values()
-                .flat_map(|(_, segment_metas)| segment_metas.into_iter())
-                .map(|segment_meta| segment_meta.track(inventory)),
-        );
+        for xmin in segment_order {
+            if let Some((_, segment_metas)) = segment_map.remove(&xmin) {
+                alive_segments.extend(
+                    segment_metas
+                        .into_iter()
+                        .map(|segment_meta| segment_meta.track(inventory)),
+                );
+            }
+        }
 
         let schema = LinkedBytesList::open(self.relation_oid, SCHEMA_START);
         let deserialized_schema = serde_json::from_slice(unsafe { &schema.read_all() })

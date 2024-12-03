@@ -206,17 +206,7 @@ impl Directory for BlockingDirectory {
                 };
             }
         }
-
-        crate::log_message(&format!(
-            "saving metas {} {:?}",
-            unsafe { pg_sys::GetCurrentTransactionId() },
-            meta.segments
-                .clone()
-                .into_iter()
-                .map(|s| s.id())
-                .collect::<Vec<_>>()
-        ));
-
+        
         if meta.segments.is_empty() {
             return Ok(());
         }

@@ -15,14 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::utils::BM25BufferCache;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Debug, Formatter};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
 use tantivy::index::InnerSegmentMeta;
-
-use super::utils::BM25BufferCache;
 
 pub const SCHEMA_START: pg_sys::BlockNumber = 0;
 pub const SETTINGS_START: pg_sys::BlockNumber = 2;
@@ -45,10 +45,31 @@ pub struct BM25PageSpecialData {
 // ---------------------------------------------------------
 
 /// Struct held in the first buffer of every linked list's content area
-#[derive(Debug)]
+#[repr(C, packed)]
 pub struct LinkedListData {
-    pub start_blockno: pg_sys::BlockNumber,
+    pub inner: Inner,
+
+    // element zero is always the first block number
+    pub skip_list: [pg_sys::BlockNumber; {
+        (bm25_max_free_space() - size_of::<Inner>()) / size_of::<pg_sys::BlockNumber>()
+    }],
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C, packed)]
+pub struct Inner {
     pub last_blockno: pg_sys::BlockNumber,
+    pub npages: u32,
+    pub skiplist_len: usize,
+}
+
+impl Debug for LinkedListData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LinkedListData")
+            .field("inner", &{ self.inner })
+            .field("skip_list", &{ self.skip_list })
+            .finish()
+    }
 }
 
 /// Every linked list must implement this trait
@@ -60,7 +81,7 @@ pub trait LinkedList {
     // Provided methods
     fn get_start_blockno(&self) -> pg_sys::BlockNumber {
         let metadata = unsafe { self.get_linked_list_data() };
-        let start_blockno = metadata.start_blockno;
+        let start_blockno = metadata.skip_list[0];
         assert!(start_blockno != 0);
         assert!(start_blockno != pg_sys::InvalidBlockNumber);
         start_blockno
@@ -68,10 +89,21 @@ pub trait LinkedList {
 
     fn get_last_blockno(&self) -> pg_sys::BlockNumber {
         let metadata = unsafe { self.get_linked_list_data() };
-        let last_blockno = metadata.last_blockno;
+        let last_blockno = metadata.inner.last_blockno;
         assert!(last_blockno != 0);
         assert!(last_blockno != pg_sys::InvalidBlockNumber);
         last_blockno
+    }
+
+    fn npages(&self) -> u32 {
+        let metadata = unsafe { self.get_linked_list_data() };
+        metadata.inner.npages - 1
+    }
+
+    fn nearest_block_by_ord(&self, ord: usize) -> (pg_sys::BlockNumber, usize) {
+        let index = ord / 1000;
+        let metadata = unsafe { self.get_linked_list_data() };
+        (metadata.skip_list[index], index * 1000)
     }
 
     unsafe fn get_linked_list_data(&self) -> LinkedListData {
@@ -80,10 +112,7 @@ pub trait LinkedList {
             cache.get_buffer(self.get_header_blockno(), Some(pg_sys::BUFFER_LOCK_SHARE));
         let page = pg_sys::BufferGetPage(header_buffer);
         let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        let data = LinkedListData {
-            start_blockno: (*metadata).start_blockno,
-            last_blockno: (*metadata).last_blockno,
-        };
+        let data = metadata.read_unaligned();
 
         pg_sys::UnlockReleaseBuffer(header_buffer);
         data
@@ -214,10 +243,12 @@ impl MVCCEntry for SegmentMetaEntry {
     }
 }
 
-pub const unsafe fn bm25_max_free_space() -> usize {
-    (pg_sys::BLCKSZ as usize)
-        - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
-        - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
+pub const fn bm25_max_free_space() -> usize {
+    unsafe {
+        (pg_sys::BLCKSZ as usize)
+            - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
+            - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

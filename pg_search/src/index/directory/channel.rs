@@ -62,7 +62,7 @@ impl Directory for ChannelDirectory {
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
         Ok(io::BufWriter::with_capacity(
-            unsafe { bm25_max_free_space() },
+            bm25_max_free_space(),
             Box::new(unsafe { ChannelWriter::new(path, self.sender.clone()) }),
         ))
     }

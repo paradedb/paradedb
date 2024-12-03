@@ -26,6 +26,8 @@ use std::ptr::addr_of_mut;
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
+// NOTE: This is the default setting from tantivy
+// https://docs.rs/tantivy/latest/tantivy/snippet/struct.SnippetGenerator.html#method.set_max_num_chars
 const DEFAULT_SNIPPET_MAX_NUM_CHARS: i32 = 150;
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]

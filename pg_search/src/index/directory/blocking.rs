@@ -241,9 +241,20 @@ impl Directory for BlockingDirectory {
                         .iter()
                         .position(|segment| segment.id() == entry.meta.segment_id)
                     {
-                        if entry.xmin != current_xid {
-                            new_segments.remove(index);
-                        }
+                        new_segments.remove(index);
+                    } else if entry.xmin == current_xid {
+                        let entry_with_xmax = SegmentMetaEntry {
+                            xmax: current_xid,
+                            ..entry.clone()
+                        };
+                        let PgItem(item, size) = entry_with_xmax.clone().into();
+                        let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
+                        assert!(
+                            overwrite,
+                            "setting xmax for {:?} should succeed",
+                            entry.meta.segment_id
+                        );
+                        overwritten = true;
                     } else if !entry.is_deleted() && entry.is_visible(snapshot) {
                         let entry_with_xmax = SegmentMetaEntry {
                             xmax: current_xid,

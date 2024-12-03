@@ -127,7 +127,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     pub unsafe fn garbage_collect(&mut self) -> Result<()> {
         let cache = BM25BufferCache::open(self.relation_oid);
 
-        // First pass: Delete all items that are definitely dead
+        // Delete all items that are definitely dead
         let snapshot = pg_sys::GetActiveSnapshot();
         let heap_oid = unsafe { pg_sys::IndexGetRelation(self.relation_oid, false) };
         let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
@@ -184,6 +184,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let PgItem(pg_item, size) = item.clone().into();
 
             // Find a page with free space and lock it
+            // TODO: Do we need to start from the beginning every time?
             let mut inserted = false;
             while !inserted {
                 let mut blockno = self.get_start_blockno();

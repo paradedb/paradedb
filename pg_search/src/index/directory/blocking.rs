@@ -204,6 +204,7 @@ impl Directory for BlockingDirectory {
             }
         }
 
+        // If there were no new segments, skip the rest of the work
         if meta.segments.is_empty() {
             return Ok(());
         }
@@ -357,9 +358,6 @@ impl Directory for BlockingDirectory {
             if unsafe { entry.is_visible(snapshot) } {
                 let segment_meta = entry.meta.clone();
                 alive_segments.push(segment_meta.track(inventory));
-
-                // TODO: Verify if this is correct
-                // Do opstamps of successive commits monotonically increase?
                 if entry.xmin.cmp(&max_xmin) == Ordering::Greater {
                     max_xmin = entry.xmin;
                     opstamp = entry.opstamp;

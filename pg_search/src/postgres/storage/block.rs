@@ -212,14 +212,15 @@ pub trait MVCCEntry {
     unsafe fn is_visible(&self, snapshot: pg_sys::Snapshot) -> bool {
         let xmin = self.get_xmin();
         let xmax = self.get_xmax();
-        let current_txid = pg_sys::GetCurrentTransactionId();
+        let current_txid = pg_sys::GetCurrentTransactionIdIfAny();
 
         let xmin_visible = (xmin == current_txid)
             || (!pg_sys::XidInMVCCSnapshot(xmin, snapshot) && pg_sys::TransactionIdDidCommit(xmin));
 
         let deleted = xmax != pg_sys::InvalidTransactionId
-            && !pg_sys::XidInMVCCSnapshot(xmax, snapshot)
-            && pg_sys::TransactionIdDidCommit(xmax);
+            && ((xmax == current_txid)
+                || (!pg_sys::XidInMVCCSnapshot(xmax, snapshot)
+                    && pg_sys::TransactionIdDidCommit(xmax)));
 
         xmin_visible && !deleted
     }

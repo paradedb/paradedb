@@ -21,7 +21,7 @@ use pgrx::pg_sys;
 use rustc_hash::FxHashMap;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,10 +31,7 @@ use tantivy::{
     directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
     error::TantivyError,
 };
-use tantivy::{
-    index::{InnerSegmentMeta, SegmentMetaInventory},
-    Directory, IndexMeta,
-};
+use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
 use super::utils::{SegmentComponentId, SegmentComponentPath};
 use crate::index::reader::segment_component::SegmentComponentReader;
@@ -207,20 +204,13 @@ impl Directory for BlockingDirectory {
             }
         }
 
-        pgrx::info!(
-            "-- SAVING {} opstamp {} {:?}",
-            unsafe { pg_sys::GetCurrentTransactionId() },
-            meta.opstamp,
-            meta.segments.clone()
-        );
-
         if meta.segments.is_empty() {
             return Ok(());
         }
 
         // Update SegmentMeta entries
         let opstamp = meta.opstamp;
-        let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
+        let current_xid = unsafe { pg_sys::GetCurrentTransactionIdIfAny() };
 
         let mut new_segments = meta.segments.clone();
         let mut segment_metas =
@@ -277,15 +267,6 @@ impl Directory for BlockingDirectory {
         }
 
         // Save new SegmentMeta entries
-        crate::log_message(&format!(
-            "completely new segments are {:?}",
-            new_segments
-                .clone()
-                .into_iter()
-                .map(|s| s.id())
-                .collect::<Vec<_>>()
-        ));
-
         let entries = new_segments
             .iter()
             .map(|segment| SegmentMetaEntry {
@@ -379,18 +360,10 @@ impl Directory for BlockingDirectory {
 
                 // TODO: Verify if this is correct
                 // Do opstamps of successive commits monotonically increase?
-                match entry.xmin.cmp(&max_xmin) {
-                    Ordering::Greater => {
-                        max_xmin = entry.xmin;
-                        opstamp = entry.opstamp;
-                    }
-                    _ => {}
+                if entry.xmin.cmp(&max_xmin) == Ordering::Greater {
+                    max_xmin = entry.xmin;
+                    opstamp = entry.opstamp;
                 }
-            } else {
-                crate::log_message(&format!(
-                    "skipping segment {:?} with xmin {:?}",
-                    entry.meta.segment_id, entry.xmin
-                ));
             }
         }
 
@@ -401,17 +374,6 @@ impl Directory for BlockingDirectory {
         let settings = LinkedBytesList::open(self.relation_oid, SETTINGS_START);
         let deserialized_settings = serde_json::from_slice(unsafe { &settings.read_all() })
             .expect("expected to deserialize valid IndexSettings");
-
-        pgrx::info!(
-            "-- LOADING {} opstamp {} {:?}",
-            unsafe { pg_sys::GetCurrentTransactionId() },
-            opstamp,
-            alive_segments
-                .clone()
-                .into_iter()
-                .map(|s| s.id())
-                .collect::<Vec<_>>()
-        );
 
         Ok(IndexMeta {
             segments: alive_segments,

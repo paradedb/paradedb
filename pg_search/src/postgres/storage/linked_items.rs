@@ -271,7 +271,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     );
                     let page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
                     let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-                    (*metadata).last_blockno = new_blockno;
+                    (*metadata).inner.last_blockno = new_blockno;
+                    (*metadata).inner.npages += 1;
 
                     // Add the item to the new page
                     let offsetno = pg_sys::PageAddItemExtended(

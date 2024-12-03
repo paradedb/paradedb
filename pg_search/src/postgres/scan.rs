@@ -119,7 +119,7 @@ pub extern "C" fn amrescan(
         let need_scores = search_query_input.contains_more_like_this();
         let results = if (*scan).parallel_scan.is_null() {
             // not a parallel scan
-            search_reader.search_via_channel(
+            search_reader.search(
                 need_scores,
                 !(*scan).xs_want_itup,
                 &search_query_input,

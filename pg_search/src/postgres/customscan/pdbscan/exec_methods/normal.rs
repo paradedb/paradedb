@@ -118,7 +118,7 @@ impl NormalScanExecState {
         if self.did_query {
             return false;
         }
-        self.search_results = state.search_reader.as_ref().unwrap().search_via_channel(
+        self.search_results = state.search_reader.as_ref().unwrap().search(
             state.need_scores(),
             false,
             &state.search_query_input,

@@ -62,8 +62,7 @@ pub fn search_with_query_input(
             &search_reader,
             &[(key_field_name.clone(), key_field_type).into()],
         );
-        let top_docs =
-            search_reader.search_via_channel(query.contains_more_like_this(), false, &query, None);
+        let top_docs = search_reader.search(query.contains_more_like_this(), false, &query, None);
         let mut hs = FxHashSet::default();
         for (_, doc_address) in top_docs {
             check_for_interrupts!();

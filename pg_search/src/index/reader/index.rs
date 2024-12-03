@@ -21,6 +21,7 @@ use pgrx::{pg_sys, PgRelation};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
+use std::iter::Flatten;
 use std::path::PathBuf;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::fastfield::Column;
@@ -33,8 +34,6 @@ use tantivy::{
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
-use crate::index::directory::blocking::BlockingDirectory;
-use crate::index::directory::channel::{ChannelDirectory, ChannelRequest, ChannelRequestHandler};
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 
@@ -71,6 +70,7 @@ pub enum SortDirection {
 }
 
 /// An iterator of the different styles of search results we can return
+#[allow(clippy::large_enum_variant)]
 #[derive(Default)]
 pub enum SearchResults {
     #[default]
@@ -94,6 +94,7 @@ pub enum SearchResults {
     Channel(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
 
     SingleSegment(vec_collector::FruitStyle),
+    AllSegments(Flatten<std::vec::IntoIter<vec_collector::FruitStyle>>),
 }
 
 #[derive(PartialEq, Clone)]
@@ -138,6 +139,9 @@ impl Debug for SearchResults {
             SearchResults::SingleSegment(iter) => {
                 write!(f, "SearchResults::SingleSegment({:?})", iter.size_hint())
             }
+            SearchResults::AllSegments(iter) => {
+                write!(f, "SearchResults::AllSegments({:?})", iter.size_hint())
+            }
         }
     }
 }
@@ -168,6 +172,7 @@ impl Iterator for SearchResults {
             },
             SearchResults::Channel(iter) => iter.next(),
             SearchResults::SingleSegment(iter) => iter.next(),
+            SearchResults::AllSegments(iter) => iter.next(),
         }
     }
 
@@ -181,6 +186,7 @@ impl Iterator for SearchResults {
             SearchResults::UnscoredBufferedChannel(iter, _) => iter.size_hint(),
             SearchResults::Channel(iter) => iter.size_hint(),
             SearchResults::SingleSegment(iter) => iter.size_hint(),
+            SearchResults::AllSegments(iter) => iter.size_hint(),
         }
     }
 }
@@ -195,6 +201,7 @@ impl SearchResults {
             SearchResults::UnscoredBufferedChannel(..) => None,
             SearchResults::Channel(_) => None,
             SearchResults::SingleSegment(_) => None,
+            SearchResults::AllSegments(_) => None,
         }
     }
 }
@@ -230,7 +237,7 @@ impl SearchIndexReader {
         self.schema.key_field()
     }
 
-    pub fn query(&self, search_query_input: &SearchQueryInput) -> Box<dyn Query> {
+    fn query(&self, search_query_input: &SearchQueryInput) -> Box<dyn Query> {
         let mut parser = QueryParser::for_index(
             &self.underlying_index,
             self.schema
@@ -307,141 +314,16 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_via_channel(
+    pub fn search(
         &self,
         need_scores: bool,
         _sort_segments_by_ctid: bool,
         query: &SearchQueryInput,
         _estimated_rows: Option<usize>,
     ) -> SearchResults {
-        // let estimated_rows = estimated_rows.unwrap_or(0);
-        //
-        // if estimated_rows == 0 || estimated_rows > 5_000 || sort_segments_by_ctid {
-        //     if need_scores {
-        //         let (sender, receiver) = crossbeam::channel::bounded(
-        //             std::thread::available_parallelism().unwrap().get(),
-        //         );
-        //         let collector = buffered_channel::BufferedChannelCollector::new(
-        //             need_scores,
-        //             sort_segments_by_ctid,
-        //             sender,
-        //         );
-        //         let searcher = self.searcher.clone();
-        //         let owned_query = query.box_clone();
-        //         std::thread::spawn(move || {
-        //             searcher
-        //                 .search_with_executor(
-        //                     &owned_query,
-        //                     &collector,
-        //                     executor,
-        //                     tantivy::query::EnableScoring::Enabled {
-        //                         searcher: &searcher,
-        //                         statistics_provider: &searcher,
-        //                     },
-        //                 )
-        //                 .expect("failed to search")
-        //         });
-        //
-        //         SearchResults::BufferedChannel(receiver.into_iter().flatten())
-        //     } else {
-        //         let (sender, receiver) = crossbeam::channel::unbounded();
-        //         let collector =
-        //             unscored_buffered_channel::UnscoredBufferedChannelCollector::new(sender);
-        //         let searcher = self.searcher.clone();
-        //         let schema = self.schema.schema.clone();
-        //
-        //         let owned_query = query.box_clone();
-        //         std::thread::spawn(move || {
-        //             searcher
-        //                 .search_with_executor(
-        //                     &owned_query,
-        //                     &collector,
-        //                     executor,
-        //                     tantivy::query::EnableScoring::Disabled {
-        //                         schema: &schema,
-        //                         searcher_opt: Some(&searcher),
-        //                     },
-        //                 )
-        //                 .expect("failed to search")
-        //         });
-        //
-        //         SearchResults::UnscoredBufferedChannel(receiver.into_iter(), None)
-        //     }
-        // } else {
-        //     let (sender, receiver) = crossbeam::channel::unbounded();
-        //     let collector = channel::ChannelCollector::new(need_scores, sender);
-        //     let searcher = self.searcher.clone();
-        //     let schema = self.schema.schema.clone();
-        //
-        //     let owned_query = query.box_clone();
-        //     std::thread::spawn(move || {
-        //         searcher
-        //             .search_with_executor(
-        //                 &owned_query,
-        //                 &collector,
-        //                 executor,
-        //                 if need_scores {
-        //                     tantivy::query::EnableScoring::Enabled {
-        //                         searcher: &searcher,
-        //                         statistics_provider: &searcher,
-        //                     }
-        //                 } else {
-        //                     tantivy::query::EnableScoring::Disabled {
-        //                         schema: &schema,
-        //                         searcher_opt: Some(&searcher),
-        //                     }
-        //                 },
-        //             )
-        //             .expect("failed to search")
-        //     });
-        //
-        //     SearchResults::Channel(receiver.into_iter())
-        // }
-
-        let (search_sender, search_receiver) = crossbeam::channel::unbounded();
-        let (request_sender, request_receiver) = crossbeam::channel::unbounded::<ChannelRequest>();
-
-        let collector = channel::ChannelCollector::new(need_scores, search_sender);
-
-        let owned_query = self.query(query);
-        std::thread::spawn(move || {
-            let channel_directory = ChannelDirectory::new(request_sender.clone());
-            let channel_index = Index::open(channel_directory).expect("channel index should open");
-            let reader = channel_index
-                .reader_builder()
-                .reload_policy(tantivy::ReloadPolicy::Manual)
-                .try_into()
-                .unwrap();
-            let searcher = reader.searcher();
-            let schema = channel_index.schema();
-
-            searcher
-                .search_with_executor(
-                    &owned_query,
-                    &collector,
-                    &Executor::SingleThread,
-                    if need_scores {
-                        tantivy::query::EnableScoring::Enabled {
-                            searcher: &searcher,
-                            statistics_provider: &searcher,
-                        }
-                    } else {
-                        tantivy::query::EnableScoring::Disabled {
-                            schema: &schema,
-                            searcher_opt: Some(&searcher),
-                        }
-                    },
-                )
-                .expect("failed to search");
-
-            request_sender.send(ChannelRequest::Terminate).unwrap();
-        });
-
-        let blocking_directory = BlockingDirectory::new(self.index_oid);
-        let handler =
-            ChannelRequestHandler::open(blocking_directory, self.index_oid, request_receiver);
-        handler.receive_blocking().unwrap();
-        SearchResults::Channel(search_receiver.into_iter())
+        let collector = vec_collector::VecCollector::new(need_scores);
+        let results = self.collect(query, collector, need_scores);
+        SearchResults::AllSegments(results.into_iter().flatten())
     }
 
     /// Search a specific index segment for matching documents.
@@ -522,20 +404,9 @@ impl SearchIndexReader {
             .expect("sort field should exist in index schema");
 
         let collector =
-            TopDocs::with_limit(n).order_by_u64_field(&sort_field.name.0, sortdir.into());
-        let top_docs = self
-            .searcher
-            .search_with_executor(
-                &self.query(query),
-                &collector,
-                &Executor::SingleThread,
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: &self.searcher,
-                    statistics_provider: &self.searcher,
-                },
-            )
-            .expect("failed to search");
+            TopDocs::with_limit(n).order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
 
+        let top_docs = self.collect(query, collector, true);
         let top_docs = top_docs
             .into_iter()
             .map(|(_, doc_address)| {
@@ -574,20 +445,7 @@ impl SearchIndexReader {
                 }
             });
 
-        let top_docs = self
-            .searcher
-            .search_with_executor(
-                &self.query(query),
-                &collector,
-                &Executor::SingleThread,
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: &self.searcher,
-                    statistics_provider: &self.searcher,
-                },
-            )
-            .expect("failed to search")
-            .into_iter();
-
+        let top_docs = self.collect(query, collector, true);
         SearchResults::TopNByScore(top_docs.len(), top_docs.into_iter())
     }
 
@@ -635,303 +493,32 @@ impl SearchIndexReader {
 
         Some((count as f64 / segment_doc_proportion).ceil() as usize)
     }
-}
 
-#[allow(dead_code)]
-mod buffered_channel {
-    use crate::index::reader::index::SearchIndexScore;
-    use tantivy::collector::{Collector, SegmentCollector};
-    use tantivy::fastfield::Column;
-    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
-
-    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
-    /// each segment, in parallel, as tantivy find each doc.
-    pub struct BufferedChannelCollector {
+    fn collect<C: Collector + 'static>(
+        &self,
+        query: &SearchQueryInput,
+        collector: C,
         need_scores: bool,
-        sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
-        sort_segments_by_ctid: bool,
-    }
-
-    impl BufferedChannelCollector {
-        pub fn new(
-            need_scores: bool,
-            sort_segments_by_ctid: bool,
-            sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
-        ) -> Self {
-            Self {
-                need_scores,
-                sender,
-                sort_segments_by_ctid,
-            }
-        }
-    }
-
-    impl Collector for BufferedChannelCollector {
-        type Fruit = ();
-        type Child = BufferedChannelSegmentCollector;
-
-        fn for_segment(
-            &self,
-            segment_local_id: SegmentOrdinal,
-            segment_reader: &SegmentReader,
-        ) -> tantivy::Result<Self::Child> {
-            Ok(BufferedChannelSegmentCollector {
-                segment_ord: segment_local_id,
-                sender: self.sender.clone(),
-                fruit: Vec::new(),
-                ctid_ff: segment_reader
-                    .fast_fields()
-                    .u64("ctid")
-                    .expect("ctid should be a u64 fast field"),
-                sort_by_ctid: self.sort_segments_by_ctid,
-            })
-        }
-
-        fn requires_scoring(&self) -> bool {
-            self.need_scores
-        }
-
-        fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
-            Ok(())
-        }
-    }
-
-    pub struct BufferedChannelSegmentCollector {
-        segment_ord: SegmentOrdinal,
-        sender: crossbeam::channel::Sender<Vec<(SearchIndexScore, DocAddress)>>,
-        fruit: Vec<(SearchIndexScore, DocAddress)>,
-        ctid_ff: Column<u64>,
-        sort_by_ctid: bool,
-    }
-
-    impl SegmentCollector for BufferedChannelSegmentCollector {
-        type Fruit = ();
-
-        fn collect(&mut self, doc: DocId, score: Score) {
-            let doc_address = DocAddress::new(self.segment_ord, doc);
-            self.fruit.push((
-                SearchIndexScore::new(&self.ctid_ff, doc, score),
-                doc_address,
-            ));
-        }
-
-        fn collect_block(&mut self, docs: &[DocId]) {
-            let mut collected = docs
-                .iter()
-                .map(|doc: &DocId| {
-                    let doc = *doc;
-                    let doc_address = DocAddress::new(self.segment_ord, doc);
-                    (SearchIndexScore::new(&self.ctid_ff, doc, 0.0), doc_address)
-                })
-                .collect::<Vec<_>>();
-            if self.sort_by_ctid {
-                collected.sort_unstable_by_key(|(scored, _)| scored.ctid);
-            }
-
-            // send the block over the channel right now
-            // if send fails that likely means the receiver was dropped so we have nowhere
-            // to send the result.  That's okay
-            self.sender.send(collected).ok();
-        }
-
-        fn harvest(self) -> Self::Fruit {
-            let mut fruit = self.fruit;
-            if !fruit.is_empty() {
-                if self.sort_by_ctid {
-                    fruit.sort_unstable_by_key(|(scored, _)| scored.ctid);
-                }
-
-                // if send fails that likely means the receiver was dropped so we have nowhere
-                // to send the result.  That's okay
-                self.sender.send(fruit).ok();
-            }
-        }
-    }
-}
-
-#[allow(dead_code)]
-mod unscored_buffered_channel {
-    use tantivy::collector::{Collector, SegmentCollector};
-    use tantivy::fastfield::Column;
-    use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
-
-    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
-    /// each segment, in parallel, as tantivy find each doc.
-    pub struct UnscoredBufferedChannelCollector {
-        sender:
-            crossbeam::channel::Sender<(SegmentOrdinal, Column<u64>, std::vec::IntoIter<DocId>)>,
-    }
-
-    impl UnscoredBufferedChannelCollector {
-        pub fn new(
-            sender: crossbeam::channel::Sender<(
-                SegmentOrdinal,
-                Column<u64>,
-                std::vec::IntoIter<DocId>,
-            )>,
-        ) -> Self {
-            Self { sender }
-        }
-    }
-
-    impl Collector for UnscoredBufferedChannelCollector {
-        type Fruit = ();
-        type Child = UnscoredBufferedChannelSegmentCollector;
-
-        fn for_segment(
-            &self,
-            segment_local_id: SegmentOrdinal,
-            segment_reader: &SegmentReader,
-        ) -> tantivy::Result<Self::Child> {
-            Ok(UnscoredBufferedChannelSegmentCollector {
-                segment_ord: segment_local_id,
-                sender: self.sender.clone(),
-                fruit: Vec::new(),
-                ctid_ff: segment_reader
-                    .fast_fields()
-                    .u64("ctid")
-                    .expect("ctid should be a u64 fast field"),
-            })
-        }
-
-        fn requires_scoring(&self) -> bool {
-            false
-        }
-
-        fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
-            Ok(())
-        }
-    }
-
-    pub struct UnscoredBufferedChannelSegmentCollector {
-        segment_ord: SegmentOrdinal,
-        sender:
-            crossbeam::channel::Sender<(SegmentOrdinal, Column<u64>, std::vec::IntoIter<DocId>)>,
-        fruit: Vec<DocId>,
-        ctid_ff: Column<u64>,
-    }
-
-    impl SegmentCollector for UnscoredBufferedChannelSegmentCollector {
-        type Fruit = ();
-
-        fn collect(&mut self, doc: DocId, _score: Score) {
-            self.fruit.push(doc);
-        }
-
-        #[allow(clippy::unnecessary_to_owned)]
-        fn collect_block(&mut self, docs: &[DocId]) {
-            // send the block over the channel right now
-            // if send fails that likely means the receiver was dropped so we have nowhere
-            // to send the result.  That's okay
-            self.sender
-                .send((
-                    self.segment_ord,
-                    self.ctid_ff.clone(),
-                    docs.to_vec().into_iter(),
-                ))
-                .ok();
-        }
-
-        fn harvest(self) -> Self::Fruit {
-            if !self.fruit.is_empty() {
-                // if send fails that likely means the receiver was dropped so we have nowhere
-                // to send the result.  That's okay
-                self.sender
-                    .send((self.segment_ord, self.ctid_ff, self.fruit.into_iter()))
-                    .ok();
-            }
-        }
-    }
-}
-
-mod channel {
-    use crate::index::reader::index::SearchIndexScore;
-    use tantivy::collector::{Collector, SegmentCollector};
-    use tantivy::fastfield::Column;
-    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
-
-    /// A [`Collector`] that uses a crossbeam channel to stream the results directly out of
-    /// each segment, in parallel, as tantivy find each doc.
-    pub struct ChannelCollector {
-        need_scores: bool,
-        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
-    }
-
-    impl ChannelCollector {
-        pub fn new(
-            need_scores: bool,
-            sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
-        ) -> Self {
-            Self {
-                need_scores,
-                sender,
-            }
-        }
-    }
-
-    impl Collector for ChannelCollector {
-        type Fruit = ();
-        type Child = ChannelSegmentCollector;
-
-        fn for_segment(
-            &self,
-            segment_local_id: SegmentOrdinal,
-            segment_reader: &SegmentReader,
-        ) -> tantivy::Result<Self::Child> {
-            Ok(ChannelSegmentCollector {
-                segment_ord: segment_local_id,
-                sender: self.sender.clone(),
-                ctid_ff: segment_reader
-                    .fast_fields()
-                    .u64("ctid")
-                    .expect("ctid should be a u64 fast field"),
-            })
-        }
-
-        fn requires_scoring(&self) -> bool {
-            self.need_scores
-        }
-
-        fn merge_fruits(&self, _segment_fruits: Vec<()>) -> tantivy::Result<Self::Fruit> {
-            Ok(())
-        }
-    }
-
-    pub struct ChannelSegmentCollector {
-        segment_ord: SegmentOrdinal,
-        sender: crossbeam::channel::Sender<(SearchIndexScore, DocAddress)>,
-        ctid_ff: Column<u64>,
-    }
-
-    impl SegmentCollector for ChannelSegmentCollector {
-        type Fruit = ();
-
-        fn collect(&mut self, doc: DocId, score: Score) {
-            let doc_address = DocAddress::new(self.segment_ord, doc);
-            self.sender
-                .send((
-                    SearchIndexScore::new(&self.ctid_ff, doc, score),
-                    doc_address,
-                ))
-                .ok();
-        }
-
-        fn collect_block(&mut self, docs: &[DocId]) {
-            for doc in docs {
-                let doc = *doc;
-                let doc_address = DocAddress::new(self.segment_ord, doc);
-                if self
-                    .sender
-                    .send((SearchIndexScore::new(&self.ctid_ff, doc, 0.0), doc_address))
-                    .is_err()
-                {
-                    // channel likely closed, so get out
-                    break;
-                }
-            }
-        }
-
-        fn harvest(self) -> Self::Fruit {}
+    ) -> C::Fruit {
+        let owned_query = self.query(query);
+        self.searcher
+            .search_with_executor(
+                &owned_query,
+                &collector,
+                &Executor::SingleThread,
+                if need_scores {
+                    tantivy::query::EnableScoring::Enabled {
+                        searcher: &self.searcher,
+                        statistics_provider: &self.searcher,
+                    }
+                } else {
+                    tantivy::query::EnableScoring::Disabled {
+                        schema: &self.schema.schema,
+                        searcher_opt: Some(&self.searcher),
+                    }
+                },
+            )
+            .expect("search should not fail")
     }
 }
 

@@ -350,36 +350,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
         bail!("failed to find {:?}", target);
     }
-
-    pub unsafe fn list_all_items(
-        &self,
-    ) -> Result<Vec<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)>> {
-        let mut items = Vec::new();
-        let cache = BM25BufferCache::open(self.relation_oid);
-        let mut blockno = self.get_start_blockno();
-
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let mut offsetno = pg_sys::FirstOffsetNumber;
-            let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
-
-            while offsetno <= max_offset {
-                let item_id = pg_sys::PageGetItemId(page, offsetno);
-                let item = T::from(PgItem(
-                    pg_sys::PageGetItem(page, item_id),
-                    (*item_id).lp_len() as pg_sys::Size,
-                ));
-                items.push((item, blockno, offsetno));
-                offsetno += 1;
-            }
-
-            blockno = buffer.next_blockno();
-            pg_sys::UnlockReleaseBuffer(buffer);
-        }
-
-        Ok(items)
-    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -539,43 +509,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[pg_test]
-    unsafe fn test_linked_items_list_all_items() {
-        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-        let relation_oid: pg_sys::Oid =
-            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-                .expect("spi should succeed")
-                .unwrap();
-
-        let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid);
-        let entries = vec![
-            DirectoryEntry {
-                path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-                start: 10,
-                total_bytes: 100 as usize,
-                xmin: 1,
-                xmax: 2,
-            },
-            DirectoryEntry {
-                path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-                start: 12,
-                total_bytes: 200 as usize,
-                xmin: 3,
-                xmax: 4,
-            },
-        ];
-
-        list.add_items(entries.clone()).unwrap();
-        let items = list.list_all_items().unwrap();
-        assert_eq!(
-            items
-                .into_iter()
-                .map(|(entry, _, _)| entry)
-                .collect::<Vec<_>>(),
-            entries
-        );
     }
 }

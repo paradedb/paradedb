@@ -150,15 +150,33 @@ impl Directory for BlockingDirectory {
     /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
         unsafe {
+            let cache = BM25BufferCache::open(self.relation_oid);
             let segment_components =
                 LinkedItemList::<DirectoryEntry>::open(self.relation_oid, DIRECTORY_START);
+            let mut blockno = segment_components.get_start_blockno();
+            let mut files = HashSet::new();
 
-            Ok(segment_components
-                .list_all_items()
-                .map_err(|err| TantivyError::InternalError(err.to_string()))?
-                .into_iter()
-                .map(|(entry, _, _)| entry.path)
-                .collect())
+            while blockno != pg_sys::InvalidBlockNumber {
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                let page = pg_sys::BufferGetPage(buffer);
+                let mut offsetno = pg_sys::FirstOffsetNumber;
+                let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+
+                while offsetno <= max_offset {
+                    let item_id = pg_sys::PageGetItemId(page, offsetno);
+                    let item = DirectoryEntry::from(PgItem(
+                        pg_sys::PageGetItem(page, item_id),
+                        (*item_id).lp_len() as pg_sys::Size,
+                    ));
+                    files.insert(item.path.clone());
+                    offsetno += 1;
+                }
+
+                blockno = buffer.next_blockno();
+                pg_sys::UnlockReleaseBuffer(buffer);
+            }
+
+            Ok(files)
         }
     }
 
@@ -203,16 +221,6 @@ impl Directory for BlockingDirectory {
                 };
             }
         }
-
-        crate::log_message(&format!(
-            "-- SAVING {} {:?}",
-            unsafe { pg_sys::GetCurrentTransactionId() },
-            meta.segments
-                .clone()
-                .into_iter()
-                .map(|s| s.id())
-                .collect::<Vec<_>>()
-        ));
 
         // If there were no new segments, skip the rest of the work
         if meta.segments.is_empty() {
@@ -319,12 +327,6 @@ impl Directory for BlockingDirectory {
                             .try_into()
                             .unwrap_or_else(|_| panic!("{:?} should be valid", entry.path.clone()));
                     if deleted_segment_ids.contains(&entry_segment_id) {
-                        crate::log_message(&format!(
-                            "-- DELETING DIRECTORY ENTRY {} {:?}",
-                            unsafe { pg_sys::GetCurrentTransactionId() },
-                            entry.path.clone()
-                        ));
-
                         let entry_with_xmax = DirectoryEntry {
                             xmax: current_xid,
                             ..entry.clone()

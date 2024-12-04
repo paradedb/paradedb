@@ -26,11 +26,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{io, result};
+use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
-use tantivy::{
-    directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
-    error::TantivyError,
-};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
 use super::utils::{SegmentComponentId, SegmentComponentPath};
@@ -246,7 +243,7 @@ impl Directory for BlockingDirectory {
                 let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
                 let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
                 let mut offsetno = pg_sys::FirstOffsetNumber;
-                let mut overwritten = false;
+                let mut needs_wal = false;
 
                 while offsetno <= max_offset {
                     let item_id = pg_sys::PageGetItemId(page, offsetno);
@@ -272,13 +269,13 @@ impl Directory for BlockingDirectory {
                             entry.meta.segment_id
                         );
                         deleted_segment_ids.push(entry.meta.segment_id);
-                        overwritten = true;
+                        needs_wal = true;
                     }
                     offsetno += 1;
                 }
 
                 blockno = buffer.next_blockno();
-                if overwritten {
+                if needs_wal {
                     pg_sys::GenericXLogFinish(state);
                 } else {
                     pg_sys::GenericXLogAbort(state);
@@ -314,7 +311,7 @@ impl Directory for BlockingDirectory {
                 let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
                 let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
                 let mut offsetno = pg_sys::FirstOffsetNumber;
-                let mut overwritten = false;
+                let mut needs_wal = false;
 
                 while offsetno <= max_offset {
                     let item_id = pg_sys::PageGetItemId(page, offsetno);
@@ -343,13 +340,13 @@ impl Directory for BlockingDirectory {
                         let segment_component =
                             LinkedBytesList::open(self.relation_oid, entry.start);
                         segment_component.mark_deleted();
-                        overwritten = true;
+                        needs_wal = true;
                     }
                     offsetno += 1;
                 }
 
                 blockno = buffer.next_blockno();
-                if overwritten {
+                if needs_wal {
                     pg_sys::GenericXLogFinish(state);
                 } else {
                     pg_sys::GenericXLogAbort(state);
@@ -386,7 +383,7 @@ impl Directory for BlockingDirectory {
                         pg_sys::PageGetItem(page, item_id),
                         (*item_id).lp_len() as pg_sys::Size,
                     ));
-                    if unsafe { entry.is_visible(snapshot) } {
+                    if entry.is_visible(snapshot) {
                         let segment_meta = entry.meta.clone();
                         alive_segments.push(segment_meta.track(inventory));
                         if entry.xmin.cmp(&max_xmin) == Ordering::Greater {

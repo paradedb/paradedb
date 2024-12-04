@@ -26,21 +26,18 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{io, result};
+use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
-use tantivy::{
-    directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError},
-    error::TantivyError,
-};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
 use super::utils::{SegmentComponentId, SegmentComponentPath};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, DirectoryEntry, MVCCEntry, PgItem, SegmentMetaEntry, DIRECTORY_START,
-    SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    bm25_max_free_space, DirectoryEntry, LinkedList, MVCCEntry, PgItem, SegmentMetaEntry,
+    DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
-use crate::postgres::storage::utils::BM25BufferCache;
+use crate::postgres::storage::utils::{BM25Buffer, BM25BufferCache};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 
 /// Tantivy Directory trait implementation over block storage
@@ -150,15 +147,33 @@ impl Directory for BlockingDirectory {
     /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
         unsafe {
+            let cache = BM25BufferCache::open(self.relation_oid);
             let segment_components =
                 LinkedItemList::<DirectoryEntry>::open(self.relation_oid, DIRECTORY_START);
+            let mut blockno = segment_components.get_start_blockno();
+            let mut files = HashSet::new();
 
-            Ok(segment_components
-                .list_all_items()
-                .map_err(|err| TantivyError::InternalError(err.to_string()))?
-                .into_iter()
-                .map(|(entry, _, _)| entry.path)
-                .collect())
+            while blockno != pg_sys::InvalidBlockNumber {
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                let page = pg_sys::BufferGetPage(buffer);
+                let mut offsetno = pg_sys::FirstOffsetNumber;
+                let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+
+                while offsetno <= max_offset {
+                    let item_id = pg_sys::PageGetItemId(page, offsetno);
+                    let item = DirectoryEntry::from(PgItem(
+                        pg_sys::PageGetItem(page, item_id),
+                        (*item_id).lp_len() as pg_sys::Size,
+                    ));
+                    files.insert(item.path.clone());
+                    offsetno += 1;
+                }
+
+                blockno = buffer.next_blockno();
+                pg_sys::UnlockReleaseBuffer(buffer);
+            }
+
+            Ok(files)
         }
     }
 
@@ -204,6 +219,11 @@ impl Directory for BlockingDirectory {
             }
         }
 
+        // If there were no new segments, skip the rest of the work
+        if meta.segments.is_empty() {
+            return Ok(());
+        }
+
         // Update SegmentMeta entries
         let opstamp = meta.opstamp;
         let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
@@ -214,33 +234,53 @@ impl Directory for BlockingDirectory {
 
         // Mark old SegmentMeta entries as deleted
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        let mut deleted_segment_ids = vec![];
         unsafe {
-            for (entry, blockno, offsetno) in segment_metas.list_all_items().unwrap() {
-                if let Some(index) = new_segments
-                    .iter()
-                    .position(|segment| segment.id() == entry.meta.segment_id)
-                {
-                    new_segments.remove(index);
-                } else if !entry.is_deleted() && entry.is_visible(snapshot) {
-                    let entry_with_xmax = SegmentMetaEntry {
-                        xmax: current_xid,
-                        ..entry.clone()
-                    };
+            let mut blockno = segment_metas.get_start_blockno();
+            while blockno != pg_sys::InvalidBlockNumber {
+                let state = cache.start_xlog();
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
+                let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+                let mut offsetno = pg_sys::FirstOffsetNumber;
+                let mut needs_wal = false;
 
-                    let state = cache.start_xlog();
-                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                    let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
-                    let PgItem(item, size) = entry_with_xmax.clone().into();
-                    let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
-                    assert!(
-                        overwrite,
-                        "setting xmax for {:?} should succeed",
-                        entry.meta.segment_id
-                    );
-
-                    pg_sys::GenericXLogFinish(state);
-                    pg_sys::UnlockReleaseBuffer(buffer);
+                while offsetno <= max_offset {
+                    let item_id = pg_sys::PageGetItemId(page, offsetno);
+                    let entry = SegmentMetaEntry::from(PgItem(
+                        pg_sys::PageGetItem(page, item_id),
+                        (*item_id).lp_len() as pg_sys::Size,
+                    ));
+                    if let Some(index) = new_segments
+                        .iter()
+                        .position(|segment| segment.id() == entry.meta.segment_id)
+                    {
+                        new_segments.remove(index);
+                    } else if !entry.is_deleted() && entry.is_visible(snapshot) {
+                        let entry_with_xmax = SegmentMetaEntry {
+                            xmax: current_xid,
+                            ..entry.clone()
+                        };
+                        let PgItem(item, size) = entry_with_xmax.clone().into();
+                        let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
+                        assert!(
+                            overwrite,
+                            "setting xmax for {:?} should succeed",
+                            entry.meta.segment_id
+                        );
+                        deleted_segment_ids.push(entry.meta.segment_id);
+                        needs_wal = true;
+                    }
+                    offsetno += 1;
                 }
+
+                blockno = buffer.next_blockno();
+                if needs_wal {
+                    pg_sys::GenericXLogFinish(state);
+                } else {
+                    pg_sys::GenericXLogAbort(state);
+                }
+                pg_sys::UnlockReleaseBuffer(buffer);
             }
         }
 
@@ -263,42 +303,55 @@ impl Directory for BlockingDirectory {
 
         // Mark old DirectoryEntry entries as deleted
         let directory = LinkedItemList::<DirectoryEntry>::open(self.relation_oid, DIRECTORY_START);
-        let segment_ids = meta.segments.iter().map(|s| s.id()).collect::<HashSet<_>>();
-
         unsafe {
-            for (entry, blockno, offsetno) in directory.list_all_items().unwrap() {
-                let SegmentComponentId(entry_segment_id) =
-                    SegmentComponentPath(entry.path.clone()).try_into().unwrap();
-                if !segment_ids.contains(&entry_segment_id)
-                    && !entry.is_deleted()
-                    && entry.is_visible(snapshot)
-                {
-                    // Delete the entry
-                    let entry_with_xmax = DirectoryEntry {
-                        xmax: current_xid,
-                        ..entry.clone()
-                    };
+            let mut blockno = directory.get_start_blockno();
+            while blockno != pg_sys::InvalidBlockNumber {
+                let state = cache.start_xlog();
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
+                let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+                let mut offsetno = pg_sys::FirstOffsetNumber;
+                let mut needs_wal = false;
 
-                    crate::log_message(&format!("-- MARKING DEL {:?}", entry));
+                while offsetno <= max_offset {
+                    let item_id = pg_sys::PageGetItemId(page, offsetno);
+                    let entry = DirectoryEntry::from(PgItem(
+                        pg_sys::PageGetItem(page, item_id),
+                        (*item_id).lp_len() as pg_sys::Size,
+                    ));
+                    let SegmentComponentId(entry_segment_id) =
+                        SegmentComponentPath(entry.path.clone())
+                            .try_into()
+                            .unwrap_or_else(|_| panic!("{:?} should be valid", entry.path.clone()));
+                    if deleted_segment_ids.contains(&entry_segment_id) {
+                        let entry_with_xmax = DirectoryEntry {
+                            xmax: current_xid,
+                            ..entry.clone()
+                        };
+                        let PgItem(item, size) = entry_with_xmax.clone().into();
+                        let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
+                        assert!(
+                            overwrite,
+                            "setting xmax for {:?} should succeed",
+                            entry_segment_id
+                        );
 
-                    let state = cache.start_xlog();
-                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                    let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
-                    let PgItem(item, size) = entry_with_xmax.clone().into();
-                    let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
-                    assert!(
-                        overwrite,
-                        "setting xmax for {:?} should succeed",
-                        entry_segment_id
-                    );
-
-                    pg_sys::GenericXLogFinish(state);
-                    pg_sys::UnlockReleaseBuffer(buffer);
-
-                    // Delete the corresponding segment component
-                    let segment_component = LinkedBytesList::open(self.relation_oid, entry.start);
-                    segment_component.mark_deleted();
+                        // Delete the corresponding segment component
+                        let segment_component =
+                            LinkedBytesList::open(self.relation_oid, entry.start);
+                        segment_component.mark_deleted();
+                        needs_wal = true;
+                    }
+                    offsetno += 1;
                 }
+
+                blockno = buffer.next_blockno();
+                if needs_wal {
+                    pg_sys::GenericXLogFinish(state);
+                } else {
+                    pg_sys::GenericXLogAbort(state);
+                }
+                pg_sys::UnlockReleaseBuffer(buffer);
             }
         }
 
@@ -309,27 +362,40 @@ impl Directory for BlockingDirectory {
         let segment_metas =
             LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
 
+        let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+
         let mut alive_segments = vec![];
         let mut opstamp = 0;
         let mut max_xmin = 0;
-        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        for (entry, _, _) in unsafe { segment_metas.list_all_items().unwrap() } {
-            if unsafe { entry.is_visible(snapshot) } {
-                let segment_meta = entry.meta.clone();
-                alive_segments.push(segment_meta.track(inventory));
+        let mut blockno = segment_metas.get_start_blockno();
 
-                // TODO: Verify if this is correct
-                // Do opstamps of successive commits monotonically increase?
-                match entry.xmin.cmp(&max_xmin) {
-                    Ordering::Greater => {
-                        max_xmin = entry.xmin;
-                        opstamp = entry.opstamp;
+        unsafe {
+            while blockno != pg_sys::InvalidBlockNumber {
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                let page = pg_sys::BufferGetPage(buffer);
+                let mut offsetno = pg_sys::FirstOffsetNumber;
+                let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+
+                while offsetno <= max_offset {
+                    let item_id = pg_sys::PageGetItemId(page, offsetno);
+                    let entry = SegmentMetaEntry::from(PgItem(
+                        pg_sys::PageGetItem(page, item_id),
+                        (*item_id).lp_len() as pg_sys::Size,
+                    ));
+                    if entry.is_visible(snapshot) {
+                        let segment_meta = entry.meta.clone();
+                        alive_segments.push(segment_meta.track(inventory));
+                        if entry.xmin.cmp(&max_xmin) == Ordering::Greater {
+                            max_xmin = entry.xmin;
+                            opstamp = entry.opstamp;
+                        }
                     }
-                    Ordering::Equal => {
-                        opstamp = entry.opstamp.max(opstamp);
-                    }
-                    Ordering::Less => {}
+                    offsetno += 1;
                 }
+
+                blockno = buffer.next_blockno();
+                pg_sys::UnlockReleaseBuffer(buffer);
             }
         }
 
@@ -360,6 +426,7 @@ mod tests {
     #[pg_test]
     fn test_list_managed_files() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
         let relation_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")

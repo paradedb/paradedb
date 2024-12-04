@@ -350,29 +350,29 @@ mod tests {
         assert!(!linked_list.is_empty());
     }
 
-    // #[pg_test]
-    // unsafe fn test_linked_bytes_mark_deleted() {
-    //     Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
-    //     Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
-    //     let relation_oid: pg_sys::Oid =
-    //         Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
-    //             .expect("spi should succeed")
-    //             .unwrap();
-    //
-    //     let mut linked_list = LinkedBytesList::create(relation_oid);
-    //     let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
-    //     linked_list.write(&bytes).unwrap();
-    //     linked_list.mark_deleted();
-    //
-    //     NB:  `.get_all_blocks()` has been removed, so not sure what this test should now do
-    //     let all_blocks = linked_list.get_all_blocks();
-    //     for blockno in all_blocks {
-    //         let buffer = BM25BufferCache::open(relation_oid)
-    //             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-    //         let page = pg_sys::BufferGetPage(buffer);
-    //         let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-    //         assert!((*special).xmax != pg_sys::InvalidTransactionId);
-    //         pg_sys::UnlockReleaseBuffer(buffer);
-    //     }
-    // }
+    #[pg_test]
+    unsafe fn test_linked_bytes_mark_deleted() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let mut linked_list = LinkedBytesList::create(relation_oid);
+        let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
+        linked_list.write(&bytes).unwrap();
+        linked_list.mark_deleted();
+
+        let mut blockno = linked_list.get_start_blockno();
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = BM25BufferCache::open(relation_oid)
+                .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let page = pg_sys::BufferGetPage(buffer);
+            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            assert!((*special).xmax != pg_sys::InvalidTransactionId);
+            blockno = (*special).next_blockno;
+            pg_sys::UnlockReleaseBuffer(buffer);
+        }
+    }
 }

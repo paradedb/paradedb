@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::Result;
+use pgrx::pg_sys;
 use std::sync::Arc;
 use tantivy::indexer::{MergePolicy, NoMergePolicy, UserOperation};
 use tantivy::schema::Field;
@@ -27,6 +28,8 @@ use crate::index::merge_policy::NPlusOneMergePolicy;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::{
+    postgres::storage::block::MERGE_LOCK,
+    postgres::storage::utils::BM25BufferCache,
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
 };
@@ -45,10 +48,12 @@ pub struct SearchIndexWriter {
     handler: ChannelRequestHandler,
     wants_merge: bool,
     insert_queue: Vec<UserOperation>,
+    relation_oid: pg_sys::Oid,
 }
 
 impl SearchIndexWriter {
     pub fn new(
+        relation_oid: pg_sys::Oid,
         index: Index,
         schema: SearchIndexSchema,
         mut handler: ChannelRequestHandler,
@@ -110,6 +115,7 @@ impl SearchIndexWriter {
             .expect("scoped thread should not fail")?;
 
         Ok(Self {
+            relation_oid,
             writer: Arc::new(writer),
             schema,
             handler,
@@ -148,16 +154,31 @@ impl SearchIndexWriter {
         self.drain_insert_queue()?;
         let mut writer =
             Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
-        let _opstamp = self
-            .handler
-            .wait_for(move || {
-                let opstamp = writer.commit()?;
-                if self.wants_merge {
+        let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
+        let merge_lock = unsafe { cache.get_buffer(MERGE_LOCK, None) };
+
+        if self.wants_merge && unsafe { pg_sys::ConditionalLockBuffer(merge_lock) } {
+            let _opstamp = self
+                .handler
+                .wait_for(move || {
+                    let opstamp = writer.commit()?;
                     writer.wait_merging_threads()?;
-                }
-                tantivy::Result::Ok(opstamp)
-            })
-            .expect("spawned thread should not fail")?;
+                    tantivy::Result::Ok(opstamp)
+                })
+                .expect("spawned thread should not fail")?;
+
+            unsafe { pg_sys::UnlockReleaseBuffer(merge_lock) };
+        } else {
+            self.handler
+                .wait_for(move || {
+                    let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
+                    writer.set_merge_policy(policy);
+                    let opstamp = writer.commit()?;
+                    tantivy::Result::Ok(opstamp)
+                })
+                .expect("spawned thread should not fail")?;
+            unsafe { pg_sys::ReleaseBuffer(merge_lock) };
+        };
         Ok(())
     }
 

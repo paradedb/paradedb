@@ -153,14 +153,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     && !pg_sys::XidInMVCCSnapshot(entry.get_xmax(), snapshot)
                     && pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.get_xmax());
                 if definitely_deleted {
-                    crate::log_message(
-                        format!(
-                            "-- DEFINITELY DELETING {} {:?}",
-                            unsafe { pg_sys::GetCurrentTransactionId() },
-                            entry
-                        )
-                        .as_str(),
-                    );
                     delete_offsets.push(offsetno);
                 }
                 offsetno += 1;

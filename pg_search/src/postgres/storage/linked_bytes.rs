@@ -24,6 +24,7 @@ use std::cmp::min;
 use std::io::{Cursor, Read};
 use std::ops::Range;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
+
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node is a page filled with bm25_max_free_space()

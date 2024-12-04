@@ -207,13 +207,13 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
-                stored: true,
+                stored: false,
             }
         }
         SearchFieldType::Text => SearchFieldConfig::Text {
             indexed: true,
             fast: true,
-            stored: true,
+            stored: false,
             fieldnorms: false,
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
@@ -222,23 +222,23 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
             fast: true,
-            stored: true,
+            stored: false,
             expand_dots: false,
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             fieldnorms: true,
         },
-        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
+        SearchFieldType::Range => SearchFieldConfig::Range { stored: false },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
-            stored: true,
+            stored: false,
         },
         SearchFieldType::Date => SearchFieldConfig::Date {
             indexed: true,
             fast: true,
-            stored: true,
+            stored: false,
         },
     };
 

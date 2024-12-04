@@ -1,5 +1,7 @@
 use anyhow::Result;
+use parking_lot::Mutex;
 use pgrx::*;
+use rustc_hash::FxHashMap;
 use std::io::{Error, ErrorKind};
 use std::ops::Range;
 use std::slice::from_raw_parts;
@@ -16,6 +18,8 @@ pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: DirectoryEntry,
     relation_oid: pg_sys::Oid,
+
+    cache: Mutex<FxHashMap<Range<usize>, OwnedBytes>>,
 }
 
 impl SegmentComponentReader {
@@ -26,12 +30,17 @@ impl SegmentComponentReader {
             block_list,
             entry,
             relation_oid,
+            cache: Mutex::new(FxHashMap::default()),
         }
     }
 }
 
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
+        if let Some(cached) = self.cache.lock().get(&range) {
+            return Ok(cached.clone());
+        }
+
         let bytes = unsafe {
             const ITEM_SIZE: usize = bm25_max_free_space();
 
@@ -56,15 +65,24 @@ impl FileHandle for SegmentComponentReader {
                 let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
                 let slice =
                     from_raw_parts((page as *mut u8).add(slice_start + header_size), slice_len);
+                let as_vec = slice.to_vec();
                 pg_sys::UnlockReleaseBuffer(buffer);
-                slice.to_vec()
+                as_vec
             } else {
                 // read one or more pages
-                self.block_list.get_bytes_range(range)
+                self.block_list.get_bytes_range(range.clone())
             }
         };
 
-        Ok(OwnedBytes::new(bytes))
+        let owned_bytes = OwnedBytes::new(bytes);
+        if owned_bytes.len() < 1024 {
+            let mut cache = self.cache.lock();
+            if cache.len() > 100 {
+                cache.clear();
+            }
+            cache.insert(range.clone(), owned_bytes.clone());
+        }
+        Ok(owned_bytes)
     }
 }
 

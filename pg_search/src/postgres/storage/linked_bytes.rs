@@ -273,14 +273,12 @@ impl LinkedBytesList {
 
         // finally, read in the bytes from the blocks that contain the range
         let mut data = Vec::with_capacity(range.len());
-        let mut first = true;
         let mut remaining = range.len();
         while data.len() != range.len() && blockno != pg_sys::InvalidBlockNumber {
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
             let page = pg_sys::BufferGetPage(buffer);
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            let slice_start = if first {
-                first = false;
+            let slice_start = if data.is_empty() {
                 range.start % ITEM_SIZE
             } else {
                 0

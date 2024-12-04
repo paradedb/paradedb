@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
     DateOptions, Field, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing, TextOptions,
-    FAST, INDEXED, STORED,
+    FAST, INDEXED,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -112,7 +112,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -128,7 +128,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -142,7 +142,7 @@ pub enum SearchFieldConfig {
         normalizer: SearchNormalizer,
     },
     Range {
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
     },
     Numeric {
@@ -150,7 +150,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
     },
     Boolean {
@@ -158,7 +158,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
     },
     Date {
@@ -166,7 +166,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
     },
     Ctid,
@@ -196,7 +196,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         let fieldnorms = match obj.get("fieldnorms") {
@@ -255,7 +255,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         let expand_dots = match obj.get("expand_dots") {
@@ -308,7 +308,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         Ok(SearchFieldConfig::Range { stored })
@@ -337,7 +337,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         Ok(SearchFieldConfig::Numeric {
@@ -370,7 +370,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         Ok(SearchFieldConfig::Boolean {
@@ -403,7 +403,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         Ok(SearchFieldConfig::Date {
@@ -601,7 +601,7 @@ impl From<&SearchField> for Field {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Into)]
+#[derive(Debug, Serialize, Deserialize, Clone, Into)]
 pub struct SearchIndexSchema {
     /// The fields that are stored in the index.
     pub fields: Vec<SearchField>,
@@ -635,8 +635,7 @@ impl SearchIndexSchema {
                 SearchFieldConfig::Ctid => {
                     // INDEXED because we might want to search the u64 version of a ctid
                     // FAST because we return this field directly through our various searching methods
-                    // STORED because our VACUUM process decodes full documents while scanning the index
-                    builder.add_u64_field(name.as_ref(), INDEXED | FAST | STORED)
+                    builder.add_u64_field(name.as_ref(), INDEXED | FAST)
                 }
                 _ => match field_type {
                     SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
@@ -823,6 +822,10 @@ fn default_as_true() -> bool {
     true
 }
 
+fn default_as_false() -> bool {
+    true
+}
+
 fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions)
 }
@@ -914,7 +917,7 @@ mod tests {
             SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
-                stored: true,
+                stored: false,
             },
             SearchFieldType::U64,
         )];

@@ -1471,16 +1471,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fs4"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7e180ac76c23b45e767bd7ae9579bc0bb458618c4bc71835926e098e61d15f8"
-dependencies = [
- "rustix 0.38.41",
- "windows-sys 0.52.0",
-]
-
-[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2732,15 +2722,6 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
-
-[[package]]
-name = "memmap2"
-version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3f7eed9d3848f8b98834af67102b720745c4ec028fcd0aa0239277e7de374f"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "memoffset"
@@ -4863,7 +4844,6 @@ dependencies = [
  "downcast-rs",
  "fastdivide",
  "fnv",
- "fs4",
  "htmlescape",
  "hyperloglogplus",
  "itertools 0.13.0",
@@ -4872,7 +4852,6 @@ dependencies = [
  "lru",
  "lz4_flex",
  "measure_time",
- "memmap2",
  "once_cell",
  "oneshot",
  "rayon",
@@ -4890,7 +4869,6 @@ dependencies = [
  "tantivy-query-grammar",
  "tantivy-stacker",
  "tantivy-tokenizer-api",
- "tempfile",
  "thiserror",
  "time",
  "uuid",

@@ -48,7 +48,7 @@ pub extern "C" fn ambulkdelete(
         let ctid_ff = FFType::new(fast_fields, "ctid");
         if let FFType::U64(ff) = ctid_ff {
             let ctid_field = writer.get_ctid_field().expect("ctid field should exist");
-            for ctid in ff.iter().filter(|ctid| callback(*ctid)) {
+            for ctid in ff.values.iter().filter(|ctid| callback(*ctid)) {
                 writer
                     .delete_term(tantivy::Term::from_field_u64(ctid_field, ctid))
                     .expect("ambulkdelete: deleting ctid Term should succeed");

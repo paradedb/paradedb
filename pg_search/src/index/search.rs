@@ -96,6 +96,7 @@ impl SearchIndex {
         })?;
 
         SearchIndexWriter::new(
+            index_relation.oid(),
             search_index.underlying_index,
             search_index.schema,
             search_index.handler,
@@ -110,12 +111,12 @@ impl SearchIndex {
     ) -> Result<SearchIndexWriter> {
         let schema = get_index_schema(index_relation)?;
         let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-
         let search_index = Self::prepare_index(index_relation, schema, |directory, _| {
             Index::open(directory)
         })?;
 
         SearchIndexWriter::new(
+            index_relation.oid(),
             search_index.underlying_index,
             search_index.schema,
             search_index.handler,
@@ -169,7 +170,6 @@ impl SearchIndex {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
-
         Ok(SearchIndexReader::new(
             index_relation,
             index,

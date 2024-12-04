@@ -18,9 +18,10 @@
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{create_new_index, WriterResources};
 use crate::postgres::storage::block::{
-    DirectoryEntry, SegmentMetaEntry, DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START,
-    SETTINGS_START,
+    DirectoryEntry, SegmentMetaEntry, DIRECTORY_START, MERGE_LOCK, SCHEMA_START,
+    SEGMENT_METAS_START, SETTINGS_START,
 };
+use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::SearchIndexSchema;
@@ -197,8 +198,22 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid);
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
 
+    let cache = BM25BufferCache::open(relation_oid);
+    let state = cache.start_xlog();
+    let merge_lock = cache.new_buffer();
+
+    assert_eq!(pg_sys::BufferGetBlockNumber(merge_lock), MERGE_LOCK);
     assert_eq!(schema.header_blockno, SCHEMA_START);
     assert_eq!(settings.header_blockno, SETTINGS_START);
     assert_eq!(directory.header_blockno, DIRECTORY_START);
     assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
+
+    let page = pg_sys::GenericXLogRegisterBuffer(
+        state,
+        merge_lock,
+        pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
+    );
+    page.init(pg_sys::BufferGetPageSize(merge_lock));
+    pg_sys::GenericXLogFinish(state);
+    pg_sys::UnlockReleaseBuffer(merge_lock);
 }

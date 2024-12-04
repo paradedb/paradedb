@@ -29,6 +29,7 @@ pub const SCHEMA_START: pg_sys::BlockNumber = 0;
 pub const SETTINGS_START: pg_sys::BlockNumber = 2;
 pub const DIRECTORY_START: pg_sys::BlockNumber = 4;
 pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
+pub const MERGE_LOCK: pg_sys::BlockNumber = 8;
 
 // ---------------------------------------------------------
 // BM25 page special data

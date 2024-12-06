@@ -292,7 +292,7 @@ impl SearchIndexReader {
         &self,
         field_name: &str,
         query: &SearchQueryInput,
-    ) -> SnippetGenerator {
+    ) -> (tantivy::schema::Field, SnippetGenerator) {
         let field = self
             .schema
             .get_search_field(&SearchFieldName(field_name.into()))
@@ -300,8 +300,10 @@ impl SearchIndexReader {
 
         match self.schema.schema.get_field_entry(field.into()).field_type() {
             FieldType::Str(_) => {
-                SnippetGenerator::create(&self.searcher, &self.query(query), field.into())
-                    .unwrap_or_else(|err| panic!("failed to create snippet generator for field: {field_name}... {err}"))
+                let field:tantivy::schema::Field = field.into();
+                let generator = SnippetGenerator::create(&self.searcher, &self.query(query), field)
+                    .unwrap_or_else(|err| panic!("failed to create snippet generator for field: {field_name}... {err}"));
+                (field, generator)
             }
             _ => panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")
         }

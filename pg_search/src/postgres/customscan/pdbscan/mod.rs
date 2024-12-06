@@ -474,6 +474,11 @@ impl CustomScan for PdbScan {
             state.custom_state_mut().indexrel = Some(indexrel);
             state.custom_state_mut().lockmode = lockmode;
 
+            state.custom_state_mut().heaprel_namespace =
+                PgRelation::from_pg(heaprel).namespace().to_string();
+            state.custom_state_mut().heaprel_relname =
+                PgRelation::from_pg(heaprel).name().to_string();
+
             // setup the structures we need to do mvcc checking
             state.custom_state_mut().visibility_checker = Some(
                 VisibilityChecker::with_rel_and_snap(heaprel, pg_sys::GetActiveSnapshot()),
@@ -521,7 +526,10 @@ impl CustomScan for PdbScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if need_snippets {
-            let mut snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>> = state
+            let mut snippet_generators: HashMap<
+                SnippetInfo,
+                Option<(tantivy::schema::Field, SnippetGenerator)>,
+            > = state
                 .custom_state_mut()
                 .snippet_generators
                 .drain()
@@ -533,10 +541,12 @@ impl CustomScan for PdbScan {
                     .as_ref()
                     .unwrap()
                     .snippet_generator(
-                        snippet_info.field.as_ref(),
+                        &snippet_info.field,
                         &state.custom_state().search_query_input,
                     );
-                new_generator.set_max_num_chars(snippet_info.max_num_chars);
+                new_generator
+                    .1
+                    .set_max_num_chars(snippet_info.max_num_chars);
                 *generator = Some(new_generator);
             }
 
@@ -616,10 +626,12 @@ impl CustomScan for PdbScan {
                                     for (snippet_info, const_snippet_node) in
                                         &state.custom_state().const_snippet_nodes
                                     {
-                                        if let Some(snippet) = state
-                                            .custom_state()
-                                            .make_snippet(doc_address, snippet_info)
-                                        {
+                                        if let Some(snippet) = state.custom_state().make_snippet(
+                                            state.custom_state().heaprel_namespace(),
+                                            state.custom_state().heaprelname(),
+                                            ctid,
+                                            snippet_info,
+                                        ) {
                                             (**const_snippet_node).constvalue =
                                                 snippet.into_datum().unwrap();
                                             (**const_snippet_node).constisnull = false;

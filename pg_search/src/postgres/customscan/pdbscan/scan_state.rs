@@ -22,13 +22,15 @@ use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
-use pgrx::{name_data_to_str, pg_sys, PgRelation};
+use pgrx::itemptr::item_pointer_get_both;
+use pgrx::{name_data_to_str, pg_sys, PgRelation, Spi};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
+use tantivy::schema::OwnedValue;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::DocAddress;
 
 #[derive(Default)]
 pub struct PdbScanState {
@@ -55,6 +57,9 @@ pub struct PdbScanState {
     pub indexrelid: pg_sys::Oid,
     pub lockmode: pg_sys::LOCKMODE,
 
+    pub heaprel_namespace: String,
+    pub heaprel_relname: String,
+
     pub visibility_checker: Option<VisibilityChecker>,
 
     pub need_scores: bool,
@@ -63,7 +68,8 @@ pub struct PdbScanState {
 
     pub const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
     pub snippet_funcoid: pg_sys::Oid,
-    pub snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
+    pub snippet_generators:
+        HashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
     pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
 
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
@@ -140,8 +146,13 @@ impl PdbScanState {
     }
 
     #[inline(always)]
+    pub fn heaprel_namespace(&self) -> &str {
+        &self.heaprel_namespace
+    }
+
+    #[inline(always)]
     pub fn heaprelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*(*self.heaprel()).rd_rel).relname) }
+        &self.heaprel_relname
     }
 
     #[inline(always)]
@@ -161,11 +172,24 @@ impl PdbScanState {
 
     pub fn make_snippet(
         &self,
-        doc_address: DocAddress,
+        relschema: &str,
+        relname: &str,
+        ctid: u64,
         snippet_info: &SnippetInfo,
     ) -> Option<String> {
-        let doc = self.search_reader.as_ref()?.get_doc(doc_address).ok()?;
-        let generator = self.snippet_generators.get(snippet_info)?.as_ref()?;
+        let mut ipd = pg_sys::ItemPointerData::default();
+        u64_to_item_pointer(ctid, &mut ipd);
+        let sql = format!(
+            r#"SELECT "{}"::text FROM "{}"."{}" WHERE ctid = '{:?}';"#,
+            snippet_info.field,
+            relschema,
+            relname,
+            item_pointer_get_both(ipd)
+        );
+        let text =
+            Spi::get_one::<String>(&sql).expect("SPI lookup for snippet text should not fail")?;
+        let (field, generator) = self.snippet_generators.get(snippet_info)?.as_ref()?;
+        let doc = HashMap::from([(*field, OwnedValue::Str(text))]);
         let mut snippet = generator.snippet_from_doc(&doc);
 
         snippet.set_snippet_prefix_postfix(&snippet_info.start_tag, &snippet_info.end_tag);

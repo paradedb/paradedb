@@ -136,7 +136,6 @@ async fn snippet_after_rollback(mut conn: PgConnection) {
     assert_eq!(ids, [4, 5]);
 }
 
-#[ignore = "block-storage: VACUUM crashes"]
 #[rstest]
 async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
@@ -159,7 +158,6 @@ async fn score_bm25_after_vacuum(mut conn: PgConnection) {
     assert_eq!(ids, [5, 3]);
 }
 
-#[ignore = "block-storage: VACUUM crashes"]
 #[rstest]
 async fn snippet_after_vacuum(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);

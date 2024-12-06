@@ -20,7 +20,7 @@ use pgrx::pg_sys;
 use std::sync::Arc;
 use tantivy::indexer::{MergePolicy, NoMergePolicy, UserOperation};
 use tantivy::schema::Field;
-use tantivy::{Index, IndexWriter, Opstamp, Searcher, TantivyDocument, TantivyError, Term};
+use tantivy::{Index, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
 use thiserror::Error;
 
 use crate::index::channel::ChannelRequestHandler;
@@ -122,10 +122,6 @@ impl SearchIndexWriter {
             wants_merge,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
         })
-    }
-
-    pub fn searcher(&self) -> Result<Searcher> {
-        Ok(self.writer.index().reader()?.searcher())
     }
 
     pub fn get_ctid_field(&self) -> Result<Field> {

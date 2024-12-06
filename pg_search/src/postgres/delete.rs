@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFType;
-use crate::index::{open_search_writer, WriterResources};
+use crate::index::{open_search_reader, open_search_writer, WriterResources};
 use pgrx::{pg_sys::ItemPointerData, *};
 
 #[pg_guard]
@@ -39,11 +39,10 @@ pub extern "C" fn ambulkdelete(
 
     let mut writer = open_search_writer(&index_relation, WriterResources::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    for segment_reader in writer
-        .searcher()
-        .expect("ambulkdelete: should be able to obtain a Searcher")
-        .segment_readers()
-    {
+    let reader = open_search_reader(&index_relation)
+        .expect("ambulkdelete: should be able to obtain a SearchIndexReader");
+
+    for segment_reader in reader.searcher().segment_readers() {
         let fast_fields = segment_reader.fast_fields();
         let ctid_ff = FFType::new(fast_fields, "ctid");
         if let FFType::U64(ff) = ctid_ff {

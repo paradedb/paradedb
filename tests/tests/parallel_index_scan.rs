@@ -49,7 +49,6 @@ fn index_scan_under_parallel_path(mut conn: PgConnection) {
     assert_eq!(count, vec![(3,)]);
 }
 
-#[ignore = "block-storage: VACUUM crashes"]
 #[rstest]
 fn dont_do_parallel_index_scan(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);

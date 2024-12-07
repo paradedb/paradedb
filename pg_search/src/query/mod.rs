@@ -33,7 +33,8 @@ use tantivy::{
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
         ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
-        PhraseQuery, Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
+        PhraseQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
+        TermSetQuery,
     },
     query_grammar::Occur,
     schema::{Field, FieldType, OwnedValue, DATE_TIME_PRECISION_INDEXED},
@@ -205,6 +206,12 @@ pub enum SearchQueryInput {
     Regex {
         field: String,
         pattern: String,
+    },
+    RegexPhrase {
+        field: String,
+        regexes: Vec<String>,
+        slop: Option<u32>,
+        max_expansions: Option<u32>,
     },
     Term {
         field: Option<String>,
@@ -584,7 +591,7 @@ impl SearchQueryInput {
                 let (field, path) = split_field_and_path(&field);
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
                 let term = value_to_term(
                     field,
                     &OwnedValue::Str(value),
@@ -624,7 +631,7 @@ impl SearchQueryInput {
 
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
 
                 let mut analyzer = searcher.index().tokenizer_for_field(field)?;
                 let mut stream = analyzer.token_stream(&value);
@@ -749,7 +756,7 @@ impl SearchQueryInput {
                 let (field, path) = split_field_and_path(&field);
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
                     value_to_term(
                         field,
@@ -809,7 +816,7 @@ impl SearchQueryInput {
                 let (field, path) = split_field_and_path(&field);
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
                     value_to_term(
                         field,
@@ -1497,6 +1504,28 @@ impl SearchQueryInput {
                 )
                 .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
             )),
+            Self::RegexPhrase {
+                field,
+                regexes,
+                slop,
+                max_expansions,
+            } => {
+                let (field, _) = split_field_and_path(&field);
+                let (_, _, field) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or(QueryError::NonIndexedField(field))?;
+
+                let mut query = RegexPhraseQuery::new(field, regexes);
+
+                if let Some(slop) = slop {
+                    query.set_slop(slop)
+                }
+                if let Some(max_expansions) = max_expansions {
+                    query.set_max_expansions(max_expansions)
+                }
+                Ok(Box::new(query))
+            }
+
             Self::Term {
                 field,
                 value,
@@ -1507,7 +1536,7 @@ impl SearchQueryInput {
                     let (field, path) = split_field_and_path(&field);
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
-                        .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                        .ok_or(QueryError::NonIndexedField(field))?;
 
                     let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     let term =
@@ -1540,7 +1569,7 @@ impl SearchQueryInput {
                     let (_, path) = split_field_and_path(&field);
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
-                        .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                        .ok_or(QueryError::NonIndexedField(field))?;
 
                     let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     terms.push(value_to_term(

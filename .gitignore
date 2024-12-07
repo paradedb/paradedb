@@ -1,5 +1,7 @@
-# VS Code
+# IDEs
 .vscode/
+.idea/
+/*.iml
 
 # macOS
 .DS_Store
@@ -28,6 +30,3 @@ pgvector/
 
 # Env files
 .env
-
-# Jetbrains
-.idea

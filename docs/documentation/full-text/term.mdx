@@ -48,3 +48,18 @@ WHERE description @@@ '(shoes running -white)';
 
 The special characters `+` , `^`, `` ` ``, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `<`, `>`,`~`, `!`, `\\`, `\*`, and `SPACE` must
 be escaped by a `\` inside the query term.
+
+## How match queries work
+
+The match query works by analyzing the input text, breaking it into the tokens using the specified or default analyzer. These tokens are then compared with the indexed terms, and only the documents where the indexed terms match these tokens are included in the search results.
+
+For example, if the query is "shoes white" and the default analyzer is used, it will produce two tokens: "shoes" and "white".
+
+```sql
+SELECT * FROM paradedb.tokenize(
+  paradedb.tokenizer('default'),
+  'shoes white'
+);
+```
+
+These tokens are then matched against the indexed terms, and only documents containing indexed terms that match either "shoes" or "white" in the relevant fields will be considered in the search results

@@ -41,9 +41,9 @@ pub extern "C" fn amvacuumcleanup(
         .vacuum()
         .expect("amvacuumcleanup: SearchIndexWriter.vacuum() should succeed");
 
-    // Garbage collect linked lists
-    // If new LinkedItemLists are created they should be garbage collected here
     unsafe {
+        // Garbage collect linked lists
+        // If new LinkedItemLists are created they should be garbage collected here
         let index_oid = index_relation.oid();
         let mut directory = LinkedItemList::<DirectoryEntry>::open(index_oid, DIRECTORY_START);
         directory
@@ -74,6 +74,7 @@ pub extern "C" fn amvacuumcleanup(
         pg_sys::IndexFreeSpaceMapVacuum(info.index);
     }
 
+    // TODO: Mark XIDs as frozen
     // TODO: Update stats
     stats
 }

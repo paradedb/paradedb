@@ -43,6 +43,15 @@ pub struct BM25PageSpecialData {
 }
 
 // ---------------------------------------------------------
+// Merge lock
+// ---------------------------------------------------------
+
+#[derive(Debug)]
+pub struct MergeLockData {
+    pub last_merge: pg_sys::TransactionId,
+}
+
+// ---------------------------------------------------------
 // Linked lists
 // ---------------------------------------------------------
 
@@ -217,16 +226,11 @@ pub trait MVCCEntry {
     unsafe fn is_visible(&self, snapshot: pg_sys::Snapshot) -> bool {
         let xmin = self.get_xmin();
         let xmax = self.get_xmax();
-        let current_txid = pg_sys::GetCurrentTransactionIdIfAny();
-
-        let xmin_visible = (xmin == current_txid)
-            || (!pg_sys::XidInMVCCSnapshot(xmin, snapshot) && pg_sys::TransactionIdDidCommit(xmin));
-
+        let xmin_visible = pg_sys::TransactionIdIsCurrentTransactionId(xmin)
+            || !pg_sys::XidInMVCCSnapshot(xmin, snapshot);
         let deleted = xmax != pg_sys::InvalidTransactionId
-            && ((xmax == current_txid)
-                || (!pg_sys::XidInMVCCSnapshot(xmax, snapshot)
-                    && pg_sys::TransactionIdDidCommit(xmax)));
-
+            && (pg_sys::TransactionIdIsCurrentTransactionId(xmax)
+                || !pg_sys::XidInMVCCSnapshot(xmax, snapshot));
         xmin_visible && !deleted
     }
 

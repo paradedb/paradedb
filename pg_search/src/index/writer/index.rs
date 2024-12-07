@@ -28,7 +28,7 @@ use crate::index::merge_policy::NPlusOneMergePolicy;
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::{
-    postgres::storage::block::MERGE_LOCK,
+    postgres::storage::block::{MergeLockData, MERGE_LOCK},
     postgres::storage::utils::BM25BufferCache,
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -152,8 +152,28 @@ impl SearchIndexWriter {
             Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
         let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
         let merge_lock = unsafe { cache.get_buffer(MERGE_LOCK, None) };
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
 
-        if self.wants_merge && unsafe { pg_sys::ConditionalLockBuffer(merge_lock) } {
+        let should_merge = unsafe {
+            if self.wants_merge && pg_sys::ConditionalLockBuffer(merge_lock) {
+                let page = pg_sys::BufferGetPage(merge_lock);
+                let metadata = pg_sys::PageGetContents(page) as *mut MergeLockData;
+                let last_merge = (*metadata).last_merge;
+                if pg_sys::XidInMVCCSnapshot(last_merge, snapshot)
+                    && last_merge != pg_sys::InvalidTransactionId
+                {
+                    pg_sys::UnlockReleaseBuffer(merge_lock);
+                    false
+                } else {
+                    true
+                }
+            } else {
+                pg_sys::ReleaseBuffer(merge_lock);
+                false
+            }
+        };
+
+        if should_merge {
             let _opstamp = self
                 .handler
                 .wait_for(move || {
@@ -163,7 +183,14 @@ impl SearchIndexWriter {
                 })
                 .expect("spawned thread should not fail")?;
 
-            unsafe { pg_sys::UnlockReleaseBuffer(merge_lock) };
+            unsafe {
+                let state = cache.start_xlog();
+                let page = pg_sys::GenericXLogRegisterBuffer(state, merge_lock, 0);
+                let metadata = pg_sys::PageGetContents(page) as *mut MergeLockData;
+                (*metadata).last_merge = pg_sys::GetCurrentTransactionId();
+                pg_sys::GenericXLogFinish(state);
+                pg_sys::UnlockReleaseBuffer(merge_lock);
+            }
         } else {
             self.handler
                 .wait_for(move || {
@@ -173,7 +200,6 @@ impl SearchIndexWriter {
                     tantivy::Result::Ok(opstamp)
                 })
                 .expect("spawned thread should not fail")?;
-            unsafe { pg_sys::ReleaseBuffer(merge_lock) };
         };
         Ok(())
     }

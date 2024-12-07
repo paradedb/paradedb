@@ -190,7 +190,7 @@ impl Directory for BlockingDirectory {
     }
 
     /// Saves a Tantivy IndexMeta to block storage
-    fn save_metas(&self, meta: &IndexMeta) -> tantivy::Result<()> {
+    fn save_metas(&self, meta: &IndexMeta, previous_meta: &IndexMeta) -> tantivy::Result<()> {
         let cache = unsafe { BM25BufferCache::open(self.relation_oid) };
 
         // Save Tantivy Schema if this is the first commit
@@ -256,7 +256,13 @@ impl Directory for BlockingDirectory {
                         .position(|segment| segment.id() == entry.meta.segment_id)
                     {
                         new_segments.remove(index);
-                    } else if !entry.is_deleted() && entry.is_visible(snapshot) {
+                    } else if !entry.is_deleted()
+                        && entry.is_visible(snapshot)
+                        && previous_meta
+                            .segments
+                            .iter()
+                            .any(|segment| segment.id() == entry.meta.segment_id)
+                    {
                         let entry_with_xmax = SegmentMetaEntry {
                             xmax: current_xid,
                             ..entry.clone()

@@ -18,7 +18,7 @@
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{create_new_index, WriterResources};
 use crate::postgres::storage::block::{
-    DirectoryEntry, SegmentMetaEntry, DIRECTORY_START, MERGE_LOCK, SCHEMA_START,
+    DirectoryEntry, MergeLockData, SegmentMetaEntry, DIRECTORY_START, MERGE_LOCK, SCHEMA_START,
     SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
@@ -208,12 +208,18 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     assert_eq!(directory.header_blockno, DIRECTORY_START);
     assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
 
+    // Init merge lock buffer
     let page = pg_sys::GenericXLogRegisterBuffer(
         state,
         merge_lock,
         pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
     );
     page.init(pg_sys::BufferGetPageSize(merge_lock));
+    let metadata = pg_sys::PageGetContents(page) as *mut MergeLockData;
+    (*metadata).last_merge = pg_sys::InvalidTransactionId;
+    let page_header = page as *mut pg_sys::PageHeaderData;
+    (*page_header).pd_lower = (metadata.add(1) as usize - page as usize) as u16;
+
     pg_sys::GenericXLogFinish(state);
     pg_sys::UnlockReleaseBuffer(merge_lock);
 }

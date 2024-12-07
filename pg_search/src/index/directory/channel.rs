@@ -31,7 +31,7 @@ pub enum ChannelRequest {
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
     GetSegmentComponent(PathBuf, oneshot::Sender<DirectoryEntry>),
-    SaveMetas(IndexMeta),
+    SaveMetas(IndexMeta, IndexMeta),
     LoadMetas(SegmentMetaInventory, oneshot::Sender<IndexMeta>),
 }
 
@@ -130,9 +130,12 @@ impl Directory for ChannelDirectory {
         Ok(())
     }
 
-    fn save_metas(&self, meta: &IndexMeta) -> tantivy::Result<()> {
+    fn save_metas(&self, meta: &IndexMeta, previous_meta: &IndexMeta) -> tantivy::Result<()> {
         self.sender
-            .send(ChannelRequest::SaveMetas(meta.clone()))
+            .send(ChannelRequest::SaveMetas(
+                meta.clone(),
+                previous_meta.clone(),
+            ))
             .unwrap();
 
         Ok(())
@@ -263,8 +266,8 @@ impl ChannelRequestHandler {
                 let writer = self.writers.remove(&path).expect("writer should exist");
                 writer.terminate()?;
             }
-            ChannelRequest::SaveMetas(metas) => {
-                self.directory.save_metas(&metas)?;
+            ChannelRequest::SaveMetas(metas, previous_metas) => {
+                self.directory.save_metas(&metas, &previous_metas)?;
             }
             ChannelRequest::LoadMetas(inventory, sender) => {
                 let metas = self.directory.load_metas(&inventory)?;

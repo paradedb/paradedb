@@ -443,6 +443,19 @@ fn full_text_search(mut conn: PgConnection) {
     assert!(rows[0].1.contains("<i>"));
     assert!(rows[0].1.contains("</i>"));
 
+    let rows: Vec<(i32, [i32; 2])> = r#"
+    SELECT id, paradedb.snippet_positions(description)
+    FROM mock_items
+    WHERE description @@@ 'shoes'
+    ORDER BY id
+    LIMIT 5
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0].1, [14, 5]);
+    assert_eq!(rows[1].1, [14, 5]);
+    assert_eq!(rows[2].1, [8, 5]);
+
     // Order by score
     let rows: Vec<(String, i32, String, f32)> = r#"
         SELECT description, rating, category, paradedb.score(id)

@@ -65,6 +65,8 @@ pub struct PdbScanState {
 
     pub const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
     pub snippet_funcoid: pg_sys::Oid,
+    pub const_snippet_positions_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
+    pub snippet_positions_funcoid: pg_sys::Oid,
     pub snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
     pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
 
@@ -172,5 +174,25 @@ impl PdbScanState {
 
         snippet.set_snippet_prefix_postfix(&snippet_info.start_tag, &snippet_info.end_tag);
         Some(snippet.to_html())
+    }
+
+    pub fn make_snippet_positions(
+        &self,
+        doc_address: DocAddress,
+        snippet_info: &SnippetInfo,
+    ) -> Option<Vec<i32>> {
+        let doc = self.search_reader.as_ref()?.get_doc(doc_address).ok()?;
+        let generator = self.snippet_generators.get(snippet_info)?.as_ref()?;
+        let mut snippet = generator.snippet_from_doc(&doc);
+
+        snippet.set_snippet_prefix_postfix(&snippet_info.start_tag, &snippet_info.end_tag);
+        if snippet.highlighted().is_empty() {
+            None
+        } else {
+            Some(vec![
+                snippet.highlighted()[0].start as i32,
+                snippet.highlighted()[0].len() as i32,
+            ])
+        }
     }
 }

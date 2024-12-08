@@ -242,21 +242,31 @@ impl Directory for BlockingDirectory {
                 let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
                 let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
                 let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
-                let mut offsetno = pg_sys::FirstOffsetNumber;
                 let mut needs_wal = false;
 
-                while offsetno <= max_offset {
+                for offsetno in pg_sys::FirstOffsetNumber..=max_offset {
                     let item_id = pg_sys::PageGetItemId(page, offsetno);
                     let entry = SegmentMetaEntry::from(PgItem(
                         pg_sys::PageGetItem(page, item_id),
                         (*item_id).lp_len() as pg_sys::Size,
                     ));
-                    if let Some(index) = new_segments
+                    let mut merged_away = true;
+
+                    if let Some((index, segment)) = new_segments
                         .iter()
-                        .position(|segment| segment.id() == entry.meta.segment_id)
+                        .enumerate()
+                        .find(|(_, segment)| segment.id() == entry.meta.segment_id)
                     {
-                        new_segments.remove(index);
-                    } else if !entry.is_deleted()
+                        if segment.delete_opstamp() == entry.meta.deletes.clone().map(|d| d.opstamp)
+                        {
+                            new_segments.remove(index);
+                            continue;
+                        } else {
+                            merged_away = false;
+                        }
+                    }
+
+                    if !entry.is_deleted()
                         && entry.is_visible(snapshot)
                         && previous_meta
                             .segments
@@ -274,10 +284,11 @@ impl Directory for BlockingDirectory {
                             "setting xmax for {:?} should succeed",
                             entry.meta.segment_id
                         );
-                        deleted_segment_ids.push(entry.meta.segment_id);
+                        if merged_away {
+                            deleted_segment_ids.push(entry.meta.segment_id);
+                        }
                         needs_wal = true;
                     }
-                    offsetno += 1;
                 }
 
                 blockno = buffer.next_blockno();

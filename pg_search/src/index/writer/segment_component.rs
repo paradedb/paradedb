@@ -52,6 +52,17 @@ impl TerminatingWrite for SegmentComponentWriter {
                 xmin: pg_sys::GetCurrentTransactionId(),
                 xmax: pg_sys::InvalidTransactionId,
             };
+
+            if let Some(extension) = self.path.clone().extension() {
+                if extension == "del" {
+                    crate::log_message(&format!(
+                        "-- Adding {} entry to directory: {:?}",
+                        pg_sys::GetCurrentTransactionId(),
+                        self.path.clone()
+                    ));
+                }
+            }
+
             directory
                 .add_items(vec![entry])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;

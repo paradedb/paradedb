@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{open_search_writer, WriterResources};
+use crate::index::{open_mvcc_writer, WriterResources};
 use crate::postgres::utils::row_to_search_document;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
@@ -36,7 +36,7 @@ impl Drop for InsertState {
             if pg_sys::IsTransactionState() && !self.abort_on_drop && !self.committed {
                 if let Some(writer) = self.writer.take() {
                     writer
-                        .commit()
+                        .commit_inserts()
                         .expect("tantivy index commit should succeed");
                 }
                 self.committed = true;
@@ -54,7 +54,7 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        let writer = open_search_writer(indexrel, writer_resources)?;
+        let writer = open_mvcc_writer(indexrel, writer_resources)?;
         Ok(Self {
             writer: Some(writer),
             abort_on_drop: false,

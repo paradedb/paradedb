@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use crate::index::open_search_reader;
+use crate::index::open_mvcc_reader;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::schema::IndexRecordOption;
 use crate::schema::SearchFieldConfig;
@@ -307,7 +307,7 @@ fn index_info(
 
     // open the specified index
     let search_reader =
-        open_search_reader(&index).expect("should be able to open a SearchIndexReader");
+        open_mvcc_reader(&index).expect("should be able to open a SearchIndexReader");
     let data = search_reader
         .segment_readers()
         .iter()
@@ -348,7 +348,7 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
 
     // open the specified index
     let search_reader =
-        open_search_reader(&index).expect("should be able to open a SearchIndexReader");
+        open_mvcc_reader(&index).expect("should be able to open a SearchIndexReader");
 
     let failed = search_reader.validate_checksum()?;
     Ok(SetOfIterator::new(

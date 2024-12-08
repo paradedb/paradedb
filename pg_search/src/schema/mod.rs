@@ -929,7 +929,7 @@ mod tests {
         // the `ctid` field must be all of these
         assert!(ctid_field_entry.is_indexed());
         assert!(ctid_field_entry.is_fast());
-        assert!(ctid_field_entry.is_stored());
+        assert!(!ctid_field_entry.is_stored());
     }
 
     #[rstest]

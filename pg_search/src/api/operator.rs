@@ -19,7 +19,7 @@ mod searchqueryinput;
 mod text;
 
 use crate::api::index::{fieldname_typoid, FieldName};
-use crate::index::open_search_reader;
+use crate::index::open_mvcc_reader;
 use crate::nodecast;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -138,7 +138,7 @@ pub(crate) fn estimate_selectivity(
     }
 
     let search_reader =
-        open_search_reader(indexrel).expect("should be able to open a SearchIndexReader");
+        open_mvcc_reader(indexrel).expect("should be able to open a SearchIndexReader");
     let estimate = search_reader.estimate_docs(search_query_input).unwrap_or(1) as f64;
     let mut selectivity = estimate / reltuples;
     if selectivity > 1.0 {

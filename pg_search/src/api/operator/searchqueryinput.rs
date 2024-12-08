@@ -21,7 +21,7 @@ use super::{
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::open_search_reader;
+use crate::index::open_mvcc_reader;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -53,7 +53,7 @@ pub fn search_with_query_input(
             &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         };
         let search_reader =
-            open_search_reader(indexrel).expect("should be able to open a SearchIndexReader");
+            open_mvcc_reader(indexrel).expect("should be able to open a SearchIndexReader");
 
         let key_field = search_reader.key_field();
         let key_field_name = key_field.name.0;

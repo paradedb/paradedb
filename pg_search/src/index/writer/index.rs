@@ -154,6 +154,10 @@ impl SearchIndexWriter {
         let merge_lock = unsafe { cache.get_buffer(MERGE_LOCK, None) };
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
 
+        // In order for a merge to happen, the following must be true:
+        // 1. We're in a VACUUM, CREATE INDEX, or statement where merge_on_insert is true
+        // 2. We are the only process that's merging
+        // 3. The effects of the previous merge are visible to us
         let should_merge = unsafe {
             if self.wants_merge && pg_sys::ConditionalLockBuffer(merge_lock) {
                 let page = pg_sys::BufferGetPage(merge_lock);

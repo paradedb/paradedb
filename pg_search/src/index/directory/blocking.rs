@@ -232,6 +232,31 @@ impl Directory for BlockingDirectory {
         let mut segment_metas =
             LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
 
+        let binding = new_segments.clone();
+        let segments_with_new_delete_opstamps = binding
+            .iter()
+            .filter(|segment| {
+                segment.delete_opstamp()
+                    != previous_meta
+                        .segments
+                        .iter()
+                        .find(|prev_segment| prev_segment.id() == segment.id())
+                        .and_then(|prev_segment| prev_segment.delete_opstamp())
+            })
+            .collect::<Vec<_>>();
+
+        if !segments_with_new_delete_opstamps.is_empty() {
+            crate::log_message(&format!(
+                "Updating {} delete opstamps for segments: {:?}",
+                unsafe { pg_sys::GetCurrentTransactionId() },
+                segments_with_new_delete_opstamps
+                    .clone()
+                    .iter()
+                    .map(|s| s.id())
+                    .collect::<Vec<_>>()
+            ));
+        }
+
         // Mark old SegmentMeta entries as deleted
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let mut deleted_segment_ids = vec![];
@@ -273,6 +298,14 @@ impl Directory for BlockingDirectory {
                             .iter()
                             .any(|segment| segment.id() == entry.meta.segment_id)
                     {
+                        if !segments_with_new_delete_opstamps.is_empty() {
+                            crate::log_message(&format!(
+                                "Deleting {} {:?}",
+                                unsafe { pg_sys::GetCurrentTransactionId() },
+                                entry.meta.segment_id
+                            ));
+                        }
+
                         let entry_with_xmax = SegmentMetaEntry {
                             xmax: current_xid,
                             ..entry.clone()
@@ -288,6 +321,16 @@ impl Directory for BlockingDirectory {
                             deleted_segment_ids.push(entry.meta.segment_id);
                         }
                         needs_wal = true;
+                    } else if segments_with_new_delete_opstamps
+                        .iter()
+                        .any(|s| s.id() == entry.meta.segment_id)
+                    {
+                        crate::log_message(&format!(
+                            "was not deleted {} because is deleted {} is visible {}",
+                            unsafe { pg_sys::GetCurrentTransactionId() },
+                            entry.is_deleted(),
+                            entry.is_visible(snapshot)
+                        ));
                     }
                 }
 
@@ -312,6 +355,14 @@ impl Directory for BlockingDirectory {
             })
             .collect::<Vec<_>>();
 
+        if !segments_with_new_delete_opstamps.is_empty() {
+            crate::log_message(&format!(
+                "new entries {}: {:?}",
+                unsafe { pg_sys::GetCurrentTransactionId() },
+                entries.clone()
+            ));
+        }
+
         unsafe {
             segment_metas
                 .add_items(entries)
@@ -330,7 +381,7 @@ impl Directory for BlockingDirectory {
                 let mut offsetno = pg_sys::FirstOffsetNumber;
                 let mut needs_wal = false;
 
-                while offsetno <= max_offset {
+                for offsetno in pg_sys::FirstOffsetNumber..=max_offset {
                     let item_id = pg_sys::PageGetItemId(page, offsetno);
                     let entry = DirectoryEntry::from(PgItem(
                         pg_sys::PageGetItem(page, item_id),
@@ -359,7 +410,6 @@ impl Directory for BlockingDirectory {
                         segment_component.mark_deleted();
                         needs_wal = true;
                     }
-                    offsetno += 1;
                 }
 
                 blockno = buffer.next_blockno();
@@ -394,7 +444,7 @@ impl Directory for BlockingDirectory {
                 let mut offsetno = pg_sys::FirstOffsetNumber;
                 let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
 
-                while offsetno <= max_offset {
+                for offsetno in pg_sys::FirstOffsetNumber..=max_offset {
                     let item_id = pg_sys::PageGetItemId(page, offsetno);
                     let entry = SegmentMetaEntry::from(PgItem(
                         pg_sys::PageGetItem(page, item_id),
@@ -408,7 +458,6 @@ impl Directory for BlockingDirectory {
                             opstamp = entry.opstamp;
                         }
                     }
-                    offsetno += 1;
                 }
 
                 blockno = buffer.next_blockno();

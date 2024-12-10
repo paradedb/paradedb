@@ -526,6 +526,7 @@ impl SearchIndexReader {
 mod vec_collector {
     use crate::index::reader::index::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::columnar::ColumnBlockAccessor;
     use tantivy::fastfield::Column;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
@@ -542,7 +543,10 @@ mod vec_collector {
         Blocks(
             SegmentOrdinal,
             Column<u64>,
-            std::iter::Flatten<std::vec::IntoIter<std::vec::IntoIter<DocId>>>,
+            std::vec::IntoIter<std::vec::IntoIter<DocId>>,
+            std::vec::IntoIter<DocId>,
+            ColumnBlockAccessor<u64>,
+            std::vec::IntoIter<u64>, // ctids
         ),
     }
 
@@ -558,31 +562,24 @@ mod vec_collector {
                     let scored = SearchIndexScore::new(ctid, doc, score.next()?);
                     Some((scored, doc_address))
                 }
-                FruitStyle::Blocks(segment_ord, ctid, doc) => {
-                    let doc = doc.next()?;
-                    let doc_address = DocAddress::new(*segment_ord, doc);
-                    let scored = SearchIndexScore::new(ctid, doc, 0.0);
-                    Some((scored, doc_address))
-                }
-            }
-        }
+                FruitStyle::Blocks(segment_ord, ctid, blocks, doc, accessor, ctids) => loop {
+                    match doc.next() {
+                        None => {
+                            *doc = blocks.next()?;
+                            *accessor = ColumnBlockAccessor::default();
+                            accessor.fetch_block(doc.as_slice(), ctid);
+                            *ctids = accessor.iter_vals().collect::<Vec<_>>().into_iter();
+                            continue;
+                        }
 
-        fn size_hint(&self) -> (usize, Option<usize>) {
-            match self {
-                FruitStyle::Empty => (0, None),
-                FruitStyle::Scored(_, _, iter, _) => iter.size_hint(),
-                FruitStyle::Blocks(_, _, iter) => iter.size_hint(),
-            }
-        }
-
-        fn count(self) -> usize
-        where
-            Self: Sized,
-        {
-            match self {
-                FruitStyle::Empty => 0,
-                FruitStyle::Scored(_, _, iter, _) => iter.count(),
-                FruitStyle::Blocks(_, _, iter) => iter.count(),
+                        Some(doc) => {
+                            let ctid = ctids.next()?;
+                            let doc_address = DocAddress::new(*segment_ord, doc);
+                            let scored = SearchIndexScore { ctid, bm25: 0.0 };
+                            return Some((scored, doc_address));
+                        }
+                    }
+                },
             }
         }
     }
@@ -659,7 +656,10 @@ mod vec_collector {
                 FruitStyle::Blocks(
                     self.segment_ord,
                     self.ctid_ff,
-                    self.blocks.into_iter().flatten(),
+                    self.blocks.into_iter(),
+                    vec![].into_iter(),
+                    ColumnBlockAccessor::default(),
+                    vec![].into_iter(),
                 )
             } else {
                 FruitStyle::Scored(

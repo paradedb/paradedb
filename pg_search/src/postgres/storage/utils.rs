@@ -67,15 +67,15 @@ unsafe impl Send for BM25BufferCache {}
 unsafe impl Sync for BM25BufferCache {}
 
 impl BM25BufferCache {
-    pub unsafe fn open(indexrelid: pg_sys::Oid) -> Self {
+    pub unsafe fn open(indexrelid: pg_sys::Oid) -> Arc<Self> {
         let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
         let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
         let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
-        Self {
+        Arc::new(Self {
             indexrel: PgBox::from_pg(indexrel),
             heaprel: PgBox::from_pg(heaprel),
             cache: Default::default(),
-        }
+        })
     }
 
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {

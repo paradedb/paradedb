@@ -129,7 +129,7 @@ impl Deref for RangeData {
 impl LinkedBytesList {
     pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
-            cache: unsafe { Arc::new(BM25BufferCache::open(relation_oid)) },
+            cache: unsafe { BM25BufferCache::open(relation_oid) },
             relation_oid,
             header_blockno,
             skipcache: Default::default(),
@@ -137,7 +137,7 @@ impl LinkedBytesList {
     }
 
     pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
-        let cache = Arc::new(BM25BufferCache::open(relation_oid));
+        let cache = BM25BufferCache::open(relation_oid);
         let state = cache.start_xlog();
 
         let header_buffer = cache.new_buffer();
@@ -248,7 +248,7 @@ impl LinkedBytesList {
     }
 
     pub unsafe fn read_all(&self) -> Vec<u8> {
-        let cache = BM25BufferCache::open(self.relation_oid);
+        let cache = &self.cache;
         let mut blockno = self.get_start_blockno();
         let mut bytes: Vec<u8> = vec![];
 
@@ -270,7 +270,7 @@ impl LinkedBytesList {
     }
 
     pub unsafe fn mark_deleted(&self) {
-        let cache = BM25BufferCache::open(self.relation_oid);
+        let cache = &self.cache;
         let mut blockno = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
             let state = cache.start_xlog();
@@ -296,7 +296,7 @@ impl LinkedBytesList {
 
     pub fn is_empty(&self) -> bool {
         unsafe {
-            let cache = BM25BufferCache::open(self.relation_oid);
+            let cache = &self.cache;
             let start_blockno = self.get_start_blockno();
             let start_buffer = cache.get_buffer(start_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
             let start_page = pg_sys::BufferGetPage(start_buffer);

@@ -162,13 +162,18 @@ pub extern "C" fn amrescan(
         };
 
         (*scan).opaque = PgMemoryContexts::CurrentMemoryContext
-            .leak_and_drop_on_delete(scan_state)
+            .leak_and_drop_on_delete(Some(scan_state))
             .cast();
     }
 }
 
 #[pg_guard]
-pub extern "C" fn amendscan(_scan: pg_sys::IndexScanDesc) {}
+pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {
+    unsafe {
+        let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
+        drop(scan_state);
+    }
+}
 
 #[pg_guard]
 pub extern "C" fn amgettuple(
@@ -178,9 +183,10 @@ pub extern "C" fn amgettuple(
     let state = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
-        (*scan).opaque.cast::<Bm25ScanState>().as_mut()
-    }
-    .expect("no scan.opaque state");
+        (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
+            .as_mut()
+            .expect("opaque should be a Bm25ScanState")
+    };
 
     unsafe {
         (*scan).xs_recheck = false;
@@ -279,9 +285,10 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
     let state = unsafe {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
-        (*scan).opaque.cast::<Bm25ScanState>().as_mut()
-    }
-    .expect("no scan.opaque state");
+        (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
+            .as_mut()
+            .expect("opaque should be a Bm25ScanState")
+    };
 
     let mut cnt = 0i64;
     loop {

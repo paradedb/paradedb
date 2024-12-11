@@ -16,8 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::storage::block::BM25PageSpecialData;
+use parking_lot::Mutex;
 use pgrx::pg_sys;
 use pgrx::PgBox;
+use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
 pub trait BM25Page {
     unsafe fn init(self, page_size: pg_sys::Size);
@@ -57,6 +60,7 @@ impl BM25Page for pg_sys::Page {
 pub struct BM25BufferCache {
     indexrel: PgBox<pg_sys::RelationData>,
     heaprel: PgBox<pg_sys::RelationData>,
+    cache: Arc<Mutex<FxHashMap<pg_sys::BlockNumber, Vec<u8>>>>,
 }
 
 unsafe impl Send for BM25BufferCache {}
@@ -70,6 +74,7 @@ impl BM25BufferCache {
         Self {
             indexrel: PgBox::from_pg(indexrel),
             heaprel: PgBox::from_pg(heaprel),
+            cache: Default::default(),
         }
     }
 
@@ -124,6 +129,21 @@ impl BM25BufferCache {
             pg_sys::LockBuffer(buffer, lock as i32);
         }
         buffer
+    }
+
+    pub unsafe fn get_page_slice(&self, blockno: pg_sys::BlockNumber, lock: Option<u32>) -> &[u8] {
+        let mut cache = self.cache.lock();
+        let slice = cache.entry(blockno).or_insert_with(|| {
+            let buffer = self.get_buffer(blockno, lock);
+            let page = pg_sys::BufferGetPage(buffer);
+            let data =
+                std::slice::from_raw_parts(page as *mut u8, pg_sys::BLCKSZ as usize).to_vec();
+            pg_sys::UnlockReleaseBuffer(buffer);
+
+            data
+        });
+
+        std::slice::from_raw_parts(slice.as_ptr(), slice.len())
     }
 
     pub unsafe fn record_free_index_page(&self, blockno: pg_sys::BlockNumber) {

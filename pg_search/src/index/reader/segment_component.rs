@@ -1,88 +1,78 @@
+use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry, LinkedList};
+use crate::postgres::storage::linked_bytes::RangeData;
+use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::*;
-use rustc_hash::FxHashMap;
-use std::io::{Error, ErrorKind};
-use std::ops::Range;
-use std::slice::from_raw_parts;
+use std::io::Error;
+use std::ops::{Deref, Range};
 use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
+use tantivy_common::StableDeref;
 
-use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry, LinkedList};
-use crate::postgres::storage::utils::BM25BufferCache;
-use crate::postgres::storage::LinkedBytesList;
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: DirectoryEntry,
-    relation_oid: pg_sys::Oid,
-
-    cache: Mutex<FxHashMap<Range<usize>, OwnedBytes>>,
 }
 
 impl SegmentComponentReader {
     pub unsafe fn new(relation_oid: pg_sys::Oid, entry: DirectoryEntry) -> Self {
         let block_list = LinkedBytesList::open(relation_oid, entry.start);
 
-        Self {
-            block_list,
-            entry,
-            relation_oid,
-            cache: Mutex::new(FxHashMap::default()),
+        Self { block_list, entry }
+    }
+
+    fn read_bytes_raw(&self, range: Range<usize>) -> Result<RangeData, Error> {
+        unsafe {
+            const ITEM_SIZE: usize = bm25_max_free_space();
+
+            let start = range.start;
+            let start_block_ordinal = start / ITEM_SIZE;
+
+            if start_block_ordinal == self.block_list.npages() as usize {
+                // short-circuit for when the last block is being read -- this is a common access pattern
+                Ok(self
+                    .block_list
+                    .get_cached_range(self.block_list.get_last_blockno(), range))
+            } else {
+                // read one or more pages
+                Ok(self.block_list.get_bytes_range(range.clone()))
+            }
         }
+    }
+}
+
+struct DeferredReader {
+    reader: SegmentComponentReader,
+    range: Range<usize>,
+    bytes: Mutex<RangeData>,
+}
+
+unsafe impl StableDeref for DeferredReader {}
+impl Deref for DeferredReader {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        let mut range_data = self.bytes.lock();
+        if range_data.is_empty() {
+            *range_data = self
+                .reader
+                .read_bytes_raw(self.range.clone())
+                .expect("DeferredReader.deref():  failed to read bytes");
+        }
+        unsafe { std::slice::from_raw_parts(range_data.as_ptr(), range_data.len()) }
     }
 }
 
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
-        if let Some(cached) = self.cache.lock().get(&range) {
-            return Ok(cached.clone());
-        }
-
-        let bytes = unsafe {
-            const ITEM_SIZE: usize = bm25_max_free_space();
-
-            let start = range.start;
-            let end = range.end.min(self.len());
-            if start > end {
-                return Err(Error::new(ErrorKind::InvalidInput, "Invalid range"));
-            }
-            let start_block = start / ITEM_SIZE;
-
-            if start_block == self.block_list.npages() as usize {
-                // short circuit direct access if the caller is specifically asking for the last page
-                let cache = BM25BufferCache::open(self.relation_oid);
-                let buffer = cache.get_buffer(
-                    self.block_list.get_last_blockno(),
-                    Some(pg_sys::BUFFER_LOCK_SHARE),
-                );
-                let page = pg_sys::BufferGetPage(buffer);
-                let slice_start = start % ITEM_SIZE;
-                let slice_end = end % ITEM_SIZE;
-                let slice_len = slice_end - slice_start;
-                let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
-                let slice =
-                    from_raw_parts((page as *mut u8).add(slice_start + header_size), slice_len);
-                let as_vec = slice.to_vec();
-                pg_sys::UnlockReleaseBuffer(buffer);
-                as_vec
-            } else {
-                // read one or more pages
-                self.block_list.get_bytes_range(range.clone())
-            }
-        };
-
-        let owned_bytes = OwnedBytes::new(bytes);
-        if owned_bytes.len() < 1024 {
-            let mut cache = self.cache.lock();
-            if cache.len() > 100 {
-                cache.clear();
-            }
-            cache.insert(range.clone(), owned_bytes.clone());
-        }
-        Ok(owned_bytes)
+        Ok(OwnedBytes::new(DeferredReader {
+            reader: self.clone(),
+            range,
+            bytes: Default::default(),
+        }))
     }
 }
 

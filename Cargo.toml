@@ -28,3 +28,4 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stopwords",
   "lz4-compression",
 ], default-features = false }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "0239f19" }

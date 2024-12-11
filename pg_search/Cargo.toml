@@ -38,6 +38,7 @@ rustc-hash = "1.1.0"
 serde = "1.0.210"
 serde_json = { version = "1.0.128", features = ["preserve_order"] }
 tantivy.workspace = true
+tantivy-common.workspace = true
 thiserror = "1.0.63"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

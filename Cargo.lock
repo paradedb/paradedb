@@ -3183,6 +3183,7 @@ dependencies = [
  "serde_path_to_error",
  "strum",
  "tantivy",
+ "tantivy-common",
  "tempfile",
  "thiserror",
  "tokenizers",

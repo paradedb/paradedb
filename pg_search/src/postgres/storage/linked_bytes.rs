@@ -19,11 +19,15 @@ use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedL
 use super::utils::{BM25BufferCache, BM25Page};
 use crate::postgres::storage::SKIPLIST_FREQ;
 use anyhow::Result;
+use parking_lot::Mutex;
 use pgrx::pg_sys;
+use rustc_hash::FxHashMap;
 use std::cmp::min;
+use std::collections::hash_map::Entry;
 use std::io::{Cursor, Read};
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::slice::{from_raw_parts, from_raw_parts_mut};
+use std::sync::Arc;
 
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
@@ -60,10 +64,12 @@ use std::slice::{from_raw_parts, from_raw_parts_mut};
 // | [next_blockno: BlockNumber, xmax: TransactionId]            |
 // +-------------------------------------------------------------+
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LinkedBytesList {
+    cache: Arc<BM25BufferCache>,
     relation_oid: pg_sys::Oid,
     pub header_blockno: pg_sys::BlockNumber,
+    skipcache: Arc<Mutex<FxHashMap<usize, pg_sys::BlockNumber>>>,
 }
 
 impl LinkedList for LinkedBytesList {
@@ -76,16 +82,62 @@ impl LinkedList for LinkedBytesList {
     }
 }
 
+#[derive(Debug)]
+pub enum RangeData {
+    OnePage(*const u8, usize),
+    MultiPage(Vec<u8>),
+}
+
+impl Default for RangeData {
+    fn default() -> Self {
+        RangeData::MultiPage(vec![])
+    }
+}
+
+unsafe impl Sync for RangeData {}
+unsafe impl Send for RangeData {}
+
+impl RangeData {
+    #[inline]
+    pub fn len(&self) -> usize {
+        match self {
+            RangeData::OnePage(_, len) => *len,
+            RangeData::MultiPage(vec) => vec.len(),
+        }
+    }
+
+    #[inline]
+    pub fn as_ptr(&self) -> *const u8 {
+        match self {
+            RangeData::OnePage(ptr, _) => *ptr,
+            RangeData::MultiPage(vec) => vec.as_ptr(),
+        }
+    }
+}
+
+impl Deref for RangeData {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            RangeData::OnePage(ptr, len) => unsafe { std::slice::from_raw_parts(*ptr, *len) },
+            RangeData::MultiPage(vec) => &vec[..],
+        }
+    }
+}
+
 impl LinkedBytesList {
     pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
+            cache: unsafe { Arc::new(BM25BufferCache::open(relation_oid)) },
             relation_oid,
             header_blockno,
+            skipcache: Default::default(),
         }
     }
 
     pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
-        let cache = BM25BufferCache::open(relation_oid);
+        let cache = Arc::new(BM25BufferCache::open(relation_oid));
         let state = cache.start_xlog();
 
         let header_buffer = cache.new_buffer();
@@ -122,13 +174,15 @@ impl LinkedBytesList {
         pg_sys::UnlockReleaseBuffer(start_buffer);
 
         Self {
+            cache,
             relation_oid,
             header_blockno,
+            skipcache: Default::default(),
         }
     }
 
     pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        let cache = BM25BufferCache::open(self.relation_oid);
+        let cache = &self.cache;
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
 
@@ -252,50 +306,91 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> Vec<u8> {
+    #[inline]
+    pub unsafe fn get_cached_page_slice(&self, blockno: pg_sys::BlockNumber) -> &[u8] {
+        self.cache
+            .get_page_slice(blockno, Some(pg_sys::BUFFER_LOCK_SHARE))
+    }
+
+    #[inline]
+    pub unsafe fn get_cached_range(
+        &self,
+        blockno: pg_sys::BlockNumber,
+        range: Range<usize>,
+    ) -> RangeData {
+        const ITEM_SIZE: usize = bm25_max_free_space();
+        let page = self.get_cached_page_slice(blockno);
+        let slice_start = range.start % ITEM_SIZE;
+        let slice_len = range.len();
+        let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
+        let slice_start = slice_start + header_size;
+        let slice_end = slice_start + slice_len;
+        let slice = &page[slice_start..slice_end];
+
+        // it's all on one page
+        RangeData::OnePage(slice.as_ptr(), slice_len)
+    }
+
+    pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> RangeData {
         const ITEM_SIZE: usize = bm25_max_free_space();
 
         // find the closest block in the linked list to where `range` begins
-        let cache = BM25BufferCache::open(self.relation_oid);
+        let cache = &self.cache;
         let start_block_ord = range.start / ITEM_SIZE;
         let (nearest_block, nearest_ord) = self.nearest_block_by_ord(start_block_ord);
         let mut blockno = nearest_block;
 
-        // scan forward from that block skipping those that appear before our range begins
-        let mut skip = start_block_ord - nearest_ord.saturating_sub(1);
-        while skip != 0 && blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            blockno = (*special).next_blockno;
-            pg_sys::UnlockReleaseBuffer(buffer);
-            skip -= 1;
+        match self.skipcache.lock().entry(start_block_ord) {
+            Entry::Occupied(entry) => {
+                blockno = *entry.get();
+            }
+            Entry::Vacant(entry) => {
+                // scan forward from that block skipping those that appear before our range begins
+                let mut skip = start_block_ord - nearest_ord.saturating_sub(1);
+                while skip != 0 && blockno != pg_sys::InvalidBlockNumber {
+                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                    let page = pg_sys::BufferGetPage(buffer);
+                    let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+                    blockno = (*special).next_blockno;
+                    pg_sys::UnlockReleaseBuffer(buffer);
+                    skip -= 1;
+                }
+
+                entry.insert(blockno);
+            }
         }
 
-        // finally, read in the bytes from the blocks that contain the range
-        let mut data = Vec::with_capacity(range.len());
-        let mut remaining = range.len();
-        while data.len() != range.len() && blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            let slice_start = if data.is_empty() {
-                range.start % ITEM_SIZE
-            } else {
-                0
-            };
-            let slice_len = (ITEM_SIZE - slice_start).min(remaining);
-            let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
-            let slice = from_raw_parts((page as *mut u8).add(slice_start + header_size), slice_len);
-            data.extend_from_slice(slice);
+        if range.start % ITEM_SIZE + range.len() < ITEM_SIZE {
+            // fits on one page -- use our page cache.  many individual pages are read multiple
+            // times, and using a cache avoids copying the same data
+            self.get_cached_range(blockno, range)
+        } else {
+            // finally, read in the bytes from the blocks that contain the range -- these are specifically not cached
+            let mut data = Vec::with_capacity(range.len());
+            let mut remaining = range.len();
+            while data.len() != range.len() && blockno != pg_sys::InvalidBlockNumber {
+                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+                let page = pg_sys::BufferGetPage(buffer);
+                let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+                let slice_start = if data.is_empty() {
+                    range.start % ITEM_SIZE
+                } else {
+                    0
+                };
+                let slice_len = (ITEM_SIZE - slice_start).min(remaining);
+                let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
+                let slice =
+                    from_raw_parts((page as *mut u8).add(slice_start + header_size), slice_len);
+                data.extend_from_slice(slice);
 
-            blockno = (*special).next_blockno;
-            pg_sys::UnlockReleaseBuffer(buffer);
+                blockno = (*special).next_blockno;
+                pg_sys::UnlockReleaseBuffer(buffer);
 
-            remaining -= slice_len;
+                remaining -= slice_len;
+            }
+
+            RangeData::MultiPage(data)
         }
-
-        data
     }
 }
 

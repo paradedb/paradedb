@@ -20,7 +20,7 @@ use super::utils::{BM25Buffer, BM25BufferCache, BM25Page};
 use anyhow::{bail, Result};
 use pgrx::pg_sys;
 use std::fmt::Debug;
-
+use std::sync::Arc;
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node in the list is a pg_sys::Item
@@ -58,6 +58,7 @@ use std::fmt::Debug;
 pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
     relation_oid: pg_sys::Oid,
     pub header_blockno: pg_sys::BlockNumber,
+    cache: Arc<BM25BufferCache>,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -76,6 +77,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         Self {
             relation_oid,
             header_blockno,
+            cache: unsafe { BM25BufferCache::open(relation_oid) },
             _marker: std::marker::PhantomData,
         }
     }
@@ -120,12 +122,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         Self {
             relation_oid,
             header_blockno,
+            cache,
             _marker: std::marker::PhantomData,
         }
     }
 
     pub unsafe fn garbage_collect(&mut self) -> Result<()> {
-        let cache = BM25BufferCache::open(self.relation_oid);
+        let cache = &self.cache;
 
         // Delete all items that are definitely dead
         let snapshot = pg_sys::GetActiveSnapshot();
@@ -178,7 +181,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn add_items(&mut self, items: Vec<T>) -> Result<()> {
-        let cache = BM25BufferCache::open(self.relation_oid);
+        let cache = &self.cache;
 
         for item in &items {
             let PgItem(pg_item, size) = item.clone().into();
@@ -310,9 +313,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     where
         K: Debug,
     {
-        let cache = BM25BufferCache::open(self.relation_oid);
+        let cache = &self.cache;
         let mut blockno = self.get_start_blockno();
-        let mut visited = vec![];
 
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
@@ -326,8 +328,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     pg_sys::PageGetItem(page, item_id),
                     (*item_id).lp_len() as pg_sys::Size,
                 ));
-
-                visited.push(deserialized.clone());
 
                 if cmp(&deserialized, &target) {
                     pg_sys::UnlockReleaseBuffer(buffer);

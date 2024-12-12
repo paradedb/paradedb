@@ -56,6 +56,7 @@ pub struct MergeLockData {
 // ---------------------------------------------------------
 
 /// Struct held in the first buffer of every linked list's content area
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct LinkedListData {
     pub inner: Inner,

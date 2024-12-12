@@ -69,6 +69,7 @@ pub struct LinkedBytesList {
     cache: Arc<BM25BufferCache>,
     relation_oid: pg_sys::Oid,
     pub header_blockno: pg_sys::BlockNumber,
+    metadata: LinkedListData,
     skipcache: Arc<Mutex<FxHashMap<usize, pg_sys::BlockNumber>>>,
 }
 
@@ -79,6 +80,10 @@ impl LinkedList for LinkedBytesList {
 
     fn get_relation_oid(&self) -> pg_sys::Oid {
         self.relation_oid
+    }
+
+    unsafe fn get_linked_list_data(&self) -> LinkedListData {
+        self.metadata
     }
 }
 
@@ -128,10 +133,20 @@ impl Deref for RangeData {
 
 impl LinkedBytesList {
     pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
+        let cache = unsafe { BM25BufferCache::open(relation_oid) };
+        let metadata = unsafe {
+            let header_buffer = cache.get_buffer(header_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+            let page = pg_sys::BufferGetPage(header_buffer);
+            let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
+            let metadata = metadata.read_unaligned();
+            pg_sys::UnlockReleaseBuffer(header_buffer);
+            metadata
+        };
         Self {
-            cache: unsafe { BM25BufferCache::open(relation_oid) },
+            cache,
             relation_oid,
             header_blockno,
+            metadata,
             skipcache: Default::default(),
         }
     }
@@ -177,6 +192,7 @@ impl LinkedBytesList {
             cache,
             relation_oid,
             header_blockno,
+            metadata: *metadata,
             skipcache: Default::default(),
         }
     }
@@ -224,6 +240,7 @@ impl LinkedBytesList {
                         let idx = (*metadata).inner.npages as usize / SKIPLIST_FREQ;
                         (*metadata).skip_list[idx] = new_blockno;
                     }
+                    self.metadata = *metadata;
 
                     pg_sys::GenericXLogFinish(state);
                     pg_sys::UnlockReleaseBuffer(buffer);

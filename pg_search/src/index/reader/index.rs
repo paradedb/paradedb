@@ -29,7 +29,7 @@ use tantivy::index::Index;
 use tantivy::query::QueryParser;
 use tantivy::schema::FieldType;
 use tantivy::{
-    query::Query, DocAddress, DocId, IndexReader, Order, Score, Searcher, SegmentOrdinal,
+    query::Query, Ctid, DocAddress, DocId, IndexReader, Order, Score, Searcher, SegmentOrdinal,
     SegmentReader, TantivyDocument, TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
@@ -76,7 +76,7 @@ pub enum SearchResults {
     #[default]
     None,
 
-    TopNByScore(usize, std::vec::IntoIter<(OrderedScore, DocAddress)>),
+    TopNByScore(usize, std::vec::IntoIter<(OrderedScore, DocAddress, Ctid)>),
 
     TopNByField(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
 
@@ -155,7 +155,7 @@ impl Iterator for SearchResults {
             SearchResults::None => None,
             SearchResults::TopNByScore(_, iter) => iter
                 .next()
-                .map(|(OrderedScore { score, .. }, doc_address)| (score, doc_address)),
+                .map(|(OrderedScore { score, .. }, doc_address, _ctid)| (score, doc_address)),
             SearchResults::TopNByField(_, iter) => iter.next(),
             SearchResults::BufferedChannel(iter) => iter.next(),
             SearchResults::UnscoredBufferedChannel(iter, buffer) => loop {
@@ -322,6 +322,7 @@ impl SearchIndexReader {
         query: &SearchQueryInput,
         _estimated_rows: Option<usize>,
     ) -> SearchResults {
+        // let need_scores = true;
         let collector = vec_collector::VecCollector::new(need_scores);
         let results = self.collect(query, collector, need_scores);
         SearchResults::AllSegments(results.into_iter().flatten())
@@ -409,7 +410,7 @@ impl SearchIndexReader {
         let top_docs = self.collect(query, collector, true);
         let top_docs = top_docs
             .into_iter()
-            .map(|(_, doc_address)| {
+            .map(|(_, doc_address, _ctid)| {
                 let ctid = self
                     .searcher
                     .segment_reader(doc_address.segment_ord)
@@ -527,7 +528,7 @@ mod vec_collector {
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::ColumnBlockAccessor;
     use tantivy::fastfield::Column;
-    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
+    use tantivy::{Ctid, DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     #[derive(Default)]
     pub enum FruitStyle {
@@ -535,17 +536,16 @@ mod vec_collector {
         Empty,
         Scored(
             SegmentOrdinal,
-            Column<u64>,
             std::vec::IntoIter<DocId>,
             std::vec::IntoIter<Score>,
+            std::vec::IntoIter<Ctid>,
         ),
         Blocks(
             SegmentOrdinal,
-            Column<u64>,
             std::vec::IntoIter<std::vec::IntoIter<DocId>>,
+            std::vec::IntoIter<std::vec::IntoIter<Ctid>>,
             std::vec::IntoIter<DocId>,
-            ColumnBlockAccessor<u64>,
-            std::vec::IntoIter<u64>, // ctids
+            std::vec::IntoIter<Ctid>, // ctids
         ),
     }
 
@@ -555,24 +555,28 @@ mod vec_collector {
         fn next(&mut self) -> Option<Self::Item> {
             match self {
                 FruitStyle::Empty => None,
-                FruitStyle::Scored(segment_ord, ctid, doc, score) => {
+                FruitStyle::Scored(segment_ord, doc, score, ctid) => {
                     let doc = doc.next()?;
+                    let ctid = ctid.next()?;
+                    let ctid = ((ctid.0 as u64) << 16) | (ctid.1 as u64);
+                    assert!(ctid != 0);
+                    let bm25 = score.next()?;
                     let doc_address = DocAddress::new(*segment_ord, doc);
-                    let scored = SearchIndexScore::new(ctid, doc, score.next()?);
+                    let scored = SearchIndexScore { ctid, bm25 };
                     Some((scored, doc_address))
                 }
-                FruitStyle::Blocks(segment_ord, ctid, blocks, doc, accessor, ctids) => loop {
+                FruitStyle::Blocks(segment_ord, doc_blocks, ctid_blocks, doc, ctid) => loop {
                     match doc.next() {
                         None => {
-                            *doc = blocks.next()?;
-                            *accessor = ColumnBlockAccessor::default();
-                            accessor.fetch_block(doc.as_slice(), ctid);
-                            *ctids = accessor.iter_vals().collect::<Vec<_>>().into_iter();
+                            *doc = doc_blocks.next()?;
+                            *ctid = ctid_blocks.next()?;
                             continue;
                         }
 
                         Some(doc) => {
-                            let ctid = ctids.next()?;
+                            let ctid = ctid.next()?;
+                            let ctid = ((ctid.0 as u64) << 16) | (ctid.1 as u64);
+                            assert!(ctid != 0);
                             let doc_address = DocAddress::new(*segment_ord, doc);
                             let scored = SearchIndexScore { ctid, bm25: 0.0 };
                             return Some((scored, doc_address));
@@ -605,12 +609,9 @@ mod vec_collector {
         ) -> tantivy::Result<Self::Child> {
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,
-                scored: (vec![], vec![]),
-                blocks: vec![],
-                ctid_ff: segment_reader
-                    .fast_fields()
-                    .u64("ctid")
-                    .expect("ctid should be a u64 fast field"),
+                scored: (vec![], vec![], vec![]),
+                doc_blocks: vec![],
+                ctid_blocks: vec![],
             })
         }
 
@@ -629,43 +630,45 @@ mod vec_collector {
 
     pub struct VecSegmentCollector {
         segment_ord: SegmentOrdinal,
-        scored: (Vec<DocId>, Vec<Score>),
-        blocks: Vec<std::vec::IntoIter<DocId>>,
-        ctid_ff: Column<u64>,
+        scored: (Vec<DocId>, Vec<Score>, Vec<Ctid>),
+        doc_blocks: Vec<std::vec::IntoIter<DocId>>,
+        ctid_blocks: Vec<std::vec::IntoIter<Ctid>>,
     }
 
     impl SegmentCollector for VecSegmentCollector {
         type Fruit = FruitStyle;
 
-        fn collect(&mut self, doc: DocId, score: Score) {
+        fn collect(&mut self, doc: DocId, score: Score, ctid: Ctid) {
             self.scored.0.push(doc);
             self.scored.1.push(score);
+            self.scored.2.push(ctid);
         }
 
         #[allow(clippy::unnecessary_to_owned)]
-        fn collect_block(&mut self, docs: &[DocId]) {
-            self.blocks.push(docs.to_vec().into_iter());
+        fn collect_block(&mut self, docs: &[DocId], ctids: &[Ctid]) {
+            self.doc_blocks.push(docs.to_vec().into_iter());
+            self.ctid_blocks.push(ctids.to_vec().into_iter()); // ctids.to_vec().into_iter());
         }
 
         fn harvest(mut self) -> Self::Fruit {
-            if !self.blocks.is_empty() {
+            if !self.doc_blocks.is_empty() {
                 if !self.scored.0.is_empty() {
-                    self.blocks.push(self.scored.0.into_iter());
+                    self.doc_blocks.push(self.scored.0.into_iter());
+                    self.ctid_blocks.push(self.scored.2.into_iter());
                 }
                 FruitStyle::Blocks(
                     self.segment_ord,
-                    self.ctid_ff,
-                    self.blocks.into_iter(),
+                    self.doc_blocks.into_iter(),
+                    self.ctid_blocks.into_iter(),
                     vec![].into_iter(),
-                    ColumnBlockAccessor::default(),
                     vec![].into_iter(),
                 )
             } else {
                 FruitStyle::Scored(
                     self.segment_ord,
-                    self.ctid_ff,
                     self.scored.0.into_iter(),
                     self.scored.1.into_iter(),
+                    self.scored.2.into_iter(),
                 )
             }
         }

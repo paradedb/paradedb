@@ -18,6 +18,7 @@
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{open_search_writer, WriterResources};
 use crate::postgres::utils::row_to_search_document;
+use pgrx::itemptr::item_pointer_get_both;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
@@ -143,7 +144,7 @@ unsafe fn aminsert_internal(
                 },
             );
         writer
-            .insert(search_document)
+            .insert(search_document, item_pointer_get_both(*ctid))
             .expect("insertion into index should succeed");
 
         true

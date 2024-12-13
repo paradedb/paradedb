@@ -133,16 +133,14 @@ unsafe fn aminsert_internal(
         let state = &mut *init_insert_state(index_relation, index_info, WriterResources::Statement);
         let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
         let writer = state.writer.as_mut().expect("writer should not be null");
-        let search_document =
-            row_to_search_document(*ctid, &tupdesc, values, isnull, &writer.schema).unwrap_or_else(
-                |err| {
-                    panic!(
-                        "error creating index entries for index '{}': {err}",
-                        CStr::from_ptr((*(*index_relation).rd_rel).relname.data.as_ptr())
-                            .to_string_lossy()
-                    );
-                },
-            );
+        let search_document = row_to_search_document(&tupdesc, values, isnull, &writer.schema)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "error creating index entries for index '{}': {err}",
+                    CStr::from_ptr((*(*index_relation).rd_rel).relname.data.as_ptr())
+                        .to_string_lossy()
+                );
+            });
         writer
             .insert(search_document, item_pointer_get_both(*ctid))
             .expect("insertion into index should succeed");

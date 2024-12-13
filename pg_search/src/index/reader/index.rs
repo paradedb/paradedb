@@ -526,8 +526,6 @@ impl SearchIndexReader {
 mod vec_collector {
     use crate::index::reader::index::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
-    use tantivy::columnar::ColumnBlockAccessor;
-    use tantivy::fastfield::Column;
     use tantivy::{Ctid, DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     #[derive(Default)]
@@ -605,7 +603,7 @@ mod vec_collector {
         fn for_segment(
             &self,
             segment_local_id: SegmentOrdinal,
-            segment_reader: &SegmentReader,
+            _segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,

@@ -152,13 +152,6 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
             key_config,
             *key_field_type,
         )))
-        // "ctid" is a reserved column name in Postgres, so we don't need to worry about
-        // creating a name conflict with a user-named column.
-        .chain(std::iter::once((
-            "ctid".into(),
-            SearchFieldConfig::Ctid,
-            SearchFieldType::U64,
-        )))
         .collect();
 
     let key_field_index = fields

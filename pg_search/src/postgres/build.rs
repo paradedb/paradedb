@@ -156,7 +156,7 @@ unsafe extern "C" fn build_callback(
         build_state.memctx.reset();
         build_state.memctx.switch_to(|_| {
             let search_document =
-                row_to_search_document(*ctid, tupdesc, values, isnull, schema).unwrap_or_else(|err| {
+                row_to_search_document(tupdesc, values, isnull, schema).unwrap_or_else(|err| {
                     panic!(
                         "error creating index entries for index '{}': {err}",
                         CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr())

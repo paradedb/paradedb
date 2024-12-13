@@ -4,7 +4,7 @@ title: Term
 
 ## Basic Usage
 
-Matches documents containing a specified [term](/documentation/concepts/term). Term queries are used when you need to match values exactly as they are stored in the index, without any analysis or tokenization.
+Matches documents containing a specified [term](/documentation/concepts/term). Term queries should be used when looking to match values exactly as they are stored in the index, without any analysis or tokenization.
 Example:
 
 1. Searching user with particular user_id like `1234`
@@ -85,7 +85,3 @@ WHERE id @@@
 }'::jsonb;
 ```
 </CodeGroup>
-
-## Notes
-
-Avoid using term query for text field as term query does not analyze the search term. The term query looks for the exact term you provide and hence this may return poor or no results.

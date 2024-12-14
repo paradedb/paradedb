@@ -169,8 +169,6 @@ pub struct DeleteMetaEntry {
     pub segment_id: SegmentId,
     pub num_deleted_docs: u32,
     pub opstamp: tantivy::Opstamp,
-    // The transaction ID that created this entry
-    pub xmin: pg_sys::TransactionId,
     // The transaction ID that marks this entry as deleted
     pub xmax: pg_sys::TransactionId,
 }
@@ -296,11 +294,16 @@ impl MVCCEntry for SegmentMetaEntry {
 }
 
 impl MVCCEntry for DeleteMetaEntry {
-    fn get_xmin(&self) -> pg_sys::TransactionId {
-        self.xmin
-    }
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
+    }
+    // We want DeleteMetaEntry to be visible to all transactions immediately 
+    // when it's written because ambulkdelete is atomic
+    fn get_xmin(&self) -> pg_sys::TransactionId {
+        pg_sys::FrozenTransactionId
+    }
+    unsafe fn is_visible(&self, _snapshot: pg_sys::Snapshot) -> bool {
+        true
     }
 }
 

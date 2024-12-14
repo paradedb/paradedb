@@ -138,7 +138,6 @@ pub fn get_deleted_ids(meta: &IndexMeta, previous_meta: &IndexMeta) -> HashSet<S
 pub unsafe fn save_delete_metas(
     relation_oid: pg_sys::Oid,
     meta: &IndexMeta,
-    xmin: pg_sys::TransactionId,
     opstamp: Opstamp,
 ) -> Result<()> {
     let mut delete_metas =
@@ -158,7 +157,6 @@ pub unsafe fn save_delete_metas(
             segment_id: segment.id(),
             num_deleted_docs: segment.num_deleted_docs(),
             opstamp: segment.delete_opstamp().expect("expected delete opstamp"),
-            xmin,
             xmax: pg_sys::InvalidTransactionId,
         })
         .collect::<Vec<_>>();

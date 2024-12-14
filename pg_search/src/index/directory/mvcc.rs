@@ -178,7 +178,7 @@ impl Directory for MVCCDirectory {
 
         let deleted_ids = get_deleted_ids(meta, previous_meta);
         unsafe {
-            save_delete_metas(self.relation_oid, meta, current_xid, opstamp)
+            save_delete_metas(self.relation_oid, meta, opstamp)
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
             save_new_metas(self.relation_oid, meta, previous_meta, current_xid, opstamp)
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;

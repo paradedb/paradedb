@@ -98,13 +98,15 @@ impl MergeLock {
 impl Drop for MergeLock {
     fn drop(&mut self) {
         unsafe {
-            let cache = BM25BufferCache::open(self.relation_oid);
-            let state = cache.start_xlog();
-            let page = pg_sys::GenericXLogRegisterBuffer(state, self.buffer, 0);
-            let metadata = pg_sys::PageGetContents(page) as *mut MergeLockData;
-            (*metadata).last_merge = pg_sys::GetCurrentTransactionId();
-            pg_sys::GenericXLogFinish(state);
-            pg_sys::UnlockReleaseBuffer(self.buffer);
+            if pg_sys::IsTransactionState() {
+                let cache = BM25BufferCache::open(self.relation_oid);
+                let state = cache.start_xlog();
+                let page = pg_sys::GenericXLogRegisterBuffer(state, self.buffer, 0);
+                let metadata = pg_sys::PageGetContents(page) as *mut MergeLockData;
+                (*metadata).last_merge = pg_sys::GetCurrentTransactionId();
+                pg_sys::GenericXLogFinish(state);
+                pg_sys::UnlockReleaseBuffer(self.buffer);
+            }
         }
     }
 }

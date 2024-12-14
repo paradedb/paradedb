@@ -18,7 +18,7 @@
 use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 
-use crate::index::open_search_reader;
+use crate::index::open_mvcc_reader;
 use crate::postgres::types::TantivyValue;
 use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::AnyEnum;
@@ -60,7 +60,7 @@ pub fn schema(
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
     let search_reader =
-        open_search_reader(&index).expect("should be able to open a SearchIndexReader");
+        open_mvcc_reader(&index).expect("should be able to open a SearchIndexReader");
     let schema = search_reader.schema().schema.clone();
     let mut field_entries: Vec<_> = schema.fields().collect();
 

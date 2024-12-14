@@ -114,7 +114,8 @@ impl HasLen for SegmentComponentReader {
 mod tests {
     use super::*;
 
-    use crate::index::blocking::BlockingDirectory;
+    use crate::index::directory::utils::DirectoryLookup;
+    use crate::index::mvcc::MVCCDirectory;
     use crate::index::writer::segment_component::SegmentComponentWriter;
     use std::io::Write;
     use std::path::Path;
@@ -137,10 +138,10 @@ mod tests {
         writer.write_all(&bytes).unwrap();
         writer.terminate().unwrap();
 
-        let directory = BlockingDirectory::new(relation_oid);
+        let directory = MVCCDirectory::new(relation_oid);
         let (entry, _, _) = unsafe {
             directory
-                .directory_lookup(&path)
+                .directory_lookup(path)
                 .expect("open directory entry should succeed")
         };
         let reader = SegmentComponentReader::new(relation_oid, entry.clone());

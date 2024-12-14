@@ -17,7 +17,7 @@ use tantivy::directory::{
 use tantivy::index::SegmentMetaInventory;
 use tantivy::{Directory, IndexMeta};
 
-use crate::index::directory::blocking::BlockingDirectory;
+use super::utils::BlockDirectory;
 use crate::index::reader::channel::ChannelReader;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::channel::ChannelWriter;
@@ -154,7 +154,7 @@ impl Directory for ChannelDirectory {
 type Action = Box<dyn FnOnce() -> Reply + Send + Sync>;
 type Reply = Box<dyn Any + Send + Sync>;
 pub struct ChannelRequestHandler {
-    directory: BlockingDirectory,
+    directory: Box<dyn BlockDirectory>,
     relation_oid: pg_sys::Oid,
     receiver: Receiver<ChannelRequest>,
     writers: FxHashMap<PathBuf, SegmentComponentWriter>,
@@ -169,14 +169,14 @@ pub type ShouldTerminate = bool;
 
 impl ChannelRequestHandler {
     pub fn open(
-        directory: BlockingDirectory,
+        directory: &dyn BlockDirectory,
         relation_oid: pg_sys::Oid,
         receiver: Receiver<ChannelRequest>,
     ) -> Self {
         let (action_sender, action_receiver) = crossbeam::channel::bounded(1);
         let (reply_sender, reply_receiver) = crossbeam::channel::bounded(1);
         Self {
-            directory,
+            directory: BlockDirectory::box_clone(directory),
             relation_oid,
             receiver,
             writers: Default::default(),

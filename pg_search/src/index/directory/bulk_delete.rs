@@ -143,7 +143,7 @@ impl Directory for BulkDeleteDirectory {
 
         let deleted_ids = get_deleted_ids(meta, previous_meta);
         unsafe {
-            save_delete_metas(self.relation_oid, meta, current_xid, opstamp)
+            save_delete_metas(self.relation_oid, meta, opstamp)
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
             delete_unused_metas(self.relation_oid, &deleted_ids, current_xid);
             delete_unused_directory_entries(self.relation_oid, &deleted_ids, current_xid);

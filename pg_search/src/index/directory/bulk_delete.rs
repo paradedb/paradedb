@@ -37,7 +37,7 @@ use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::bm25_max_free_space;
 
-/// The sole purpose of the BulkDeleteDirectory is to propogate deleted terms to the Tantivy index
+/// The sole purpose of the BulkDeleteDirectory is to propagate deleted terms to the Tantivy index
 /// It is meant to be called by ambulkdelete and should **never** be used for any other purpose
 /// because it does not respect Postgres MVCC visibility rules
 #[derive(Clone, Debug)]

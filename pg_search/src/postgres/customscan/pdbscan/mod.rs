@@ -26,7 +26,7 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::{AsCStr, AsInt, Cardinality};
-use crate::index::{get_index_schema, open_search_reader};
+use crate::index::{get_index_schema, open_mvcc_reader};
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, OrderByStyle};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -519,7 +519,7 @@ impl CustomScan for PdbScan {
             .expect("custom_state.indexrel should already be open");
 
         let search_reader =
-            open_search_reader(&indexrel).expect("should be able to open a SearchIndexReader");
+            open_mvcc_reader(&indexrel).expect("should be able to open a SearchIndexReader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);

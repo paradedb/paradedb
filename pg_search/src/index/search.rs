@@ -18,8 +18,9 @@
 use super::reader::index::SearchIndexReader;
 use super::writer::index::IndexError;
 use crate::gucs;
-use crate::index::blocking::BlockingDirectory;
+use crate::index::bulk_delete::BulkDeleteDirectory;
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
+use crate::index::mvcc::MVCCDirectory;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::postgres::index::get_fields;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -41,6 +42,11 @@ pub type Parallelism = NonZeroUsize;
 pub type MemoryBudget = usize;
 pub type TargetSegmentCount = usize;
 pub type DoMerging = bool;
+
+enum BlockDirectoryType {
+    Mvcc,
+    BulkDelete,
+}
 
 impl WriterResources {
     pub fn resources(
@@ -91,9 +97,12 @@ impl SearchIndex {
             docstore_compress_dedicated_thread: false,
             ..IndexSettings::default()
         };
-        let search_index = Self::prepare_index(index_relation, schema, |directory, schema| {
-            Index::create(directory, schema.schema.clone(), settings)
-        })?;
+        let search_index = Self::prepare_index(
+            index_relation,
+            schema,
+            BlockDirectoryType::Mvcc,
+            |directory, schema| Index::create(directory, schema.schema.clone(), settings),
+        )?;
 
         SearchIndexWriter::new(
             index_relation.oid(),
@@ -108,12 +117,14 @@ impl SearchIndex {
     fn open_writer(
         index_relation: &PgRelation,
         resources: WriterResources,
+        directory_type: BlockDirectoryType,
     ) -> Result<SearchIndexWriter> {
         let schema = get_index_schema(index_relation)?;
         let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-        let search_index = Self::prepare_index(index_relation, schema, |directory, _| {
-            Index::open(directory)
-        })?;
+        let search_index =
+            Self::prepare_index(index_relation, schema, directory_type, |directory, _| {
+                Index::open(directory)
+            })?;
 
         SearchIndexWriter::new(
             index_relation.oid(),
@@ -133,14 +144,23 @@ impl SearchIndex {
     >(
         index_relation: &PgRelation,
         schema: SearchIndexSchema,
+        directory_type: BlockDirectoryType,
         opener: F,
     ) -> Result<Self, SearchIndexError> {
         let index_oid = index_relation.oid();
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
-        let tantivy_dir = BlockingDirectory::new(index_oid);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = ChannelRequestHandler::open(tantivy_dir, index_oid, req_receiver);
+        let mut handler = match directory_type {
+            BlockDirectoryType::Mvcc => {
+                ChannelRequestHandler::open(&MVCCDirectory::new(index_oid), index_oid, req_receiver)
+            }
+            BlockDirectoryType::BulkDelete => ChannelRequestHandler::open(
+                &BulkDeleteDirectory::new(index_oid),
+                index_oid,
+                req_receiver,
+            ),
+        };
 
         let underlying_index = {
             let schema = schema.clone();
@@ -160,9 +180,16 @@ impl SearchIndex {
         })
     }
 
-    fn open_reader(index_relation: &PgRelation) -> Result<SearchIndexReader> {
-        let directory = BlockingDirectory::new(index_relation.oid());
-        let mut index = Index::open(directory)?;
+    fn open_reader(
+        index_relation: &PgRelation,
+        directory_type: BlockDirectoryType,
+    ) -> Result<SearchIndexReader> {
+        let mut index = match directory_type {
+            BlockDirectoryType::Mvcc => Index::open(MVCCDirectory::new(index_relation.oid()))?,
+            BlockDirectoryType::BulkDelete => {
+                Index::open(BulkDeleteDirectory::new(index_relation.oid()))?
+            }
+        };
         let schema = get_index_schema(index_relation)?;
         SearchIndex::setup_tokenizers(&mut index, &schema);
         let reader = index
@@ -232,16 +259,27 @@ pub fn get_index_schema(index_relation: &PgRelation) -> Result<SearchIndexSchema
 }
 
 /// Open a (non-channel-based) [`SearchIndexReader`] for the specified Postgres index relation
-pub fn open_search_reader(index_relation: &PgRelation) -> Result<SearchIndexReader> {
-    SearchIndex::open_reader(index_relation)
+pub fn open_mvcc_reader(index_relation: &PgRelation) -> Result<SearchIndexReader> {
+    SearchIndex::open_reader(index_relation, BlockDirectoryType::Mvcc)
+}
+
+pub fn open_bulk_delete_reader(index_relation: &PgRelation) -> Result<SearchIndexReader> {
+    SearchIndex::open_reader(index_relation, BlockDirectoryType::BulkDelete)
 }
 
 /// Open an existing index for writing
-pub fn open_search_writer(
+pub fn open_mvcc_writer(
     index_relation: &PgRelation,
     resources: WriterResources,
 ) -> Result<SearchIndexWriter> {
-    SearchIndex::open_writer(index_relation, resources)
+    SearchIndex::open_writer(index_relation, resources, BlockDirectoryType::Mvcc)
+}
+
+pub fn open_bulk_delete_writer(
+    index_relation: &PgRelation,
+    resources: WriterResources,
+) -> Result<SearchIndexWriter> {
+    SearchIndex::open_writer(index_relation, resources, BlockDirectoryType::BulkDelete)
 }
 
 /// Create a new, empty index for the specified Postgres index relation

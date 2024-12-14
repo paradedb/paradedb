@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::open_search_reader;
+use crate::index::open_mvcc_reader;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::{parallel, ScanStrategy};
@@ -105,7 +105,7 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let search_reader =
-        open_search_reader(&indexrel).expect("should be able to open a SearchIndexReader");
+        open_mvcc_reader(&indexrel).expect("should be able to open a SearchIndexReader");
     unsafe {
         parallel::maybe_init_parallel_scan(scan, search_reader.searcher());
 

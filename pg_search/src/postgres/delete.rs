@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFType;
-use crate::index::{open_search_reader, open_search_writer, WriterResources};
+use crate::index::merge_policy::MergeLock;
+use crate::index::{open_bulk_delete_reader, open_bulk_delete_writer, WriterResources};
 use pgrx::{pg_sys::ItemPointerData, *};
 
 #[pg_guard]
@@ -37,9 +38,10 @@ pub extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let mut writer = open_search_writer(&index_relation, WriterResources::Vacuum)
+    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
+    let mut writer = open_bulk_delete_writer(&index_relation, WriterResources::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader = open_search_reader(&index_relation)
+    let reader = open_bulk_delete_reader(&index_relation)
         .expect("ambulkdelete: should be able to obtain a SearchIndexReader");
 
     for segment_reader in reader.searcher().segment_readers() {
@@ -54,8 +56,10 @@ pub extern "C" fn ambulkdelete(
             }
         }
     }
+
+    // Don't merge here, amvacuumcleanup will merge
     writer
-        .commit()
+        .commit(false)
         .expect("ambulkdelete: commit should succeed");
 
     if stats.is_null() {

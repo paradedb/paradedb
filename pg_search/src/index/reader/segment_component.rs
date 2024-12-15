@@ -57,6 +57,8 @@ impl SegmentComponentReader {
         unsafe {
             const ITEM_SIZE: usize = bm25_max_free_space();
 
+            let end = range.end.min(self.len());
+            let range = range.start..end;
             let start = range.start;
             let start_block_ordinal = start / ITEM_SIZE;
 

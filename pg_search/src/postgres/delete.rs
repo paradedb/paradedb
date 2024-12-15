@@ -27,7 +27,6 @@ pub extern "C" fn ambulkdelete(
     callback: pg_sys::IndexBulkDeleteCallback,
     callback_state: *mut ::std::os::raw::c_void,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
-    crate::log_message(&format!("BULK DELETE {}", unsafe { pg_sys::GetCurrentTransactionId() }));
     let info = unsafe { PgBox::from_pg(info) };
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
@@ -39,9 +38,7 @@ pub extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    crate::log_message(&format!("GETTING LOCK {}", unsafe { pg_sys::GetCurrentTransactionId() }));
     let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
-    crate::log_message(&format!("GOT LOCK {}", unsafe { pg_sys::GetCurrentTransactionId() }));
     let mut writer = open_bulk_delete_writer(&index_relation, WriterResources::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexWriter");
     let reader = open_bulk_delete_reader(&index_relation)
@@ -60,8 +57,6 @@ pub extern "C" fn ambulkdelete(
         }
     }
 
-    crate::log_message(&format!("COMMITTING {}", unsafe { pg_sys::GetCurrentTransactionId() }));
-
     // Don't merge here, amvacuumcleanup will merge
     writer
         .commit(false)
@@ -75,7 +70,6 @@ pub extern "C" fn ambulkdelete(
         };
         stats.pages_deleted = 0;
     }
-    crate::log_message(&format!("COMMITTED {}", unsafe { pg_sys::GetCurrentTransactionId() }));
 
     // TODO: Update stats
     stats.into_pg()

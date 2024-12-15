@@ -297,7 +297,7 @@ impl MVCCEntry for DeleteMetaEntry {
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
     }
-    // We want DeleteMetaEntry to be visible to all transactions immediately 
+    // We want DeleteMetaEntry to be visible to all transactions immediately
     // when it's written because ambulkdelete is atomic
     fn get_xmin(&self) -> pg_sys::TransactionId {
         pg_sys::FrozenTransactionId

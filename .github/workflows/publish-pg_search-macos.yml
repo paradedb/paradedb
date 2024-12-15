@@ -162,7 +162,7 @@ jobs:
 
           # Create postinstall script
           mkdir -p ~/tmp/pg_search_postinstall_script/
-          postinstall_file=~/tmp/pg_search_postinstall_script/postinstall.sh
+          postinstall_file=~/tmp/pg_search_postinstall_script/postinstall
           cat <<EOF > $postinstall_file
           #!/bin/bash
           # Define paths
@@ -174,7 +174,7 @@ jobs:
           ln -s ${share_path}/* /opt/homebrew/share/
           ln -s ${share_path}/* /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/share/
           EOF
-          chmod +x ~/tmp/pg_search_postinstall_script/postinstall.sh
+          chmod +x ~/tmp/pg_search_postinstall_script/postinstall
 
           # Create the .pkg installer
           pkgbuild --root ${package_dir} \

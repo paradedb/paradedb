@@ -39,6 +39,7 @@ const MAX_INSERT_QUEUE_SIZE: usize = 1000;
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
     pub schema: SearchIndexSchema,
+    ctid_field: Field,
 
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
@@ -112,18 +113,20 @@ impl SearchIndexWriter {
             })
             .expect("scoped thread should not fail")?;
 
+        let ctid_field = schema.schema.get_field("ctid")?;
         Ok(Self {
             relation_oid,
             writer: Arc::new(writer),
             schema,
+            ctid_field,
             handler,
             wants_merge,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
         })
     }
 
-    pub fn get_ctid_field(&self) -> Result<Field> {
-        Ok(self.schema.schema.get_field("ctid")?)
+    pub fn get_ctid_field(&self) -> Field {
+        self.ctid_field
     }
 
     pub fn delete_term(&mut self, term: Term) -> Result<()> {
@@ -135,7 +138,10 @@ impl SearchIndexWriter {
     }
 
     pub fn insert(&mut self, document: SearchDocument, ctid: Ctid) -> Result<()> {
-        let tantivy_document: TantivyDocument = document.into();
+        let mut tantivy_document: TantivyDocument = document.into();
+
+        tantivy_document.add_u64(self.ctid_field, ((ctid.0 as u64) << 16) | ctid.1 as u64);
+
         self.insert_queue
             .push(UserOperation::AddWithCtid(tantivy_document, ctid));
 

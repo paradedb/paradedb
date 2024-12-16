@@ -644,6 +644,10 @@ impl SearchIndexSchema {
             });
         }
 
+        // hardcode the ctid field into the schema.  "ctid" is a reserved Postgres attribute name
+        // so we don't need to worry about name conflicts
+        builder.add_u64_field("ctid", tantivy::schema::INDEXED);
+
         let schema = builder.build_with_key_field(&key_field_name);
 
         Ok(Self {

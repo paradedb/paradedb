@@ -5,19 +5,18 @@ title: 0.13.1
 ## New Features 🚀
 
 - [#1919](https://github.com/paradedb/paradedb/pull/1919) added support for Regex Phrase queries. The documentation can be found [here](/documentation/advanced/phrase/regex_phrase).
-- [ParadeDB Enterprise] an optional MVCC flag was added to accelerated aggregates to enable faster performance on queries which don't require MVCC correctness.
+- [ParadeDB Enterprise] an optional MVCC flag was added to enable faster performance on accelerated aggregate queries which don't require MVCC correctness.
 
 ## Stability Improvements 💪
 
 - [#1996](https://github.com/paradedb/paradedb/pull/1996) fixed a bug where tokenizing emoji and multi-byte characters with the ICU tokenizer would cause index out-of-bounds errors or deadlocks.
 - [ParadeDB Enterprise] fixed a bug where queries combining JOINs and fast fields would cause a crash.
-  (ParadeDB Enterprise)
 
 ## Docker Image 🐳
 
 - [#1997](https://github.com/paradedb/paradedb/pull/1997) downgraded Barman Cloud, a backup and recovery tool used in ParadeDB BYOC, from version 3.12 to version 3.11 due to an upstream bug.
 
-## Extension Binaries Image 🍏
+## Extension Binaries 🍏
 
 - [#1986](https://github.com/paradedb/paradedb/pull/1986) added support for prebuilt macOS binaries for macOS 14 (Sonoma) and macOS 15 (Sequoia). They can be found in our GitHub Releases from version 0.13.1 onwards.
 

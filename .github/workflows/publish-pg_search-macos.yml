@@ -166,15 +166,15 @@ jobs:
           cat <<EOF > $postinstall_file
           #!/bin/bash
           # Top-level Homebrew, used by the default Homebrew PostgreSQL formula
-          mkdir -p /opt/homebrew/lib/postgresql@15/
-          mkdir -p /opt/homebrew/share/postgresql@15/extension/
-          ln -sf /opt/homebrew/opt/paradedb/lib/postgresql/* /opt/homebrew/lib/postgresql@15/
-          ln -sf /opt/homebrew/opt/paradedb/share/postgresql@15/extension/* /opt/homebrew/share/postgresql@15/extension/
+          mkdir -p /opt/homebrew/lib/postgresql@${{ matrix.pg_version }}/
+          mkdir -p /opt/homebrew/share/postgresql@${{ matrix.pg_version }}/extension/
+          ln -sf /opt/homebrew/opt/paradedb/lib/postgresql/* /opt/homebrew/lib/postgresql@${{ matrix.pg_version }}/
+          ln -sf /opt/homebrew/opt/paradedb/share/postgresql@${{ matrix.pg_version }}/extension/* /opt/homebrew/share/postgresql@${{ matrix.pg_version }}/extension/
           # Opt-level Homebrew, used by the other Homebrew PostgreSQL formulas
-          mkdir -p /opt/homebrew/opt/postgresql@15/lib/postgresql/
-          mkdir -p /opt/homebrew/opt/postgresql@15/share/postgresql@15/extension/
-          ln -sf /opt/homebrew/opt/paradedb/lib/postgresql/* /opt/homebrew/opt/postgresql@15/lib/postgresql/
-          ln -sf /opt/homebrew/opt/paradedb/share/postgresql@15/extension/* /opt/homebrew/opt/postgresql@15/share/postgresql@15/extension/
+          mkdir -p /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/lib/postgresql/
+          mkdir -p /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/share/postgresql@${{ matrix.pg_version }}/extension/
+          ln -sf /opt/homebrew/opt/paradedb/lib/postgresql/* /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/lib/postgresql/
+          ln -sf /opt/homebrew/opt/paradedb/share/postgresql@${{ matrix.pg_version }}/extension/* /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/share/postgresql@${{ matrix.pg_version }}/extension/
           EOF
           chmod +x ~/tmp/pg_search_postinstall_script/postinstall
 

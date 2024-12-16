@@ -20,7 +20,7 @@ use pgrx::pg_sys;
 use std::sync::Arc;
 use tantivy::indexer::{MergePolicy, NoMergePolicy, UserOperation};
 use tantivy::schema::Field;
-use tantivy::{Index, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
+use tantivy::{Ctid, Index, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
 use thiserror::Error;
 
 use crate::index::channel::ChannelRequestHandler;
@@ -134,9 +134,10 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    pub fn insert(&mut self, document: SearchDocument) -> Result<()> {
+    pub fn insert(&mut self, document: SearchDocument, ctid: Ctid) -> Result<()> {
         let tantivy_document: TantivyDocument = document.into();
-        self.insert_queue.push(UserOperation::Add(tantivy_document));
+        self.insert_queue
+            .push(UserOperation::AddWithCtid(tantivy_document, ctid));
 
         if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
             self.drain_insert_queue()?;

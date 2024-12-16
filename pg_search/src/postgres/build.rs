@@ -25,6 +25,7 @@ use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::SearchIndexSchema;
+use pgrx::itemptr::item_pointer_get_both;
 use pgrx::*;
 use std::ffi::CStr;
 use std::time::Instant;
@@ -155,7 +156,7 @@ unsafe extern "C" fn build_callback(
         build_state.memctx.reset();
         build_state.memctx.switch_to(|_| {
             let search_document =
-                row_to_search_document(*ctid, tupdesc, values, isnull, schema).unwrap_or_else(|err| {
+                row_to_search_document(tupdesc, values, isnull, schema).unwrap_or_else(|err| {
                     panic!(
                         "error creating index entries for index '{}': {err}",
                         CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr())
@@ -163,7 +164,7 @@ unsafe extern "C" fn build_callback(
                     );
                 });
             writer
-                .insert(search_document)
+                .insert(search_document, item_pointer_get_both(*ctid))
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });

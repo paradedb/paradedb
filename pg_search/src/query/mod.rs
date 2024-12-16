@@ -885,7 +885,15 @@ impl SearchQueryInput {
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
-                Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+                if let Some(path) = path {
+                    Ok(Box::new(RangeQuery::with_path(
+                        lower_bound,
+                        upper_bound,
+                        Some(path),
+                    )))
+                } else {
+                    Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+                }
             }
             Self::RangeContains {
                 field,

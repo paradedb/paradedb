@@ -469,9 +469,6 @@ fn test_index_fields(mut conn: PgConnection) {
     assert_eq!(date_config.get("indexed").unwrap().as_bool().unwrap(), true);
     assert_eq!(date_config.get("stored").unwrap().as_bool().unwrap(), false);
 
-    // Check ctid field is present
-    assert!(fields.contains_key("ctid"));
-
     // Cleanup
     r#"DROP TABLE test_fields CASCADE;"#.execute(&mut conn);
 }

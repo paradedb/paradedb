@@ -9,8 +9,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/fix-macos
   workflow_dispatch:
     inputs:
       version:
@@ -37,18 +35,18 @@ jobs:
           # macOS 14 and 15 are arm-only (M1)
           # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
           # macOS 14 (Sonoma)
-          # - name: macOS 14 (Sonoma)
-          #   runner: macos-14
-          #   pg_version: 14
-          # - name: macOS 14 (Sonoma)
-          #   runner: macos-14
-          #   pg_version: 15
-          # - name: macOS 14 (Sonoma)
-          #   runner: macos-14
-          #   pg_version: 16
-          # - name: macOS 14 (Sonoma)
-          #   runner: macos-14
-          #   pg_version: 17
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
+            pg_version: 14
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
+            pg_version: 15
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
+            pg_version: 16
+          - name: macOS 14 (Sonoma)
+            runner: macos-14
+            pg_version: 17
           # macOS 15 (Sequoia)
           - name: macOS 15 (Sequoia)
             runner: macos-15

@@ -188,7 +188,7 @@ pub unsafe fn delete_unused_metas(
                     pg_sys::PageGetItem(page, item_id),
                     (*item_id).lp_len() as pg_sys::Size,
                 ));
-                if deleted_ids.contains(&entry.segment_id) && !entry.is_deleted() {
+                if deleted_ids.contains(&entry.segment_id) && !entry.deleted() {
                     let entry_with_xmax = SegmentMetaEntry {
                         xmax,
                         ..entry.clone()
@@ -269,7 +269,7 @@ pub unsafe fn delete_unused_directory_entries(
             let SegmentComponentId(entry_segment_id) = SegmentComponentPath(entry.path.clone())
                 .try_into()
                 .unwrap_or_else(|_| panic!("{:?} should be valid", entry.path.clone()));
-            if deleted_ids.contains(&entry_segment_id) && !entry.is_deleted() {
+            if deleted_ids.contains(&entry_segment_id) && !entry.deleted() {
                 let entry_with_xmax = DirectoryEntry {
                     xmax,
                     ..entry.clone()
@@ -319,7 +319,7 @@ pub unsafe fn delete_unused_delete_metas(
                 pg_sys::PageGetItem(page, item_id),
                 (*item_id).lp_len() as pg_sys::Size,
             ));
-            if deleted_ids.contains(&entry.segment_id) && !entry.is_deleted() {
+            if deleted_ids.contains(&entry.segment_id) && !entry.deleted() {
                 let entry_with_xmax = DeleteMetaEntry {
                     xmax,
                     ..entry.clone()
@@ -400,6 +400,8 @@ pub unsafe fn load_metas(
 
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
 
+    let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
+    let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
     let mut alive_segments = vec![];
     let mut opstamp = 0;
     let mut blockno = segment_metas.get_start_blockno();
@@ -416,7 +418,9 @@ pub unsafe fn load_metas(
                 pg_sys::PageGetItem(page, item_id),
                 (*item_id).lp_len() as pg_sys::Size,
             ));
-            if !solve_mvcc || entry.is_visible(snapshot) {
+            if entry.visible(snapshot)
+                || (!solve_mvcc && !entry.recyclable(snapshot, heap_relation))
+            {
                 let deletes = delete_meta_entries.get(&entry.segment_id);
                 let inner_segment_meta = InnerSegmentMeta {
                     max_doc: entry.max_doc,
@@ -441,6 +445,8 @@ pub unsafe fn load_metas(
         blockno = buffer.next_blockno();
         pg_sys::UnlockReleaseBuffer(buffer);
     }
+
+    pg_sys::RelationClose(heap_relation);
 
     let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
     let settings = LinkedBytesList::open(relation_oid, SETTINGS_START);

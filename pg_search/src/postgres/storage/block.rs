@@ -145,9 +145,7 @@ pub struct DirectoryEntry {
     pub path: PathBuf,
     pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
-    // This is the transaction ID that created this entry
     pub xmin: pg_sys::TransactionId,
-    // The transaction ID that marks this entry as deleted
     pub xmax: pg_sys::TransactionId,
 }
 
@@ -157,9 +155,7 @@ pub struct SegmentMetaEntry {
     pub segment_id: SegmentId,
     pub max_doc: u32,
     pub opstamp: tantivy::Opstamp,
-    // The transaction ID that created this entry
     pub xmin: pg_sys::TransactionId,
-    // The transaction ID that marks this entry as deleted
     pub xmax: pg_sys::TransactionId,
 }
 
@@ -169,7 +165,6 @@ pub struct DeleteMetaEntry {
     pub segment_id: SegmentId,
     pub num_deleted_docs: u32,
     pub opstamp: tantivy::Opstamp,
-    // The transaction ID that marks this entry as deleted
     pub xmax: pg_sys::TransactionId,
 }
 
@@ -259,7 +254,7 @@ pub trait MVCCEntry {
     fn get_xmax(&self) -> pg_sys::TransactionId;
 
     // Provided methods
-    unsafe fn is_visible(&self, snapshot: pg_sys::Snapshot) -> bool {
+    unsafe fn visible(&self, snapshot: pg_sys::Snapshot) -> bool {
         let xmin = self.get_xmin();
         let xmax = self.get_xmax();
         let xmin_visible = pg_sys::TransactionIdIsCurrentTransactionId(xmin)
@@ -270,8 +265,25 @@ pub trait MVCCEntry {
         xmin_visible && !deleted
     }
 
-    fn is_deleted(&self) -> bool {
+    fn deleted(&self) -> bool {
         self.get_xmax() != pg_sys::InvalidTransactionId
+    }
+
+    unsafe fn recyclable(
+        &self,
+        snapshot: pg_sys::Snapshot,
+        heap_relation: pg_sys::Relation,
+    ) -> bool {
+        let xmax = self.get_xmax();
+        if xmax == pg_sys::InvalidTransactionId {
+            return false;
+        }
+
+        if pg_sys::XidInMVCCSnapshot(xmax, snapshot) {
+            return false;
+        }
+
+        pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
     }
 }
 
@@ -302,7 +314,7 @@ impl MVCCEntry for DeleteMetaEntry {
     fn get_xmin(&self) -> pg_sys::TransactionId {
         pg_sys::FrozenTransactionId
     }
-    unsafe fn is_visible(&self, _snapshot: pg_sys::Snapshot) -> bool {
+    unsafe fn visible(&self, _snapshot: pg_sys::Snapshot) -> bool {
         true
     }
 }

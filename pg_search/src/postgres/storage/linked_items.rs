@@ -152,10 +152,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     pg_sys::PageGetItem(page, item_id),
                     (*item_id).lp_len() as pg_sys::Size,
                 ));
-                let definitely_deleted = entry.is_deleted()
-                    && !pg_sys::XidInMVCCSnapshot(entry.get_xmax(), snapshot)
-                    && pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.get_xmax());
-                if definitely_deleted {
+                if entry.recyclable(snapshot, heap_relation) {
                     delete_offsets.push(offsetno);
                 }
                 offsetno += 1;

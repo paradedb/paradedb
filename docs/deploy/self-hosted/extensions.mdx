@@ -36,7 +36,7 @@ ParadeDB provides prebuilt binaries for our extensions on
 - Red Hat Enterprise Linux 8 and 9
 - macOS 14 (Sonoma) and 15 (Sequoia)
 
-Postgres 14, 15, 16, and 17 on both `amd64 (x86_64)` and `arm64` are available. If you are using a different version of Postgres or a different operating system, you will need to build the extensions from source.
+Postgres 14, 15, 16, and 17 are available. If you are using a different version of Postgres or a different operating system, you will need to build the extensions from source.
 
 ### pg_search
 
@@ -77,6 +77,18 @@ sudo dnf install -y /tmp/*.rpm
 # Available arch versions are x86_64, aarch64
 curl -L "https://github.com/paradedb/paradedb/releases/download/v0.13.2/pg_search_17-0.13.2-1PARADEDB.el8.x86_64.rpm" -o /tmp/pg_search.rpm
 sudo dnf install -y /tmp/*.rpm
+```
+
+```bash macOS 15 (Sequoia)
+# Available arch version is arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.13.2/pg_search@17--0.13.2.arm64_sequoia.pkg" -o ~/Downloads/pg_search.pkg
+sudo installer -pkg ~/Downloads/pg_search.pkg -target /
+```
+
+```bash macOS 14 (Sonoma)
+# Available arch version is arm64
+curl -L "https://github.com/paradedb/paradedb/releases/download/v0.13.2/pg_search@17--0.13.2.arm64_sonoma.pkg" -o ~/Downloads/pg_search.pkg
+sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 ```
 
 </CodeGroup>

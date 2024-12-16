@@ -15,9 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::{open_search_writer, WriterResources};
+use crate::index::{open_mvcc_writer, WriterResources};
 use crate::postgres::storage::block::{
-    DirectoryEntry, SegmentMetaEntry, DIRECTORY_START, SEGMENT_METAS_START,
+    DeleteMetaEntry, DirectoryEntry, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
+    SEGMENT_METAS_START,
 };
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use crate::postgres::storage::LinkedItemList;
@@ -36,7 +37,7 @@ pub extern "C" fn amvacuumcleanup(
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
 
     // vacuum the index, which is effectively just a forced commit() plus a wait_merging_threads()
-    open_search_writer(&index_relation, WriterResources::Vacuum)
+    open_mvcc_writer(&index_relation, WriterResources::Vacuum)
         .expect("amvacuumcleanup: should be able to open a SearchIndexWriter")
         .vacuum()
         .expect("amvacuumcleanup: SearchIndexWriter.vacuum() should succeed");
@@ -52,6 +53,11 @@ pub extern "C" fn amvacuumcleanup(
         let mut segment_metas =
             LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START);
         segment_metas
+            .garbage_collect()
+            .expect("garbage collection should succeed");
+        let mut delete_metas =
+            LinkedItemList::<DeleteMetaEntry>::open(index_oid, DELETE_METAS_START);
+        delete_metas
             .garbage_collect()
             .expect("garbage collection should succeed");
 

@@ -18,8 +18,8 @@
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{create_new_index, WriterResources};
 use crate::postgres::storage::block::{
-    DirectoryEntry, MergeLockData, SegmentMetaEntry, DIRECTORY_START, MERGE_LOCK, SCHEMA_START,
-    SEGMENT_METAS_START, SETTINGS_START,
+    DirectoryEntry, MergeLockData, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
+    MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -120,7 +120,7 @@ fn do_heap_scan<'a>(
 
         state
             .writer
-            .commit()
+            .commit_inserts()
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
         state.count
@@ -194,22 +194,10 @@ fn is_bm25_index(indexrel: &PgRelation) -> bool {
 }
 
 unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
-    let schema = LinkedBytesList::create(relation_oid);
-    let settings = LinkedBytesList::create(relation_oid);
-    let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid);
-    let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
-
+    // Init merge lock buffer
     let cache = BM25BufferCache::open(relation_oid);
     let state = cache.start_xlog();
     let merge_lock = cache.new_buffer();
-
-    assert_eq!(pg_sys::BufferGetBlockNumber(merge_lock), MERGE_LOCK);
-    assert_eq!(schema.header_blockno, SCHEMA_START);
-    assert_eq!(settings.header_blockno, SETTINGS_START);
-    assert_eq!(directory.header_blockno, DIRECTORY_START);
-    assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
-
-    // Init merge lock buffer
     let page = pg_sys::GenericXLogRegisterBuffer(
         state,
         merge_lock,
@@ -221,6 +209,20 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
     let page_header = page as *mut pg_sys::PageHeaderData;
     (*page_header).pd_lower = (metadata.add(1) as usize - page as usize) as u16;
 
+    assert_eq!(pg_sys::BufferGetBlockNumber(merge_lock), MERGE_LOCK);
+
     pg_sys::GenericXLogFinish(state);
     pg_sys::UnlockReleaseBuffer(merge_lock);
+
+    let schema = LinkedBytesList::create(relation_oid);
+    let settings = LinkedBytesList::create(relation_oid);
+    let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+    let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+    let delete_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+
+    assert_eq!(schema.header_blockno, SCHEMA_START);
+    assert_eq!(settings.header_blockno, SETTINGS_START);
+    assert_eq!(directory.header_blockno, DIRECTORY_START);
+    assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
+    assert_eq!(delete_metas.header_blockno, DELETE_METAS_START);
 }

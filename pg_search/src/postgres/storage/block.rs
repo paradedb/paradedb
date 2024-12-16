@@ -23,13 +23,14 @@ use std::fmt::{Debug, Formatter};
 use std::mem::{offset_of, size_of};
 use std::path::PathBuf;
 use std::slice::from_raw_parts;
-use tantivy::index::InnerSegmentMeta;
+use tantivy::index::SegmentId;
 
-pub const SCHEMA_START: pg_sys::BlockNumber = 0;
-pub const SETTINGS_START: pg_sys::BlockNumber = 2;
-pub const DIRECTORY_START: pg_sys::BlockNumber = 4;
-pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
-pub const MERGE_LOCK: pg_sys::BlockNumber = 8;
+pub const MERGE_LOCK: pg_sys::BlockNumber = 0;
+pub const SCHEMA_START: pg_sys::BlockNumber = 1;
+pub const SETTINGS_START: pg_sys::BlockNumber = 3;
+pub const DIRECTORY_START: pg_sys::BlockNumber = 5;
+pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 7;
+pub const DELETE_METAS_START: pg_sys::BlockNumber = 9;
 
 // ---------------------------------------------------------
 // BM25 page special data
@@ -144,20 +145,26 @@ pub struct DirectoryEntry {
     pub path: PathBuf,
     pub start: pg_sys::BlockNumber,
     pub total_bytes: usize,
-    // This is the transaction ID that created this entry
     pub xmin: pg_sys::TransactionId,
-    // The transaction ID that marks this entry as deleted
     pub xmax: pg_sys::TransactionId,
 }
 
 /// Metadata for tracking alive segments
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SegmentMetaEntry {
-    pub meta: InnerSegmentMeta,
+    pub segment_id: SegmentId,
+    pub max_doc: u32,
     pub opstamp: tantivy::Opstamp,
-    // The transaction ID that created this entry
     pub xmin: pg_sys::TransactionId,
-    // The transaction ID that marks this entry as deleted
+    pub xmax: pg_sys::TransactionId,
+}
+
+/// Metadata for tracking segment deletes
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeleteMetaEntry {
+    pub segment_id: SegmentId,
+    pub num_deleted_docs: u32,
+    pub opstamp: tantivy::Opstamp,
     pub xmax: pg_sys::TransactionId,
 }
 
@@ -192,6 +199,18 @@ impl From<SegmentMetaEntry> for PgItem {
     }
 }
 
+impl From<DeleteMetaEntry> for PgItem {
+    fn from(val: DeleteMetaEntry) -> Self {
+        let bytes: Vec<u8> =
+            bincode::serialize(&val).expect("expected to serialize valid DeleteMetaEntry");
+        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
+        }
+        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
+    }
+}
+
 impl From<PgItem> for DirectoryEntry {
     fn from(pg_item: PgItem) -> Self {
         let PgItem(item, size) = pg_item;
@@ -214,6 +233,17 @@ impl From<PgItem> for SegmentMetaEntry {
     }
 }
 
+impl From<PgItem> for DeleteMetaEntry {
+    fn from(pg_item: PgItem) -> Self {
+        let PgItem(item, size) = pg_item;
+        let decoded: DeleteMetaEntry = unsafe {
+            bincode::deserialize(from_raw_parts(item as *const u8, size))
+                .expect("expected to deserialize valid DeleteMetaEntry")
+        };
+        decoded
+    }
+}
+
 // ---------------------------------------------------------
 // Linked list entry MVCC methods
 // ---------------------------------------------------------
@@ -224,7 +254,7 @@ pub trait MVCCEntry {
     fn get_xmax(&self) -> pg_sys::TransactionId;
 
     // Provided methods
-    unsafe fn is_visible(&self, snapshot: pg_sys::Snapshot) -> bool {
+    unsafe fn visible(&self, snapshot: pg_sys::Snapshot) -> bool {
         let xmin = self.get_xmin();
         let xmax = self.get_xmax();
         let xmin_visible = pg_sys::TransactionIdIsCurrentTransactionId(xmin)
@@ -235,8 +265,25 @@ pub trait MVCCEntry {
         xmin_visible && !deleted
     }
 
-    fn is_deleted(&self) -> bool {
+    fn deleted(&self) -> bool {
         self.get_xmax() != pg_sys::InvalidTransactionId
+    }
+
+    unsafe fn recyclable(
+        &self,
+        snapshot: pg_sys::Snapshot,
+        heap_relation: pg_sys::Relation,
+    ) -> bool {
+        let xmax = self.get_xmax();
+        if xmax == pg_sys::InvalidTransactionId {
+            return false;
+        }
+
+        if pg_sys::XidInMVCCSnapshot(xmax, snapshot) {
+            return false;
+        }
+
+        pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
     }
 }
 
@@ -255,6 +302,20 @@ impl MVCCEntry for SegmentMetaEntry {
     }
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
+    }
+}
+
+impl MVCCEntry for DeleteMetaEntry {
+    fn get_xmax(&self) -> pg_sys::TransactionId {
+        self.xmax
+    }
+    // We want DeleteMetaEntry to be visible to all transactions immediately
+    // when it's written because ambulkdelete is atomic
+    fn get_xmin(&self) -> pg_sys::TransactionId {
+        pg_sys::FrozenTransactionId
+    }
+    unsafe fn visible(&self, _snapshot: pg_sys::Snapshot) -> bool {
+        true
     }
 }
 
@@ -277,7 +338,7 @@ mod tests {
         let segment = DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 0,
-            total_bytes: 100 as usize,
+            total_bytes: 100_usize,
             xmin: pg_sys::GetCurrentTransactionId(),
             xmax: pg_sys::InvalidTransactionId,
         };
@@ -291,14 +352,14 @@ mod tests {
         let segment1 = DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 0,
-            total_bytes: 100 as usize,
+            total_bytes: 100_usize,
             xmin: pg_sys::GetCurrentTransactionId(),
             xmax: pg_sys::InvalidTransactionId,
         };
         let segment2 = DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 1000,
-            total_bytes: 100 as usize,
+            total_bytes: 100_usize,
             xmin: pg_sys::GetCurrentTransactionId(),
             xmax: pg_sys::GetCurrentTransactionId(),
         };

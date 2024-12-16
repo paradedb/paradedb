@@ -152,10 +152,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     pg_sys::PageGetItem(page, item_id),
                     (*item_id).lp_len() as pg_sys::Size,
                 ));
-                let definitely_deleted = entry.is_deleted()
-                    && !pg_sys::XidInMVCCSnapshot(entry.get_xmax(), snapshot)
-                    && pg_sys::GlobalVisCheckRemovableXid(heap_relation, entry.get_xmax());
-                if definitely_deleted {
+                if entry.recyclable(snapshot, heap_relation) {
                     delete_offsets.push(offsetno);
                 }
                 offsetno += 1;
@@ -340,7 +337,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             pg_sys::UnlockReleaseBuffer(buffer);
         }
 
-        bail!("failed to find {:?}", target);
+        bail!(
+            "transaction {} failed to find {:?}",
+            pg_sys::GetCurrentTransactionId(),
+            target
+        );
     }
 }
 
@@ -371,14 +372,14 @@ mod tests {
             DirectoryEntry {
                 path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
                 start: 10,
-                total_bytes: 100 as usize,
+                total_bytes: 100_usize,
                 xmin: delete_xid,
                 xmax: delete_xid,
             },
             DirectoryEntry {
                 path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
                 start: 12,
-                total_bytes: 200 as usize,
+                total_bytes: 200_usize,
                 xmin: delete_xid,
                 xmax: delete_xid,
             },
@@ -386,7 +387,7 @@ mod tests {
         let entries_to_keep = vec![DirectoryEntry {
             path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
             start: 10,
-            total_bytes: 100 as usize,
+            total_bytes: 100_usize,
             xmin: (*snapshot).xmin - 1,
             xmax: pg_sys::InvalidTransactionId,
         }];
@@ -427,7 +428,7 @@ mod tests {
                 .map(|i| DirectoryEntry {
                     path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
                     start: i,
-                    total_bytes: 100 as usize,
+                    total_bytes: 100_usize,
                     xmin,
                     xmax: if i % 10 == 0 {
                         deleted_xid
@@ -456,7 +457,7 @@ mod tests {
                 .map(|i| DirectoryEntry {
                     path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
                     start: i,
-                    total_bytes: 100 as usize,
+                    total_bytes: 100_usize,
                     xmin,
                     xmax: not_deleted_xid,
                 })
@@ -467,7 +468,7 @@ mod tests {
                 .map(|i| DirectoryEntry {
                     path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
                     start: i,
-                    total_bytes: 100 as usize,
+                    total_bytes: 100_usize,
                     xmin,
                     xmax: if i % 10 == 0 {
                         not_deleted_xid
@@ -482,7 +483,7 @@ mod tests {
                 .map(|i| DirectoryEntry {
                     path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
                     start: i,
-                    total_bytes: 100 as usize,
+                    total_bytes: 100_usize,
                     xmin,
                     xmax: not_deleted_xid,
                 })
@@ -491,7 +492,7 @@ mod tests {
 
             list.garbage_collect().unwrap();
 
-            for entries in vec![entries_1, entries_2, entries_3] {
+            for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {
                     if entry.xmax == not_deleted_xid {
                         assert!(list.lookup(entry.clone(), |a, b| a.path == b.path).is_ok());

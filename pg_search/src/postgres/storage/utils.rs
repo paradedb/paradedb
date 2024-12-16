@@ -52,6 +52,11 @@ impl BM25Page for pg_sys::Page {
             return false;
         }
 
+        let snapshot = pg_sys::GetActiveSnapshot();
+        if pg_sys::XidInMVCCSnapshot((*special).xmax, snapshot) {
+            return false;
+        }
+
         pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
     }
 }

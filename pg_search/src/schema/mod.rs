@@ -621,6 +621,8 @@ impl SearchIndexSchema {
         let mut builder = Schema::builder();
         let mut search_fields = vec![];
 
+        let key_field_name = fields[key_index].0 .0.clone();
+
         for (name, config, field_type) in fields {
             let id: SearchFieldId = match field_type {
                 SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
@@ -642,7 +644,7 @@ impl SearchIndexSchema {
             });
         }
 
-        let schema = builder.build();
+        let schema = builder.build_with_key_field(&key_field_name);
 
         Ok(Self {
             key: key_index,

@@ -410,15 +410,12 @@ impl SearchIndexReader {
         let top_docs = self.collect(query, collector, true);
         let top_docs = top_docs
             .into_iter()
-            .map(|(_, doc_address, _ctid)| {
-                let ctid = self
-                    .searcher
-                    .segment_reader(doc_address.segment_ord)
-                    .fast_fields()
-                    .u64("ctid")
-                    .expect("ctid should be a fast field");
+            .map(|(_, doc_address, ctid)| {
                 (
-                    SearchIndexScore::new(&ctid, doc_address.doc_id, 1.0),
+                    SearchIndexScore {
+                        ctid: ((ctid.0 as u64) << 16) | (ctid.1 as u64),
+                        bm25: 1.0,
+                    },
                     doc_address,
                 )
             })
@@ -434,15 +431,13 @@ impl SearchIndexReader {
         n: usize,
     ) -> SearchResults {
         let collector =
-            TopDocs::with_limit(n).tweak_score(move |segment_reader: &tantivy::SegmentReader| {
-                let ctid_ff = segment_reader
-                    .fast_fields()
-                    .u64("ctid")
-                    .expect("ctid should be a fast field");
-
-                move |doc: DocId, original_score: Score| OrderedScore {
+            TopDocs::with_limit(n).tweak_score(move |_segment_reader: &tantivy::SegmentReader| {
+                move |_doc: DocId, original_score: Score, ctid: Ctid| OrderedScore {
                     dir: sortdir,
-                    score: SearchIndexScore::new(&ctid_ff, doc, original_score),
+                    score: SearchIndexScore {
+                        ctid: ((ctid.0 as u64) << 16) | (ctid.1 as u64),
+                        bm25: original_score,
+                    },
                 }
             });
 

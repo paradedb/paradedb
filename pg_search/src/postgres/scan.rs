@@ -352,6 +352,8 @@ pub extern "C" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
             pg_sys::FLOAT4OID,
             pg_sys::FLOAT8OID,
             pg_sys::BOOLOID,
+            // we index UUID as strings, but it's beneficial to support returning due to Parallel Index Only Scans
+            pg_sys::UUIDOID,
         ]
         .contains(&att.atttypid)
     }

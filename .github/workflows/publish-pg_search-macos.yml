@@ -158,17 +158,36 @@ jobs:
           cp archive/*.control ${package_dir}/${share_path}
           cp archive/*.sql ${package_dir}/${share_path}
 
+          # Create postinstall script
+          mkdir -p ~/tmp/pg_search_postinstall_script/
+          postinstall_file=~/tmp/pg_search_postinstall_script/postinstall
+          cat <<EOF > $postinstall_file
+          #!/bin/bash
+          # Top-level Homebrew, used by the default Homebrew PostgreSQL formula
+          mkdir -p /opt/homebrew/lib/postgresql@${{ matrix.pg_version }}/
+          mkdir -p /opt/homebrew/share/postgresql@${{ matrix.pg_version }}/extension/
+          ln -sf /opt/homebrew/opt/paradedb/lib/postgresql/* /opt/homebrew/lib/postgresql@${{ matrix.pg_version }}/
+          ln -sf /opt/homebrew/opt/paradedb/share/postgresql@${{ matrix.pg_version }}/extension/* /opt/homebrew/share/postgresql@${{ matrix.pg_version }}/extension/
+          # Opt-level Homebrew, used by the other Homebrew PostgreSQL formulas
+          mkdir -p /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/lib/postgresql/
+          mkdir -p /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/share/postgresql@${{ matrix.pg_version }}/extension/
+          ln -sf /opt/homebrew/opt/paradedb/lib/postgresql/* /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/lib/postgresql/
+          ln -sf /opt/homebrew/opt/paradedb/share/postgresql@${{ matrix.pg_version }}/extension/* /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/share/postgresql@${{ matrix.pg_version }}/extension/
+          EOF
+          chmod +x ~/tmp/pg_search_postinstall_script/postinstall
+
           # Create the .pkg installer
           pkgbuild --root ${package_dir} \
                   --identifier com.paradedb.pg_search \
                   --version ${tag_version} \
-                  --install-location /opt/homebrew/opt/postgresql@${pg_version} \
-                  pg_search-pg${{ matrix.pg_version }}--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
+                  --install-location /opt/homebrew/opt/paradedb \
+                  --scripts ~/tmp/pg_search_postinstall_script/ \
+                  pg_search@${{ matrix.pg_version }}--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: ./pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          subject-path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -189,6 +208,6 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
-          asset_name: pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          asset_path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          asset_name: pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
           overwrite: true

@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::merge_policy::MergeLock;
-use crate::index::{open_bulk_delete_reader, open_bulk_delete_writer, WriterResources};
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::writer::index::SearchIndexWriter;
+use crate::index::{BlockDirectoryType, WriterResources};
 use pgrx::{pg_sys::ItemPointerData, *};
 use tantivy::postings::Postings;
 use tantivy::schema::IndexRecordOption;
@@ -41,10 +43,14 @@ pub extern "C" fn ambulkdelete(
     };
 
     let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
-    let mut writer = open_bulk_delete_writer(&index_relation, WriterResources::Vacuum)
-        .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader = open_bulk_delete_reader(&index_relation)
-        .expect("ambulkdelete: should be able to obtain a SearchIndexReader");
+    let mut writer = SearchIndexWriter::new(
+        index_relation.oid(),
+        BlockDirectoryType::BulkDelete,
+        WriterResources::Vacuum,
+    )
+    .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    let reader = SearchIndexReader::new(index_relation.oid(), BlockDirectoryType::BulkDelete)
+        .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
     let ctid_field = writer.get_ctid_field();
     for segment_reader in reader.searcher().segment_readers() {

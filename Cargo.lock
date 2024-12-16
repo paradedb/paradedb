@@ -2995,14 +2995,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ownedbytes"
-version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3c15bed8#c3c15bed85b43ecce505c075f766ecad52817173"
-dependencies = [
- "stable_deref_trait",
-]
-
-[[package]]
 name = "owo-colors"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3191,7 +3183,7 @@ dependencies = [
  "serde_path_to_error",
  "strum",
  "tantivy",
- "tantivy-common 0.7.0 (git+https://github.com/paradedb/tantivy.git?rev=0239f19)",
+ "tantivy-common",
  "tempfile",
  "thiserror",
  "tokenizers",
@@ -4873,7 +4865,7 @@ dependencies = [
  "smallvec",
  "tantivy-bitpacker",
  "tantivy-columnar",
- "tantivy-common 0.7.0 (git+https://github.com/paradedb/tantivy.git?rev=c3c15bed8)",
+ "tantivy-common",
  "tantivy-fst",
  "tantivy-query-grammar",
  "tantivy-sstable",
@@ -4903,7 +4895,7 @@ dependencies = [
  "itertools 0.13.0",
  "serde",
  "tantivy-bitpacker",
- "tantivy-common 0.7.0 (git+https://github.com/paradedb/tantivy.git?rev=c3c15bed8)",
+ "tantivy-common",
  "tantivy-sstable",
  "tantivy-stacker",
 ]
@@ -4915,19 +4907,7 @@ source = "git+https://github.com/paradedb/tantivy.git?rev=48cf465#48cf465db3ef98
 dependencies = [
  "async-trait",
  "byteorder",
- "ownedbytes 0.7.0 (git+https://github.com/paradedb/tantivy.git?rev=0239f19)",
- "serde",
- "time",
-]
-
-[[package]]
-name = "tantivy-common"
-version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=c3c15bed8#c3c15bed85b43ecce505c075f766ecad52817173"
-dependencies = [
- "async-trait",
- "byteorder",
- "ownedbytes 0.7.0 (git+https://github.com/paradedb/tantivy.git?rev=c3c15bed8)",
+ "ownedbytes",
  "serde",
  "time",
 ]
@@ -4957,7 +4937,7 @@ version = "0.3.0"
 source = "git+https://github.com/paradedb/tantivy.git?rev=48cf465#48cf465db3ef98335186d1dd5969d73e41ab89c7"
 dependencies = [
  "tantivy-bitpacker",
- "tantivy-common 0.7.0 (git+https://github.com/paradedb/tantivy.git?rev=c3c15bed8)",
+ "tantivy-common",
  "tantivy-fst",
  "zstd 0.13.2",
 ]
@@ -4969,7 +4949,7 @@ source = "git+https://github.com/paradedb/tantivy.git?rev=48cf465#48cf465db3ef98
 dependencies = [
  "murmurhash32",
  "rand_distr",
- "tantivy-common 0.7.0 (git+https://github.com/paradedb/tantivy.git?rev=c3c15bed8)",
+ "tantivy-common",
 ]
 
 [[package]]

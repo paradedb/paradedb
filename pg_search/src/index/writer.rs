@@ -143,6 +143,7 @@ impl Drop for SearchIndexWriter {
     }
 }
 
+#[allow(static_mut_refs)]
 impl SearchIndexWriter {
     pub fn insert(&self, document: SearchDocument) -> Result<(), IndexError> {
         // Add the Tantivy document to the index.

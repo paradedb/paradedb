@@ -108,6 +108,7 @@ jobs:
         run: |
           (pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql) || true
           (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
+          cat ~/diff.sql
 
       - name: Generate Commit Message
         id: generate_commit_message

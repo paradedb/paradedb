@@ -164,6 +164,13 @@ jobs:
           # configure the build environment for creating the RPM package via rpmbuild
           sudo dnf install -y rpmdevtools
 
+      # Used to upload the release to GitHub Releases
+      - name: Install GitHub CLI
+        run: |
+          sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+          sudo dnf install -y gh
+          gh --version
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -283,8 +290,15 @@ jobs:
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          UPLOAD_URL=$(curl --silent -H Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }} https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output)
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+          echo "REST API Response: $RESPONSE"
+
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
           echo "GitHub Release Upload URL is: $UPLOAD_URL"
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 

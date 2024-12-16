@@ -65,8 +65,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # We force reinstall icu4c to make sure it is in PATH
       - name: Install Dependencies
-        run: brew install icu4c
+        run: brew reinstall icu4c
+
+      # Used to upload the release to GitHub Releases. We force install gh to make sure it is in PATH.
+      - name: Install GitHub CLI
+        run: |
+          brew reinstall gh
+          gh --version
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version
@@ -135,39 +142,45 @@ jobs:
           package_dir="pg_search-${tag_version}-arm64-pg${pg_version}"
 
           # Define Homebrew PostgreSQL paths
-          brew_pg_path="/opt/homebrew/opt/postgresql@${pg_version}"
-          lib_path="${brew_pg_path}/lib/postgresql"
-          share_path="${brew_pg_path}/share/postgresql@${pg_version}/extension"
+          lib_path="lib/postgresql"
+          share_path="share/postgresql@${pg_version}/extension"
 
           # Create directory structure for Homebrew
-          mkdir -p ${package_dir}${lib_path}
-          mkdir -p ${package_dir}${share_path}
+          mkdir -p ${package_dir}/${lib_path}
+          mkdir -p ${package_dir}/${share_path}
 
           # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
           if [[ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]]; then
-            cp archive/*.dylib ${package_dir}${lib_path}
+            cp archive/*.dylib ${package_dir}/${lib_path}
           else
-            cp archive/*.so ${package_dir}${lib_path}
+            cp archive/*.so ${package_dir}/${lib_path}
           fi
-          cp archive/*.control ${package_dir}${share_path}
-          cp archive/*.sql ${package_dir}${share_path}
+          cp archive/*.control ${package_dir}/${share_path}
+          cp archive/*.sql ${package_dir}/${share_path}
 
           # Create the .pkg installer
           pkgbuild --root ${package_dir} \
                   --identifier com.paradedb.pg_search \
                   --version ${tag_version} \
-                  --install-location /opt/homebrew/opt/postgresql${pg_version} \
-                  postgresql-${{ matrix.pg_version }}-pg_search--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
+                  --install-location /opt/homebrew/opt/postgresql@${pg_version} \
+                  pg_search-pg${{ matrix.pg_version }}--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          subject-path: ./pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          UPLOAD_URL=$(curl --silent -H Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }} https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.tag_version }} | jq .upload_url --raw-output)
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+          echo "REST API Response: $RESPONSE"
+
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
           echo "GitHub Release Upload URL is: $UPLOAD_URL"
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
@@ -176,6 +189,6 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
-          asset_name: postgresql-${{ matrix.pg_version }}-pg_search--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          asset_path: ./pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
+          asset_name: pg_search-pg${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
           overwrite: true

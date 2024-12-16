@@ -442,6 +442,7 @@ impl SearchIndexReader {
         }
     }
 
+    #[allow(non_local_definitions)]
     fn top_by_field(
         &self,
         executor: &Executor,

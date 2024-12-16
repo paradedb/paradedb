@@ -165,14 +165,16 @@ jobs:
           postinstall_file=~/tmp/pg_search_postinstall_script/postinstall
           cat <<EOF > $postinstall_file
           #!/bin/bash
-          # Define paths
-          lib_path="/opt/homebrew/opt/paradedb/lib/postgresql"
-          share_path="/opt/homebrew/opt/paradedb/share/postgresql@${{ matrix.pg_version }}/extension"
-          # Create symlinks in other folders
-          ln -s ${lib_path}/* /opt/homebrew/lib/
-          ln -s ${lib_path}/* /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/lib/
-          ln -s ${share_path}/* /opt/homebrew/share/
-          ln -s ${share_path}/* /opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/share/
+          # Top-level Homebrew, used by the default Homebrew PostgreSQL formula
+          mkdir -p /opt/homebrew/lib/postgresql@15/
+          mkdir -p /opt/homebrew/share/postgresql@15/extension/
+          ln -sf /opt/homebrew/opt/paradedb/lib/postgresql/* /opt/homebrew/lib/postgresql@15/
+          ln -sf /opt/homebrew/opt/paradedb/share/postgresql@15/extension/* /opt/homebrew/share/postgresql@15/extension/
+          # Opt-level Homebrew, used by the other Homebrew PostgreSQL formulas
+          mkdir -p /opt/homebrew/opt/postgresql@15/lib/postgresql/
+          mkdir -p /opt/homebrew/opt/postgresql@15/share/postgresql@15/extension/
+          ln -sf /opt/homebrew/opt/paradedb/lib/postgresql/* /opt/homebrew/opt/postgresql@15/lib/postgresql/
+          ln -sf /opt/homebrew/opt/paradedb/share/postgresql@15/extension/* /opt/homebrew/opt/postgresql@15/share/postgresql@15/extension/
           EOF
           chmod +x ~/tmp/pg_search_postinstall_script/postinstall
 

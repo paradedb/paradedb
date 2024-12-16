@@ -109,9 +109,8 @@ async fn drop_column(mut conn: PgConnection) {
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('test_index')".fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("fulltext".into(), "Str".into()));
-    assert_eq!(rows[2], ("id".into(), "I64".into()));
+    assert_eq!(rows[0], ("fulltext".into(), "Str".into()));
+    assert_eq!(rows[1], ("id".into(), "I64".into()));
 }
 
 #[rstest]
@@ -127,9 +126,8 @@ fn default_text_field(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("description".into(), "Str".into()));
-    assert_eq!(rows[2], ("id".into(), "I64".into()));
+    assert_eq!(rows[0], ("description".into(), "Str".into()));
+    assert_eq!(rows[1], ("id".into(), "I64".into()));
 }
 
 #[rstest]
@@ -147,9 +145,8 @@ fn text_field_with_options(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("description".into(), "Str".into()));
-    assert_eq!(rows[2], ("id".into(), "I64".into()));
+    assert_eq!(rows[0], ("description".into(), "Str".into()));
+    assert_eq!(rows[1], ("id".into(), "I64".into()));
 }
 
 #[rstest]
@@ -172,9 +169,8 @@ fn multiple_text_fields(mut conn: PgConnection) {
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("category".into(), "Str".into()));
-    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[2], ("description".into(), "Str".into()));
-    assert_eq!(rows[3], ("id".into(), "I64".into()));
+    assert_eq!(rows[1], ("description".into(), "Str".into()));
+    assert_eq!(rows[2], ("id".into(), "I64".into()));
 }
 
 #[rstest]
@@ -190,9 +186,8 @@ fn default_numeric_field(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("id".into(), "I64".into()));
-    assert_eq!(rows[2], ("rating".into(), "I64".into()));
+    assert_eq!(rows[0], ("id".into(), "I64".into()));
+    assert_eq!(rows[1], ("rating".into(), "I64".into()));
 }
 
 #[rstest]
@@ -208,9 +203,8 @@ fn numeric_field_with_options(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("id".into(), "I64".into()));
-    assert_eq!(rows[2], ("rating".into(), "I64".into()));
+    assert_eq!(rows[0], ("id".into(), "I64".into()));
+    assert_eq!(rows[1], ("rating".into(), "I64".into()));
 }
 
 #[rstest]
@@ -226,9 +220,8 @@ fn default_boolean_field(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("id".into(), "I64".into()));
-    assert_eq!(rows[2], ("in_stock".into(), "Bool".into()));
+    assert_eq!(rows[0], ("id".into(), "I64".into()));
+    assert_eq!(rows[1], ("in_stock".into(), "Bool".into()));
 }
 
 #[rstest]
@@ -244,9 +237,8 @@ fn boolean_field_with_options(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("id".into(), "I64".into()));
-    assert_eq!(rows[2], ("in_stock".into(), "Bool".into()));
+    assert_eq!(rows[0], ("id".into(), "I64".into()));
+    assert_eq!(rows[1], ("in_stock".into(), "Bool".into()));
 }
 
 #[rstest]
@@ -262,9 +254,8 @@ fn default_json_field(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("id".into(), "I64".into()));
-    assert_eq!(rows[2], ("metadata".into(), "JsonObject".into()));
+    assert_eq!(rows[0], ("id".into(), "I64".into()));
+    assert_eq!(rows[1], ("metadata".into(), "JsonObject".into()));
 }
 
 #[rstest]
@@ -284,9 +275,8 @@ fn json_field_with_options(mut conn: PgConnection) {
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
             .fetch(&mut conn);
 
-    assert_eq!(rows[0], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[1], ("id".into(), "I64".into()));
-    assert_eq!(rows[2], ("metadata".into(), "JsonObject".into()));
+    assert_eq!(rows[0], ("id".into(), "I64".into()));
+    assert_eq!(rows[1], ("metadata".into(), "JsonObject".into()));
 }
 
 #[rstest]
@@ -303,9 +293,8 @@ fn default_datetime_field(mut conn: PgConnection) {
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("created_at".into(), "Date".into()));
-    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[2], ("id".into(), "I64".into()));
-    assert_eq!(rows[3], ("last_updated_date".into(), "Date".into()));
+    assert_eq!(rows[1], ("id".into(), "I64".into()));
+    assert_eq!(rows[2], ("last_updated_date".into(), "Date".into()));
 }
 
 #[rstest]
@@ -323,9 +312,8 @@ fn datetime_field_with_options(mut conn: PgConnection) {
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("created_at".into(), "Date".into()));
-    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[2], ("id".into(), "I64".into()));
-    assert_eq!(rows[3], ("last_updated_date".into(), "Date".into()));
+    assert_eq!(rows[1], ("id".into(), "I64".into()));
+    assert_eq!(rows[2], ("last_updated_date".into(), "Date".into()));
 }
 
 #[rstest]
@@ -342,12 +330,11 @@ fn multiple_fields(mut conn: PgConnection) {
             .fetch(&mut conn);
 
     assert_eq!(rows[0], ("category".into(), "Str".into()));
-    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
-    assert_eq!(rows[2], ("description".into(), "Str".into()));
-    assert_eq!(rows[3], ("id".into(), "I64".into()));
-    assert_eq!(rows[4], ("in_stock".into(), "Bool".into()));
-    assert_eq!(rows[5], ("metadata".into(), "JsonObject".into()));
-    assert_eq!(rows[6], ("rating".into(), "I64".into()));
+    assert_eq!(rows[1], ("description".into(), "Str".into()));
+    assert_eq!(rows[2], ("id".into(), "I64".into()));
+    assert_eq!(rows[3], ("in_stock".into(), "Bool".into()));
+    assert_eq!(rows[4], ("metadata".into(), "JsonObject".into()));
+    assert_eq!(rows[5], ("rating".into(), "I64".into()));
 }
 
 #[rstest]

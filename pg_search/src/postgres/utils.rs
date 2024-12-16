@@ -47,6 +47,7 @@ pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgRelation> {
 /// empty bytes in the middle of the 64bit representation.  A ctid being only 48bits means
 /// if we leave the upper 16 bits (2 bytes) empty, tantivy will have a better chance of
 /// bitpacking or compressing these values.
+#[allow(dead_code)]
 #[inline(always)]
 pub fn item_pointer_to_u64(ctid: pg_sys::ItemPointerData) -> u64 {
     let (blockno, offno) = item_pointer_get_both(ctid);
@@ -72,7 +73,6 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
 }
 
 pub unsafe fn row_to_search_document(
-    ctid: pg_sys::ItemPointerData,
     tupdesc: &PgTupleDesc,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
@@ -133,10 +133,6 @@ pub unsafe fn row_to_search_document(
             );
         }
     }
-
-    // Insert the ctid value into the entries.
-    let ctid_index_value = item_pointer_to_u64(ctid);
-    document.insert(schema.ctid_field().id, ctid_index_value.into());
 
     Ok(document)
 }

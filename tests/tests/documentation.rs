@@ -1892,7 +1892,6 @@ fn schema(mut conn: PgConnection) {
     let expected = vec![
         ("category".to_string(), "Str".to_string()),
         ("created_at".to_string(), "Date".to_string()),
-        ("ctid".to_string(), "U64".to_string()),
         ("description".to_string(), "Str".to_string()),
         ("id".to_string(), "I64".to_string()),
         ("in_stock".to_string(), "Bool".to_string()),

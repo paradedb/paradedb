@@ -21,14 +21,15 @@ use super::{
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::open_mvcc_reader;
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::BlockDirectoryType;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
-    PgList, PgOid, PgRelation,
+    PgList, PgOid,
 };
 use rustc_hash::FxHashSet;
 use std::ptr::NonNull;
@@ -49,11 +50,8 @@ pub fn search_with_query_input(
                 _ => panic!("the SearchQueryInput must be wrapped in a WithIndex variant"),
             }
         };
-        let indexrel = unsafe {
-            &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
-        };
-        let search_reader =
-            open_mvcc_reader(indexrel).expect("should be able to open a SearchIndexReader");
+        let search_reader = SearchIndexReader::new(index_oid, BlockDirectoryType::Mvcc)
+            .expect("search_with_query_input: should be able to open a SearchIndexReader");
 
         let key_field = search_reader.key_field();
         let key_field_name = key_field.name.0;

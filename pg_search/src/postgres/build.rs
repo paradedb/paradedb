@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{create_new_index, WriterResources};
 use crate::postgres::storage::block::{
     DirectoryEntry, MergeLockData, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
     MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -105,9 +104,8 @@ fn do_heap_scan<'a>(
     index_relation: &'a PgRelation,
 ) -> usize {
     unsafe {
-        let writer = create_new_index(index_relation, WriterResources::CreateIndex)
-            .expect("should be able to open a SearchIndexWriter");
-
+        let writer = SearchIndexWriter::create_index(index_relation.oid())
+            .expect("do_heap_scan: should be able to open a SearchIndexWriter");
         let mut state = BuildState::new(index_relation, writer);
 
         pg_sys::IndexBuildHeapScan(

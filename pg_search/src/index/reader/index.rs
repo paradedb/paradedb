@@ -29,11 +29,14 @@ use tantivy::index::Index;
 use tantivy::query::QueryParser;
 use tantivy::schema::FieldType;
 use tantivy::{
-    query::Query, Ctid, DocAddress, DocId, IndexReader, Order, Score, Searcher, SegmentOrdinal,
-    SegmentReader, TantivyDocument, TantivyError,
+    query::Query, Ctid, DocAddress, DocId, IndexReader, Order, ReloadPolicy, Score, Searcher,
+    SegmentOrdinal, SegmentReader, TantivyDocument, TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
+use crate::index::bulk_delete::BulkDeleteDirectory;
+use crate::index::mvcc::MVCCDirectory;
+use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType};
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 
@@ -216,21 +219,27 @@ pub struct SearchIndexReader {
 }
 
 impl SearchIndexReader {
-    pub fn new(
-        index_relation: &PgRelation,
-        index: Index,
-        searcher: Searcher,
-        reader: IndexReader,
-        schema: SearchIndexSchema,
-    ) -> Self {
-        Self {
-            // NB:  holds the relation open with an AccessShareLock, which seems appropriate
-            index_oid: index_relation.oid(),
+    pub fn new(index_oid: pg_sys::Oid, directory_type: BlockDirectoryType) -> Result<Self> {
+        let mut index = match directory_type {
+            BlockDirectoryType::Mvcc => Index::open(MVCCDirectory::new(index_oid))?,
+            BlockDirectoryType::BulkDelete => Index::open(BulkDeleteDirectory::new(index_oid))?,
+        };
+        let index_relation = unsafe { PgRelation::open(index_oid) };
+        let schema = get_index_schema(&index_relation)?;
+        setup_tokenizers(&mut index, &schema);
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        let searcher = reader.searcher();
+
+        Ok(Self {
+            index_oid,
             searcher,
             schema,
             underlying_reader: reader,
             underlying_index: index,
-        }
+        })
     }
 
     pub fn key_field(&self) -> SearchField {

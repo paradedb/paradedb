@@ -399,7 +399,6 @@ pub unsafe fn load_metas(
     }
 
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
-
     let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
     let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
     let mut alive_segments = vec![];

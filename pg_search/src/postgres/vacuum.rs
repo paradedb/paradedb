@@ -15,7 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::{open_mvcc_writer, WriterResources};
+use crate::index::writer::index::SearchIndexWriter;
+use crate::index::{BlockDirectoryType, WriterResources};
 use crate::postgres::storage::block::{
     DeleteMetaEntry, DirectoryEntry, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
     SEGMENT_METAS_START,
@@ -37,10 +38,14 @@ pub extern "C" fn amvacuumcleanup(
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
 
     // vacuum the index, which is effectively just a forced commit() plus a wait_merging_threads()
-    open_mvcc_writer(&index_relation, WriterResources::Vacuum)
-        .expect("amvacuumcleanup: should be able to open a SearchIndexWriter")
-        .vacuum()
-        .expect("amvacuumcleanup: SearchIndexWriter.vacuum() should succeed");
+    SearchIndexWriter::new(
+        index_relation.oid(),
+        BlockDirectoryType::Mvcc,
+        WriterResources::Vacuum,
+    )
+    .expect("amvacuumcleanup: should be able to open a SearchIndexWriter")
+    .vacuum()
+    .expect("amvacuumcleanup: SearchIndexWriter.vacuum() should succeed");
 
     unsafe {
         // Garbage collect linked lists

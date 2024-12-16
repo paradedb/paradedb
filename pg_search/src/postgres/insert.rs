@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{open_mvcc_writer, WriterResources};
+use crate::index::{BlockDirectoryType, WriterResources};
 use crate::postgres::utils::row_to_search_document;
 use pgrx::itemptr::item_pointer_get_both;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
@@ -55,7 +55,8 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        let writer = open_mvcc_writer(indexrel, writer_resources)?;
+        let writer =
+            SearchIndexWriter::new(indexrel.oid(), BlockDirectoryType::Mvcc, writer_resources)?;
         Ok(Self {
             writer: Some(writer),
             abort_on_drop: false,

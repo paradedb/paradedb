@@ -15,10 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::fast_fields_helper::FFType;
 use crate::index::merge_policy::MergeLock;
 use crate::index::{open_bulk_delete_reader, open_bulk_delete_writer, WriterResources};
 use pgrx::{pg_sys::ItemPointerData, *};
+use tantivy::postings::Postings;
+use tantivy::schema::IndexRecordOption;
+use tantivy::{DocSet, Term};
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -44,15 +46,30 @@ pub extern "C" fn ambulkdelete(
     let reader = open_bulk_delete_reader(&index_relation)
         .expect("ambulkdelete: should be able to obtain a SearchIndexReader");
 
+    let ctid_field = writer.get_ctid_field();
     for segment_reader in reader.searcher().segment_readers() {
-        let fast_fields = segment_reader.fast_fields();
-        let ctid_ff = FFType::new(fast_fields, "ctid");
-        if let FFType::U64(ff) = ctid_ff {
-            let ctid_field = writer.get_ctid_field().expect("ctid field should exist");
-            for ctid in ff.values.iter().filter(|ctid| callback(*ctid)) {
-                writer
-                    .delete_term(tantivy::Term::from_field_u64(ctid_field, ctid))
-                    .expect("ambulkdelete: deleting ctid Term should succeed");
+        let inverted_index = segment_reader
+            .inverted_index(ctid_field)
+            .expect("tantivy inverted index should contain the ctid field");
+        let termdict = inverted_index.terms();
+        let mut allterms = termdict
+            .stream()
+            .expect("should be able to stream all terms from the inverted index");
+        while let Some((term_bytes, term_info)) = allterms.next() {
+            let mut postings = inverted_index
+                .read_postings_from_terminfo(term_info, IndexRecordOption::Basic)
+                .expect("should be able to retrieve postings for TermInfo");
+            loop {
+                let ctid = postings.ctid_value();
+                let ctid = ((ctid.0 as u64) << 16) | ctid.1 as u64;
+                if callback(ctid) {
+                    writer
+                        .delete_term(Term::from_field_bytes(ctid_field, term_bytes))
+                        .expect("ambulkdelete: deleting ctid Term should succeed");
+                }
+                if postings.advance() == tantivy::TERMINATED {
+                    break;
+                }
             }
         }
     }

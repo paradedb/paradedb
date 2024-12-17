@@ -519,7 +519,7 @@ impl CustomScan for PdbScan {
             .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::new(indexrel.oid(), BlockDirectoryType::Mvcc)
+        let search_reader = SearchIndexReader::new(indexrel.oid(), BlockDirectoryType::Mvcc, true)
             .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 

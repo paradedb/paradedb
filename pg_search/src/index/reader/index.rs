@@ -37,6 +37,8 @@ use tantivy::{snippet::SnippetGenerator, Executor};
 use crate::index::bulk_delete::BulkDeleteDirectory;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType};
+use crate::postgres::storage::block::CLEANUP_LOCK;
+use crate::postgres::storage::utils::BM25BufferCache;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 
@@ -216,10 +218,29 @@ pub struct SearchIndexReader {
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
     underlying_index: Index,
+    cleanup_lock: Option<pg_sys::Buffer>,
 }
 
 impl SearchIndexReader {
-    pub fn new(index_oid: pg_sys::Oid, directory_type: BlockDirectoryType) -> Result<Self> {
+    pub fn new(
+        index_oid: pg_sys::Oid,
+        directory_type: BlockDirectoryType,
+        needs_cleanup_lock: bool,
+    ) -> Result<Self> {
+        // It is possible for index only scans and custom scans, which only check the visibility map
+        // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
+        // This problem occurs due to a race condition: an index only or custom scan reads in some dead ctids.
+        // ambulkdelete finishes immediately after, and Postgres updates its visibility map, rendering those dead
+        // ctids visible. The scan continues and returns the wrong results. To prevent this, we have ambulkdelete
+        // acquire an exclusive cleanup lock. Readers must also acquire this lock (shared) to prevent a reader from
+        // reading dead ctids right before ambulkdelete finishes.
+        let cleanup_lock = if needs_cleanup_lock {
+            let cache = unsafe { BM25BufferCache::open(index_oid) };
+            unsafe { Some(cache.get_buffer(CLEANUP_LOCK, Some(pg_sys::BUFFER_LOCK_SHARE))) }
+        } else {
+            None
+        };
+
         let mut index = match directory_type {
             BlockDirectoryType::Mvcc => Index::open(MVCCDirectory::new(index_oid))?,
             BlockDirectoryType::BulkDelete => Index::open(BulkDeleteDirectory::new(index_oid))?,
@@ -239,6 +260,7 @@ impl SearchIndexReader {
             schema,
             underlying_reader: reader,
             underlying_index: index,
+            cleanup_lock,
         })
     }
 
@@ -524,6 +546,18 @@ impl SearchIndexReader {
                 },
             )
             .expect("search should not fail")
+    }
+}
+
+impl Drop for SearchIndexReader {
+    fn drop(&mut self) {
+        if let Some(cleanup_lock) = self.cleanup_lock.take() {
+            unsafe {
+                if pg_sys::IsTransactionState() {
+                    pg_sys::UnlockReleaseBuffer(cleanup_lock);
+                }
+            }
+        }
     }
 }
 

@@ -15,6 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::utils::{
+    delete_unused_delete_metas, delete_unused_directory_entries, delete_unused_metas,
+    get_deleted_ids, list_managed_files, load_metas, save_delete_metas, DirectoryLookup,
+};
+use crate::index::channel::NeedWal;
+use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::storage::block::bm25_max_free_space;
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -28,14 +36,6 @@ use std::{io, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
-
-use super::utils::{
-    delete_unused_delete_metas, delete_unused_directory_entries, delete_unused_metas,
-    get_deleted_ids, list_managed_files, load_metas, save_delete_metas, DirectoryLookup,
-};
-use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::bm25_max_free_space;
 
 /// The sole purpose of the BulkDeleteDirectory is to propagate deleted terms to the Tantivy index
 /// It is meant to be called by ambulkdelete and should **never** be used for any other purpose
@@ -59,6 +59,11 @@ impl DirectoryLookup for BulkDeleteDirectory {
     fn relation_oid(&self) -> pg_sys::Oid {
         self.relation_oid
     }
+
+    /// This impl always requires WAL
+    fn need_wal(&self) -> NeedWal {
+        true
+    }
 }
 
 impl Directory for BulkDeleteDirectory {
@@ -75,7 +80,7 @@ impl Directory for BulkDeleteDirectory {
                 };
                 Ok(vacant
                     .insert(Arc::new(unsafe {
-                        SegmentComponentReader::new(self.relation_oid, opaque)
+                        SegmentComponentReader::new(self.relation_oid, opaque, self.need_wal())
                     }))
                     .clone())
             }
@@ -91,7 +96,7 @@ impl Directory for BulkDeleteDirectory {
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
+        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path, true) };
         Ok(io::BufWriter::with_capacity(
             bm25_max_free_space(),
             Box::new(result),
@@ -143,11 +148,26 @@ impl Directory for BulkDeleteDirectory {
 
         let deleted_ids = get_deleted_ids(meta, previous_meta);
         unsafe {
-            save_delete_metas(self.relation_oid, meta, opstamp)
+            save_delete_metas(self.relation_oid, meta, opstamp, self.need_wal())
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
-            delete_unused_metas(self.relation_oid, &deleted_ids, current_xid);
-            delete_unused_directory_entries(self.relation_oid, &deleted_ids, current_xid);
-            delete_unused_delete_metas(self.relation_oid, &deleted_ids, current_xid);
+            delete_unused_metas(
+                self.relation_oid,
+                &deleted_ids,
+                current_xid,
+                self.need_wal(),
+            );
+            delete_unused_directory_entries(
+                self.relation_oid,
+                &deleted_ids,
+                current_xid,
+                self.need_wal(),
+            );
+            delete_unused_delete_metas(
+                self.relation_oid,
+                &deleted_ids,
+                current_xid,
+                self.need_wal(),
+            );
         }
 
         Ok(())

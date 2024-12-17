@@ -23,7 +23,7 @@ use tantivy::schema::Field;
 use tantivy::{Ctid, Index, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
 use thiserror::Error;
 
-use crate::index::channel::ChannelRequestHandler;
+use crate::index::channel::{ChannelRequestHandler, NeedWal};
 use crate::index::merge_policy::{MergeLock, NPlusOneMergePolicy};
 use crate::index::WriterResources;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -48,6 +48,7 @@ pub struct SearchIndexWriter {
     wants_merge: bool,
     insert_queue: Vec<UserOperation>,
     relation_oid: pg_sys::Oid,
+    need_wal: NeedWal,
 }
 
 impl SearchIndexWriter {
@@ -59,7 +60,7 @@ impl SearchIndexWriter {
         resources: WriterResources,
         index_options: &SearchIndexCreateOptions,
     ) -> Result<Self> {
-        let (parallelism, memory_budget, target_segment_count, merge_on_insert) =
+        let (parallelism, memory_budget, target_segment_count, merge_on_insert, need_wal) =
             resources.resources(index_options);
 
         // let memory_budget = memory_budget / parallelism.get();
@@ -122,6 +123,7 @@ impl SearchIndexWriter {
             handler,
             wants_merge,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            need_wal,
         })
     }
 
@@ -180,7 +182,7 @@ impl SearchIndexWriter {
 
     pub fn commit_inserts(self) -> Result<()> {
         let merge_lock = if self.wants_merge {
-            unsafe { MergeLock::acquire_for_merge(self.relation_oid) }
+            unsafe { MergeLock::acquire_for_merge(self.relation_oid, self.need_wal) }
         } else {
             None
         };
@@ -190,7 +192,7 @@ impl SearchIndexWriter {
     pub fn vacuum(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
 
-        let merge_lock = unsafe { MergeLock::acquire_for_merge(self.relation_oid) };
+        let merge_lock = unsafe { MergeLock::acquire_for_merge(self.relation_oid, self.need_wal) };
         self.commit(merge_lock.is_some())
     }
 

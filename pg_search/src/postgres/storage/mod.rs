@@ -86,6 +86,7 @@
 // +-------------------------------------------------------------+
 
 pub mod block;
+pub mod buffer;
 pub mod linked_bytes;
 pub mod linked_items;
 pub mod utils;

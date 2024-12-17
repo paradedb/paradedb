@@ -40,7 +40,7 @@ pub extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
+    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid(), true) };
     let mut writer = open_bulk_delete_writer(&index_relation, WriterResources::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexWriter");
     let reader = open_bulk_delete_reader(&index_relation)

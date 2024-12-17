@@ -15,6 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::utils::{
+    delete_unused_delete_metas, delete_unused_directory_entries, delete_unused_metas,
+    get_deleted_ids, list_managed_files, load_metas, save_delete_metas, save_new_metas,
+    save_schema, save_settings, DirectoryLookup,
+};
+use crate::index::channel::NeedWal;
+use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::storage::block::bm25_max_free_space;
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -29,21 +38,13 @@ use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWrite
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
-use super::utils::{
-    delete_unused_delete_metas, delete_unused_directory_entries, delete_unused_metas,
-    get_deleted_ids, list_managed_files, load_metas, save_delete_metas, save_new_metas,
-    save_schema, save_settings, DirectoryLookup,
-};
-use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::bm25_max_free_space;
-
 /// Tantivy Directory trait implementation over block storage
 /// This Directory implementation respects Postgres MVCC visibility rules
 /// and should back all Tantivy Indexes used in insert and scan operations
 #[derive(Clone, Debug)]
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
+    need_wal: NeedWal,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
@@ -52,9 +53,10 @@ pub struct MVCCDirectory {
 }
 
 impl MVCCDirectory {
-    pub fn new(relation_oid: pg_sys::Oid) -> Self {
+    pub fn new(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
         Self {
             relation_oid,
+            need_wal,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
         }
     }
@@ -63,6 +65,10 @@ impl MVCCDirectory {
 impl DirectoryLookup for MVCCDirectory {
     fn relation_oid(&self) -> pg_sys::Oid {
         self.relation_oid
+    }
+
+    fn need_wal(&self) -> NeedWal {
+        self.need_wal
     }
 }
 
@@ -81,7 +87,7 @@ impl Directory for MVCCDirectory {
                 };
                 Ok(vacant
                     .insert(Arc::new(unsafe {
-                        SegmentComponentReader::new(self.relation_oid, opaque)
+                        SegmentComponentReader::new(self.relation_oid, opaque, self.need_wal)
                     }))
                     .clone())
             }
@@ -100,7 +106,7 @@ impl Directory for MVCCDirectory {
 
     /// Returns a segment writer that implements std::io::Write
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path) };
+        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path, self.need_wal) };
         Ok(io::BufWriter::with_capacity(
             bm25_max_free_space(),
             Box::new(result),
@@ -165,10 +171,10 @@ impl Directory for MVCCDirectory {
         let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
 
         // Save Schema and IndexSettings if this is the first time
-        save_schema(self.relation_oid, &meta.schema)
+        save_schema(self.relation_oid, &meta.schema, self.need_wal)
             .map_err(|err| tantivy::TantivyError::SchemaError(err.to_string()))?;
 
-        save_settings(self.relation_oid, &meta.index_settings)
+        save_settings(self.relation_oid, &meta.index_settings, self.need_wal)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
 
         // If there were no new segments, skip the rest of the work
@@ -178,13 +184,25 @@ impl Directory for MVCCDirectory {
 
         let deleted_ids = get_deleted_ids(meta, previous_meta);
         unsafe {
-            save_delete_metas(self.relation_oid, meta, opstamp)
+            save_delete_metas(self.relation_oid, meta, opstamp, self.need_wal)
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
-            save_new_metas(self.relation_oid, meta, previous_meta, current_xid, opstamp)
-                .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
-            delete_unused_metas(self.relation_oid, &deleted_ids, current_xid);
-            delete_unused_directory_entries(self.relation_oid, &deleted_ids, current_xid);
-            delete_unused_delete_metas(self.relation_oid, &deleted_ids, current_xid);
+            save_new_metas(
+                self.relation_oid,
+                meta,
+                previous_meta,
+                current_xid,
+                opstamp,
+                self.need_wal,
+            )
+            .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
+            delete_unused_metas(self.relation_oid, &deleted_ids, current_xid, self.need_wal);
+            delete_unused_directory_entries(
+                self.relation_oid,
+                &deleted_ids,
+                current_xid,
+                self.need_wal,
+            );
+            delete_unused_delete_metas(self.relation_oid, &deleted_ids, current_xid, self.need_wal);
         }
 
         Ok(())
@@ -219,7 +237,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let directory = MVCCDirectory::new(relation_oid);
+        let directory = MVCCDirectory::new(relation_oid, true);
         let listed_files = directory.list_managed_files().unwrap();
         assert_eq!(listed_files.len(), 6);
     }

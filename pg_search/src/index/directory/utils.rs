@@ -1,3 +1,10 @@
+use crate::index::channel::NeedWal;
+use crate::postgres::storage::block::{
+    DeleteMetaEntry, DirectoryEntry, LinkedList, MVCCEntry, PgItem, SegmentMetaEntry,
+    DELETE_METAS_START, DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+};
+use crate::postgres::storage::utils::{BM25Buffer, BM25BufferCache};
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::{anyhow, bail, Result};
 use pgrx::pg_sys;
 #[cfg(any(test, feature = "pg_test"))]
@@ -11,13 +18,6 @@ use tantivy::{
     schema::Schema,
     Directory, IndexMeta, Opstamp,
 };
-
-use crate::postgres::storage::block::{
-    DeleteMetaEntry, DirectoryEntry, LinkedList, MVCCEntry, PgItem, SegmentMetaEntry,
-    DELETE_METAS_START, DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
-};
-use crate::postgres::storage::utils::{BM25Buffer, BM25BufferCache};
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 
 // Converts a SegmentID + SegmentComponent into a PathBuf
 pub struct SegmentComponentPath(pub PathBuf);
@@ -45,13 +45,18 @@ pub trait DirectoryLookup {
     // Required methods
     fn relation_oid(&self) -> pg_sys::Oid;
 
+    fn need_wal(&self) -> NeedWal;
+
     // Provided methods
     unsafe fn directory_lookup(
         &self,
         path: &Path,
     ) -> Result<(DirectoryEntry, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        let directory =
-            LinkedItemList::<DirectoryEntry>::open(self.relation_oid(), DIRECTORY_START);
+        let directory = LinkedItemList::<DirectoryEntry>::open(
+            self.relation_oid(),
+            DIRECTORY_START,
+            self.need_wal(),
+        );
         let result = directory.lookup(path, |opaque, path| opaque.path == *path)?;
         Ok(result)
     }
@@ -72,7 +77,8 @@ where
 
 pub unsafe fn list_managed_files(relation_oid: pg_sys::Oid) -> tantivy::Result<HashSet<PathBuf>> {
     let cache = BM25BufferCache::open(relation_oid);
-    let segment_components = LinkedItemList::<DirectoryEntry>::open(relation_oid, DIRECTORY_START);
+    let segment_components =
+        LinkedItemList::<DirectoryEntry>::open(relation_oid, DIRECTORY_START, false);
     let mut blockno = segment_components.get_start_blockno();
     let mut files = HashSet::new();
 
@@ -99,8 +105,12 @@ pub unsafe fn list_managed_files(relation_oid: pg_sys::Oid) -> tantivy::Result<H
     Ok(files)
 }
 
-pub fn save_schema(relation_oid: pg_sys::Oid, tantivy_schema: &Schema) -> Result<()> {
-    let mut schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
+pub fn save_schema(
+    relation_oid: pg_sys::Oid,
+    tantivy_schema: &Schema,
+    need_wal: NeedWal,
+) -> Result<()> {
+    let mut schema = LinkedBytesList::open(relation_oid, SCHEMA_START, need_wal);
     if schema.is_empty() {
         let bytes = serde_json::to_vec(tantivy_schema)?;
         unsafe { schema.write(&bytes)? };
@@ -108,8 +118,12 @@ pub fn save_schema(relation_oid: pg_sys::Oid, tantivy_schema: &Schema) -> Result
     Ok(())
 }
 
-pub fn save_settings(relation_oid: pg_sys::Oid, tantivy_settings: &IndexSettings) -> Result<()> {
-    let mut settings = LinkedBytesList::open(relation_oid, SETTINGS_START);
+pub fn save_settings(
+    relation_oid: pg_sys::Oid,
+    tantivy_settings: &IndexSettings,
+    need_wal: NeedWal,
+) -> Result<()> {
+    let mut settings = LinkedBytesList::open(relation_oid, SETTINGS_START, need_wal);
     if settings.is_empty() {
         let bytes = serde_json::to_vec(tantivy_settings)?;
         unsafe { settings.write(&bytes)? };
@@ -139,9 +153,10 @@ pub unsafe fn save_delete_metas(
     relation_oid: pg_sys::Oid,
     meta: &IndexMeta,
     opstamp: Opstamp,
+    need_wal: NeedWal,
 ) -> Result<()> {
     let mut delete_metas =
-        LinkedItemList::<DeleteMetaEntry>::open(relation_oid, DELETE_METAS_START);
+        LinkedItemList::<DeleteMetaEntry>::open(relation_oid, DELETE_METAS_START, need_wal);
 
     let new_entries = meta
         .segments
@@ -168,46 +183,37 @@ pub unsafe fn delete_unused_metas(
     relation_oid: pg_sys::Oid,
     deleted_ids: &HashSet<SegmentId>,
     xmax: pg_sys::TransactionId,
+    need_wal: NeedWal,
 ) {
-    let cache = BM25BufferCache::open(relation_oid);
-    let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
-
+    let mut segment_metas =
+        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START, need_wal);
+    let mut blockno = segment_metas.get_start_blockno();
+    let bman = segment_metas.buffer_manager();
     unsafe {
-        let mut blockno = segment_metas.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
-            let state = cache.start_xlog();
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
-            let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+            let mut buffer = bman.get_buffer_mut(blockno);
+            let mut page = buffer.page_mut();
+            let max_offset = page.max_offset_number();
             let mut offsetno = pg_sys::FirstOffsetNumber;
-            let mut needs_wal = false;
 
             while offsetno <= max_offset {
-                let item_id = pg_sys::PageGetItemId(page, offsetno);
-                let entry = SegmentMetaEntry::from(PgItem(
-                    pg_sys::PageGetItem(page, item_id),
-                    (*item_id).lp_len() as pg_sys::Size,
-                ));
+                let item_id = page.get_item_id(offsetno);
+                let item = page.get_item(item_id);
+                let entry = SegmentMetaEntry::from(PgItem(item, (*item_id).lp_len() as _));
+
                 if deleted_ids.contains(&entry.segment_id) && !entry.deleted() {
                     let entry_with_xmax = SegmentMetaEntry {
                         xmax,
                         ..entry.clone()
                     };
                     let PgItem(item, size) = entry_with_xmax.clone().into();
-                    let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
-                    assert!(overwrite);
-                    needs_wal = true;
+                    let did_replace = page.replace_item(offsetno, item, size);
+                    assert!(did_replace);
                 }
                 offsetno += 1;
             }
 
             blockno = buffer.next_blockno();
-            if needs_wal {
-                pg_sys::GenericXLogFinish(state);
-            } else {
-                pg_sys::GenericXLogAbort(state);
-            }
-            pg_sys::UnlockReleaseBuffer(buffer);
         }
     }
 }
@@ -218,6 +224,7 @@ pub unsafe fn save_new_metas(
     previous_meta: &IndexMeta,
     xmin: pg_sys::TransactionId,
     opstamp: Opstamp,
+    need_wal: NeedWal,
 ) -> Result<()> {
     let previous_ids = previous_meta
         .segments
@@ -225,7 +232,7 @@ pub unsafe fn save_new_metas(
         .map(|s| s.id())
         .collect::<HashSet<_>>();
     let mut segment_metas =
-        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START, need_wal);
 
     let new_entries = meta
         .segments
@@ -247,52 +254,44 @@ pub unsafe fn delete_unused_directory_entries(
     relation_oid: pg_sys::Oid,
     deleted_ids: &HashSet<SegmentId>,
     xmax: pg_sys::TransactionId,
+    need_wal: NeedWal,
 ) {
-    let cache = BM25BufferCache::open(relation_oid);
-    let directory = LinkedItemList::<DirectoryEntry>::open(relation_oid, DIRECTORY_START);
+    let mut directory =
+        LinkedItemList::<DirectoryEntry>::open(relation_oid, DIRECTORY_START, need_wal);
     let mut blockno = directory.get_start_blockno();
+    let bman = directory.buffer_manager();
 
     while blockno != pg_sys::InvalidBlockNumber {
-        let state = cache.start_xlog();
-        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
-        let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+        let mut buffer = bman.get_buffer_mut(blockno);
+        let mut page = buffer.page_mut();
+        let max_offset = page.max_offset_number();
         let mut offsetno = pg_sys::FirstOffsetNumber;
-        let mut needs_wal = false;
 
         while offsetno <= max_offset {
-            let item_id = pg_sys::PageGetItemId(page, offsetno);
-            let entry = DirectoryEntry::from(PgItem(
-                pg_sys::PageGetItem(page, item_id),
-                (*item_id).lp_len() as pg_sys::Size,
-            ));
+            let item_id = page.get_item_id(offsetno);
+            let item = page.get_item(item_id);
+            let entry = DirectoryEntry::from(PgItem(item, (*item_id).lp_len() as _));
             let SegmentComponentId(entry_segment_id) = SegmentComponentPath(entry.path.clone())
                 .try_into()
                 .unwrap_or_else(|_| panic!("{:?} should be valid", entry.path.clone()));
+
             if deleted_ids.contains(&entry_segment_id) && !entry.deleted() {
                 let entry_with_xmax = DirectoryEntry {
                     xmax,
                     ..entry.clone()
                 };
                 let PgItem(item, size) = entry_with_xmax.clone().into();
-                let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
-                assert!(overwrite);
+                let did_replace = page.replace_item(offsetno, item, size);
+                assert!(did_replace);
 
                 // Delete the corresponding segment component
-                let segment_component = LinkedBytesList::open(relation_oid, entry.start);
+                let mut segment_component = LinkedBytesList::open(relation_oid, entry.start, true);
                 segment_component.mark_deleted();
-                needs_wal = true;
             }
             offsetno += 1;
         }
 
         blockno = buffer.next_blockno();
-        if needs_wal {
-            pg_sys::GenericXLogFinish(state);
-        } else {
-            pg_sys::GenericXLogAbort(state);
-        }
-        pg_sys::UnlockReleaseBuffer(buffer);
     }
 }
 
@@ -300,46 +299,37 @@ pub unsafe fn delete_unused_delete_metas(
     relation_oid: pg_sys::Oid,
     deleted_ids: &HashSet<SegmentId>,
     xmax: pg_sys::TransactionId,
+    need_wal: NeedWal,
 ) {
-    let cache = BM25BufferCache::open(relation_oid);
-    let delete_metas = LinkedItemList::<DeleteMetaEntry>::open(relation_oid, DELETE_METAS_START);
+    let mut delete_metas =
+        LinkedItemList::<DeleteMetaEntry>::open(relation_oid, DELETE_METAS_START, need_wal);
     let mut blockno = delete_metas.get_start_blockno();
+    let bman = delete_metas.buffer_manager();
 
     while blockno != pg_sys::InvalidBlockNumber {
-        let state = cache.start_xlog();
-        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
-        let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+        let mut buffer = bman.get_buffer_mut(blockno);
+        let mut page = buffer.page_mut();
+        let max_offset = page.max_offset_number();
         let mut offsetno = pg_sys::FirstOffsetNumber;
-        let mut needs_wal = false;
 
         while offsetno <= max_offset {
-            let item_id = pg_sys::PageGetItemId(page, offsetno);
-            let entry = DeleteMetaEntry::from(PgItem(
-                pg_sys::PageGetItem(page, item_id),
-                (*item_id).lp_len() as pg_sys::Size,
-            ));
+            let item_id = page.get_item_id(offsetno);
+            let item = page.get_item(item_id);
+            let entry = DeleteMetaEntry::from(PgItem(item, (*item_id).lp_len() as _));
+
             if deleted_ids.contains(&entry.segment_id) && !entry.deleted() {
                 let entry_with_xmax = DeleteMetaEntry {
                     xmax,
                     ..entry.clone()
                 };
                 let PgItem(item, size) = entry_with_xmax.clone().into();
-                let overwrite = pg_sys::PageIndexTupleOverwrite(page, offsetno, item, size);
-                assert!(overwrite);
-
-                needs_wal = true;
+                let did_replace = page.replace_item(offsetno, item, size);
+                assert!(did_replace);
             }
             offsetno += 1;
         }
 
         blockno = buffer.next_blockno();
-        if needs_wal {
-            pg_sys::GenericXLogFinish(state);
-        } else {
-            pg_sys::GenericXLogAbort(state);
-        }
-        pg_sys::UnlockReleaseBuffer(buffer);
     }
 }
 
@@ -350,7 +340,8 @@ pub unsafe fn load_metas(
     solve_mvcc: bool,
 ) -> tantivy::Result<IndexMeta> {
     let cache = BM25BufferCache::open(relation_oid);
-    let delete_metas = LinkedItemList::<DeleteMetaEntry>::open(relation_oid, DELETE_METAS_START);
+    let delete_metas =
+        LinkedItemList::<DeleteMetaEntry>::open(relation_oid, DELETE_METAS_START, false);
 
     let mut delete_meta_entries = HashMap::new();
     let mut delete_meta_opstamps = HashMap::new();
@@ -398,7 +389,8 @@ pub unsafe fn load_metas(
         pg_sys::UnlockReleaseBuffer(buffer);
     }
 
-    let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+    let segment_metas =
+        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START, false);
 
     let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
     let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
@@ -448,8 +440,8 @@ pub unsafe fn load_metas(
 
     pg_sys::RelationClose(heap_relation);
 
-    let schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
-    let settings = LinkedBytesList::open(relation_oid, SETTINGS_START);
+    let schema = LinkedBytesList::open(relation_oid, SCHEMA_START, false);
+    let settings = LinkedBytesList::open(relation_oid, SETTINGS_START, false);
     let deserialized_schema = serde_json::from_slice(&schema.read_all())?;
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 

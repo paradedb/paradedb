@@ -16,11 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use super::utils::{BM25Buffer, BM25BufferCache, BM25Page};
+use crate::index::channel::NeedWal;
+use crate::postgres::storage::buffer::BufferManager;
 use anyhow::{bail, Result};
 use pgrx::pg_sys;
 use std::fmt::Debug;
-use std::sync::Arc;
+
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node in the list is a pg_sys::Item
@@ -58,7 +59,7 @@ use std::sync::Arc;
 pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
     relation_oid: pg_sys::Oid,
     pub header_blockno: pg_sys::BlockNumber,
-    cache: Arc<BM25BufferCache>,
+    bman: BufferManager,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -73,62 +74,49 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
 }
 
 impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
-    pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
+    pub fn open(
+        relation_oid: pg_sys::Oid,
+        header_blockno: pg_sys::BlockNumber,
+        need_wal: NeedWal,
+    ) -> Self {
         Self {
             relation_oid,
             header_blockno,
-            cache: unsafe { BM25BufferCache::open(relation_oid) },
+            bman: BufferManager::new(relation_oid, need_wal),
             _marker: std::marker::PhantomData,
         }
     }
 
-    pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
-        let cache = BM25BufferCache::open(relation_oid);
-        let state = cache.start_xlog();
+    pub fn buffer_manager(&mut self) -> &mut BufferManager {
+        &mut self.bman
+    }
 
-        let header_buffer = cache.new_buffer();
-        let header_blockno = pg_sys::BufferGetBlockNumber(header_buffer);
-        let start_buffer = cache.new_buffer();
-        let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
+    pub unsafe fn create(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
+        let mut bman = BufferManager::new(relation_oid, need_wal);
 
-        let header_page = pg_sys::GenericXLogRegisterBuffer(
-            state,
-            header_buffer,
-            pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
-        );
-        header_page.init(pg_sys::BufferGetPageSize(header_buffer));
+        let mut header_buffer = bman.new_buffer();
+        let header_blockno = header_buffer.number();
+        let mut start_buffer = bman.new_buffer();
+        let start_blockno = start_buffer.number();
 
-        let start_page = pg_sys::GenericXLogRegisterBuffer(
-            state,
-            start_buffer,
-            pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
-        );
-        start_page.init(pg_sys::BufferGetPageSize(start_buffer));
+        let mut header_page = header_buffer.init_page();
+        start_buffer.init_page();
 
-        let metadata = pg_sys::PageGetContents(header_page) as *mut LinkedListData;
-        (*metadata).skip_list[0] = start_blockno;
-        (*metadata).inner.last_blockno = start_blockno;
-        (*metadata).inner.npages = 0;
-
-        // Set pd_lower to the end of the metadata
-        // Without doing so, metadata will be lost if xlog.c compresses the page
-        let page_header = header_page as *mut pg_sys::PageHeaderData;
-        (*page_header).pd_lower = (metadata.add(1) as usize - header_page as usize) as u16;
-
-        pg_sys::GenericXLogFinish(state);
-        pg_sys::UnlockReleaseBuffer(header_buffer);
-        pg_sys::UnlockReleaseBuffer(start_buffer);
+        let metadata = header_page.contents_mut::<LinkedListData>();
+        metadata.skip_list[0] = start_blockno;
+        metadata.inner.last_blockno = start_blockno;
+        metadata.inner.npages = 0;
 
         Self {
             relation_oid,
             header_blockno,
-            cache,
+            bman,
             _marker: std::marker::PhantomData,
         }
     }
 
     pub unsafe fn garbage_collect(&mut self) -> Result<()> {
-        let cache = &self.cache;
+        // let cache = &self.cache;
 
         // Delete all items that are definitely dead
         let snapshot = pg_sys::GetActiveSnapshot();
@@ -138,20 +126,16 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut blockno = start_blockno;
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let state = cache.start_xlog();
-            let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
+            let mut buffer = self.bman.get_buffer_mut(blockno);
+            let mut page = buffer.page_mut();
             let mut offsetno = pg_sys::FirstOffsetNumber;
-            let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
-
+            let max_offset = page.max_offset_number();
             let mut delete_offsets = vec![];
 
             while offsetno <= max_offset {
-                let item_id = pg_sys::PageGetItemId(page, offsetno);
-                let entry = T::from(PgItem(
-                    pg_sys::PageGetItem(page, item_id),
-                    (*item_id).lp_len() as pg_sys::Size,
-                ));
+                let item_id = page.get_item_id(offsetno);
+                let item = page.get_item(item_id);
+                let entry = T::from(PgItem(item, (*item_id).lp_len() as _));
                 if entry.recyclable(snapshot, heap_relation) {
                     delete_offsets.push(offsetno);
                 }
@@ -159,18 +143,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             }
 
             if !delete_offsets.is_empty() {
-                pg_sys::PageIndexMultiDelete(
-                    page,
-                    delete_offsets.as_mut_ptr(),
-                    delete_offsets.len() as i32,
-                );
-                pg_sys::GenericXLogFinish(state);
-            } else {
-                pg_sys::GenericXLogAbort(state);
+                page.delete_items(&mut delete_offsets);
             }
 
             blockno = buffer.next_blockno();
-            pg_sys::UnlockReleaseBuffer(buffer);
         }
 
         pg_sys::RelationClose(heap_relation);
@@ -178,123 +154,79 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn add_items(&mut self, items: Vec<T>) -> Result<()> {
-        let cache = &self.cache;
+        // let cache = &self.cache;
 
-        for item in &items {
-            let PgItem(pg_item, size) = item.clone().into();
+        for item in items {
+            let PgItem(pg_item, size) = item.into();
 
             // Find a page with free space and lock it
             // TODO: Do we need to start from the beginning every time?
-            let mut inserted = false;
-            while !inserted {
+            'insert_loop: loop {
                 let mut blockno = self.get_start_blockno();
                 let insert_buffer = loop {
                     if blockno == pg_sys::InvalidBlockNumber {
-                        break pg_sys::InvalidBuffer as i32;
+                        break None;
+                        // break pg_sys::InvalidBuffer as i32;
                     }
 
-                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-                    let page = pg_sys::BufferGetPage(buffer);
-                    let free_space = pg_sys::PageGetFreeSpace(page);
+                    let buffer = self.bman.get_buffer_mut(blockno);
+                    let free_space = buffer.page().free_space();
                     if free_space >= size + size_of::<pg_sys::ItemIdData>() {
-                        pg_sys::UnlockReleaseBuffer(buffer);
-
-                        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                        let page = pg_sys::BufferGetPage(buffer);
-                        let free_space = pg_sys::PageGetFreeSpace(page);
-
-                        if free_space >= size + size_of::<pg_sys::ItemIdData>() {
-                            break buffer;
-                        } else {
-                            blockno = buffer.next_blockno();
-                            pg_sys::UnlockReleaseBuffer(buffer);
-                        }
+                        break Some(buffer);
                     } else {
                         blockno = buffer.next_blockno();
-                        pg_sys::UnlockReleaseBuffer(buffer);
                     }
                 };
 
-                if insert_buffer != (pg_sys::InvalidBuffer as i32) {
+                if let Some(mut insert_buffer) = insert_buffer {
                     // We have found an existing page with free space -- append to it
-                    let state = cache.start_xlog();
-                    let page = pg_sys::GenericXLogRegisterBuffer(state, insert_buffer, 0);
-                    let offsetno = pg_sys::PageAddItemExtended(
-                        page,
-                        pg_item,
-                        size,
-                        pg_sys::InvalidOffsetNumber,
-                        0,
-                    );
+                    let mut page = insert_buffer.page_mut();
+                    let offsetno = page.append_item(pg_item, size, 0);
+
                     assert_ne!(
                         offsetno,
                         pg_sys::InvalidOffsetNumber,
-                        "failed to add {:?} to block {}",
-                        item,
+                        "failed to add item to existing page {}",
                         blockno
                     );
-                    inserted = true;
-                    pg_sys::GenericXLogFinish(state);
-                    pg_sys::UnlockReleaseBuffer(insert_buffer);
+                    break 'insert_loop;
                 } else {
                     // There are no more pages with free space, we need to create a new one
                     // First, validate that another process has not already created a new page
                     let last_blockno = self.get_last_blockno();
-                    let last_buffer =
-                        cache.get_buffer(last_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                    let mut last_buffer = self.bman.get_buffer_mut(last_blockno);
+
                     // If another process has already created a new page, restart the insert loop
                     if last_buffer.next_blockno() != pg_sys::InvalidBlockNumber {
-                        pg_sys::UnlockReleaseBuffer(last_buffer);
-                        continue;
+                        continue 'insert_loop;
                     }
 
                     // We indeed have the last page, create a new one
-                    let state = cache.start_xlog();
-                    let new_buffer = cache.new_buffer();
-                    let new_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
-                    let new_page = pg_sys::GenericXLogRegisterBuffer(
-                        state,
-                        new_buffer,
-                        pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
-                    );
-                    new_page.init(pg_sys::BufferGetPageSize(new_buffer));
+                    let mut new_buffer = self.bman.new_buffer();
+                    let new_blockno = new_buffer.number();
+                    let mut new_page = new_buffer.init_page();
 
                     // Update the last page to point to the new page
-                    let last_page = pg_sys::GenericXLogRegisterBuffer(state, last_buffer, 0);
-                    let special =
-                        pg_sys::PageGetSpecialPointer(last_page) as *mut BM25PageSpecialData;
-                    (*special).next_blockno = new_blockno;
+                    let mut last_page = last_buffer.page_mut();
+                    let special = last_page.special_mut::<BM25PageSpecialData>();
+                    special.next_blockno = new_blockno;
 
                     // Update the header to point to the new last page
-                    let header_buffer = cache.get_buffer(
-                        self.get_header_blockno(),
-                        Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-                    );
-                    let page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
-                    let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-                    (*metadata).inner.last_blockno = new_blockno;
-                    (*metadata).inner.npages += 1;
+                    let mut header_buffer = self.bman.get_buffer_mut(self.header_blockno);
+                    let mut page = header_buffer.page_mut();
+                    let metadata = page.contents_mut::<LinkedListData>();
+                    metadata.inner.last_blockno = new_blockno;
+                    metadata.inner.npages += 1;
 
                     // Add the item to the new page
-                    let offsetno = pg_sys::PageAddItemExtended(
-                        new_page,
-                        pg_item,
-                        size,
-                        pg_sys::InvalidOffsetNumber,
-                        0,
-                    );
+                    let offsetno = new_page.append_item(pg_item, size, 0);
                     assert_ne!(
                         offsetno,
                         pg_sys::InvalidOffsetNumber,
-                        "failed to add {:?} to new page",
-                        item
+                        "failed to add item to new page",
                     );
 
-                    inserted = true;
-                    pg_sys::GenericXLogFinish(state);
-                    pg_sys::UnlockReleaseBuffer(new_buffer);
-                    pg_sys::UnlockReleaseBuffer(header_buffer);
-                    pg_sys::UnlockReleaseBuffer(last_buffer);
+                    break 'insert_loop;
                 }
             }
         }
@@ -310,31 +242,39 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     where
         K: Debug,
     {
-        let cache = &self.cache;
+        // let cache = &self.cache;
         let mut blockno = self.get_start_blockno();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
-            let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+            let max_offset = page.max_offset_number();
+            // let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+            // let page = pg_sys::BufferGetPage(buffer);
+            // let mut offsetno = pg_sys::FirstOffsetNumber;
+            // let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
 
             while offsetno <= max_offset {
-                let item_id = pg_sys::PageGetItemId(page, offsetno);
-                let deserialized = T::from(PgItem(
-                    pg_sys::PageGetItem(page, item_id),
-                    (*item_id).lp_len() as pg_sys::Size,
-                ));
+                let item_id = page.get_item_id(offsetno);
+                let item = page.get_item(item_id);
+                let deserialized = T::from(PgItem(item, (*item_id).lp_len() as _));
+
+                // let item_id = pg_sys::PageGetItemId(page, offsetno);
+                // let deserialized = T::from(PgItem(
+                //     pg_sys::PageGetItem(page, item_id),
+                //     (*item_id).lp_len() as pg_sys::Size,
+                // ));
 
                 if cmp(&deserialized, &target) {
-                    pg_sys::UnlockReleaseBuffer(buffer);
+                    // pg_sys::UnlockReleaseBuffer(buffer);
                     return Ok((deserialized, blockno, offsetno));
                 }
                 offsetno += 1;
             }
 
             blockno = buffer.next_blockno();
-            pg_sys::UnlockReleaseBuffer(buffer);
+            // pg_sys::UnlockReleaseBuffer(buffer);
         }
 
         bail!(
@@ -367,7 +307,7 @@ mod tests {
         let snapshot = pg_sys::GetActiveSnapshot();
         let delete_xid = (*snapshot).xmin - 1;
 
-        let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+        let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid, true);
         let entries_to_delete = vec![
             DirectoryEntry {
                 path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
@@ -423,7 +363,7 @@ mod tests {
 
         // Add 2000 entries, delete every 10th entry
         {
-            let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+            let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid, true);
             let entries = (1..2000)
                 .map(|i| DirectoryEntry {
                     path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
@@ -452,7 +392,7 @@ mod tests {
 
         // First n pages are full, next m pages need to be compacted, next n are full
         {
-            let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid);
+            let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid, true);
             let entries_1 = (1..500)
                 .map(|i| DirectoryEntry {
                     path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),

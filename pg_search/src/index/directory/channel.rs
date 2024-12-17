@@ -24,9 +24,12 @@ use crate::index::writer::channel::ChannelWriter;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
+pub type NeedWal = bool;
+pub type Overwrite = bool;
+
 pub enum ChannelRequest {
     ListManagedFiles(oneshot::Sender<HashSet<PathBuf>>),
-    RegisterFilesAsManaged(Vec<PathBuf>, bool),
+    RegisterFilesAsManaged(Vec<PathBuf>, Overwrite),
     SegmentRead(Range<usize>, DirectoryEntry, oneshot::Sender<OwnedBytes>),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
@@ -251,14 +254,18 @@ impl ChannelRequestHandler {
                     .readers
                     .entry(handle.path.clone())
                     .or_insert_with(|| unsafe {
-                        SegmentComponentReader::new(self.relation_oid, handle)
+                        SegmentComponentReader::new(
+                            self.relation_oid,
+                            handle,
+                            self.directory.need_wal(),
+                        )
                     });
                 let data = reader.read_bytes(range)?;
                 sender.send(data)?;
             }
             ChannelRequest::SegmentWrite(path, data) => {
                 let writer = self.writers.entry(path.clone()).or_insert_with(|| unsafe {
-                    SegmentComponentWriter::new(self.relation_oid, &path)
+                    SegmentComponentWriter::new(self.relation_oid, &path, self.directory.need_wal())
                 });
                 writer.write_all(&data)?;
             }

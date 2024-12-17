@@ -46,17 +46,18 @@ pub extern "C" fn amvacuumcleanup(
         // Garbage collect linked lists
         // If new LinkedItemLists are created they should be garbage collected here
         let index_oid = index_relation.oid();
-        let mut directory = LinkedItemList::<DirectoryEntry>::open(index_oid, DIRECTORY_START);
+        let mut directory =
+            LinkedItemList::<DirectoryEntry>::open(index_oid, DIRECTORY_START, true);
         directory
             .garbage_collect()
             .expect("garbage collection should succeed");
         let mut segment_metas =
-            LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START);
+            LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START, true);
         segment_metas
             .garbage_collect()
             .expect("garbage collection should succeed");
         let mut delete_metas =
-            LinkedItemList::<DeleteMetaEntry>::open(index_oid, DELETE_METAS_START);
+            LinkedItemList::<DeleteMetaEntry>::open(index_oid, DELETE_METAS_START, true);
         delete_metas
             .garbage_collect()
             .expect("garbage collection should succeed");

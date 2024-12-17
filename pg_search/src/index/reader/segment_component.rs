@@ -1,3 +1,4 @@
+use crate::index::channel::NeedWal;
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry, LinkedList};
 use crate::postgres::storage::linked_bytes::RangeData;
 use crate::postgres::storage::LinkedBytesList;
@@ -22,8 +23,8 @@ pub struct SegmentComponentReader {
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(relation_oid: pg_sys::Oid, entry: DirectoryEntry) -> Self {
-        let block_list = LinkedBytesList::open(relation_oid, entry.start);
+    pub unsafe fn new(relation_oid: pg_sys::Oid, entry: DirectoryEntry, need_wal: NeedWal) -> Self {
+        let block_list = LinkedBytesList::open(relation_oid, entry.start, need_wal);
 
         Self {
             block_list,

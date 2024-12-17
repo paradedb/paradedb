@@ -19,7 +19,7 @@ use super::reader::index::SearchIndexReader;
 use super::writer::index::IndexError;
 use crate::gucs;
 use crate::index::bulk_delete::BulkDeleteDirectory;
-use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
+use crate::index::channel::{ChannelDirectory, ChannelRequestHandler, NeedWal};
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::postgres::index::get_fields;
@@ -52,25 +52,34 @@ impl WriterResources {
     pub fn resources(
         &self,
         index_options: &SearchIndexCreateOptions,
-    ) -> (Parallelism, MemoryBudget, TargetSegmentCount, DoMerging) {
+    ) -> (
+        Parallelism,
+        MemoryBudget,
+        TargetSegmentCount,
+        DoMerging,
+        NeedWal,
+    ) {
         match self {
             WriterResources::CreateIndex => (
                 gucs::create_index_parallelism(),
                 gucs::create_index_memory_budget(),
                 index_options.target_segment_count(),
-                true, // we always want a merge on CREATE INDEX
+                true,  // we always want a merge on CREATE INDEX
+                false, // we don't need direct WAL support during CREATE INDEX
             ),
             WriterResources::Statement => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
                 index_options.target_segment_count(),
                 index_options.merge_on_insert(), // user/index decides if we merge for INSERT/UPDATE statements
+                true,                            // regular statements do need WAL support
             ),
             WriterResources::Vacuum => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
                 index_options.target_segment_count(),
                 true, // we always want a merge on (auto)VACUUM
+                true, // VACUUM always needs WAL support
             ),
         }
     }
@@ -101,6 +110,7 @@ impl SearchIndex {
             index_relation,
             schema,
             BlockDirectoryType::Mvcc,
+            false,
             |directory, schema| Index::create(directory, schema.schema.clone(), settings),
         )?;
 
@@ -121,10 +131,13 @@ impl SearchIndex {
     ) -> Result<SearchIndexWriter> {
         let schema = get_index_schema(index_relation)?;
         let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-        let search_index =
-            Self::prepare_index(index_relation, schema, directory_type, |directory, _| {
-                Index::open(directory)
-            })?;
+        let search_index = Self::prepare_index(
+            index_relation,
+            schema,
+            directory_type,
+            true,
+            |directory, _| Index::open(directory),
+        )?;
 
         SearchIndexWriter::new(
             index_relation.oid(),
@@ -145,6 +158,7 @@ impl SearchIndex {
         index_relation: &PgRelation,
         schema: SearchIndexSchema,
         directory_type: BlockDirectoryType,
+        need_wal: NeedWal,
         opener: F,
     ) -> Result<Self, SearchIndexError> {
         let index_oid = index_relation.oid();
@@ -152,9 +166,11 @@ impl SearchIndex {
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
         let mut handler = match directory_type {
-            BlockDirectoryType::Mvcc => {
-                ChannelRequestHandler::open(&MVCCDirectory::new(index_oid), index_oid, req_receiver)
-            }
+            BlockDirectoryType::Mvcc => ChannelRequestHandler::open(
+                &MVCCDirectory::new(index_oid, need_wal),
+                index_oid,
+                req_receiver,
+            ),
             BlockDirectoryType::BulkDelete => ChannelRequestHandler::open(
                 &BulkDeleteDirectory::new(index_oid),
                 index_oid,
@@ -185,7 +201,9 @@ impl SearchIndex {
         directory_type: BlockDirectoryType,
     ) -> Result<SearchIndexReader> {
         let mut index = match directory_type {
-            BlockDirectoryType::Mvcc => Index::open(MVCCDirectory::new(index_relation.oid()))?,
+            BlockDirectoryType::Mvcc => {
+                Index::open(MVCCDirectory::new(index_relation.oid(), false))?
+            }
             BlockDirectoryType::BulkDelete => {
                 Index::open(BulkDeleteDirectory::new(index_relation.oid()))?
             }

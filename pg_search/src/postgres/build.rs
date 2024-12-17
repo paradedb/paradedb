@@ -15,13 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::channel::NeedWal;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{create_new_index, WriterResources};
 use crate::postgres::storage::block::{
     DirectoryEntry, MergeLockData, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
     MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
-use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::SearchIndexSchema;
@@ -65,7 +66,7 @@ pub extern "C" fn ambuild(
     let index_oid = index_relation.oid();
 
     // Create the metadata blocks for the index
-    unsafe { create_metadata(index_oid) };
+    unsafe { create_metadata(index_oid, true) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -193,32 +194,21 @@ fn is_bm25_index(indexrel: &PgRelation) -> bool {
     }
 }
 
-unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
+unsafe fn create_metadata(relation_oid: pg_sys::Oid, need_wal: NeedWal) {
     // Init merge lock buffer
-    let cache = BM25BufferCache::open(relation_oid);
-    let state = cache.start_xlog();
-    let merge_lock = cache.new_buffer();
-    let page = pg_sys::GenericXLogRegisterBuffer(
-        state,
-        merge_lock,
-        pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
-    );
-    page.init(pg_sys::BufferGetPageSize(merge_lock));
-    let metadata = pg_sys::PageGetContents(page) as *mut MergeLockData;
-    (*metadata).last_merge = pg_sys::InvalidTransactionId;
-    let page_header = page as *mut pg_sys::PageHeaderData;
-    (*page_header).pd_lower = (metadata.add(1) as usize - page as usize) as u16;
+    let mut bman = BufferManager::new(relation_oid, need_wal);
+    let mut merge_lock = bman.new_buffer();
+    assert_eq!(merge_lock.number(), MERGE_LOCK);
 
-    assert_eq!(pg_sys::BufferGetBlockNumber(merge_lock), MERGE_LOCK);
+    let mut page = merge_lock.init_page();
+    let metadata = page.contents_mut::<MergeLockData>();
+    metadata.last_merge = pg_sys::InvalidTransactionId;
 
-    pg_sys::GenericXLogFinish(state);
-    pg_sys::UnlockReleaseBuffer(merge_lock);
-
-    let schema = LinkedBytesList::create(relation_oid);
-    let settings = LinkedBytesList::create(relation_oid);
-    let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid);
-    let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
-    let delete_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid);
+    let schema = LinkedBytesList::create(relation_oid, need_wal);
+    let settings = LinkedBytesList::create(relation_oid, need_wal);
+    let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid, need_wal);
+    let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, need_wal);
+    let delete_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, need_wal);
 
     assert_eq!(schema.header_blockno, SCHEMA_START);
     assert_eq!(settings.header_blockno, SETTINGS_START);

@@ -1,10 +1,19 @@
-name: PostgreSQL Integration Tests
+name: Test ParadeDB (Published)
 
 on:
-  push:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
-  pull_request:
+      - dev
+    paths:
+      - ".github/workflows/test-paradedb.yml"
+      - "docker/**"
+  workflow_dispatch:
+
+concurrency:
+  group: test-paradedb-published-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   postgres-tests:

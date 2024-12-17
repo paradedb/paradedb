@@ -41,7 +41,7 @@ jobs:
           echo "Checking if ParadeDB is running..."
 
           # Example: Verify ParadeDB status using psql
-          PGPASSWORD=mypassword psql -h localhost -U myuser -d mydb -c "SELECT version();"
+          psql -d mydb -c "SELECT version();"
 
       - name: Run ParadeDB Commands
         run: |

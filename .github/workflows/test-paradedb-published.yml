@@ -22,9 +22,9 @@ jobs:
     container:
       image: paradedb/paradedb:latest
       env:
-        POSTGRES_USER: myuser
+        POSTGRES_USER: postgres
         POSTGRES_PASSWORD: mypassword
-        POSTGRES_DB: mydb
+        POSTGRES_DB: postgres
       options: --name paradedb-test-container --user root
 
     steps:
@@ -39,9 +39,10 @@ jobs:
           echo "Testing ParadeDB running inside the container."
           echo "Container hostname: $(hostname)"
           echo "Checking if ParadeDB is running..."
+          service postgresql status
 
           # Example: Verify ParadeDB status using psql
-          psql -d mydb -c "SELECT version();"
+          psql -U postgres -d postgres
 
       - name: Run ParadeDB Commands
         run: |

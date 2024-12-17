@@ -1,51 +1,58 @@
-name: Test ParadeDB (Published)
+name: PostgreSQL Integration Tests
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  push:
     branches:
       - main
-      - dev
-    paths:
-      - ".github/workflows/test-paradedb.yml"
-      - "docker/**"
-  workflow_dispatch:
-
-concurrency:
-  group: test-paradedb-published-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+  pull_request:
 
 jobs:
-  test-paradedb-container:
-    name: Test ParadeDB in Container
-    runs-on: ubicloud-standard-2
-    container:
-      image: paradedb/paradedb:latest
-      env:
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: mypassword
-        POSTGRES_DB: postgres
-      options: --name paradedb-test-container --user root
+  postgres-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres" 
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=5
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: testdb
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify ParadeDB Environment
+      - name: Wait for PostgreSQL to be ready
         run: |
-          echo "Waiting for ParadeDB to start..."
-          sleep 30
+          echo "Waiting for PostgreSQL to be ready..."
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              echo "PostgreSQL is ready!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready in time!" && exit 1
 
-          echo "Testing ParadeDB running inside the container."
-          echo "Container hostname: $(hostname)"
-          echo "Checking if ParadeDB is running..."
-          ps aux | grep postgres
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
-          # Example: Verify ParadeDB status using psql
-          psql -U postgres -d postgres
-
-      - name: Run ParadeDB Commands
+      - name: Run SQL commands
         run: |
-          # Replace this with ParadeDB-specific commands or queries
-          echo "Running test query..."
-          psql -U postgres -d testdb -c "SELECT 'ParadeDB is running!' AS message;"
+          psql -h localhost -U postgres -d testdb -c "CREATE TABLE example (id SERIAL PRIMARY KEY, data TEXT);"
+          psql -h localhost -U postgres -d testdb -c "INSERT INTO example (data) VALUES ('Hello, World!');"
+          psql -h localhost -U postgres -d testdb -c "SELECT * FROM example;"
+        env:
+          PGPASSWORD: password
+
+      - name: Run application tests
+        run: |
+          # Replace this with your test commands
+          echo "Running application tests..."

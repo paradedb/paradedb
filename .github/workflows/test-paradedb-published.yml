@@ -39,7 +39,7 @@ jobs:
           echo "Testing ParadeDB running inside the container."
           echo "Container hostname: $(hostname)"
           echo "Checking if ParadeDB is running..."
-          service postgresql status
+          ps aux | grep postgres
 
           # Example: Verify ParadeDB status using psql
           psql -U postgres -d postgres

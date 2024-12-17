@@ -25,7 +25,7 @@ jobs:
         POSTGRES_USER: postgres
         POSTGRES_PASSWORD: example
         POSTGRES_DB: testdb
-      options: --name paradedb-test-container
+      options: --name paradedb-test-container --user root
 
     steps:
       - name: Checkout Repository

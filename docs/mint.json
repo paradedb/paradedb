@@ -274,6 +274,7 @@
             "deploy/replication/self-hosted"
           ]
         },
+        "deploy/continuous-integration",
         "deploy/high-availability",
         "deploy/upgrading",
         "deploy/extensions"

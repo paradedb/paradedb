@@ -29,6 +29,7 @@ jobs:
           --health-interval=10s 
           --health-timeout=5s 
           --health-retries=5
+          --tmpfs /var/lib/postgresql/data/pg_stat_tmp:rw
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password

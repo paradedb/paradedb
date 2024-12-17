@@ -33,6 +33,9 @@ jobs:
 
       - name: Verify ParadeDB Environment
         run: |
+          echo "Waiting for ParadeDB to start..."
+          sleep 30
+
           echo "Testing ParadeDB running inside the container."
           echo "Container hostname: $(hostname)"
           echo "Checking if ParadeDB is running..."

@@ -3,7 +3,6 @@ use crate::postgres::storage::block::{
     DeleteMetaEntry, DirectoryEntry, LinkedList, MVCCEntry, PgItem, SegmentMetaEntry,
     DELETE_METAS_START, DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
-use crate::postgres::storage::utils::{BM25Buffer, BM25BufferCache};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::{anyhow, bail, Result};
 use pgrx::pg_sys;
@@ -76,30 +75,26 @@ where
 }
 
 pub unsafe fn list_managed_files(relation_oid: pg_sys::Oid) -> tantivy::Result<HashSet<PathBuf>> {
-    let cache = BM25BufferCache::open(relation_oid);
     let segment_components =
         LinkedItemList::<DirectoryEntry>::open(relation_oid, DIRECTORY_START, false);
+    let bman = segment_components.bman();
     let mut blockno = segment_components.get_start_blockno();
     let mut files = HashSet::new();
 
     while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-        let page = pg_sys::BufferGetPage(buffer);
+        let buffer = bman.get_buffer(blockno);
+        let page = buffer.page();
+        let max_offset = page.max_offset_number();
         let mut offsetno = pg_sys::FirstOffsetNumber;
-        let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
 
         while offsetno <= max_offset {
-            let item_id = pg_sys::PageGetItemId(page, offsetno);
-            let item = DirectoryEntry::from(PgItem(
-                pg_sys::PageGetItem(page, item_id),
-                (*item_id).lp_len() as pg_sys::Size,
-            ));
-            files.insert(item.path.clone());
+            let entry = page.read_item::<DirectoryEntry>(offsetno);
+            files.insert(entry.path);
             offsetno += 1;
         }
 
         blockno = buffer.next_blockno();
-        pg_sys::UnlockReleaseBuffer(buffer);
+        // pg_sys::UnlockReleaseBuffer(buffer);
     }
 
     Ok(files)
@@ -188,33 +183,29 @@ pub unsafe fn delete_unused_metas(
     let mut segment_metas =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START, need_wal);
     let mut blockno = segment_metas.get_start_blockno();
-    let bman = segment_metas.buffer_manager();
-    unsafe {
-        while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = bman.get_buffer_mut(blockno);
-            let mut page = buffer.page_mut();
-            let max_offset = page.max_offset_number();
-            let mut offsetno = pg_sys::FirstOffsetNumber;
+    let bman = segment_metas.bman_mut();
+    while blockno != pg_sys::InvalidBlockNumber {
+        let mut buffer = bman.get_buffer_mut(blockno);
+        let mut page = buffer.page_mut();
+        let max_offset = page.max_offset_number();
+        let mut offsetno = pg_sys::FirstOffsetNumber;
 
-            while offsetno <= max_offset {
-                let item_id = page.get_item_id(offsetno);
-                let item = page.get_item(item_id);
-                let entry = SegmentMetaEntry::from(PgItem(item, (*item_id).lp_len() as _));
+        while offsetno <= max_offset {
+            let entry = page.read_item::<SegmentMetaEntry>(offsetno);
 
-                if deleted_ids.contains(&entry.segment_id) && !entry.deleted() {
-                    let entry_with_xmax = SegmentMetaEntry {
-                        xmax,
-                        ..entry.clone()
-                    };
-                    let PgItem(item, size) = entry_with_xmax.clone().into();
-                    let did_replace = page.replace_item(offsetno, item, size);
-                    assert!(did_replace);
-                }
-                offsetno += 1;
+            if deleted_ids.contains(&entry.segment_id) && !entry.deleted() {
+                let entry_with_xmax = SegmentMetaEntry {
+                    xmax,
+                    ..entry.clone()
+                };
+                let PgItem(item, size) = entry_with_xmax.clone().into();
+                let did_replace = page.replace_item(offsetno, item, size);
+                assert!(did_replace);
             }
-
-            blockno = buffer.next_blockno();
+            offsetno += 1;
         }
+
+        blockno = buffer.next_blockno();
     }
 }
 
@@ -259,7 +250,7 @@ pub unsafe fn delete_unused_directory_entries(
     let mut directory =
         LinkedItemList::<DirectoryEntry>::open(relation_oid, DIRECTORY_START, need_wal);
     let mut blockno = directory.get_start_blockno();
-    let bman = directory.buffer_manager();
+    let bman = directory.bman_mut();
 
     while blockno != pg_sys::InvalidBlockNumber {
         let mut buffer = bman.get_buffer_mut(blockno);
@@ -268,9 +259,7 @@ pub unsafe fn delete_unused_directory_entries(
         let mut offsetno = pg_sys::FirstOffsetNumber;
 
         while offsetno <= max_offset {
-            let item_id = page.get_item_id(offsetno);
-            let item = page.get_item(item_id);
-            let entry = DirectoryEntry::from(PgItem(item, (*item_id).lp_len() as _));
+            let entry = page.read_item::<DirectoryEntry>(offsetno);
             let SegmentComponentId(entry_segment_id) = SegmentComponentPath(entry.path.clone())
                 .try_into()
                 .unwrap_or_else(|_| panic!("{:?} should be valid", entry.path.clone()));
@@ -304,7 +293,7 @@ pub unsafe fn delete_unused_delete_metas(
     let mut delete_metas =
         LinkedItemList::<DeleteMetaEntry>::open(relation_oid, DELETE_METAS_START, need_wal);
     let mut blockno = delete_metas.get_start_blockno();
-    let bman = delete_metas.buffer_manager();
+    let bman = delete_metas.bman_mut();
 
     while blockno != pg_sys::InvalidBlockNumber {
         let mut buffer = bman.get_buffer_mut(blockno);
@@ -313,9 +302,7 @@ pub unsafe fn delete_unused_delete_metas(
         let mut offsetno = pg_sys::FirstOffsetNumber;
 
         while offsetno <= max_offset {
-            let item_id = page.get_item_id(offsetno);
-            let item = page.get_item(item_id);
-            let entry = DeleteMetaEntry::from(PgItem(item, (*item_id).lp_len() as _));
+            let entry = page.read_item::<DeleteMetaEntry>(offsetno);
 
             if deleted_ids.contains(&entry.segment_id) && !entry.deleted() {
                 let entry_with_xmax = DeleteMetaEntry {
@@ -339,26 +326,22 @@ pub unsafe fn load_metas(
     snapshot: pg_sys::Snapshot,
     solve_mvcc: bool,
 ) -> tantivy::Result<IndexMeta> {
-    let cache = BM25BufferCache::open(relation_oid);
     let delete_metas =
         LinkedItemList::<DeleteMetaEntry>::open(relation_oid, DELETE_METAS_START, false);
+    let bman = delete_metas.bman();
 
     let mut delete_meta_entries = HashMap::new();
     let mut delete_meta_opstamps = HashMap::new();
     let mut blockno = delete_metas.get_start_blockno();
 
     while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-        let page = pg_sys::BufferGetPage(buffer);
+        let buffer = bman.get_buffer(blockno);
+        let page = buffer.page();
+        let max_offset = page.max_offset_number();
         let mut offsetno = pg_sys::FirstOffsetNumber;
-        let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
 
         while offsetno <= max_offset {
-            let item_id = pg_sys::PageGetItemId(page, offsetno);
-            let entry = DeleteMetaEntry::from(PgItem(
-                pg_sys::PageGetItem(page, item_id),
-                (*item_id).lp_len() as pg_sys::Size,
-            ));
+            let entry = page.read_item::<DeleteMetaEntry>(offsetno);
             delete_meta_entries
                 .entry(entry.segment_id)
                 .and_modify(|existing: &mut DeleteMeta| {
@@ -386,7 +369,6 @@ pub unsafe fn load_metas(
         }
 
         blockno = buffer.next_blockno();
-        pg_sys::UnlockReleaseBuffer(buffer);
     }
 
     let segment_metas =
@@ -399,17 +381,14 @@ pub unsafe fn load_metas(
     let mut blockno = segment_metas.get_start_blockno();
 
     while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-        let page = pg_sys::BufferGetPage(buffer);
+        let buffer = bman.get_buffer(blockno);
+        let page = buffer.page();
+        let max_offset = page.max_offset_number();
         let mut offsetno = pg_sys::FirstOffsetNumber;
-        let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
 
         while offsetno <= max_offset {
-            let item_id = pg_sys::PageGetItemId(page, offsetno);
-            let entry = SegmentMetaEntry::from(PgItem(
-                pg_sys::PageGetItem(page, item_id),
-                (*item_id).lp_len() as pg_sys::Size,
-            ));
+            let entry = page.read_item::<SegmentMetaEntry>(offsetno);
+
             if entry.visible(snapshot)
                 || (!solve_mvcc && !entry.recyclable(snapshot, heap_relation))
             {
@@ -435,7 +414,6 @@ pub unsafe fn load_metas(
         }
 
         blockno = buffer.next_blockno();
-        pg_sys::UnlockReleaseBuffer(buffer);
     }
 
     pg_sys::RelationClose(heap_relation);

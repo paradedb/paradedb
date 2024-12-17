@@ -1,5 +1,5 @@
 use crate::index::channel::NeedWal;
-use crate::postgres::storage::block::BM25PageSpecialData;
+use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::utils::{BM25Buffer, BM25BufferCache, BM25Page};
 use pgrx::pg_sys;
 use std::marker::PhantomData;
@@ -113,9 +113,14 @@ impl BufferMut {
         let page = self.page_mut();
         page.buffer.dirty = true;
         unsafe {
-            pg_sys::PageInit(page.pg_page, page_size, size_of::<BM25PageSpecialData>());
+            pg_sys::PageInit(
+                page.inner.pg_page,
+                page_size,
+                size_of::<BM25PageSpecialData>(),
+            );
 
-            let special = pg_sys::PageGetSpecialPointer(page.pg_page) as *mut BM25PageSpecialData;
+            let special =
+                pg_sys::PageGetSpecialPointer(page.inner.pg_page) as *mut BM25PageSpecialData;
             (*special).next_blockno = pg_sys::InvalidBlockNumber;
             (*special).xmax = pg_sys::InvalidTransactionId;
         }
@@ -135,7 +140,10 @@ impl BufferMut {
         let pg_page = self.style.get_page(self.inner.pg_buffer);
         PageMut {
             buffer: self,
-            pg_page,
+            inner: Page {
+                pg_page,
+                _marker: PhantomData,
+            },
         }
     }
 
@@ -170,12 +178,12 @@ impl<'a> Page<'a> {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
 
-    pub fn get_item_id(&self, offno: pg_sys::OffsetNumber) -> pg_sys::ItemId {
-        unsafe { pg_sys::PageGetItemId(self.pg_page, offno) }
-    }
-
-    pub fn get_item(&self, item_id: pg_sys::ItemId) -> pg_sys::Item {
-        unsafe { pg_sys::PageGetItem(self.pg_page, item_id) }
+    pub fn read_item<T: From<PgItem>>(&self, offno: pg_sys::OffsetNumber) -> T {
+        unsafe {
+            let item_id = pg_sys::PageGetItemId(self.pg_page, offno);
+            let item = pg_sys::PageGetItem(self.pg_page, item_id);
+            T::from(PgItem(item, (*item_id).lp_len() as pg_sys::Size))
+        }
     }
 
     pub fn header(&self) -> &pg_sys::PageHeaderData {
@@ -204,28 +212,28 @@ impl<'a> Page<'a> {
     pub fn contents<T: Copy>(&self) -> T {
         unsafe { (pg_sys::PageGetContents(self.pg_page) as *const T).read_unaligned() }
     }
+
+    pub fn is_recyclable(&self, heaprel: pg_sys::Relation) -> bool {
+        unsafe { self.pg_page.recyclable(heaprel) }
+    }
 }
 
 pub struct PageMut<'a> {
     buffer: &'a mut BufferMut,
-    pg_page: pg_sys::Page,
+    inner: Page<'a>,
 }
 
 impl<'a> PageMut<'a> {
     pub fn mark_deleted(self) {
-        unsafe { self.pg_page.mark_deleted() }
+        unsafe { self.inner.pg_page.mark_deleted() }
     }
 
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {
-        unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
+        self.inner.max_offset_number()
     }
 
-    pub fn get_item_id(&self, offno: pg_sys::OffsetNumber) -> pg_sys::ItemId {
-        unsafe { pg_sys::PageGetItemId(self.pg_page, offno) }
-    }
-
-    pub fn get_item(&self, item_id: pg_sys::ItemId) -> pg_sys::Item {
-        unsafe { pg_sys::PageGetItem(self.pg_page, item_id) }
+    pub fn read_item<T: From<PgItem>>(&self, offno: pg_sys::OffsetNumber) -> T {
+        self.inner.read_item(offno)
     }
 
     #[track_caller]
@@ -237,7 +245,7 @@ impl<'a> PageMut<'a> {
     ) -> pg_sys::OffsetNumber {
         let offno = unsafe {
             pg_sys::PageAddItemExtended(
-                self.pg_page,
+                self.inner.pg_page,
                 item,
                 size,
                 pg_sys::InvalidOffsetNumber,
@@ -255,7 +263,7 @@ impl<'a> PageMut<'a> {
         size: pg_sys::Size,
     ) -> bool {
         let did_replace =
-            unsafe { pg_sys::PageIndexTupleOverwrite(self.pg_page, offno, item, size) };
+            unsafe { pg_sys::PageIndexTupleOverwrite(self.inner.pg_page, offno, item, size) };
         self.buffer.dirty = true;
         did_replace
     }
@@ -263,7 +271,7 @@ impl<'a> PageMut<'a> {
     pub fn delete_items(&mut self, item_offsets: &mut [pg_sys::OffsetNumber]) {
         unsafe {
             pg_sys::PageIndexMultiDelete(
-                self.pg_page,
+                self.inner.pg_page,
                 item_offsets.as_mut_ptr(),
                 item_offsets.len() as i32,
             );
@@ -272,21 +280,22 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn header(&self) -> &pg_sys::PageHeaderData {
-        unsafe { &*(self.pg_page as *mut pg_sys::PageHeaderData) }
+        self.inner.header()
     }
 
     pub fn header_mut(&mut self) -> &mut pg_sys::PageHeaderData {
-        let header = unsafe { &mut *(self.pg_page as *mut pg_sys::PageHeaderData) };
+        let header = unsafe { &mut *(self.inner.pg_page as *mut pg_sys::PageHeaderData) };
         self.buffer.dirty = true;
         header
     }
 
     pub fn special<T>(&self) -> &T {
-        unsafe { &*(pg_sys::PageGetSpecialPointer(self.pg_page) as *mut T) }
+        self.inner.special()
     }
 
     pub fn special_mut<T>(&mut self) -> &mut T {
-        let special = unsafe { &mut *(pg_sys::PageGetSpecialPointer(self.pg_page) as *mut T) };
+        let special =
+            unsafe { &mut *(pg_sys::PageGetSpecialPointer(self.inner.pg_page) as *mut T) };
         self.buffer.dirty = true;
         special
     }
@@ -294,7 +303,7 @@ impl<'a> PageMut<'a> {
     pub fn free_space_slice_mut(&mut self, len: usize) -> &mut [u8] {
         let slice = unsafe {
             std::slice::from_raw_parts_mut(
-                (self.pg_page as *mut u8).add(self.header_mut().pd_lower as usize),
+                (self.inner.pg_page as *mut u8).add(self.header_mut().pd_lower as usize),
                 len,
             )
         };
@@ -304,10 +313,10 @@ impl<'a> PageMut<'a> {
 
     pub fn contents_mut<T>(&mut self) -> &mut T {
         let contents = unsafe {
-            let contents = pg_sys::PageGetContents(self.pg_page) as *mut T;
+            let contents = pg_sys::PageGetContents(self.inner.pg_page) as *mut T;
 
             // adjust pd_lower at the same time
-            let header = self.pg_page as *mut pg_sys::PageHeaderData;
+            let header = self.inner.pg_page as *mut pg_sys::PageHeaderData;
             (*header).pd_lower = (contents.add(1) as usize - header as usize)
                 .try_into()
                 .expect("pd_lower overflowed");
@@ -337,23 +346,8 @@ pub struct BufferManager {
 
 impl BufferManager {
     pub fn new(indexrelid: pg_sys::Oid, need_wal: NeedWal) -> Self {
-        if need_wal {
-            Self::logged(indexrelid)
-        } else {
-            Self::unlogged(indexrelid)
-        }
-    }
-
-    pub fn logged(indexrelid: pg_sys::Oid) -> Self {
         Self {
-            logged: true,
-            bcache: BM25BufferCache::open(indexrelid),
-        }
-    }
-
-    pub fn unlogged(indexrelid: pg_sys::Oid) -> Self {
-        Self {
-            logged: false,
+            logged: need_wal,
             bcache: BM25BufferCache::open(indexrelid),
         }
     }
@@ -419,6 +413,7 @@ impl BufferManager {
                     inner: Buffer { pg_buffer: buffer },
                 })
             } else {
+                pg_sys::ReleaseBuffer(buffer);
                 None
             }
         }
@@ -426,5 +421,11 @@ impl BufferManager {
 
     pub fn page_is_empty(&self, blockno: pg_sys::BlockNumber) -> bool {
         self.get_buffer(blockno).page().is_empty()
+    }
+
+    pub fn record_free_index_page(&mut self, buffer: Buffer) {
+        unsafe {
+            self.bcache.record_free_index_page(buffer.number());
+        }
     }
 }

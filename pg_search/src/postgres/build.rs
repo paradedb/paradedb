@@ -199,11 +199,11 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid, need_wal: NeedWal) {
     let mut bman = BufferManager::new(relation_oid, need_wal);
     let mut merge_lock = bman.new_buffer();
     assert_eq!(merge_lock.number(), MERGE_LOCK);
-
     let mut page = merge_lock.init_page();
     let metadata = page.contents_mut::<MergeLockData>();
     metadata.last_merge = pg_sys::InvalidTransactionId;
 
+    // initialize all the other required buffers
     let schema = LinkedBytesList::create(relation_oid, need_wal);
     let settings = LinkedBytesList::create(relation_oid, need_wal);
     let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid, need_wal);

@@ -87,7 +87,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
-    pub fn buffer_manager(&mut self) -> &mut BufferManager {
+    pub fn bman(&self) -> &BufferManager {
+        &self.bman
+    }
+
+    pub fn bman_mut(&mut self) -> &mut BufferManager {
         &mut self.bman
     }
 
@@ -133,9 +137,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let mut delete_offsets = vec![];
 
             while offsetno <= max_offset {
-                let item_id = page.get_item_id(offsetno);
-                let item = page.get_item(item_id);
-                let entry = T::from(PgItem(item, (*item_id).lp_len() as _));
+                let entry = page.read_item::<T>(offsetno);
+
                 if entry.recyclable(snapshot, heap_relation) {
                     delete_offsets.push(offsetno);
                 }
@@ -242,7 +245,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     where
         K: Debug,
     {
-        // let cache = &self.cache;
         let mut blockno = self.get_start_blockno();
 
         while blockno != pg_sys::InvalidBlockNumber {
@@ -250,31 +252,17 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
-            // let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            // let page = pg_sys::BufferGetPage(buffer);
-            // let mut offsetno = pg_sys::FirstOffsetNumber;
-            // let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
 
             while offsetno <= max_offset {
-                let item_id = page.get_item_id(offsetno);
-                let item = page.get_item(item_id);
-                let deserialized = T::from(PgItem(item, (*item_id).lp_len() as _));
-
-                // let item_id = pg_sys::PageGetItemId(page, offsetno);
-                // let deserialized = T::from(PgItem(
-                //     pg_sys::PageGetItem(page, item_id),
-                //     (*item_id).lp_len() as pg_sys::Size,
-                // ));
+                let deserialized = page.read_item::<T>(offsetno);
 
                 if cmp(&deserialized, &target) {
-                    // pg_sys::UnlockReleaseBuffer(buffer);
                     return Ok((deserialized, blockno, offsetno));
                 }
                 offsetno += 1;
             }
 
             blockno = buffer.next_blockno();
-            // pg_sys::UnlockReleaseBuffer(buffer);
         }
 
         bail!(

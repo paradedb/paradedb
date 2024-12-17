@@ -66,3 +66,15 @@ jobs:
         run: |
           # Replace this with your test commands
           echo "Running application tests..."
+
+      - name: Print logs of the PostgreSQL service container
+        if: failure()
+        run: |
+          echo "Fetching logs of the PostgreSQL container..."
+          docker ps -a
+          CONTAINER_ID=$(docker ps -a -q --filter "ancestor=paradedb/paradedb:latest")
+          if [ -n "$CONTAINER_ID" ]; then
+            docker logs $CONTAINER_ID
+          else
+            echo "PostgreSQL container not found!"
+          fi

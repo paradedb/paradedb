@@ -1,0 +1,80 @@
+name: Test ParadeDB (Published)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - dev
+    paths:
+      - ".github/workflows/test-paradedb.yml"
+      - "docker/**"
+  workflow_dispatch:
+
+concurrency:
+  group: test-paradedb-published-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: paradedb/paradedb:latest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres" 
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=5
+          --tmpfs /var/lib/postgresql/data/pg_stat_tmp:rw
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: testdb
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "Waiting for PostgreSQL to be ready..."
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              echo "PostgreSQL is ready!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready in time!" && exit 1
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run SQL commands
+        run: |
+          psql -h localhost -U postgres -d testdb -c "CREATE TABLE example (id SERIAL PRIMARY KEY, data TEXT);"
+          psql -h localhost -U postgres -d testdb -c "INSERT INTO example (data) VALUES ('Hello, World!');"
+          psql -h localhost -U postgres -d testdb -c "SELECT * FROM example;"
+        env:
+          PGPASSWORD: password
+
+      - name: Run application tests
+        run: |
+          # Replace this with your test commands
+          echo "Running application tests..."
+
+      - name: Print logs of the PostgreSQL service container
+        if: failure()
+        run: |
+          echo "Fetching logs of the PostgreSQL container..."
+          docker ps -a
+          CONTAINER_ID=$(docker ps -a -q --filter "ancestor=paradedb/paradedb:latest")
+          if [ -n "$CONTAINER_ID" ]; then
+            docker logs $CONTAINER_ID
+          else
+            echo "PostgreSQL container not found!"
+          fi

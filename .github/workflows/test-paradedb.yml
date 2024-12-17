@@ -62,7 +62,7 @@ jobs:
       # which community contributors don't have access to.
       #
       # We keep PARADEDB_TELEMETRY=true to test the telemetry feature, even though this isn't real usage.
-      - name: Build the ParadeDB Docker Image (prod only)
+      - name: Build the ParadeDB Docker Container via Docker Buildx (prod only)
         if: steps.env.outputs.environment == 'prod'
         uses: docker/build-push-action@v6
         with:
@@ -83,19 +83,19 @@ jobs:
       # contributors can trigger the workflow without needing access to GitHub Secrets.
       #
       # In this environment, PARADEDB_TELEMETRY is set to false to avoid sending misleading telemetry data to PostHog.
-      - name: Build the ParadeDB Docker Image via Docker Compose (dev only)
+      - name: Build the ParadeDB Docker Container via Docker Compose (dev only)
         if: steps.env.outputs.environment == 'dev'
         working-directory: docker/
         run: docker build --file Dockerfile --tag paradedb/paradedb:latest ..
 
       # Sleep 10 seconds to give time for Postgres to start inside the container. The docker-compose.yml file
       # will use the local ParadeDB image that we just built.
-      - name: Start the ParadeDB Docker Image
+      - name: Start the ParadeDB Docker Container
         working-directory: docker/
         run: docker compose -f docker-compose.yml up -d && sleep 10
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
-      - name: Check for Errors in the ParadeDB Docker Image
+      - name: Check for Errors in the ParadeDB Docker Container
         working-directory: docker/
         run: |
           CONTAINER_ID=$(docker ps -aq --filter "name=paradedb")
@@ -118,6 +118,23 @@ jobs:
             echo "Error: ParadeDB Docker container logs contain an error"
             exit 1
           fi
+
+      - name: Test ParadeDB Docker Container with Quickstart Commands
+        working-directory: docker/
+        run: |
+          # Get the container ID for the ParadeDB container
+          CONTAINER_ID=$(docker ps -q --filter "name=paradedb")
+
+          echo "Running command inside container ID: $CONTAINER_ID"
+
+          # Connect to Postgres and list databases
+          docker exec $CONTAINER_ID psql -U postgres -c "\l"
+
+          # Run ParadeDB quickstart commands
+          docker exec $CONTAINER_ID psql -U postgres -c "CALL paradedb.create_bm25_test_table(schema_name => 'public',table_name => 'mock_items');"
+          docker exec $CONTAINER_ID psql -U postgres -c "SELECT description, rating, category FROM mock_items LIMIT 3;"
+          docker exec $CONTAINER_ID psql -U postgres -c "CREATE INDEX search_idx ON mock_items USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) WITH (key_field='id');"
+          docker exec $CONTAINER_ID psql -U postgres -c "SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;"
 
   # Only run this job on the `main` branch since it requires access to GitHub Secrets, which
   # community contributors don't have access to.

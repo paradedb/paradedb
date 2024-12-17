@@ -55,8 +55,6 @@ pub extern "C" fn ambulkdelete(
         SearchIndexReader::new(index_relation.oid(), BlockDirectoryType::BulkDelete, false)
             .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
-    let mut segment_ids_with_delete = std::collections::HashSet::new();
-    let mut deleted_ctids = std::collections::HashSet::new();
     let ctid_field = writer.get_ctid_field();
     for segment_reader in reader.searcher().segment_readers() {
         let inverted_index = segment_reader
@@ -77,8 +75,6 @@ pub extern "C" fn ambulkdelete(
                     writer
                         .delete_term(Term::from_field_bytes(ctid_field, term_bytes))
                         .expect("ambulkdelete: deleting ctid Term should succeed");
-                    segment_ids_with_delete.insert(segment_reader.segment_id());
-                    deleted_ctids.insert(ctid);
                 }
                 if postings.advance() == tantivy::TERMINATED {
                     break;

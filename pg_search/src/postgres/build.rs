@@ -17,8 +17,8 @@
 
 use crate::index::writer::index::SearchIndexWriter;
 use crate::postgres::storage::block::{
-    DirectoryEntry, MergeLockData, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
-    MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    DirectoryEntry, MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, DELETE_METAS_START,
+    DIRECTORY_START, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -209,8 +209,20 @@ unsafe fn create_metadata(relation_oid: pg_sys::Oid) {
 
     assert_eq!(pg_sys::BufferGetBlockNumber(merge_lock), MERGE_LOCK);
 
+    // Init cleanup lock buffer
+    let cleanup_lock = cache.new_buffer();
+    let page = pg_sys::GenericXLogRegisterBuffer(
+        state,
+        cleanup_lock,
+        pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
+    );
+    page.init(pg_sys::BufferGetPageSize(cleanup_lock));
+
+    assert_eq!(pg_sys::BufferGetBlockNumber(cleanup_lock), CLEANUP_LOCK);
+
     pg_sys::GenericXLogFinish(state);
     pg_sys::UnlockReleaseBuffer(merge_lock);
+    pg_sys::UnlockReleaseBuffer(cleanup_lock);
 
     let schema = LinkedBytesList::create(relation_oid);
     let settings = LinkedBytesList::create(relation_oid);

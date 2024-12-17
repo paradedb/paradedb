@@ -15,14 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::merge_policy::MergeLock;
-use crate::index::reader::index::SearchIndexReader;
-use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{BlockDirectoryType, WriterResources};
 use pgrx::{pg_sys::ItemPointerData, *};
 use tantivy::postings::Postings;
 use tantivy::schema::IndexRecordOption;
 use tantivy::{DocSet, Term};
+
+use super::storage::block::CLEANUP_LOCK;
+use crate::index::merge_policy::MergeLock;
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::writer::index::SearchIndexWriter;
+use crate::index::{BlockDirectoryType, WriterResources};
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -49,9 +51,12 @@ pub extern "C" fn ambulkdelete(
         WriterResources::Vacuum,
     )
     .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader = SearchIndexReader::new(index_relation.oid(), BlockDirectoryType::BulkDelete)
-        .expect("ambulkdelete: should be able to open a SearchIndexReader");
+    let reader =
+        SearchIndexReader::new(index_relation.oid(), BlockDirectoryType::BulkDelete, false)
+            .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
+    let mut segment_ids_with_delete = std::collections::HashSet::new();
+    let mut deleted_ctids = std::collections::HashSet::new();
     let ctid_field = writer.get_ctid_field();
     for segment_reader in reader.searcher().segment_readers() {
         let inverted_index = segment_reader
@@ -72,6 +77,8 @@ pub extern "C" fn ambulkdelete(
                     writer
                         .delete_term(Term::from_field_bytes(ctid_field, term_bytes))
                         .expect("ambulkdelete: deleting ctid Term should succeed");
+                    segment_ids_with_delete.insert(segment_reader.segment_id());
+                    deleted_ctids.insert(ctid);
                 }
                 if postings.advance() == tantivy::TERMINATED {
                     break;
@@ -80,10 +87,23 @@ pub extern "C" fn ambulkdelete(
         }
     }
 
-    // Don't merge here, amvacuumcleanup will merge
-    writer
-        .commit(false)
-        .expect("ambulkdelete: commit should succeed");
+    unsafe {
+        let cleanup_buffer = pg_sys::ReadBufferExtended(
+            info.index,
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            CLEANUP_LOCK,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            info.strategy,
+        );
+        pg_sys::LockBufferForCleanup(cleanup_buffer);
+
+        // Don't merge here, amvacuumcleanup will merge
+        writer
+            .commit(false)
+            .expect("ambulkdelete: commit should succeed");
+
+        pg_sys::UnlockReleaseBuffer(cleanup_buffer);
+    }
 
     if stats.is_null() {
         stats = unsafe {

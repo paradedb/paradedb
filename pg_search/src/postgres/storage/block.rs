@@ -26,11 +26,12 @@ use std::slice::from_raw_parts;
 use tantivy::index::SegmentId;
 
 pub const MERGE_LOCK: pg_sys::BlockNumber = 0;
-pub const SCHEMA_START: pg_sys::BlockNumber = 1;
-pub const SETTINGS_START: pg_sys::BlockNumber = 3;
-pub const DIRECTORY_START: pg_sys::BlockNumber = 5;
-pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 7;
-pub const DELETE_METAS_START: pg_sys::BlockNumber = 9;
+pub const CLEANUP_LOCK: pg_sys::BlockNumber = 1;
+pub const SCHEMA_START: pg_sys::BlockNumber = 2;
+pub const SETTINGS_START: pg_sys::BlockNumber = 4;
+pub const DIRECTORY_START: pg_sys::BlockNumber = 6;
+pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 8;
+pub const DELETE_METAS_START: pg_sys::BlockNumber = 10;
 
 // ---------------------------------------------------------
 // BM25 page special data

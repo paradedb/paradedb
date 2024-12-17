@@ -60,7 +60,7 @@ pub fn schema(
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
-    let search_reader = SearchIndexReader::new(index.oid(), BlockDirectoryType::Mvcc)
+    let search_reader = SearchIndexReader::new(index.oid(), BlockDirectoryType::Mvcc, false)
         .expect("could not open search index reader");
     let schema = search_reader.schema().schema.clone();
     let mut field_entries: Vec<_> = schema.fields().collect();

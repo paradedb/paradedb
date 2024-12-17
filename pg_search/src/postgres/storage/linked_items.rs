@@ -138,7 +138,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut blockno = start_blockno;
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let buffer = cache.get_buffer(blockno, None);
+            pg_sys::LockBufferForCleanup(buffer);
+
             let state = cache.start_xlog();
             let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
             let mut offsetno = pg_sys::FirstOffsetNumber;

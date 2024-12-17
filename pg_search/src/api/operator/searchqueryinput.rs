@@ -50,7 +50,7 @@ pub fn search_with_query_input(
                 _ => panic!("the SearchQueryInput must be wrapped in a WithIndex variant"),
             }
         };
-        let search_reader = SearchIndexReader::new(index_oid, BlockDirectoryType::Mvcc)
+        let search_reader = SearchIndexReader::new(index_oid, BlockDirectoryType::Mvcc, false)
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
 
         let key_field = search_reader.key_field();

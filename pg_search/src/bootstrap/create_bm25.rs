@@ -300,7 +300,7 @@ fn index_info(
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
     // open the specified index
-    let search_reader = SearchIndexReader::new(index.oid(), BlockDirectoryType::Mvcc)?;
+    let search_reader = SearchIndexReader::new(index.oid(), BlockDirectoryType::Mvcc, false)?;
     let data = search_reader
         .segment_readers()
         .iter()
@@ -340,7 +340,7 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
     // open the specified index
-    let search_reader = SearchIndexReader::new(index.oid(), BlockDirectoryType::Mvcc)?;
+    let search_reader = SearchIndexReader::new(index.oid(), BlockDirectoryType::Mvcc, false)?;
 
     let failed = search_reader.validate_checksum()?;
     Ok(SetOfIterator::new(

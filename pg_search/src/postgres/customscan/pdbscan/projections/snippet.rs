@@ -63,16 +63,36 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
     }
 }
 
+#[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+fn snippet_position_from_relation(
+    field: AnyElement,
+    max_num_chars: default!(i32, "150"),
+) -> Option<Vec<i32>> {
+    None
+}
+
+pub fn snippet_positions_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.snippet_positions(anyelement, int)".into_datum()],
+        )
+        .expect("the `paradedb.snippet_positions(anyelement, int) type should exist")
+    }
+}
+
 pub unsafe fn uses_snippets(
     rti: pg_sys::Index,
     attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
     node: *mut pg_sys::Node,
     snippet_funcoid: pg_sys::Oid,
+    snippet_positions_funcoid: pg_sys::Oid,
 ) -> Vec<SnippetInfo> {
     struct Context<'a> {
         rti: pg_sys::Index,
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_funcoid: pg_sys::Oid,
+        snippet_positions_funcoid: pg_sys::Oid,
         snippet_info: Vec<SnippetInfo>,
     }
 
@@ -119,9 +139,38 @@ pub unsafe fn uses_snippets(
                         max_num_chars: max_num_chars_arg as usize,
                     });
                 } else {
-                    panic!("`paradedb.snippet()`'s arguments must be literals")
+                    panic!("`paradedb.snippet()`'s arguments must be literals");
                 }
-            }
+            } else if (*funcexpr).funcid == (*context).snippet_positions_funcoid {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+
+                // this should be equal to the number of args in the `snippet_psitions()` function above
+                assert!(args.len() == 2);
+
+                let field_arg = nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+                let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
+
+                if let (Some(field_arg), Some(max_num_chars_arg)) = (field_arg, max_num_chars_arg) {
+                    let attname = (*context)
+                        .attname_lookup
+                        .get(&((*context).rti as _, (*field_arg).varattno as _))
+                        .cloned()
+                        .expect("Var attname should be in lookup");
+                    let max_num_chars = i32::from_datum(
+                        (*max_num_chars_arg).constvalue,
+                        (*max_num_chars_arg).constisnull,
+                    );
+
+                    (*context).snippet_info.push(SnippetInfo {
+                        field: attname,
+                        start_tag: DEFAULT_SNIPPET_PREFIX.to_string(),
+                        end_tag: DEFAULT_SNIPPET_POSTFIX.to_string(),
+                        max_num_chars: max_num_chars_arg as usize,
+                    });
+                } else {
+                    panic!("`paradedb.snippet_positions()`'s arguments must be literals");
+                }
+            };
         }
 
         expression_tree_walker(node, Some(walker), data)
@@ -131,6 +180,7 @@ pub unsafe fn uses_snippets(
         rti,
         attname_lookup,
         snippet_funcoid,
+        snippet_positions_funcoid,
         snippet_info: vec![],
     };
 

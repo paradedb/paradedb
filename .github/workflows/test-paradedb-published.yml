@@ -1,0 +1,47 @@
+name: Test ParadeDB (Published)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - dev
+    paths:
+      - ".github/workflows/test-paradedb.yml"
+      - "docker/**"
+  workflow_dispatch:
+
+concurrency:
+  group: test-paradedb-published-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-paradedb-container:
+    name: Test ParadeDB in Container
+    runs-on: ubicloud-standard-8
+    container:
+      image: paradedb/paradedb:latest
+      env:
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: example
+        POSTGRES_DB: testdb
+      options: --name paradedb-test-container
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Verify ParadeDB Environment
+        run: |
+          echo "Testing ParadeDB running inside the container."
+          echo "Container hostname: $(hostname)"
+          echo "Checking if ParadeDB is running..."
+
+          # Example: Verify ParadeDB status using psql
+          psql -U postgres -d testdb -c "SELECT version();"
+
+      - name: Run ParadeDB Commands
+        run: |
+          # Replace this with ParadeDB-specific commands or queries
+          echo "Running test query..."
+          psql -U postgres -d testdb -c "SELECT 'ParadeDB is running!' AS message;"

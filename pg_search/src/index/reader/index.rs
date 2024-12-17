@@ -229,11 +229,11 @@ impl SearchIndexReader {
     ) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
-        // This problem occurs due to a race condition: an index only or custom scan reads in some dead ctids.
-        // ambulkdelete finishes immediately after, and Postgres updates its visibility map, rendering those dead
-        // ctids visible. The scan continues and returns the wrong results. To prevent this, we have ambulkdelete
-        // acquire an exclusive cleanup lock. Readers must also acquire this lock (shared) to prevent a reader from
-        // reading dead ctids right before ambulkdelete finishes.
+        // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
+        // reads in some dead ctids. ambulkdelete finishes immediately after, and Postgres updates its visibility map,
+        //rendering those dead ctids visible. The concurrent scan then returns the wrong results.
+        // To prevent this, ambulkdelete acquires an exclusive cleanup lock. Readers must also acquire this lock (shared)
+        // to prevent a reader from reading dead ctids right before ambulkdelete finishes.
         let cleanup_lock = if needs_cleanup_lock {
             let cache = unsafe { BM25BufferCache::open(index_oid) };
             unsafe { Some(cache.get_buffer(CLEANUP_LOCK, Some(pg_sys::BUFFER_LOCK_SHARE))) }

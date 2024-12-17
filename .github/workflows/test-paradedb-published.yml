@@ -18,13 +18,13 @@ concurrency:
 jobs:
   test-paradedb-container:
     name: Test ParadeDB in Container
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     container:
       image: paradedb/paradedb:latest
       env:
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: example
-        POSTGRES_DB: testdb
+        POSTGRES_USER: myuser
+        POSTGRES_PASSWORD: mypassword
+        POSTGRES_DB: mydb
       options: --name paradedb-test-container --user root
 
     steps:
@@ -38,7 +38,7 @@ jobs:
           echo "Checking if ParadeDB is running..."
 
           # Example: Verify ParadeDB status using psql
-          psql -U postgres -d testdb -c "SELECT version();"
+          PGPASSWORD=mypassword psql -h localhost -U myuser -d mydb -c "SELECT version();"
 
       - name: Run ParadeDB Commands
         run: |

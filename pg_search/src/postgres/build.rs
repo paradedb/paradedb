@@ -239,6 +239,14 @@ fn relation_needs_wal(relation: &PgRelation) -> bool {
     // 	  (relation->rd_createSubid == InvalidSubTransactionId &&			\
     // 	   relation->rd_firstRelfilelocatorSubid == InvalidSubTransactionId)))
 
+    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+    unsafe {
+        relation_is_permanent(relation)
+            && (xlog_is_needed()
+                || (relation.rd_createSubid == INVALID_SUB_TRANSACTION_ID
+                    && relation.rd_firstRelfilenodeSubid == INVALID_SUB_TRANSACTION_ID))
+    }
+    #[cfg(any(feature = "pg16", feature = "pg17"))]
     unsafe {
         relation_is_permanent(relation)
             && (xlog_is_needed()

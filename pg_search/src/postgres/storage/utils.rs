@@ -42,7 +42,15 @@ impl BM25Page for pg_sys::Page {
             return false;
         }
 
-        pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
+        #[cfg(feature = "pg13")]
+        {
+            pg_sys::TransactionIdPrecedes((*special).xmax, pg_sys::RecentGlobalXmin)
+        }
+
+        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
+        }
     }
 }
 

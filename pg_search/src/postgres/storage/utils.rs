@@ -42,8 +42,6 @@ impl BM25Page for pg_sys::Page {
             return false;
         }
 
-        pgrx::warning!("   xmax={}", (*special).xmax);
-
         pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
     }
 }

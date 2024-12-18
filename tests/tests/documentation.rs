@@ -1922,7 +1922,6 @@ fn schema(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "paradedb.index_size deprecated"]
 fn index_size(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(
@@ -1936,7 +1935,7 @@ fn index_size(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let size: i64 = "SELECT index_size FROM paradedb.index_size('search_idx')"
+    let size: i64 = "SELECT pg_relation_size('search_idx')"
         .fetch_one::<(i64,)>(&mut conn)
         .0;
 

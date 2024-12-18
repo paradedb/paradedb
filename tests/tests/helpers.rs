@@ -209,7 +209,6 @@ fn test_format_create_index_no_predicate(mut conn: PgConnection) {
     r#"DROP SCHEMA inventory CASCADE;"#.execute_result(&mut conn).unwrap();
 }
 
-#[ignore = "fields come back in unpredictable order, for some reason"]
 #[rstest]
 fn test_format_bm25_basic(mut conn: PgConnection) {
     // Create test table

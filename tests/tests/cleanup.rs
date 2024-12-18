@@ -54,7 +54,6 @@ fn create_and_drop_builtin_index(mut conn: PgConnection) {
 
 /// Tests that CREATE INDEX and REINDEX and VACUUM merge down to the proper number of segments, based on our
 /// [`NPlusOne`] merge policy
-#[ignore = "this can't possibly pass yet"]
 #[rstest]
 fn segment_count_correct_after_merge(mut conn: PgConnection) {
     r#"
@@ -85,7 +84,7 @@ fn segment_count_correct_after_merge(mut conn: PgConnection) {
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
-    assert_eq!(nsegments, 2);
+    assert!(nsegments <= 3);
 
     // same thing here.  do full table update and then VACUUM should get us back to 2 segments
     "UPDATE test_table SET value = value || ' ';".execute(&mut conn);

@@ -1,6 +1,6 @@
-use crate::index::channel::NeedWal;
 use crate::postgres::storage::block::{MergeLockData, MERGE_LOCK};
 use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::NeedWal;
 use pgrx::pg_sys;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::merge_policy::NoMergePolicy;

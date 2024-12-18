@@ -16,8 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use crate::index::channel::NeedWal;
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::NeedWal;
 use anyhow::{bail, Result};
 use pgrx::pg_sys;
 use std::fmt::Debug;

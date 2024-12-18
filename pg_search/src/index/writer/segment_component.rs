@@ -1,6 +1,6 @@
-use crate::index::channel::NeedWal;
 use crate::postgres::storage::block::{DirectoryEntry, DIRECTORY_START};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::NeedWal;
 use pgrx::*;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};

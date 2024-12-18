@@ -16,10 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
-use crate::index::channel::NeedWal;
 use crate::index::merge_policy::AllowedMergePolicy;
 use crate::postgres::index::get_fields;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::NeedWal;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::PgRelation;
@@ -50,9 +50,12 @@ pub enum BlockDirectoryType {
 }
 
 impl WriterResources {
-    pub fn resources(&self, index_options: &SearchIndexCreateOptions) -> IndexConfig {
-        let target_segment_count = index_options.target_segment_count();
-        let merge_on_insert = index_options.merge_on_insert();
+    pub fn resources(&self, indexrel: &PgRelation) -> IndexConfig {
+        let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
+        assert!(!options.is_null());
+        let options = unsafe { &*options };
+        let target_segment_count = options.target_segment_count();
+        let merge_on_insert = options.merge_on_insert();
 
         match self {
             WriterResources::CreateIndex => {

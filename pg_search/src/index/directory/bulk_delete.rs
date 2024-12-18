@@ -19,10 +19,10 @@ use super::utils::{
     delete_unused_delete_metas, delete_unused_directory_entries, delete_unused_metas,
     get_deleted_ids, list_managed_files, load_metas, save_delete_metas, DirectoryLookup,
 };
-use crate::index::channel::NeedWal;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::bm25_max_free_space;
+use crate::postgres::NeedWal;
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::pg_sys;

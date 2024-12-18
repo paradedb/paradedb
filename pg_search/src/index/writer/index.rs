@@ -26,11 +26,11 @@ use tantivy::{
 use thiserror::Error;
 
 use crate::index::bulk_delete::BulkDeleteDirectory;
-use crate::index::channel::{ChannelDirectory, ChannelRequestHandler, NeedWal};
+use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::merge_policy::MergeLock;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
-use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::NeedWal;
 use crate::{
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -63,9 +63,8 @@ impl SearchIndexWriter {
         resources: WriterResources,
     ) -> Result<Self> {
         let schema = get_index_schema(index_relation)?;
-        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
         let (parallelism, memory_budget, wants_merge, merge_policy, need_wal) =
-            resources.resources(unsafe { &*create_options });
+            resources.resources(index_relation);
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
@@ -116,9 +115,8 @@ impl SearchIndexWriter {
 
     pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
         let schema = get_index_schema(index_relation)?;
-        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
         let (parallelism, memory_budget, wants_merge, merge_policy, need_wal) =
-            WriterResources::CreateIndex.resources(unsafe { &*create_options });
+            WriterResources::CreateIndex.resources(index_relation);
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);

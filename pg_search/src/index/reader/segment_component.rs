@@ -1,7 +1,7 @@
-use crate::index::channel::NeedWal;
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry, LinkedList};
 use crate::postgres::storage::linked_bytes::RangeData;
 use crate::postgres::storage::LinkedBytesList;
+use crate::postgres::NeedWal;
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::*;

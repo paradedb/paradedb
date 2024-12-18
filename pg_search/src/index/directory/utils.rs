@@ -1,9 +1,9 @@
-use crate::index::channel::NeedWal;
 use crate::postgres::storage::block::{
     DeleteMetaEntry, DirectoryEntry, LinkedList, MVCCEntry, PgItem, SegmentMetaEntry,
     DELETE_METAS_START, DIRECTORY_START, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::NeedWal;
 use anyhow::{anyhow, bail, Result};
 use pgrx::pg_sys;
 #[cfg(any(test, feature = "pg_test"))]

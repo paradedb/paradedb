@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData};
-use crate::index::channel::NeedWal;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
 use crate::postgres::storage::SKIPLIST_FREQ;
+use crate::postgres::NeedWal;
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::pg_sys;

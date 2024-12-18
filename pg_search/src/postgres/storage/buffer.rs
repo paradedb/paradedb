@@ -1,6 +1,6 @@
-use crate::index::channel::NeedWal;
 use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::utils::{BM25Buffer, BM25BufferCache, BM25Page};
+use crate::postgres::NeedWal;
 use pgrx::pg_sys;
 use std::marker::PhantomData;
 use std::ptr::NonNull;

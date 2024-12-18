@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::channel::NeedWal;
 use crate::index::writer::index::SearchIndexWriter;
+use crate::index::WriterResources;
 use crate::postgres::storage::block::{
     DirectoryEntry, MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, DELETE_METAS_START,
     DIRECTORY_START, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -26,6 +26,7 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::SearchIndexSchema;
 use pgrx::itemptr::item_pointer_get_both;
+use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::*;
 use std::ffi::CStr;
 use std::time::Instant;
@@ -65,7 +66,7 @@ pub extern "C" fn ambuild(
     let index_oid = index_relation.oid();
 
     // Create the metadata blocks for the index
-    unsafe { create_metadata(index_oid, true) };
+    unsafe { create_metadata(&index_relation) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -89,6 +90,22 @@ pub extern "C" fn ambuild(
     }
 
     let tuple_count = do_heap_scan(index_info, &heap_relation, &index_relation);
+
+    // now send the whole thing we just created straight to the WAL
+    unsafe {
+        if relation_needs_wal(&index_relation) {
+            let nblocks =
+                pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
+
+            if crate::gucs::log_create_index_progress() {
+                pgrx::log!(
+                    "{tuple_count} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes", nblocks as usize * pg_sys::BLCKSZ as usize
+                );
+            }
+
+            pg_sys::log_newpage_range(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM, 0, nblocks, true);
+        }
+    }
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = tuple_count as f64;
@@ -185,6 +202,51 @@ unsafe extern "C" fn build_callback(
     }
 }
 
+fn relation_needs_wal(relation: &PgRelation) -> bool {
+    // #define InvalidSubTransactionId		((SubTransactionId) 0)
+    const INVALID_SUB_TRANSACTION_ID: pg_sys::SubTransactionId = 0;
+
+    // /*
+    //  * Is WAL-logging necessary for archival or log-shipping, or can we skip
+    //  * WAL-logging if we fsync() the data before committing instead?
+    //  */
+    // #define XLogIsNeeded() (wal_level >= WAL_LEVEL_REPLICA)
+    unsafe fn xlog_is_needed() -> bool {
+        pg_sys::wal_level >= WAL_LEVEL_REPLICA as i32
+    }
+
+    // /*
+    //  * RelationIsPermanent
+    //  *		True if relation is permanent.
+    //  */
+    // #define RelationIsPermanent(relation) \
+    // 	((relation)->rd_rel->relpersistence == RELPERSISTENCE_PERMANENT)
+
+    unsafe fn relation_is_permanent(relation: &PgRelation) -> bool {
+        (*relation.rd_rel).relpersistence == pg_sys::RELPERSISTENCE_PERMANENT as core::ffi::c_char
+    }
+
+    // /*
+    //  * RelationNeedsWAL
+    //  *		True if relation needs WAL.
+    //  *
+    //  * Returns false if wal_level = minimal and this relation is created or
+    //  * truncated in the current transaction.  See "Skipping WAL for New
+    //  * RelFileLocator" in src/backend/access/transam/README.
+    //  */
+    // #define RelationNeedsWAL(relation)										\
+    // 	(RelationIsPermanent(relation) && (XLogIsNeeded() ||				\
+    // 	  (relation->rd_createSubid == InvalidSubTransactionId &&			\
+    // 	   relation->rd_firstRelfilelocatorSubid == InvalidSubTransactionId)))
+
+    unsafe {
+        relation_is_permanent(relation)
+            && (xlog_is_needed()
+                || (relation.rd_createSubid == INVALID_SUB_TRANSACTION_ID
+                    && relation.rd_firstRelfilelocatorSubid == INVALID_SUB_TRANSACTION_ID))
+    }
+}
+
 fn is_bm25_index(indexrel: &PgRelation) -> bool {
     unsafe {
         // SAFETY:  we ensure that `indexrel.rd_indam` is non null and can be dereferenced
@@ -192,7 +254,9 @@ fn is_bm25_index(indexrel: &PgRelation) -> bool {
     }
 }
 
-unsafe fn create_metadata(relation_oid: pg_sys::Oid, need_wal: NeedWal) {
+unsafe fn create_metadata(index_relation: &PgRelation) {
+    let need_wal = WriterResources::CreateIndex.resources(index_relation).4;
+    let relation_oid = index_relation.oid();
     let mut bman = BufferManager::new(relation_oid, need_wal);
 
     // Init merge lock buffer

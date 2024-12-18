@@ -24,7 +24,6 @@ use crate::index::writer::channel::ChannelWriter;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
 
-pub type NeedWal = bool;
 pub type Overwrite = bool;
 
 pub enum ChannelRequest {

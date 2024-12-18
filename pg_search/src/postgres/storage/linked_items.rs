@@ -130,7 +130,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut blockno = start_blockno;
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = self.bman.get_buffer_mut(blockno);
+            let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
             let mut page = buffer.page_mut();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();

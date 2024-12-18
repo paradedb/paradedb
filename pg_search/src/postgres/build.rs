@@ -17,10 +17,9 @@
 
 use crate::index::channel::NeedWal;
 use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{create_new_index, WriterResources};
 use crate::postgres::storage::block::{
-    DirectoryEntry, MergeLockData, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
-    MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    DirectoryEntry, MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, DELETE_METAS_START,
+    DIRECTORY_START, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -106,9 +105,8 @@ fn do_heap_scan<'a>(
     index_relation: &'a PgRelation,
 ) -> usize {
     unsafe {
-        let writer = create_new_index(index_relation, WriterResources::CreateIndex)
-            .expect("should be able to open a SearchIndexWriter");
-
+        let writer = SearchIndexWriter::create_index(index_relation)
+            .expect("do_heap_scan: should be able to open a SearchIndexWriter");
         let mut state = BuildState::new(index_relation, writer);
 
         pg_sys::IndexBuildHeapScan(
@@ -195,13 +193,19 @@ fn is_bm25_index(indexrel: &PgRelation) -> bool {
 }
 
 unsafe fn create_metadata(relation_oid: pg_sys::Oid, need_wal: NeedWal) {
-    // Init merge lock buffer
     let mut bman = BufferManager::new(relation_oid, need_wal);
+
+    // Init merge lock buffer
     let mut merge_lock = bman.new_buffer();
     assert_eq!(merge_lock.number(), MERGE_LOCK);
     let mut page = merge_lock.init_page();
     let metadata = page.contents_mut::<MergeLockData>();
     metadata.last_merge = pg_sys::InvalidTransactionId;
+
+    // Init cleanup lock buffer
+    let mut cleanup_lock = bman.new_buffer();
+    assert_eq!(cleanup_lock.number(), CLEANUP_LOCK);
+    cleanup_lock.init_page();
 
     // initialize all the other required buffers
     let schema = LinkedBytesList::create(relation_oid, need_wal);

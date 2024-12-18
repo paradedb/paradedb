@@ -364,6 +364,7 @@ impl BufferManager {
         }
     }
 
+    #[must_use]
     pub fn new_buffer(&mut self) -> BufferMut {
         unsafe {
             BufferMut {
@@ -400,10 +401,7 @@ impl BufferManager {
         }
     }
 
-    pub fn get_buffer_mut_conditional(
-        &mut self,
-        blockno: pg_sys::BlockNumber,
-    ) -> Option<BufferMut> {
+    pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {
         unsafe {
             let buffer = self.bcache.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBuffer(buffer) {
@@ -415,6 +413,18 @@ impl BufferManager {
             } else {
                 pg_sys::ReleaseBuffer(buffer);
                 None
+            }
+        }
+    }
+
+    pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
+        unsafe {
+            let buffer = self.bcache.get_buffer(blockno, None);
+            pg_sys::LockBufferForCleanup(buffer);
+            BufferMut {
+                style: self.style(XlogFlag::ExistingBuffer),
+                dirty: false,
+                inner: Buffer { pg_buffer: buffer },
             }
         }
     }

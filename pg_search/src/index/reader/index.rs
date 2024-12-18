@@ -23,17 +23,23 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::iter::Flatten;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::fastfield::Column;
 use tantivy::index::Index;
 use tantivy::query::QueryParser;
 use tantivy::schema::FieldType;
 use tantivy::{
-    query::Query, Ctid, DocAddress, DocId, IndexReader, Order, Score, Searcher, SegmentOrdinal,
-    SegmentReader, TantivyDocument, TantivyError,
+    query::Query, Ctid, DocAddress, DocId, IndexReader, Order, ReloadPolicy, Score, Searcher,
+    SegmentOrdinal, SegmentReader, TantivyDocument, TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
+use crate::index::bulk_delete::BulkDeleteDirectory;
+use crate::index::mvcc::MVCCDirectory;
+use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType};
+use crate::postgres::storage::block::CLEANUP_LOCK;
+use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 
@@ -213,24 +219,58 @@ pub struct SearchIndexReader {
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
     underlying_index: Index,
+
+    // [`Buffer`] has a Drop impl, so we hold onto the lock, but don't otherwise use it
+    // and it's an Arc b/c if we're clone'd (we do derive it, afterall), we only want this
+    // buffer dropped once
+    _cleanup_lock: Arc<Option<Buffer>>,
 }
 
 impl SearchIndexReader {
-    pub fn new(
+    pub fn open(
         index_relation: &PgRelation,
-        index: Index,
-        searcher: Searcher,
-        reader: IndexReader,
-        schema: SearchIndexSchema,
-    ) -> Self {
-        Self {
-            // NB:  holds the relation open with an AccessShareLock, which seems appropriate
+        directory_type: BlockDirectoryType,
+        needs_cleanup_lock: bool,
+    ) -> Result<Self> {
+        let schema = get_index_schema(index_relation)?;
+
+        // It is possible for index only scans and custom scans, which only check the visibility map
+        // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
+        // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
+        // reads in some dead ctids. ambulkdelete finishes immediately after, and Postgres updates its visibility map,
+        //rendering those dead ctids visible. The concurrent scan then returns the wrong results.
+        // To prevent this, ambulkdelete acquires an exclusive cleanup lock. Readers must also acquire this lock (shared)
+        // to prevent a reader from reading dead ctids right before ambulkdelete finishes.
+        let cleanup_lock = if needs_cleanup_lock {
+            let bman = BufferManager::new(index_relation.oid(), false);
+            Some(bman.get_buffer(CLEANUP_LOCK))
+        } else {
+            None
+        };
+
+        let mut index = match directory_type {
+            BlockDirectoryType::Mvcc => {
+                Index::open(MVCCDirectory::new(index_relation.oid(), false))?
+            }
+            BlockDirectoryType::BulkDelete => {
+                Index::open(BulkDeleteDirectory::new(index_relation.oid()))?
+            }
+        };
+        setup_tokenizers(&mut index, &schema);
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        let searcher = reader.searcher();
+
+        Ok(Self {
             index_oid: index_relation.oid(),
             searcher,
             schema,
             underlying_reader: reader,
             underlying_index: index,
-        }
+            _cleanup_lock: Arc::new(cleanup_lock),
+        })
     }
 
     pub fn key_field(&self) -> SearchField {

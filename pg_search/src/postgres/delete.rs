@@ -15,12 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::merge_policy::MergeLock;
-use crate::index::{open_bulk_delete_reader, open_bulk_delete_writer, WriterResources};
 use pgrx::{pg_sys::ItemPointerData, *};
 use tantivy::postings::Postings;
 use tantivy::schema::IndexRecordOption;
 use tantivy::{DocSet, Term};
+
+use super::storage::block::CLEANUP_LOCK;
+use crate::index::merge_policy::MergeLock;
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::writer::index::SearchIndexWriter;
+use crate::index::{BlockDirectoryType, WriterResources};
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -41,10 +45,14 @@ pub extern "C" fn ambulkdelete(
     };
 
     let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid(), true) };
-    let mut writer = open_bulk_delete_writer(&index_relation, WriterResources::Vacuum)
-        .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader = open_bulk_delete_reader(&index_relation)
-        .expect("ambulkdelete: should be able to obtain a SearchIndexReader");
+    let mut writer = SearchIndexWriter::open(
+        &index_relation,
+        BlockDirectoryType::BulkDelete,
+        WriterResources::Vacuum,
+    )
+    .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete, false)
+        .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
     let ctid_field = writer.get_ctid_field();
     for segment_reader in reader.searcher().segment_readers() {
@@ -74,10 +82,23 @@ pub extern "C" fn ambulkdelete(
         }
     }
 
-    // Don't merge here, amvacuumcleanup will merge
-    writer
-        .commit(false)
-        .expect("ambulkdelete: commit should succeed");
+    unsafe {
+        let cleanup_buffer = pg_sys::ReadBufferExtended(
+            info.index,
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            CLEANUP_LOCK,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            info.strategy,
+        );
+        pg_sys::LockBufferForCleanup(cleanup_buffer);
+
+        // Don't merge here, amvacuumcleanup will merge
+        writer
+            .commit(false)
+            .expect("ambulkdelete: commit should succeed");
+
+        pg_sys::UnlockReleaseBuffer(cleanup_buffer);
+    }
 
     if stats.is_null() {
         stats = unsafe {

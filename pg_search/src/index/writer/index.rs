@@ -16,16 +16,20 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::Result;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgRelation};
 use std::sync::Arc;
 use tantivy::indexer::{MergePolicy, NoMergePolicy, UserOperation};
 use tantivy::schema::Field;
-use tantivy::{Ctid, Index, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
+use tantivy::{
+    Ctid, Index, IndexSettings, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term,
+};
 use thiserror::Error;
 
-use crate::index::channel::{ChannelRequestHandler, NeedWal};
-use crate::index::merge_policy::{MergeLock, NPlusOneMergePolicy};
-use crate::index::WriterResources;
+use crate::index::bulk_delete::BulkDeleteDirectory;
+use crate::index::channel::{ChannelDirectory, ChannelRequestHandler, NeedWal};
+use crate::index::merge_policy::MergeLock;
+use crate::index::mvcc::MVCCDirectory;
+use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::{
     postgres::types::TantivyValueError,
@@ -35,6 +39,7 @@ use crate::{
 // NB:  should this be a GUC?  Could be useful or could just complicate things for the user
 /// How big should our insert queue get before we go ahead and add them to the tantivy index?
 const MAX_INSERT_QUEUE_SIZE: usize = 1000;
+const CHANNEL_QUEUE_LEN: usize = 1000;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
@@ -52,71 +57,103 @@ pub struct SearchIndexWriter {
 }
 
 impl SearchIndexWriter {
-    pub fn new(
-        relation_oid: pg_sys::Oid,
-        index: Index,
-        schema: SearchIndexSchema,
-        mut handler: ChannelRequestHandler,
+    pub fn open(
+        index_relation: &PgRelation,
+        directory_type: BlockDirectoryType,
         resources: WriterResources,
-        index_options: &SearchIndexCreateOptions,
     ) -> Result<Self> {
-        let (parallelism, memory_budget, target_segment_count, merge_on_insert, need_wal) =
-            resources.resources(index_options);
+        let schema = get_index_schema(index_relation)?;
+        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
+        let (parallelism, memory_budget, wants_merge, merge_policy, need_wal) =
+            resources.resources(unsafe { &*create_options });
 
-        // let memory_budget = memory_budget / parallelism.get();
-        // let parallelism = std::num::NonZeroUsize::new(12).unwrap();
+        let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
+        let channel_dir = ChannelDirectory::new(req_sender);
+        let mut handler = match directory_type {
+            BlockDirectoryType::Mvcc => ChannelRequestHandler::open(
+                &MVCCDirectory::new(index_relation.oid(), need_wal),
+                index_relation.oid(),
+                req_receiver,
+            ),
+            BlockDirectoryType::BulkDelete => ChannelRequestHandler::open(
+                &BulkDeleteDirectory::new(index_relation.oid()),
+                index_relation.oid(),
+                req_receiver,
+            ),
+        };
 
-        let (wants_merge, merge_policy) = match resources {
-            // During a CREATE INDEX we use `target_segment_count` but require twice
-            // as many segments before we'll do a merge.
-            WriterResources::CreateIndex => {
-                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segment_count,
-                    min_num_segments: target_segment_count * 2,
-                });
-                (true, policy)
-            }
-
-            // During a VACUUM we want to merge down to our `target_segment_count`
-            WriterResources::Vacuum => {
-                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segment_count,
-                    min_num_segments: 0,
-                });
-                (true, policy)
-            }
-
-            // During regular INSERT/UPDATE/COPY statements, if we were asked to "merge_on_insert"
-            // then we use our `NPlusOneMergePolicy` which will ensure we don't more than
-            // `target_segment_count` segments, requiring at least 2 to merge together.
-            // The idea being that only the very smallest segments will be merged together, reducing write amplification
-            WriterResources::Statement if merge_on_insert => {
-                let policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segment_count,
-                    min_num_segments: 2,
-                });
-                (true, policy)
-            }
-
-            // During regular INSERT/UPDATE/COPY statements, if we were told not to "merge_on_insert"
-            // then we don't do any merging at all.
-            WriterResources::Statement => {
-                let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
-                (false, policy)
-            }
+        let index = {
+            let schema = schema.clone();
+            handler
+                .wait_for(move || {
+                    let mut index = Index::open(channel_dir)?;
+                    setup_tokenizers(&mut index, &schema);
+                    tantivy::Result::Ok(index)
+                })
+                .expect("scoped thread should not fail")?
         };
 
         let writer = handler
             .wait_for(move || {
                 let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
-                writer.set_merge_policy(merge_policy);
+                writer.set_merge_policy(merge_policy.into());
                 tantivy::Result::Ok(writer)
             })
             .expect("scoped thread should not fail")?;
 
         let ctid_field = schema.schema.get_field("ctid")?;
         Ok(Self {
-            relation_oid,
+            relation_oid: index_relation.oid(),
+            writer: Arc::new(writer),
+            schema,
+            handler,
+            wants_merge,
+            ctid_field,
+            insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            need_wal,
+        })
+    }
+
+    pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
+        let schema = get_index_schema(index_relation)?;
+        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
+        let (parallelism, memory_budget, wants_merge, merge_policy, need_wal) =
+            WriterResources::CreateIndex.resources(unsafe { &*create_options });
+
+        let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
+        let channel_dir = ChannelDirectory::new(req_sender);
+        let mut handler = ChannelRequestHandler::open(
+            &MVCCDirectory::new(index_relation.oid(), need_wal),
+            index_relation.oid(),
+            req_receiver,
+        );
+
+        let index = {
+            let schema = schema.clone();
+            let settings = IndexSettings {
+                docstore_compress_dedicated_thread: false,
+                ..IndexSettings::default()
+            };
+
+            handler
+                .wait_for(move || {
+                    let mut index = Index::create(channel_dir, schema.schema.clone(), settings)?;
+                    setup_tokenizers(&mut index, &schema);
+                    tantivy::Result::Ok(index)
+                })
+                .expect("scoped thread should not fail")?
+        };
+        let writer = handler
+            .wait_for(move || {
+                let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
+                writer.set_merge_policy(merge_policy.into());
+                tantivy::Result::Ok(writer)
+            })
+            .expect("scoped thread should not fail")?;
+        let ctid_field = schema.schema.get_field("ctid")?;
+
+        Ok(Self {
+            relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
             schema,
             ctid_field,

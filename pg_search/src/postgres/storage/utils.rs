@@ -23,25 +23,10 @@ use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 pub trait BM25Page {
-    unsafe fn init(self, page_size: pg_sys::Size);
-    unsafe fn mark_deleted(self);
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool;
 }
 
 impl BM25Page for pg_sys::Page {
-    unsafe fn init(self, page_size: pg_sys::Size) {
-        pg_sys::PageInit(self, page_size, size_of::<BM25PageSpecialData>());
-
-        let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
-        (*special).next_blockno = pg_sys::InvalidBlockNumber;
-        (*special).xmax = pg_sys::InvalidTransactionId;
-    }
-
-    unsafe fn mark_deleted(self) {
-        let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
-        (*special).xmax = pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
-    }
-
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool {
         if pg_sys::PageIsNew(self) {
             return true;
@@ -72,15 +57,17 @@ unsafe impl Send for BM25BufferCache {}
 unsafe impl Sync for BM25BufferCache {}
 
 impl BM25BufferCache {
-    pub unsafe fn open(indexrelid: pg_sys::Oid) -> Arc<Self> {
-        let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
-        let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
-        let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
-        Arc::new(Self {
-            indexrel: PgBox::from_pg(indexrel),
-            heaprel: PgBox::from_pg(heaprel),
-            cache: Default::default(),
-        })
+    pub fn open(indexrelid: pg_sys::Oid) -> Arc<Self> {
+        unsafe {
+            let indexrel = pg_sys::RelationIdGetRelation(indexrelid);
+            let heaprelid = pg_sys::IndexGetRelation(indexrelid, false);
+            let heaprel = pg_sys::RelationIdGetRelation(heaprelid);
+            Arc::new(Self {
+                indexrel: PgBox::from_pg(indexrel),
+                heaprel: PgBox::from_pg(heaprel),
+                cache: Default::default(),
+            })
+        }
     }
 
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
@@ -129,6 +116,25 @@ impl BM25BufferCache {
             blockno,
             pg_sys::ReadBufferMode::RBM_NORMAL,
             std::ptr::null_mut(),
+        );
+        if let Some(lock) = lock {
+            pg_sys::LockBuffer(buffer, lock as i32);
+        }
+        buffer
+    }
+
+    pub unsafe fn get_buffer_with_strategy(
+        &self,
+        blockno: pg_sys::BlockNumber,
+        strategy: pg_sys::BufferAccessStrategy,
+        lock: Option<u32>,
+    ) -> pg_sys::Buffer {
+        let buffer = pg_sys::ReadBufferExtended(
+            self.indexrel.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            blockno,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            strategy,
         );
         if let Some(lock) = lock {
             pg_sys::LockBuffer(buffer, lock as i32);

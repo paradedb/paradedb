@@ -104,7 +104,7 @@ pub extern "C" fn amrescan(
     }
 
     // Create the index and scan state
-    let search_reader = SearchIndexReader::new(indexrel.oid(), BlockDirectoryType::Mvcc, unsafe {
+    let search_reader = SearchIndexReader::open(&indexrel, BlockDirectoryType::Mvcc, unsafe {
         (*scan).xs_want_itup
     })
     .expect("amrescan: should be able to open a SearchIndexReader");

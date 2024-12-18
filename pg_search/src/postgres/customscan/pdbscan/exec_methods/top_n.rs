@@ -59,7 +59,7 @@ impl TopNScanExecState {
 }
 
 impl ExecMethod for TopNScanExecState {
-    fn init(&mut self, state: &PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
         let sort_field = state.sort_field.clone();
         let search_reader = state.search_reader.as_ref().unwrap();
 

@@ -58,7 +58,7 @@ impl Drop for NormalScanExecState {
     }
 }
 impl ExecMethod for NormalScanExecState {
-    fn init(&mut self, state: &PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
         unsafe {
             self.heaprel = state.heaprel.unwrap();
             self.slot = pg_sys::MakeTupleTableSlot(

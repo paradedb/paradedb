@@ -44,16 +44,15 @@ pub extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
-    let mut writer = SearchIndexWriter::new(
-        index_relation.oid(),
+    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid(), true) };
+    let mut writer = SearchIndexWriter::open(
+        &index_relation,
         BlockDirectoryType::BulkDelete,
         WriterResources::Vacuum,
     )
     .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader =
-        SearchIndexReader::new(index_relation.oid(), BlockDirectoryType::BulkDelete, false)
-            .expect("ambulkdelete: should be able to open a SearchIndexReader");
+    let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete, false)
+        .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
     let ctid_field = writer.get_ctid_field();
     for segment_reader in reader.searcher().segment_readers() {

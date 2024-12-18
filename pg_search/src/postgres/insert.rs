@@ -55,8 +55,7 @@ impl InsertState {
         indexrel: &PgRelation,
         writer_resources: WriterResources,
     ) -> anyhow::Result<Self> {
-        let writer =
-            SearchIndexWriter::new(indexrel.oid(), BlockDirectoryType::Mvcc, writer_resources)?;
+        let writer = SearchIndexWriter::open(indexrel, BlockDirectoryType::Mvcc, writer_resources)?;
         Ok(Self {
             writer: Some(writer),
             abort_on_drop: false,

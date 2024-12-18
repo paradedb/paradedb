@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::BM25BufferCache;
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::SKIPLIST_FREQ;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
@@ -124,15 +124,10 @@ pub trait LinkedList {
     }
 
     unsafe fn get_linked_list_data(&self) -> LinkedListData {
-        let cache = BM25BufferCache::open(self.get_relation_oid());
-        let header_buffer =
-            cache.get_buffer(self.get_header_blockno(), Some(pg_sys::BUFFER_LOCK_SHARE));
-        let page = pg_sys::BufferGetPage(header_buffer);
-        let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-        let data = metadata.read_unaligned();
-
-        pg_sys::UnlockReleaseBuffer(header_buffer);
-        data
+        let bman = BufferManager::new(self.get_relation_oid(), false);
+        let header_buffer = bman.get_buffer(self.get_header_blockno());
+        let page = header_buffer.page();
+        page.contents::<LinkedListData>()
     }
 }
 

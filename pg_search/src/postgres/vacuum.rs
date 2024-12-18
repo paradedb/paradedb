@@ -21,7 +21,7 @@ use crate::postgres::storage::block::{
     DeleteMetaEntry, DirectoryEntry, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
     SEGMENT_METAS_START,
 };
-use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::LinkedItemList;
 use pgrx::*;
 
@@ -38,8 +38,8 @@ pub extern "C" fn amvacuumcleanup(
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
 
     // vacuum the index, which is effectively just a forced commit() plus a wait_merging_threads()
-    SearchIndexWriter::new(
-        index_relation.oid(),
+    SearchIndexWriter::open(
+        &index_relation,
         BlockDirectoryType::Mvcc,
         WriterResources::Vacuum,
     )
@@ -51,35 +51,36 @@ pub extern "C" fn amvacuumcleanup(
         // Garbage collect linked lists
         // If new LinkedItemLists are created they should be garbage collected here
         let index_oid = index_relation.oid();
-        let mut directory = LinkedItemList::<DirectoryEntry>::open(index_oid, DIRECTORY_START);
+        let mut directory =
+            LinkedItemList::<DirectoryEntry>::open(index_oid, DIRECTORY_START, true);
         directory
-            .garbage_collect()
+            .garbage_collect(info.strategy)
             .expect("garbage collection should succeed");
         let mut segment_metas =
-            LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START);
+            LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START, true);
         segment_metas
-            .garbage_collect()
+            .garbage_collect(info.strategy)
             .expect("garbage collection should succeed");
         let mut delete_metas =
-            LinkedItemList::<DeleteMetaEntry>::open(index_oid, DELETE_METAS_START);
+            LinkedItemList::<DeleteMetaEntry>::open(index_oid, DELETE_METAS_START, true);
         delete_metas
-            .garbage_collect()
+            .garbage_collect(info.strategy)
             .expect("garbage collection should succeed");
 
         // Return all recyclable pages to the free space map
         let nblocks =
             pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM);
-        let cache = BM25BufferCache::open(index_oid);
+        let mut bman = BufferManager::new(index_oid, true);
         let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
         for blockno in 0..nblocks {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            if page.recyclable(heap_relation) {
-                cache.record_free_index_page(blockno);
+            let buffer = bman.get_buffer(blockno);
+            let page = buffer.page();
+
+            if page.is_recyclable(heap_relation) {
+                bman.record_free_index_page(buffer);
             }
-            pg_sys::UnlockReleaseBuffer(buffer);
         }
         pg_sys::RelationClose(heap_relation);
         pg_sys::IndexFreeSpaceMapVacuum(info.index);

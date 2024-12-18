@@ -888,7 +888,7 @@ mod tests {
     use rstest::rstest;
     use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
 
-    use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
+    use crate::schema::SearchFieldConfig;
 
     #[rstest]
     fn test_search_text_options() {

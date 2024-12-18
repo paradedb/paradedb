@@ -1,10 +1,10 @@
+use crate::postgres::storage::block::{MergeLockData, MERGE_LOCK};
+use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::NeedWal;
 use pgrx::pg_sys;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::merge_policy::NoMergePolicy;
 use tantivy::SegmentMeta;
-
-use crate::postgres::storage::block::{MergeLockData, MERGE_LOCK};
-use crate::postgres::storage::utils::BM25BufferCache;
 
 #[derive(Debug, Clone)]
 pub enum AllowedMergePolicy {
@@ -67,50 +67,37 @@ impl MergePolicy for NPlusOneMergePolicy {
 }
 
 /// Only one merge can happen at a time, so we need to lock the merge process
-pub struct MergeLock {
-    relation_oid: pg_sys::Oid,
-    buffer: pg_sys::Buffer,
-}
+pub struct MergeLock(BufferMut);
 
 impl MergeLock {
     // This lock is acquired by inserts if merge_on_insert is true
     // Merges should only happen if there is no other merge in progress
     // AND the effects of the previous merge are visible
-    pub unsafe fn acquire_for_merge(relation_oid: pg_sys::Oid) -> Option<Self> {
-        let cache = BM25BufferCache::open(relation_oid);
-        let merge_lock = cache.get_buffer(MERGE_LOCK, None);
-        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+    pub unsafe fn acquire_for_merge(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Option<Self> {
+        let mut bman = BufferManager::new(relation_oid, need_wal);
 
-        if pg_sys::ConditionalLockBuffer(merge_lock) {
-            let page = pg_sys::BufferGetPage(merge_lock);
-            let metadata = pg_sys::PageGetContents(page) as *mut MergeLockData;
-            let last_merge = (*metadata).last_merge;
-            if pg_sys::XidInMVCCSnapshot(last_merge, snapshot)
-                && last_merge != pg_sys::InvalidTransactionId
-            {
-                pg_sys::UnlockReleaseBuffer(merge_lock);
+        if let Some(mut merge_lock) = bman.get_buffer_conditional(MERGE_LOCK) {
+            let mut page = merge_lock.page_mut();
+            let metadata = page.contents_mut::<MergeLockData>();
+            let last_merge = metadata.last_merge;
+            let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+
+            if pg_sys::XidInMVCCSnapshot(last_merge, snapshot) {
                 None
             } else {
-                Some(MergeLock {
-                    relation_oid,
-                    buffer: merge_lock,
-                })
+                Some(MergeLock(merge_lock))
             }
         } else {
-            pg_sys::ReleaseBuffer(merge_lock);
             None
         }
     }
 
     // This lock must be acquired before ambulkdelete calls commit() on the index
     // We ask for an exclusive lock because ambulkdelete must delete all dead ctids
-    pub unsafe fn acquire_for_delete(relation_oid: pg_sys::Oid) -> Self {
-        let cache = BM25BufferCache::open(relation_oid);
-        let buffer = cache.get_buffer(MERGE_LOCK, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        MergeLock {
-            relation_oid,
-            buffer,
-        }
+    pub unsafe fn acquire_for_delete(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
+        let mut bman = BufferManager::new(relation_oid, need_wal);
+        let merge_lock = bman.get_buffer_mut(MERGE_LOCK);
+        MergeLock(merge_lock)
     }
 }
 
@@ -118,13 +105,9 @@ impl Drop for MergeLock {
     fn drop(&mut self) {
         unsafe {
             if pg_sys::IsTransactionState() {
-                let cache = BM25BufferCache::open(self.relation_oid);
-                let state = cache.start_xlog();
-                let page = pg_sys::GenericXLogRegisterBuffer(state, self.buffer, 0);
-                let metadata = pg_sys::PageGetContents(page) as *mut MergeLockData;
-                (*metadata).last_merge = pg_sys::GetCurrentTransactionId();
-                pg_sys::GenericXLogFinish(state);
-                pg_sys::UnlockReleaseBuffer(self.buffer);
+                let mut page = self.0.page_mut();
+                let metadata = page.contents_mut::<MergeLockData>();
+                metadata.last_merge = pg_sys::GetCurrentTransactionId();
             }
         }
     }

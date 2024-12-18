@@ -29,7 +29,7 @@ use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
-    PgList, PgOid,
+    PgList, PgOid, PgRelation,
 };
 use rustc_hash::FxHashSet;
 use std::ptr::NonNull;
@@ -50,8 +50,12 @@ pub fn search_with_query_input(
                 _ => panic!("the SearchQueryInput must be wrapped in a WithIndex variant"),
             }
         };
-        let search_reader = SearchIndexReader::new(index_oid, BlockDirectoryType::Mvcc, false)
-            .expect("search_with_query_input: should be able to open a SearchIndexReader");
+        let index_relation = unsafe {
+            PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
+        };
+        let search_reader =
+            SearchIndexReader::open(&index_relation, BlockDirectoryType::Mvcc, false)
+                .expect("search_with_query_input: should be able to open a SearchIndexReader");
 
         let key_field = search_reader.key_field();
         let key_field_name = key_field.name.0;

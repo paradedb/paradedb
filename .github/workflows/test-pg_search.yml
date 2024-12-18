@@ -164,7 +164,16 @@ jobs:
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 
-      - name: Run pg_search test suite
+      - name: Run integration tests
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: tests/
+        run: |
+          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          export PARADEDB_TELEMETRY=false
+          RUST_BACKTRACE=1 cargo test --features pg${{ matrix.pg_version }},icu --no-default-features
+
+      - name: Run pgrx tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
@@ -285,7 +294,7 @@ jobs:
 
       - name: Start Postgres and create database
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
+        working-directory: tests/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search

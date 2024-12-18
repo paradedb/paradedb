@@ -169,9 +169,8 @@ jobs:
         working-directory: tests/
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test --features pg${{ matrix.pg_version }},icu --no-default-features
+          RUST_BACKTRACE=1 cargo test
 
       - name: Run pgrx tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

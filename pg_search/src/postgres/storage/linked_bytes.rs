@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData};
-use super::utils::{BM25BufferCache, BM25Page};
+use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
 use crate::postgres::storage::SKIPLIST_FREQ;
+use crate::postgres::NeedWal;
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -26,9 +27,7 @@ use std::cmp::min;
 use std::collections::hash_map::Entry;
 use std::io::{Cursor, Read};
 use std::ops::{Deref, Range};
-use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::sync::Arc;
-
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node is a page filled with bm25_max_free_space()
@@ -66,7 +65,7 @@ use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct LinkedBytesList {
-    cache: Arc<BM25BufferCache>,
+    bman: BufferManager,
     relation_oid: pg_sys::Oid,
     pub header_blockno: pg_sys::BlockNumber,
     metadata: LinkedListData,
@@ -132,18 +131,18 @@ impl Deref for RangeData {
 }
 
 impl LinkedBytesList {
-    pub fn open(relation_oid: pg_sys::Oid, header_blockno: pg_sys::BlockNumber) -> Self {
-        let cache = unsafe { BM25BufferCache::open(relation_oid) };
-        let metadata = unsafe {
-            let header_buffer = cache.get_buffer(header_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(header_buffer);
-            let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-            let metadata = metadata.read_unaligned();
-            pg_sys::UnlockReleaseBuffer(header_buffer);
-            metadata
-        };
+    pub fn open(
+        relation_oid: pg_sys::Oid,
+        header_blockno: pg_sys::BlockNumber,
+        need_wal: NeedWal,
+    ) -> Self {
+        let bman = BufferManager::new(relation_oid, need_wal);
+        let metadata = bman
+            .get_buffer(header_blockno)
+            .page_contents::<LinkedListData>();
+
         Self {
-            cache,
+            bman,
             relation_oid,
             header_blockno,
             metadata,
@@ -151,45 +150,24 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn create(relation_oid: pg_sys::Oid) -> Self {
-        let cache = BM25BufferCache::open(relation_oid);
-        let state = cache.start_xlog();
+    pub unsafe fn create(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
+        let mut bman = BufferManager::new(relation_oid, need_wal);
 
-        let header_buffer = cache.new_buffer();
-        let header_blockno = pg_sys::BufferGetBlockNumber(header_buffer);
-        let start_buffer = cache.new_buffer();
-        let start_blockno = pg_sys::BufferGetBlockNumber(start_buffer);
+        let mut header_buffer = bman.new_buffer();
+        let header_blockno = header_buffer.number();
+        let mut start_buffer = bman.new_buffer();
+        let start_blockno = start_buffer.number();
 
-        let header_page = pg_sys::GenericXLogRegisterBuffer(
-            state,
-            header_buffer,
-            pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
-        );
-        header_page.init(pg_sys::BufferGetPageSize(header_buffer));
+        let mut header_page = header_buffer.init_page();
+        start_buffer.init_page();
 
-        let start_page = pg_sys::GenericXLogRegisterBuffer(
-            state,
-            start_buffer,
-            pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
-        );
-        start_page.init(pg_sys::BufferGetPageSize(start_buffer));
-
-        let metadata = pg_sys::PageGetContents(header_page) as *mut LinkedListData;
-        (*metadata).skip_list[0] = start_blockno;
-        (*metadata).inner.last_blockno = start_blockno;
-        (*metadata).inner.npages = 1;
-
-        // Set pd_lower to the end of the metadata
-        // Without doing so, metadata will be lost if xlog.c compresses the page
-        let page_header = header_page as *mut pg_sys::PageHeaderData;
-        (*page_header).pd_lower = (metadata.add(1) as usize - header_page as usize) as u16;
-
-        pg_sys::GenericXLogFinish(state);
-        pg_sys::UnlockReleaseBuffer(header_buffer);
-        pg_sys::UnlockReleaseBuffer(start_buffer);
+        let metadata = header_page.contents_mut::<LinkedListData>();
+        metadata.skip_list[0] = start_blockno;
+        metadata.inner.last_blockno = start_blockno;
+        metadata.inner.npages = 1;
 
         Self {
-            cache,
+            bman,
             relation_oid,
             header_blockno,
             metadata: *metadata,
@@ -198,134 +176,94 @@ impl LinkedBytesList {
     }
 
     pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        let cache = &self.cache;
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
 
         while bytes_written < bytes.len() {
-            unsafe {
-                let insert_blockno = self.get_last_blockno();
-                let buffer = cache.get_buffer(insert_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                let state = cache.start_xlog();
-                let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
-                let header = page as *mut pg_sys::PageHeaderData;
-                let free_space = ((*header).pd_upper - (*header).pd_lower) as usize;
-                assert!(free_space <= bm25_max_free_space());
+            let insert_blockno = self.get_last_blockno();
+            let mut buffer = self.bman.get_buffer_mut(insert_blockno);
+            let mut page = buffer.page_mut();
+            let free_space = page.header().free_space();
+            assert!(free_space <= bm25_max_free_space());
 
-                let bytes_to_write = min(free_space, bytes.len() - bytes_written);
-                if bytes_to_write == 0 {
-                    let new_buffer = cache.new_buffer();
-                    // Set next blockno
-                    let new_blockno = pg_sys::BufferGetBlockNumber(new_buffer);
-                    let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-                    (*special).next_blockno = new_blockno;
-                    // Initialize new page
-                    let new_page = pg_sys::GenericXLogRegisterBuffer(
-                        state,
-                        new_buffer,
-                        pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
-                    );
-                    new_page.init(pg_sys::BufferGetPageSize(new_buffer));
-                    // Set last blockno to new blockno
-                    let header_buffer = cache.get_buffer(
-                        self.get_header_blockno(),
-                        Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
-                    );
+            let bytes_to_write = min(free_space, bytes.len() - bytes_written);
+            if bytes_to_write == 0 {
+                let mut new_buffer = self.bman.new_buffer();
 
-                    let page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
-                    let metadata = pg_sys::PageGetContents(page) as *mut LinkedListData;
-                    (*metadata).inner.last_blockno = new_blockno;
-                    (*metadata).inner.npages += 1;
-                    if (*metadata).inner.npages as usize % SKIPLIST_FREQ == 0 {
-                        let idx = (*metadata).inner.npages as usize / SKIPLIST_FREQ;
-                        (*metadata).skip_list[idx] = new_blockno;
-                    }
-                    self.metadata = *metadata;
+                // Set next blockno
+                let new_blockno = new_buffer.number();
+                let special = page.special_mut::<BM25PageSpecialData>();
+                special.next_blockno = new_blockno;
 
-                    pg_sys::GenericXLogFinish(state);
-                    pg_sys::UnlockReleaseBuffer(buffer);
-                    pg_sys::UnlockReleaseBuffer(new_buffer);
-                    pg_sys::UnlockReleaseBuffer(header_buffer);
-                    continue;
+                // Initialize new page
+                new_buffer.init_page();
+
+                // Set last blockno to new blockno
+                let mut header_buffer = self.bman.get_buffer_mut(self.get_header_blockno());
+
+                let mut page = header_buffer.page_mut();
+                let metadata = page.contents_mut::<LinkedListData>();
+                metadata.inner.last_blockno = new_blockno;
+                metadata.inner.npages += 1;
+                if metadata.inner.npages as usize % SKIPLIST_FREQ == 0 {
+                    let idx = metadata.inner.npages as usize / SKIPLIST_FREQ;
+                    metadata.skip_list[idx] = new_blockno;
                 }
-
-                let page_slice = from_raw_parts_mut(
-                    (page as *mut u8).add((*header).pd_lower as usize),
-                    bytes_to_write,
-                );
-                data_cursor.read_exact(page_slice)?;
-                bytes_written += bytes_to_write;
-                (*header).pd_lower += bytes_to_write as u16;
-                pg_sys::GenericXLogFinish(state);
-                pg_sys::UnlockReleaseBuffer(buffer);
+                self.metadata = *metadata;
+                continue;
             }
+
+            let page_slice = page.free_space_slice_mut(bytes_to_write);
+            data_cursor.read_exact(page_slice)?;
+            bytes_written += bytes_to_write;
+
+            page.header_mut().pd_lower += bytes_to_write as u16;
         }
 
         Ok(())
     }
 
     pub unsafe fn read_all(&self) -> Vec<u8> {
-        let cache = &self.cache;
         let mut blockno = self.get_start_blockno();
         let mut bytes: Vec<u8> = vec![];
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            let header = page as *mut pg_sys::PageHeaderData;
-            let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp) as u16;
-            let slice_len = (*header).pd_lower - header_size;
-            let slice = from_raw_parts((page as *mut u8).add(header_size.into()), slice_len.into());
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
+            let special = page.special::<BM25PageSpecialData>();
+            let slice = page.as_slice();
 
             bytes.extend_from_slice(slice);
-            blockno = (*special).next_blockno;
-            pg_sys::UnlockReleaseBuffer(buffer);
+            blockno = special.next_blockno;
         }
 
         bytes
     }
 
-    pub unsafe fn mark_deleted(&self) {
-        let cache = &self.cache;
+    pub unsafe fn mark_deleted(&mut self) {
         let mut blockno = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
-            let state = cache.start_xlog();
-            let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-            let page = pg_sys::GenericXLogRegisterBuffer(state, buffer, 0);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            blockno = (*special).next_blockno;
-            page.mark_deleted();
+            let mut buffer = self.bman.get_buffer_mut(blockno);
+            let page = buffer.page_mut();
+            let special = page.special::<BM25PageSpecialData>();
 
-            pg_sys::GenericXLogFinish(state);
-            pg_sys::UnlockReleaseBuffer(buffer);
+            blockno = special.next_blockno;
+            page.mark_deleted();
         }
 
-        let state = cache.start_xlog();
-        let header_buffer =
-            cache.get_buffer(self.header_blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-        let lock_page = pg_sys::GenericXLogRegisterBuffer(state, header_buffer, 0);
+        let mut header_buffer = self.bman.get_buffer_mut(self.header_blockno);
+        let lock_page = header_buffer.page_mut();
         lock_page.mark_deleted();
-
-        pg_sys::GenericXLogFinish(state);
-        pg_sys::UnlockReleaseBuffer(header_buffer);
     }
 
     pub fn is_empty(&self) -> bool {
-        unsafe {
-            let cache = &self.cache;
-            let start_blockno = self.get_start_blockno();
-            let start_buffer = cache.get_buffer(start_blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let start_page = pg_sys::BufferGetPage(start_buffer);
-            let is_empty = pg_sys::PageIsEmpty(start_page);
-            pg_sys::UnlockReleaseBuffer(start_buffer);
-            is_empty
-        }
+        self.bman.page_is_empty(self.get_start_blockno())
     }
 
     #[inline]
     pub unsafe fn get_cached_page_slice(&self, blockno: pg_sys::BlockNumber) -> &[u8] {
-        self.cache
+        self.bman
+            .bm25cache()
             .get_page_slice(blockno, Some(pg_sys::BUFFER_LOCK_SHARE))
     }
 
@@ -352,7 +290,6 @@ impl LinkedBytesList {
         const ITEM_SIZE: usize = bm25_max_free_space();
 
         // find the closest block in the linked list to where `range` begins
-        let cache = &self.cache;
         let start_block_ord = range.start / ITEM_SIZE;
         let (nearest_block, nearest_ord) = self.nearest_block_by_ord(start_block_ord);
         let mut blockno = nearest_block;
@@ -365,11 +302,11 @@ impl LinkedBytesList {
                 // scan forward from that block skipping those that appear before our range begins
                 let mut skip = start_block_ord - nearest_ord.saturating_sub(1);
                 while skip != 0 && blockno != pg_sys::InvalidBlockNumber {
-                    let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-                    let page = pg_sys::BufferGetPage(buffer);
-                    let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-                    blockno = (*special).next_blockno;
-                    pg_sys::UnlockReleaseBuffer(buffer);
+                    let buffer = self.bman.get_buffer(blockno);
+                    let page = buffer.page();
+                    let special = page.special::<BM25PageSpecialData>();
+
+                    blockno = special.next_blockno;
                     skip -= 1;
                 }
 
@@ -386,23 +323,19 @@ impl LinkedBytesList {
             let mut data = Vec::with_capacity(range.len());
             let mut remaining = range.len();
             while data.len() != range.len() && blockno != pg_sys::InvalidBlockNumber {
-                let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-                let page = pg_sys::BufferGetPage(buffer);
-                let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+                let buffer = self.bman.get_buffer(blockno);
+                let page = buffer.page();
+                let special = page.special::<BM25PageSpecialData>();
                 let slice_start = if data.is_empty() {
                     range.start % ITEM_SIZE
                 } else {
                     0
                 };
                 let slice_len = (ITEM_SIZE - slice_start).min(remaining);
-                let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
-                let slice =
-                    from_raw_parts((page as *mut u8).add(slice_start + header_size), slice_len);
+                let slice = page.as_slice_range(slice_start, slice_len);
+
                 data.extend_from_slice(slice);
-
-                blockno = (*special).next_blockno;
-                pg_sys::UnlockReleaseBuffer(buffer);
-
+                blockno = special.next_blockno;
                 remaining -= slice_len;
             }
 
@@ -416,6 +349,7 @@ impl LinkedBytesList {
 mod tests {
     use super::*;
     use crate::postgres::storage::block::BM25PageSpecialData;
+    use crate::postgres::storage::utils::BM25BufferCache;
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -430,7 +364,7 @@ mod tests {
         // Test read/write from newly created linked list
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let start_blockno = {
-            let mut linked_list = LinkedBytesList::create(relation_oid);
+            let mut linked_list = LinkedBytesList::create(relation_oid, true);
             linked_list.write(&bytes).unwrap();
             let read_bytes = linked_list.read_all();
             assert_eq!(bytes, read_bytes);
@@ -439,7 +373,7 @@ mod tests {
         };
 
         // Test read from already created linked list
-        let linked_list = LinkedBytesList::open(relation_oid, start_blockno);
+        let linked_list = LinkedBytesList::open(relation_oid, start_blockno, true);
         let read_bytes = linked_list.read_all();
         assert_eq!(bytes, read_bytes);
     }
@@ -453,7 +387,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let mut linked_list = LinkedBytesList::create(relation_oid);
+        let mut linked_list = LinkedBytesList::create(relation_oid, true);
         assert!(linked_list.is_empty());
 
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
@@ -470,7 +404,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let mut linked_list = LinkedBytesList::create(relation_oid);
+        let mut linked_list = LinkedBytesList::create(relation_oid, true);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         linked_list.write(&bytes).unwrap();
         linked_list.mark_deleted();

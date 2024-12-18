@@ -39,7 +39,7 @@ use crate::index::bulk_delete::BulkDeleteDirectory;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType};
 use crate::postgres::storage::block::CLEANUP_LOCK;
-use crate::postgres::storage::utils::BM25BufferCache;
+use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 
@@ -219,15 +219,22 @@ pub struct SearchIndexReader {
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
     underlying_index: Index,
-    cleanup_lock: Arc<Option<pg_sys::Buffer>>,
+
+    // [`Buffer`] has a Drop impl, so we hold onto the lock, but don't otherwise use it
+    //
+    // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
+    // buffer dropped once
+    _cleanup_lock: Arc<Option<Buffer>>,
 }
 
 impl SearchIndexReader {
-    pub fn new(
-        index_oid: pg_sys::Oid,
+    pub fn open(
+        index_relation: &PgRelation,
         directory_type: BlockDirectoryType,
         needs_cleanup_lock: bool,
     ) -> Result<Self> {
+        let schema = get_index_schema(index_relation)?;
+
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -236,22 +243,21 @@ impl SearchIndexReader {
         // To prevent this, ambulkdelete acquires an exclusive cleanup lock. Readers must also acquire this lock (shared)
         // to prevent a reader from reading dead ctids right before ambulkdelete finishes.
         let cleanup_lock = if needs_cleanup_lock {
-            let cache = unsafe { BM25BufferCache::open(index_oid) };
-            unsafe {
-                Arc::new(Some(
-                    cache.get_buffer(CLEANUP_LOCK, Some(pg_sys::BUFFER_LOCK_SHARE)),
-                ))
-            }
+            let bman = BufferManager::new(index_relation.oid(), false);
+            Some(bman.get_buffer(CLEANUP_LOCK))
         } else {
-            Arc::new(None)
+            None
         };
 
         let mut index = match directory_type {
-            BlockDirectoryType::Mvcc => Index::open(MVCCDirectory::new(index_oid))?,
-            BlockDirectoryType::BulkDelete => Index::open(BulkDeleteDirectory::new(index_oid))?,
+            BlockDirectoryType::Mvcc => {
+                Index::open(MVCCDirectory::new(index_relation.oid(), false))?
+            }
+            BlockDirectoryType::BulkDelete => {
+                Index::open(BulkDeleteDirectory::new(index_relation.oid()))?
+            }
         };
-        let index_relation = unsafe { PgRelation::open(index_oid) };
-        let schema = get_index_schema(&index_relation)?;
+
         setup_tokenizers(&mut index, &schema);
         let reader = index
             .reader_builder()
@@ -260,12 +266,12 @@ impl SearchIndexReader {
         let searcher = reader.searcher();
 
         Ok(Self {
-            index_oid,
+            index_oid: index_relation.oid(),
             searcher,
             schema,
             underlying_reader: reader,
             underlying_index: index,
-            cleanup_lock,
+            _cleanup_lock: Arc::new(cleanup_lock),
         })
     }
 
@@ -358,7 +364,6 @@ impl SearchIndexReader {
         query: &SearchQueryInput,
         _estimated_rows: Option<usize>,
     ) -> SearchResults {
-        // let need_scores = true;
         let collector = vec_collector::VecCollector::new(need_scores);
         let results = self.collect(query, collector, need_scores);
         SearchResults::AllSegments(results.into_iter().flatten())
@@ -552,18 +557,6 @@ impl SearchIndexReader {
                 },
             )
             .expect("search should not fail")
-    }
-}
-
-impl Drop for SearchIndexReader {
-    fn drop(&mut self) {
-        if let Some(buffer) = Arc::get_mut(&mut self.cleanup_lock) {
-            if let Some(buffer) = buffer.take() {
-                unsafe {
-                    pg_sys::UnlockReleaseBuffer(buffer);
-                }
-            }
-        }
     }
 }
 

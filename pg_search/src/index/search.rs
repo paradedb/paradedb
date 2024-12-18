@@ -19,6 +19,7 @@ use crate::gucs;
 use crate::index::merge_policy::AllowedMergePolicy;
 use crate::postgres::index::get_fields;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::NeedWal;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::PgRelation;
@@ -35,7 +36,13 @@ pub enum WriterResources {
 pub type Parallelism = NonZeroUsize;
 pub type MemoryBudget = usize;
 pub type DoMerging = bool;
-pub type IndexConfig = (Parallelism, MemoryBudget, DoMerging, AllowedMergePolicy);
+pub type IndexConfig = (
+    Parallelism,
+    MemoryBudget,
+    DoMerging,
+    AllowedMergePolicy,
+    NeedWal,
+);
 
 pub enum BlockDirectoryType {
     Mvcc,
@@ -43,9 +50,12 @@ pub enum BlockDirectoryType {
 }
 
 impl WriterResources {
-    pub fn resources(&self, index_options: &SearchIndexCreateOptions) -> IndexConfig {
-        let target_segment_count = index_options.target_segment_count();
-        let merge_on_insert = index_options.merge_on_insert();
+    pub fn resources(&self, indexrel: &PgRelation) -> IndexConfig {
+        let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
+        assert!(!options.is_null());
+        let options = unsafe { &*options };
+        let target_segment_count = options.target_segment_count();
+        let merge_on_insert = options.merge_on_insert();
 
         match self {
             WriterResources::CreateIndex => {
@@ -54,6 +64,7 @@ impl WriterResources {
                     gucs::create_index_memory_budget(),
                     true, // we always want a merge on CREATE INDEX
                     AllowedMergePolicy::NPlusOne(target_segment_count),
+                    false, // we don't need direct WAL support during CREATE INDEX
                 )
             }
             WriterResources::Statement => {
@@ -67,6 +78,7 @@ impl WriterResources {
                     gucs::statement_memory_budget(),
                     merge_on_insert, // user/index decides if we merge for INSERT/UPDATE statements
                     policy,
+                    true, // regular statements do need WAL support
                 )
             }
             WriterResources::Vacuum => {
@@ -75,6 +87,7 @@ impl WriterResources {
                     gucs::statement_memory_budget(),
                     true, // we always want a merge on (auto)VACUUM
                     AllowedMergePolicy::NPlusOne(target_segment_count),
+                    true, // VACUUM always needs WAL support
                 )
             }
         }

@@ -29,9 +29,8 @@ use crate::index::bulk_delete::BulkDeleteDirectory;
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::merge_policy::MergeLock;
 use crate::index::mvcc::MVCCDirectory;
-use crate::index::{get_index_schema, setup_tokenizers};
-use crate::index::{BlockDirectoryType, WriterResources};
-use crate::postgres::options::SearchIndexCreateOptions;
+use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
+use crate::postgres::NeedWal;
 use crate::{
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -54,29 +53,34 @@ pub struct SearchIndexWriter {
     wants_merge: bool,
     insert_queue: Vec<UserOperation>,
     relation_oid: pg_sys::Oid,
+    need_wal: NeedWal,
 }
 
 impl SearchIndexWriter {
-    pub fn new(
-        index_oid: pg_sys::Oid,
+    pub fn open(
+        index_relation: &PgRelation,
         directory_type: BlockDirectoryType,
         resources: WriterResources,
     ) -> Result<Self> {
-        let index_relation = unsafe { PgRelation::open(index_oid) };
-        let schema = get_index_schema(&index_relation)?;
+        let schema = get_index_schema(index_relation)?;
+        let (parallelism, memory_budget, wants_merge, merge_policy, need_wal) =
+            resources.resources(index_relation);
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
         let mut handler = match directory_type {
-            BlockDirectoryType::Mvcc => {
-                ChannelRequestHandler::open(&MVCCDirectory::new(index_oid), index_oid, req_receiver)
-            }
+            BlockDirectoryType::Mvcc => ChannelRequestHandler::open(
+                &MVCCDirectory::new(index_relation.oid(), need_wal),
+                index_relation.oid(),
+                req_receiver,
+            ),
             BlockDirectoryType::BulkDelete => ChannelRequestHandler::open(
-                &BulkDeleteDirectory::new(index_oid),
-                index_oid,
+                &BulkDeleteDirectory::new(index_relation.oid()),
+                index_relation.oid(),
                 req_receiver,
             ),
         };
+
         let index = {
             let schema = schema.clone();
             handler
@@ -88,9 +92,6 @@ impl SearchIndexWriter {
                 .expect("scoped thread should not fail")?
         };
 
-        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-        let (parallelism, memory_budget, wants_merge, merge_policy) =
-            resources.resources(unsafe { &*create_options });
         let writer = handler
             .wait_for(move || {
                 let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
@@ -101,38 +102,46 @@ impl SearchIndexWriter {
 
         let ctid_field = schema.schema.get_field("ctid")?;
         Ok(Self {
-            relation_oid: index_oid,
+            relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
             schema,
             handler,
             wants_merge,
             ctid_field,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            need_wal,
         })
     }
 
-    pub fn create_index(index_oid: pg_sys::Oid) -> Result<Self> {
-        let index_relation = unsafe { PgRelation::open(index_oid) };
-        let schema = get_index_schema(&index_relation)?;
-        let settings = IndexSettings {
-            docstore_compress_dedicated_thread: false,
-            ..IndexSettings::default()
-        };
+    pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
+        let schema = get_index_schema(index_relation)?;
+        let (parallelism, memory_budget, wants_merge, merge_policy, need_wal) =
+            WriterResources::CreateIndex.resources(index_relation);
+
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler =
-            ChannelRequestHandler::open(&MVCCDirectory::new(index_oid), index_oid, req_receiver);
-        let schema_clone = schema.clone();
-        let index = handler
-            .wait_for(move || {
-                let mut index = Index::create(channel_dir, schema_clone.schema.clone(), settings)?;
-                setup_tokenizers(&mut index, &schema_clone);
-                tantivy::Result::Ok(index)
-            })
-            .expect("scoped thread should not fail")?;
-        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
-        let (parallelism, memory_budget, wants_merge, merge_policy) =
-            WriterResources::CreateIndex.resources(unsafe { &*create_options });
+        let mut handler = ChannelRequestHandler::open(
+            &MVCCDirectory::new(index_relation.oid(), need_wal),
+            index_relation.oid(),
+            req_receiver,
+        );
+
+        let index = {
+            let schema = schema.clone();
+            let settings = IndexSettings {
+                docstore_compress_dedicated_thread: false,
+                ..IndexSettings::default()
+            };
+
+            handler
+                .wait_for(move || {
+                    let mut index = Index::create(channel_dir, schema.schema.clone(), settings)?;
+                    setup_tokenizers(&mut index, &schema);
+                    tantivy::Result::Ok(index)
+                })
+                .expect("scoped thread should not fail")?
+        };
+
         let writer = handler
             .wait_for(move || {
                 let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
@@ -143,13 +152,14 @@ impl SearchIndexWriter {
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
-            relation_oid: index_oid,
+            relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
             schema,
             ctid_field,
             handler,
             wants_merge,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            need_wal,
         })
     }
 
@@ -208,7 +218,7 @@ impl SearchIndexWriter {
 
     pub fn commit_inserts(self) -> Result<()> {
         let merge_lock = if self.wants_merge {
-            unsafe { MergeLock::acquire_for_merge(self.relation_oid) }
+            unsafe { MergeLock::acquire_for_merge(self.relation_oid, self.need_wal) }
         } else {
             None
         };
@@ -218,7 +228,7 @@ impl SearchIndexWriter {
     pub fn vacuum(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
 
-        let merge_lock = unsafe { MergeLock::acquire_for_merge(self.relation_oid) };
+        let merge_lock = unsafe { MergeLock::acquire_for_merge(self.relation_oid, self.need_wal) };
         self.commit(merge_lock.is_some())
     }
 

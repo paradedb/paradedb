@@ -138,7 +138,7 @@ pub(crate) fn estimate_selectivity(
         return None;
     }
 
-    let search_reader = SearchIndexReader::new(indexrel.oid(), BlockDirectoryType::Mvcc, false)
+    let search_reader = SearchIndexReader::open(indexrel, BlockDirectoryType::Mvcc, false)
         .expect("estimate_selectivity: should be able to open a SearchIndexReader");
     let estimate = search_reader.estimate_docs(search_query_input).unwrap_or(1) as f64;
     let mut selectivity = estimate / reltuples;

@@ -1,9 +1,8 @@
+use crate::index::directory::channel::ChannelRequest;
 use crossbeam::channel::Sender;
 use std::io::{Result, Write};
 use std::path::{Path, PathBuf};
 use tantivy::directory::{AntiCallToken, TerminatingWrite};
-
-use crate::index::directory::channel::ChannelRequest;
 
 #[derive(Clone, Debug)]
 pub struct ChannelWriter {
@@ -27,7 +26,7 @@ impl Write for ChannelWriter {
                 self.path.clone(),
                 data.to_vec(),
             ))
-            .unwrap();
+            .unwrap_or_else(|e| panic!("got send error: {e}"));
         Ok(data.len())
     }
 

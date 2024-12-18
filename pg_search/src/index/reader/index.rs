@@ -23,6 +23,7 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::iter::Flatten;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::fastfield::Column;
 use tantivy::index::Index;
@@ -218,7 +219,7 @@ pub struct SearchIndexReader {
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
     underlying_index: Index,
-    cleanup_lock: Option<pg_sys::Buffer>,
+    cleanup_lock: Arc<Option<pg_sys::Buffer>>,
 }
 
 impl SearchIndexReader {
@@ -236,9 +237,13 @@ impl SearchIndexReader {
         // to prevent a reader from reading dead ctids right before ambulkdelete finishes.
         let cleanup_lock = if needs_cleanup_lock {
             let cache = unsafe { BM25BufferCache::open(index_oid) };
-            unsafe { Some(cache.get_buffer(CLEANUP_LOCK, Some(pg_sys::BUFFER_LOCK_SHARE))) }
+            unsafe {
+                Arc::new(Some(
+                    cache.get_buffer(CLEANUP_LOCK, Some(pg_sys::BUFFER_LOCK_SHARE)),
+                ))
+            }
         } else {
-            None
+            Arc::new(None)
         };
 
         let mut index = match directory_type {
@@ -551,10 +556,10 @@ impl SearchIndexReader {
 
 impl Drop for SearchIndexReader {
     fn drop(&mut self) {
-        if let Some(cleanup_lock) = self.cleanup_lock.take() {
-            unsafe {
-                if pg_sys::IsTransactionState() {
-                    pg_sys::UnlockReleaseBuffer(cleanup_lock);
+        if let Some(buffer) = Arc::get_mut(&mut self.cleanup_lock) {
+            if let Some(buffer) = buffer.take() {
+                unsafe {
+                    pg_sys::UnlockReleaseBuffer(buffer);
                 }
             }
         }

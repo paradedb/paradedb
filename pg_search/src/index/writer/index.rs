@@ -93,6 +93,9 @@ impl SearchIndexWriter {
                 .expect("scoped thread should not fail")?
         };
 
+        let create_options = index_relation.rd_options as *mut SearchIndexCreateOptions;
+        let (parallelism, memory_budget, wants_merge, merge_policy) =
+            resources.resources(unsafe { &*create_options });
         let writer = handler
             .wait_for(move || {
                 let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
@@ -143,6 +146,7 @@ impl SearchIndexWriter {
                 })
                 .expect("scoped thread should not fail")?
         };
+
         let writer = handler
             .wait_for(move || {
                 let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;

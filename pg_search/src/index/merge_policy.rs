@@ -24,6 +24,24 @@ impl From<AllowedMergePolicy> for Box<dyn MergePolicy> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum AllowedMergePolicy {
+    None,
+    NPlusOne(usize),
+}
+
+impl From<AllowedMergePolicy> for Box<dyn MergePolicy> {
+    fn from(policy: AllowedMergePolicy) -> Self {
+        match policy {
+            AllowedMergePolicy::None => Box::new(NoMergePolicy),
+            AllowedMergePolicy::NPlusOne(n) => Box::new(NPlusOneMergePolicy {
+                n,
+                min_num_segments: 2,
+            }),
+        }
+    }
+}
+
 /// A tantivy [`MergePolicy`] that endeavours to keep a maximum number of segments "N", plus
 /// one extra for leftovers.
 ///

@@ -232,7 +232,7 @@ impl SearchIndexReader {
         directory_type: BlockDirectoryType,
         needs_cleanup_lock: bool,
     ) -> Result<Self> {
-        let schema = get_index_schema(index_relation)?;
+        let schema = get_index_schema(&index_relation)?;
 
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
@@ -256,6 +256,7 @@ impl SearchIndexReader {
                 Index::open(BulkDeleteDirectory::new(index_relation.oid()))?
             }
         };
+
         setup_tokenizers(&mut index, &schema);
         let reader = index
             .reader_builder()

@@ -417,9 +417,15 @@ impl BufferManager {
         }
     }
 
-    pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
+    pub fn get_buffer_for_cleanup(
+        &mut self,
+        blockno: pg_sys::BlockNumber,
+        strategy: pg_sys::BufferAccessStrategy,
+    ) -> BufferMut {
         unsafe {
-            let buffer = self.bcache.get_buffer(blockno, None);
+            let buffer = self
+                .bcache
+                .get_buffer_with_strategy(blockno, strategy, None);
             pg_sys::LockBufferForCleanup(buffer);
             BufferMut {
                 style: self.style(XlogFlag::ExistingBuffer),

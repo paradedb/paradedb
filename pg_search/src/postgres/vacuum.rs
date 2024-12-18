@@ -54,17 +54,17 @@ pub extern "C" fn amvacuumcleanup(
         let mut directory =
             LinkedItemList::<DirectoryEntry>::open(index_oid, DIRECTORY_START, true);
         directory
-            .garbage_collect()
+            .garbage_collect(info.strategy)
             .expect("garbage collection should succeed");
         let mut segment_metas =
             LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START, true);
         segment_metas
-            .garbage_collect()
+            .garbage_collect(info.strategy)
             .expect("garbage collection should succeed");
         let mut delete_metas =
             LinkedItemList::<DeleteMetaEntry>::open(index_oid, DELETE_METAS_START, true);
         delete_metas
-            .garbage_collect()
+            .garbage_collect(info.strategy)
             .expect("garbage collection should succeed");
 
         // Return all recyclable pages to the free space map
@@ -78,8 +78,6 @@ pub extern "C" fn amvacuumcleanup(
             let buffer = bman.get_buffer(blockno);
             let page = buffer.page();
 
-            // let buffer = cache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            // let page = pg_sys::BufferGetPage(buffer);
             if page.is_recyclable(heap_relation) {
                 bman.record_free_index_page(buffer);
             }

@@ -130,6 +130,25 @@ impl BM25BufferCache {
         buffer
     }
 
+    pub unsafe fn get_buffer_with_strategy(
+        &self,
+        blockno: pg_sys::BlockNumber,
+        strategy: pg_sys::BufferAccessStrategy,
+        lock: Option<u32>,
+    ) -> pg_sys::Buffer {
+        let buffer = pg_sys::ReadBufferExtended(
+            self.indexrel.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            blockno,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            strategy,
+        );
+        if let Some(lock) = lock {
+            pg_sys::LockBuffer(buffer, lock as i32);
+        }
+        buffer
+    }
+
     pub unsafe fn get_page_slice(&self, blockno: pg_sys::BlockNumber, lock: Option<u32>) -> &[u8] {
         let mut cache = self.cache.lock();
         let slice = cache.entry(blockno).or_insert_with(|| {

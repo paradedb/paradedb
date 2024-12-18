@@ -119,7 +119,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
-    pub unsafe fn garbage_collect(&mut self) -> Result<()> {
+    pub unsafe fn garbage_collect(&mut self, strategy: pg_sys::BufferAccessStrategy) -> Result<()> {
         // let cache = &self.cache;
 
         // Delete all items that are definitely dead
@@ -130,7 +130,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let mut blockno = start_blockno;
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = self.bman.get_buffer_for_cleanup(blockno);
+            let mut buffer = self.bman.get_buffer_for_cleanup(blockno, strategy);
             let mut page = buffer.page_mut();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -292,6 +292,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
+        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
         let delete_xid = (*snapshot).xmin - 1;
 
@@ -322,7 +323,7 @@ mod tests {
 
         list.add_items(entries_to_delete.clone()).unwrap();
         list.add_items(entries_to_keep.clone()).unwrap();
-        list.garbage_collect().unwrap();
+        list.garbage_collect(strategy).unwrap();
 
         assert!(list
             .lookup(entries_to_delete[0].clone(), |a, b| a.path == b.path)
@@ -344,6 +345,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
+        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
         let snapshot = pg_sys::GetActiveSnapshot();
         let deleted_xid = (*snapshot).xmin - 1;
         let not_deleted_xid = pg_sys::InvalidTransactionId;
@@ -367,7 +369,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             list.add_items(entries.clone()).unwrap();
-            list.garbage_collect().unwrap();
+            list.garbage_collect(strategy).unwrap();
 
             for entry in entries {
                 if entry.xmax == not_deleted_xid {
@@ -418,7 +420,7 @@ mod tests {
                 .collect::<Vec<_>>();
             list.add_items(entries_3.clone()).unwrap();
 
-            list.garbage_collect().unwrap();
+            list.garbage_collect(strategy).unwrap();
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {

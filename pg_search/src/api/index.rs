@@ -551,21 +551,6 @@ pub fn regex(field: FieldName, pattern: String) -> SearchQueryInput {
     }
 }
 
-#[pg_extern(immutable, parallel_safe)]
-pub fn regex_phrase(
-    field: FieldName,
-    regexes: Vec<String>,
-    slop: default!(Option<i32>, "NULL"),
-    max_expansions: default!(Option<i32>, "NULL"),
-) -> SearchQueryInput {
-    SearchQueryInput::RegexPhrase {
-        field: field.into_inner(),
-        regexes,
-        slop: slop.map(|n| n as u32),
-        max_expansions: max_expansions.map(|n| n as u32),
-    }
-}
-
 macro_rules! term_fn {
     ($func_name:ident, $value_type:ty) => {
         #[pg_extern(name = "term", immutable, parallel_safe)]

@@ -165,7 +165,7 @@ pub struct Page<'a> {
     _marker: PhantomData<&'a Buffer>,
 }
 
-impl<'a> Page<'a> {
+impl Page<'_> {
     pub fn free_space(&self) -> usize {
         unsafe { pg_sys::PageGetFreeSpace(self.pg_page) }
     }
@@ -223,7 +223,7 @@ pub struct PageMut<'a> {
     inner: Page<'a>,
 }
 
-impl<'a> PageMut<'a> {
+impl PageMut<'_> {
     pub fn mark_deleted(mut self) {
         unsafe {
             self.special_mut::<BM25PageSpecialData>().xmax =

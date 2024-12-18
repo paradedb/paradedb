@@ -52,7 +52,9 @@ pub enum BlockDirectoryType {
 impl WriterResources {
     pub fn resources(&self, indexrel: &PgRelation) -> IndexConfig {
         let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
-        assert!(!options.is_null());
+        if options.is_null() {
+            panic!("must specify key field")
+        }
         let options = unsafe { &*options };
         let target_segment_count = options.target_segment_count();
         let merge_on_insert = options.merge_on_insert();

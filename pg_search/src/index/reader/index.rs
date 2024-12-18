@@ -221,7 +221,8 @@ pub struct SearchIndexReader {
     underlying_index: Index,
 
     // [`Buffer`] has a Drop impl, so we hold onto the lock, but don't otherwise use it
-    // and it's an Arc b/c if we're clone'd (we do derive it, afterall), we only want this
+    //
+    // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
     _cleanup_lock: Arc<Option<Buffer>>,
 }

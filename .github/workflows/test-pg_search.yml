@@ -170,7 +170,7 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test
+          RUST_BACKTRACE=1 cargo test --features icu
 
       - name: Run pgrx tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

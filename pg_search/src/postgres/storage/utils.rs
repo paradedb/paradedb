@@ -23,17 +23,10 @@ use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 pub trait BM25Page {
-    unsafe fn mark_deleted(self);
-
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool;
 }
 
 impl BM25Page for pg_sys::Page {
-    unsafe fn mark_deleted(self) {
-        let special = pg_sys::PageGetSpecialPointer(self) as *mut BM25PageSpecialData;
-        (*special).xmax = pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
-    }
-
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool {
         if pg_sys::PageIsNew(self) {
             return true;
@@ -48,6 +41,8 @@ impl BM25Page for pg_sys::Page {
         if pg_sys::XidInMVCCSnapshot((*special).xmax, snapshot) {
             return false;
         }
+
+        pgrx::warning!("   xmax={}", (*special).xmax);
 
         pg_sys::GlobalVisCheckRemovableXid(heap_relation, (*special).xmax)
     }

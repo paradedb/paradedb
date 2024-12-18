@@ -137,17 +137,17 @@ mod tests {
         let segment = format!("{}.term", uuid::Uuid::new_v4());
         let path = Path::new(segment.as_str());
 
-        let mut writer = unsafe { SegmentComponentWriter::new(relation_oid, path) };
+        let mut writer = unsafe { SegmentComponentWriter::new(relation_oid, path, false) };
         writer.write_all(&bytes).unwrap();
         writer.terminate().unwrap();
 
-        let directory = MVCCDirectory::new(relation_oid);
+        let directory = MVCCDirectory::new(relation_oid, false);
         let (entry, _, _) = unsafe {
             directory
                 .directory_lookup(path)
                 .expect("open directory entry should succeed")
         };
-        let reader = SegmentComponentReader::new(relation_oid, entry.clone());
+        let reader = SegmentComponentReader::new(relation_oid, entry.clone(), false);
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

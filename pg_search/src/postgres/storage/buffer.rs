@@ -224,8 +224,12 @@ pub struct PageMut<'a> {
 }
 
 impl<'a> PageMut<'a> {
-    pub fn mark_deleted(self) {
-        unsafe { self.inner.pg_page.mark_deleted() }
+    pub fn mark_deleted(mut self) {
+        unsafe {
+            self.special_mut::<BM25PageSpecialData>().xmax =
+                pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
+        }
+        self.buffer.dirty = true;
     }
 
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {

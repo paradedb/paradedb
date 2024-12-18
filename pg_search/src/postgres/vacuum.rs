@@ -75,10 +75,12 @@ pub extern "C" fn amvacuumcleanup(
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
         for blockno in 0..nblocks {
+            pgrx::warning!("checking block {}", blockno);
             let buffer = bman.get_buffer(blockno);
             let page = buffer.page();
 
             if page.is_recyclable(heap_relation) {
+                pgrx::warning!("   can be recycled!");
                 bman.record_free_index_page(buffer);
             }
         }

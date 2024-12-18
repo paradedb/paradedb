@@ -364,7 +364,6 @@ impl SearchIndexReader {
         query: &SearchQueryInput,
         _estimated_rows: Option<usize>,
     ) -> SearchResults {
-        // let need_scores = true;
         let collector = vec_collector::VecCollector::new(need_scores);
         let results = self.collect(query, collector, need_scores);
         SearchResults::AllSegments(results.into_iter().flatten())

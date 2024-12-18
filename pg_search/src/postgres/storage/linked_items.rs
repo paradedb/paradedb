@@ -155,8 +155,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn add_items(&mut self, items: Vec<T>) -> Result<()> {
-        // let cache = &self.cache;
-
         for item in items {
             let PgItem(pg_item, size) = item.into();
 

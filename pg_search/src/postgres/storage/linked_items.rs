@@ -120,8 +120,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     }
 
     pub unsafe fn garbage_collect(&mut self, strategy: pg_sys::BufferAccessStrategy) -> Result<()> {
-        // let cache = &self.cache;
-
         // Delete all items that are definitely dead
         let snapshot = pg_sys::GetActiveSnapshot();
         let heap_oid = unsafe { pg_sys::IndexGetRelation(self.relation_oid, false) };

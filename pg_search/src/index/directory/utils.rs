@@ -274,7 +274,8 @@ pub unsafe fn delete_unused_directory_entries(
                 assert!(did_replace);
 
                 // Delete the corresponding segment component
-                let mut segment_component = LinkedBytesList::open(relation_oid, entry.start, true);
+                let mut segment_component =
+                    LinkedBytesList::open(relation_oid, entry.start, need_wal);
                 segment_component.mark_deleted();
             }
             offsetno += 1;

@@ -102,7 +102,13 @@ pub extern "C" fn ambulkdelete(
         stats.pages_deleted = 0;
     }
 
-    // Acquire cleanup lock, which ensures that no scans have pins on the index
+    // As soon as ambulkdelete returns, Postgres will update the visibility map
+    // This can cause concurrent scans that have just read ctids, which are dead but
+    // are about to be marked visible, to return wrong results. To guard against this,
+    // we acquire a cleanup lock that guarantees that there are no pins on the index,
+    // which means that all concurrent scans have completed. This lock is then released in
+    // amvacuumcleanup, at which point the visibility map is updated and concurrent scans
+    // are safe to resume.
     unsafe {
         let cleanup_buffer = pg_sys::ReadBufferExtended(
             info.index,
@@ -113,14 +119,9 @@ pub extern "C" fn ambulkdelete(
         );
         pg_sys::LockBufferForCleanup(cleanup_buffer);
 
-        let bulk_del_data = PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
-            let mut opaque = PgBox::<BulkDeleteData>::alloc0();
-            opaque.stats = *stats;
-            opaque.cleanup_lock = cleanup_buffer;
-            opaque.into_pg()
-        });
-
-        // TODO: Update stats
-        &mut (*bulk_del_data).stats
+        let mut opaque = PgBox::<BulkDeleteData>::alloc0();
+        opaque.stats = *stats;
+        opaque.cleanup_lock = cleanup_buffer;
+        opaque.into_pg() as *mut pg_sys::IndexBulkDeleteResult
     }
 }

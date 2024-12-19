@@ -19,77 +19,8 @@ use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
 use crate::postgres::utils::row_to_search_document;
 use pgrx::itemptr::item_pointer_get_both;
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
+use pgrx::{pg_guard, pg_sys, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
-use std::panic::{catch_unwind, resume_unwind};
-
-pub struct InsertState {
-    pub writer: Option<SearchIndexWriter>,
-    abort_on_drop: bool,
-    committed: bool,
-}
-
-impl Drop for InsertState {
-    /// When [`InsertState`] is dropped we'll either commit the underlying tantivy index changes
-    /// or abort.
-    fn drop(&mut self) {
-        unsafe {
-            if pg_sys::IsTransactionState() && !self.abort_on_drop && !self.committed {
-                if let Some(writer) = self.writer.take() {
-                    writer
-                        .commit_inserts()
-                        .expect("tantivy index commit should succeed");
-                }
-                self.committed = true;
-            }
-
-            if !pg_sys::IsTransactionState() || self.abort_on_drop {
-                drop(self.writer.take());
-            }
-        }
-    }
-}
-
-impl InsertState {
-    unsafe fn new(
-        indexrel: &PgRelation,
-        writer_resources: WriterResources,
-    ) -> anyhow::Result<Self> {
-        let writer = SearchIndexWriter::open(indexrel, BlockDirectoryType::Mvcc, writer_resources)?;
-        Ok(Self {
-            writer: Some(writer),
-            abort_on_drop: false,
-            committed: false,
-        })
-    }
-}
-
-pub unsafe fn init_insert_state(
-    index_relation: pg_sys::Relation,
-    index_info: *mut pg_sys::IndexInfo,
-    writer_resources: WriterResources,
-) -> *mut InsertState {
-    assert!(!index_info.is_null());
-    let state = (*index_info).ii_AmCache;
-    let index_relation = PgRelation::from_pg(index_relation);
-    if state.is_null() {
-        // we don't have any cached state yet, so create it now
-        let state = InsertState::new(&index_relation, writer_resources)
-            .expect("should be able to open new SearchIndex for writing");
-
-        // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
-        //
-        // When that memory context is freed by Postgres is when we'll do our tantivy commit/abort
-        // of the changes made during `aminsert`
-        //
-        // SAFETY: `leak_and_drop_on_delete` palloc's memory in CurrentMemoryContext, but in this
-        // case we want the thing it allocates to be palloc'd in the `ii_Context`
-        PgMemoryContexts::For((*index_info).ii_Context)
-            .switch_to(|mcxt| (*index_info).ii_AmCache = mcxt.leak_and_drop_on_delete(state).cast())
-    };
-
-    (*index_info).ii_AmCache.cast()
-}
 
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
@@ -127,41 +58,31 @@ unsafe fn aminsert_internal(
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     ctid: pg_sys::ItemPointer,
-    index_info: *mut pg_sys::IndexInfo,
+    _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    let result = catch_unwind(|| {
-        let state = &mut *init_insert_state(index_relation, index_info, WriterResources::Statement);
-        let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
-        let writer = state.writer.as_mut().expect("writer should not be null");
-        let search_document = row_to_search_document(&tupdesc, values, isnull, &writer.schema)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "error creating index entries for index '{}': {err}",
-                    CStr::from_ptr((*(*index_relation).rd_rel).relname.data.as_ptr())
-                        .to_string_lossy()
-                );
-            });
-        writer
-            .insert(search_document, item_pointer_get_both(*ctid))
-            .expect("insertion into index should succeed");
+    let tupdesc = PgTupleDesc::from_pg_unchecked((*index_relation).rd_att);
+    let indexrel = PgRelation::from_pg(index_relation);
+    let mut writer = SearchIndexWriter::open(
+        &indexrel,
+        BlockDirectoryType::Mvcc,
+        WriterResources::Statement,
+    )
+    .expect("must be able to open SearchIndexWriter in aminsert");
 
-        true
-    });
+    let search_document = row_to_search_document(&tupdesc, values, isnull, &writer.schema)
+        .unwrap_or_else(|err| {
+            panic!(
+                "error creating index entries for index '{}': {err}",
+                CStr::from_ptr((*(*index_relation).rd_rel).relname.data.as_ptr()).to_string_lossy()
+            );
+        });
+    writer
+        .insert(search_document, item_pointer_get_both(*ctid))
+        .expect("insertion into index should succeed");
 
-    match result {
-        Ok(result) => result,
-        Err(e) => {
-            unsafe {
-                // SAFETY:  it's possible the `ii_AmCache` field didn't get initialized, and if
-                // that's the case there's no need (or way!) to indicate we need to do a tantivy abort
-                let state = (*index_info).ii_AmCache.cast::<InsertState>();
-                if !state.is_null() {
-                    (*state).abort_on_drop = true;
-                }
-            }
+    writer
+        .commit_inserts()
+        .expect("tantivy index commit should succeed");
 
-            // bubble up the panic that we caught during `catch_unwind()`
-            resume_unwind(e)
-        }
-    }
+    true
 }

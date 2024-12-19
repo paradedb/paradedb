@@ -61,6 +61,8 @@ pub extern "C" fn ambulkdelete(
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
     let ctid_field = writer.get_ctid_field();
+    let mut did_delete = false;
+
     for segment_reader in reader.searcher().segment_readers() {
         let inverted_index = segment_reader
             .inverted_index(ctid_field)
@@ -77,6 +79,7 @@ pub extern "C" fn ambulkdelete(
                 let ctid = postings.ctid_value();
                 let ctid = ((ctid.0 as u64) << 16) | ctid.1 as u64;
                 if callback(ctid) {
+                    did_delete = true;
                     writer
                         .delete_term(Term::from_field_bytes(ctid_field, term_bytes))
                         .expect("ambulkdelete: deleting ctid Term should succeed");
@@ -109,19 +112,23 @@ pub extern "C" fn ambulkdelete(
     // which means that all concurrent scans have completed. This lock is then released in
     // amvacuumcleanup, at which point the visibility map is updated and concurrent scans
     // are safe to resume.
-    unsafe {
-        let cleanup_buffer = pg_sys::ReadBufferExtended(
-            info.index,
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            CLEANUP_LOCK,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            info.strategy,
-        );
-        pg_sys::LockBufferForCleanup(cleanup_buffer);
+    if did_delete {
+        unsafe {
+            let cleanup_buffer = pg_sys::ReadBufferExtended(
+                info.index,
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+                CLEANUP_LOCK,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                info.strategy,
+            );
+            pg_sys::LockBufferForCleanup(cleanup_buffer);
 
-        let mut opaque = PgBox::<BulkDeleteData>::alloc0();
-        opaque.stats = *stats;
-        opaque.cleanup_lock = cleanup_buffer;
-        opaque.into_pg() as *mut pg_sys::IndexBulkDeleteResult
+            let mut opaque = PgBox::<BulkDeleteData>::alloc0();
+            opaque.stats = *stats;
+            opaque.cleanup_lock = cleanup_buffer;
+            opaque.into_pg() as *mut pg_sys::IndexBulkDeleteResult
+        }
+    } else {
+        stats.into_pg()
     }
 }

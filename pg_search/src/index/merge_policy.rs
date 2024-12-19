@@ -80,9 +80,13 @@ impl MergeLock {
             let mut page = merge_lock.page_mut();
             let metadata = page.contents_mut::<MergeLockData>();
             let last_merge = metadata.last_merge;
-            let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+            let snapshot = if pg_sys::IsTransactionState() {
+                pg_sys::GetActiveSnapshot()
+            } else {
+                std::ptr::null_mut()
+            };
 
-            if pg_sys::XidInMVCCSnapshot(last_merge, snapshot) {
+            if !snapshot.is_null() && pg_sys::XidInMVCCSnapshot(last_merge, snapshot) {
                 None
             } else {
                 Some(MergeLock(merge_lock))

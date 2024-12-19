@@ -17,6 +17,7 @@
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 mod exec_methods;
+pub mod parallel;
 mod privdat;
 mod projections;
 mod qual_inspect;
@@ -26,13 +27,19 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::{AsCStr, AsInt, Cardinality};
-use crate::index::SearchIndex;
+use crate::index::mvcc::MVCCDirectory;
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::BlockDirectoryType;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, OrderByStyle};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
+    estimate_cardinality, is_string_agg_capable_ex,
+};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
 use crate::postgres::customscan::pdbscan::projections::score::{
     is_score_func, score_funcoid, uses_scores,
@@ -45,13 +52,12 @@ use crate::postgres::customscan::pdbscan::projections::{
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod, PlainExecCapable};
-use crate::postgres::index::open_search_index;
+use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
-use exec_methods::normal::NormalScanExecState;
 use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
 use pgrx::itemptr::item_pointer_get_block_number;
@@ -61,15 +67,14 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
+use tantivy::Index;
 
 #[derive(Default)]
 pub struct PdbScan;
 
-impl PlainExecCapable for PdbScan {}
-
 impl ExecMethod for PdbScan {
     fn exec_methods() -> *const CustomExecMethods {
-        <PdbScan as PlainExecCapable>::exec_methods()
+        <PdbScan as ParallelQueryCapable>::exec_methods()
     }
 }
 
@@ -106,9 +111,11 @@ impl CustomScan for PdbScan {
             };
 
             let root = builder.args().root;
-            let search_index =
-                open_search_index(&bm25_index).expect("should be able to open search index");
-            let pathkey = pullup_orderby_pathkey(&mut builder, rti, &search_index, root);
+
+            let directory = MVCCDirectory::snapshot(bm25_index.oid());
+            let index = Index::open(directory).expect("custom_scan: should be able to open index");
+            let schema = SearchIndexSchema::open(index.schema(), &bm25_index);
+            let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
@@ -128,8 +135,17 @@ impl CustomScan for PdbScan {
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
             let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
-            let ff_cnt = 0;
+            let ff_cnt =
+                exec_methods::fast_fields::count(&mut builder, rti, &table, &schema, target_list);
+            let maybe_ff = builder.custom_private().maybe_ff();
             let is_topn = limit.is_some() && pathkey.is_some();
+            let which_fast_fields = exec_methods::fast_fields::collect(
+                builder.custom_private().maybe_ff(),
+                target_list,
+                rti,
+                &schema,
+                &table,
+            );
 
             //
             // look for quals we can support
@@ -185,6 +201,9 @@ impl CustomScan for PdbScan {
                     // prefer it over all the others.
                     if is_join || maybe_needs_const_projections {
                         0.0
+                    } else if maybe_ff {
+                        // returns fields from fast fields
+                        pg_sys::cpu_index_tuple_cost / 100.0
                     } else {
                         // requires heap access to return fields
                         pg_sys::cpu_tuple_cost * 200.0
@@ -198,11 +217,59 @@ impl CustomScan for PdbScan {
                 };
 
                 let total_cost = startup_cost + (rows * per_tuple_cost);
+                let segment_count = index.searchable_segments().unwrap_or_default().len();
 
                 builder = builder.set_rows(rows);
                 builder = builder.set_startup_cost(startup_cost);
                 builder = builder.set_total_cost(total_cost);
                 builder = builder.set_flag(Flags::Projection);
+
+                if pathkey.is_some()
+                    && !is_topn
+                    && is_string_agg_capable_ex(
+                        builder.custom_private().limit(),
+                        &which_fast_fields,
+                    )
+                    .is_some()
+                {
+                    // we're going to do a StringAgg, and it may or may not be more efficient to use
+                    // parallel queries, depending on the cardinality of what we're going to select
+                    let cardinality = {
+                        let estimate = if let Some(OrderByStyle::Field(_, field)) = &pathkey {
+                            // NB:  '4' is a magic number
+                            estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                        } else {
+                            0
+                        };
+                        estimate as f64 * selectivity
+                    };
+
+                    let pathkey_cnt =
+                        PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
+                            .len();
+
+                    if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
+                        // if we only have 1 path key or if our estimated cardinality is over some
+                        // hardcoded value, it's seemingly more efficient to do a parallel scan
+                        builder = builder.set_parallel(false, rows, limit, segment_count);
+                    } else {
+                        // otherwise we'll do a regular scan and indicate that we're emitting results
+                        // sorted by the first pathkey
+                        // let foo = Some(OrderByStyle::Field(
+                        //     PgList::<pg_sys::PathKey>::from_pg(
+                        //         (*builder.args().root).query_pathkeys,
+                        //     )
+                        //     .get_ptr(1)
+                        //     .unwrap(),
+                        //     "whatever".into(),
+                        // ));
+                        builder = builder.add_path_key(&pathkey);
+                        // builder = builder.add_path_key(&foo);
+                        builder.custom_private().set_sort_info(&pathkey);
+                    }
+                } else {
+                    builder = builder.set_parallel(is_topn, rows, limit, segment_count);
+                }
 
                 return Some(builder.build());
             }
@@ -282,6 +349,25 @@ impl CustomScan for PdbScan {
                 .custom_private()
                 .range_table_index()
                 .expect("range table index should have been set");
+
+            {
+                let indexrel = PgRelation::open(builder.custom_state().indexrelid);
+                let heaprel = indexrel
+                    .heap_relation()
+                    .expect("index should belong to a table");
+                let directory = MVCCDirectory::snapshot(indexrel.oid());
+                let index = Index::open(directory)
+                    .expect("create_custom_scan_state: should be able to open index");
+                let schema = SearchIndexSchema::open(index.schema(), &indexrel);
+
+                builder.custom_state().which_fast_fields = exec_methods::fast_fields::collect(
+                    builder.custom_private().maybe_ff(),
+                    builder.target_list().as_ptr(),
+                    builder.custom_state().rti,
+                    &schema,
+                    &heaprel,
+                );
+            }
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
@@ -370,9 +456,7 @@ impl CustomScan for PdbScan {
                     .custom_state()
                     .assign_exec_method(TopNScanExecState::new(heaprelid, limit, sort_direction));
             } else {
-                builder
-                    .custom_state()
-                    .assign_exec_method(NormalScanExecState::default());
+                exec_methods::fast_fields::assign_exec_method(&mut builder);
             }
 
             builder.build()
@@ -416,24 +500,26 @@ impl CustomScan for PdbScan {
                 .last()
                 .unwrap(),
         );
+        exec_methods::fast_fields::explain(state, explainer);
+
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        if let (Some(sort_direction), Some(limit)) = (
-            state.custom_state().sort_direction,
-            state.custom_state().limit,
-        ) {
+        if let Some(sort_direction) = state.custom_state().sort_direction {
             if let Some(sort_field) = &state.custom_state().sort_field {
                 explainer.add_text("   Sort Field", sort_field);
             } else {
                 explainer.add_text("   Sort Field", "paradedb.score()");
             }
             explainer.add_text("   Sort Direction", sort_direction);
-            explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
-            if explainer.is_analyze() && state.custom_state().retry_count > 0 {
-                explainer.add_unsigned_integer(
-                    "   Invisible Tuple Retries",
-                    state.custom_state().retry_count as u64,
-                    None,
-                );
+
+            if let Some(limit) = state.custom_state().limit {
+                explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
+                if explainer.is_analyze() && state.custom_state().retry_count > 0 {
+                    explainer.add_unsigned_integer(
+                        "   Invisible Tuple Retries",
+                        state.custom_state().retry_count as u64,
+                        None,
+                    );
+                }
             }
         }
 
@@ -474,6 +560,11 @@ impl CustomScan for PdbScan {
             state.custom_state_mut().indexrel = Some(indexrel);
             state.custom_state_mut().lockmode = lockmode;
 
+            state.custom_state_mut().heaprel_namespace =
+                PgRelation::from_pg(heaprel).namespace().to_string();
+            state.custom_state_mut().heaprel_relname =
+                PgRelation::from_pg(heaprel).name().to_string();
+
             // setup the structures we need to do mvcc checking
             state.custom_state_mut().visibility_checker = Some(
                 VisibilityChecker::with_rel_and_snap(heaprel, pg_sys::GetActiveSnapshot()),
@@ -513,38 +604,35 @@ impl CustomScan for PdbScan {
             .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
             .expect("custom_state.indexrel should already be open");
 
-        let search_index =
-            open_search_index(&indexrel).expect("should be able to open search index");
-        let search_reader = search_index
-            .get_reader()
-            .expect("search index reader should have been constructed correctly");
-        let query = search_index.query(
-            &indexrel,
-            &state.custom_state().search_query_input,
-            &search_reader,
-        );
-
+        let search_reader = SearchIndexReader::open(&indexrel, BlockDirectoryType::Mvcc, true)
+            .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
-        state.custom_state_mut().query = Some(query);
 
         let csstate = addr_of_mut!(state.csstate);
         state.custom_state_mut().init_exec_method(csstate);
 
         if need_snippets {
-            let mut snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>> = state
+            let mut snippet_generators: HashMap<
+                SnippetInfo,
+                Option<(tantivy::schema::Field, SnippetGenerator)>,
+            > = state
                 .custom_state_mut()
                 .snippet_generators
                 .drain()
                 .collect();
-            let query = &state.custom_state().query.as_ref().unwrap();
             for (snippet_info, generator) in &mut snippet_generators {
                 let mut new_generator = state
                     .custom_state()
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(snippet_info.field.as_ref(), *query);
-                new_generator.set_max_num_chars(snippet_info.max_num_chars);
+                    .snippet_generator(
+                        &snippet_info.field,
+                        &state.custom_state().search_query_input,
+                    );
+                new_generator
+                    .1
+                    .set_max_num_chars(snippet_info.max_num_chars);
                 *generator = Some(new_generator);
             }
 
@@ -624,9 +712,8 @@ impl CustomScan for PdbScan {
                                     for (snippet_info, const_snippet_node) in
                                         &state.custom_state().const_snippet_nodes
                                     {
-                                        if let Some(snippet) = state
-                                            .custom_state()
-                                            .make_snippet(doc_address, snippet_info)
+                                        if let Some(snippet) =
+                                            state.custom_state().make_snippet(ctid, snippet_info)
                                         {
                                             (**const_snippet_node).constvalue =
                                                 snippet.into_datum().unwrap();
@@ -735,7 +822,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
 unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
     builder: &mut CustomPathBuilder<P>,
     rti: pg_sys::Index,
-    search_index: &SearchIndex,
+    schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
 ) -> Option<OrderByStyle> {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
@@ -754,7 +841,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if search_index.schema.is_field_lower_sortable(att.name()) {
+                    if schema.is_field_lower_sortable(att.name()) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }
@@ -764,7 +851,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if search_index.schema.is_field_raw_sortable(att.name()) {
+                        if schema.is_field_raw_sortable(att.name()) {
                             return Some(OrderByStyle::Field(
                                 first_pathkey,
                                 att.name().to_string(),
@@ -780,7 +867,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if search_index.schema.is_field_raw_sortable(att.name()) {
+                    if schema.is_field_raw_sortable(att.name()) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }

@@ -42,7 +42,6 @@ jobs:
           fi
 
       - name: Login to Docker Hub
-        if: steps.env.outputs.environment == 'prod'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -87,6 +86,17 @@ jobs:
         if: steps.env.outputs.environment == 'dev'
         working-directory: docker/
         run: docker build --file Dockerfile --tag paradedb/paradedb:latest ..
+
+      - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
+        uses: docker/scout-action@v1
+        with:
+          command: compare
+          image: paradedb/paradedb:latest # Local ParadeDB Docker Image
+          to-env: production # Docker Hub ParadeDB Docker Image
+          organization: paradedb
+          ignore-unchanged: true
+          only-severities: critical,high
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Sleep 10 seconds to give time for Postgres to start inside the container. The docker-compose.yml file
       # will use the local ParadeDB image that we just built.

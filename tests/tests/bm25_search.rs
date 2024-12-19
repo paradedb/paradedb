@@ -17,7 +17,6 @@
 
 mod fixtures;
 
-use crate::fixtures::utils::pg_search_index_directory_path;
 use anyhow::Result;
 use approx::assert_relative_eq;
 use core::panic;
@@ -27,7 +26,6 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
 use std::str::FromStr;
-use tantivy::Index;
 
 #[rstest]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
@@ -467,53 +465,18 @@ fn update_non_indexed_column(mut conn: PgConnection) -> Result<()> {
     "#
       .execute(&mut conn);
 
-    let index_dir_path = pg_search_index_directory_path(&mut conn, "search_idx");
-    assert!(index_dir_path.exists());
-
-    // Get the index metadata
-    let index = Index::open_in_dir(index_dir_path.join("tantivy"))?;
-    let reader = index.reader()?;
-    let searcher = reader.searcher();
-    let total_docs = searcher
-        .segment_readers()
-        .iter()
-        .map(|segment_reader| segment_reader.num_docs())
-        .reduce(|acc, count| acc + count)
-        .unwrap_or(0);
-
-    assert_eq!(total_docs, 41);
-
-    // Update an indexed column.
-    "UPDATE mock_items set description = 'Organic blue tea' WHERE description = 'Organic green tea'"
-        .execute(&mut conn);
-
-    reader.reload()?;
-
-    let searcher = reader.searcher();
-    let total_docs = searcher
-        .segment_readers()
-        .iter()
-        .map(|segment_reader| segment_reader.num_docs())
-        .reduce(|acc, count| acc + count)
-        .unwrap_or(0);
-
-    // The total document should be higher, as a new document was created for the updated row.
-    assert_eq!(total_docs, 42);
-
+    let page_size_before: (i64,) =
+        "SELECT pg_relation_size('search_idx') / current_setting('block_size')::int AS page_count"
+            .fetch_one(&mut conn);
     // Update a non-indexed column.
     "UPDATE mock_items set category = 'Books' WHERE description = 'Sleek running shoes'"
         .execute(&mut conn);
 
-    let searcher = reader.searcher();
-    let total_docs = searcher
-        .segment_readers()
-        .iter()
-        .map(|segment_reader| segment_reader.num_docs())
-        .reduce(|acc, count| acc + count)
-        .unwrap_or(0);
-
-    // The total document count should not have changed when updating a non-indexed column.
-    assert_eq!(total_docs, 42);
+    let page_size_after: (i64,) =
+        "SELECT pg_relation_size('search_idx') / current_setting('block_size')::int AS page_count"
+            .fetch_one(&mut conn);
+    // The total page count should not have changed when updating a non-indexed column.
+    assert_eq!(page_size_before, page_size_after);
 
     Ok(())
 }
@@ -975,36 +938,6 @@ fn high_limit_rows(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn index_size(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-
-    let index_dir = pg_search_index_directory_path(&mut conn, "bm25_search_bm25_index");
-    assert!(
-        index_dir.exists(),
-        "expected index directory to exist at: {:?}",
-        index_dir
-    );
-
-    // Calculate the index size using the new method
-    let size: i64 = "SELECT paradedb.index_size('paradedb.bm25_search_bm25_index')"
-        .fetch_one::<(i64,)>(&mut conn)
-        .0;
-
-    // Ensure the size is greater than zero, meaning the index has been created
-    assert!(size > 0);
-
-    // Calculate the index size using the new method
-    match "SELECT paradedb.index_size('paradedb.missing_bm25_index')"
-        .fetch_result::<(i64,)>(&mut conn)
-    {
-        Err(err) => assert!(err
-            .to_string()
-            .contains(r#"relation "paradedb.missing_bm25_index" does not exist"#)),
-        _ => panic!("non-existing index should throw an error"),
-    }
-}
-
-#[rstest]
 fn json_term(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -1017,23 +950,23 @@ fn json_term(mut conn: PgConnection) {
     assert_eq!(rows, vec![(4,), (15,), (25,)]);
 
     r#"
-    UPDATE paradedb.bm25_search 
-    SET metadata = '{"attributes": {"score": 4, "keywords": ["electronics", "headphones"]}}'::jsonb 
+    UPDATE paradedb.bm25_search
+    SET metadata = '{"attributes": {"score": 4, "keywords": ["electronics", "headphones"]}}'::jsonb
     WHERE id = 1
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> = "
-    SELECT id FROM paradedb.bm25_search 
-    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.score', 4) 
+    SELECT id FROM paradedb.bm25_search
+    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.score', 4)
     ORDER BY id
     "
     .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
     let rows: Vec<(i32,)> = "
-    SELECT id FROM paradedb.bm25_search 
-    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.keywords', 'electronics') 
+    SELECT id FROM paradedb.bm25_search
+    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.keywords', 'electronics')
     ORDER BY id
     "
     .fetch(&mut conn);
@@ -1238,4 +1171,496 @@ fn json_array_term(mut conn: PgConnection) {
         ORDER BY id"
         .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
+}
+
+#[rstest]
+fn multiple_tokenizers_with_alias(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE products (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        description TEXT
+    );"
+    .execute(&mut conn);
+
+    // Insert mock data
+    "INSERT INTO products (name, description) VALUES
+    ('Mechanical Keyboard', 'RGB backlit keyboard with Cherry MX switches'),
+    ('Wireless Mouse', 'Ergonomic mouse with long battery life'),
+    ('4K Monitor', 'Ultra-wide curved display with HDR'),
+    ('Gaming Laptop', 'Powerful laptop with dedicated GPU'),
+    ('Ergonomic Chair', 'Adjustable office chair with lumbar support'),
+    ('Standing Desk', 'Electric height-adjustable desk'),
+    ('Noise-Cancelling Headphones', 'Over-ear headphones with active noise cancellation'),
+    ('Mechanical Pencil', 'Precision drafting tool with 0.5mm lead'),
+    ('Wireless Keyboard', 'Slim keyboard with multi-device support'),
+    ('Graphic Tablet', 'Digital drawing pad with pressure sensitivity'),
+    ('Curved Monitor', 'Immersive gaming display with high refresh rate'),
+    ('Ergonomic Keyboard', 'Split design keyboard for comfortable typing'),
+    ('Vertical Mouse', 'Upright mouse design to reduce wrist strain'),
+    ('Ultrabook Laptop', 'Thin and light laptop with all-day battery'),
+    ('LED Desk Lamp', 'Adjustable lighting with multiple color temperatures');"
+        .execute(&mut conn);
+
+    // Create the BM25 index
+    r#"CREATE INDEX products_index ON products
+    USING bm25 (id, name, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "name": {
+                "tokenizer": {"type": "default"}
+            },
+            "name_stem": {
+                "source": "name",
+                "tokenizer": {"type": "default", "stemmer": "English"},
+                "column": "name"
+            },
+            "description": {
+                "tokenizer": {"type": "default"}
+            },
+            "description_stem": {
+                "source": "description", 
+                "tokenizer": {"type": "default", "stemmer": "English"},
+                "column": "description"
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    // Test querying with default tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Keyboard')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().any(|(_, name)| name == "Mechanical Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Ergonomic Keyboard"));
+
+    // Ensure that the default tokenizer doesn't return for stemmed queries
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Keyboards')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+
+    // Test querying with stemmed alias
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name_stem:Keyboards')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().any(|(_, name)| name == "Mechanical Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Keyboard"));
+    assert!(rows.iter().any(|(_, name)| name == "Ergonomic Keyboard"));
+
+    // Test querying description with default tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description:battery')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Mouse"));
+    assert!(rows.iter().any(|(_, name)| name == "Ultrabook Laptop"));
+
+    // Ensure that the default tokenizer doesn't return for stemmed queries
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description:displaying')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 0);
+
+    // Test querying description with stemmed alias
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('description_stem:displaying')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "4K Monitor"));
+    assert!(rows.iter().any(|(_, name)| name == "Curved Monitor"));
+
+    // Test querying with both default and stemmed fields
+    let rows: Vec<(i32, String)> =
+        "SELECT id, name FROM products WHERE id @@@ paradedb.parse('name:Mouse OR description_stem:mouses')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, name)| name == "Wireless Mouse"));
+    assert!(rows.iter().any(|(_, name)| name == "Vertical Mouse"));
+}
+
+#[rstest]
+fn alias_cannot_be_key_field(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE products (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        description TEXT
+    );
+        INSERT INTO products (name, description) VALUES 
+        ('apple', 'fruit'),
+        ('banana', 'fruit'), 
+        ('cherry', 'fruit'), 
+        ('banana split', 'fruit');
+    "
+    .execute(&mut conn);
+
+    // Test alias cannot be the same as key_field
+    let result = r#"
+    CREATE INDEX products_index ON products
+    USING bm25 (id, name, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "name": {
+                "tokenizer": {"type": "default"}
+            },
+            "id": {
+                "tokenizer": {"type": "default", "stemmer": "English"},
+                "column": "description"
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "error returned from database: cannot override BM25 configuration for key_field 'id', you must use an aliased field name and 'column' configuration key"
+    );
+
+    // Test valid configuration where alias is different from key_field
+    r#"
+    CREATE INDEX products_index ON products
+    USING bm25 (id, name, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "name": {
+                "tokenizer": {"type": "default"}
+            }
+        }',
+        numeric_fields='{
+            "id_aliased": {
+                "column": "id"
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM products WHERE id @@@ paradedb.parse('id_aliased:1')".fetch(&mut conn);
+
+    assert_eq!(rows, vec![(1,)])
+}
+
+#[rstest]
+fn multiple_tokenizers_same_field_in_query(mut conn: PgConnection) {
+    // Create the table
+    "CREATE TABLE product_reviews (
+        id SERIAL PRIMARY KEY,
+        product_name TEXT,
+        review_text TEXT
+    );"
+    .execute(&mut conn);
+
+    // Insert mock data
+    "INSERT INTO product_reviews (product_name, review_text) VALUES
+    ('SmartPhone X', 'This smartphone is incredible! The camera quality is amazing.'),
+    ('Laptop Pro', 'Great laptop for programming. The keyboard is comfortable.'),
+    ('Wireless Earbuds', 'These earbuds have excellent sound quality. Battery life could be better.'),
+    ('Gaming Mouse', 'Responsive and comfortable. Perfect for long gaming sessions.'),
+    ('4K TV', 'The picture quality is breathtaking. Smart features work seamlessly.'),
+    ('Fitness Tracker', 'Accurate step counting and heart rate monitoring. The app is user-friendly.'),
+    ('Smartwatch', 'This watch is smart indeed! Great for notifications and fitness tracking.'),
+    ('Bluetooth Speaker', 'Impressive sound for its size. Waterproof feature is a plus.'),
+    ('Mechanical Keyboard', 'Satisfying key presses. RGB lighting is customizable.'),
+    ('External SSD', 'Super fast read/write speeds. Compact and portable design.');"
+    .execute(&mut conn);
+
+    // Create the BM25 index with multiple tokenizers
+    r#"CREATE INDEX product_reviews_index ON product_reviews
+    USING bm25 (id, product_name, review_text)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "product_name": {
+                "tokenizer": {"type": "default"}
+            },
+            "product_name_ngram": {
+                "column": "product_name",
+                "tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}
+            },
+            "review_text": {
+                "tokenizer": {"type": "default"}
+            },
+            "review_text_stem": {
+                "column": "review_text",
+                "tokenizer": {"type": "default", "stemmer": "English"}
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    //  Exact match using default tokenizer
+    let rows: Vec<(i32, String)> = r#"SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('product_name:"Wireless Earbuds"')"#
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "Wireless Earbuds");
+
+    // Partial match using ngram tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('product_name_ngram:phon')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "SmartPhone X");
+
+    // Stemmed search using English stemmer tokenizer
+    let rows: Vec<(i32, String)> =
+        "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('review_text_stem:gaming')"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().any(|(_, name)| name == "Gaming Mouse"));
+
+    // Using default tokenizer and stem on same field
+    let rows: Vec<(i32, String)> = "SELECT id, product_name FROM product_reviews WHERE id @@@ paradedb.parse('review_text:monitoring OR review_text_stem:mon')"
+        .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, "Fitness Tracker");
+}
+
+#[rstest]
+fn more_like_this_with_alias(mut conn: PgConnection) {
+    // Create the table
+    r#"
+    CREATE TABLE test_more_like_this_alias (
+        id SERIAL PRIMARY KEY,
+        flavour TEXT,
+        description TEXT
+    );
+
+    INSERT INTO test_more_like_this_alias (flavour, description) VALUES 
+        ('apple', 'A sweet and crisp fruit'),
+        ('banana', 'A long yellow tropical fruit'),
+        ('cherry', 'A small round red fruit'),
+        ('banana split', 'An ice cream dessert with bananas'),
+        ('apple pie', 'A dessert made with apples');
+    "#
+    .execute(&mut conn);
+
+    // Create the BM25 index with aliased fields
+    r#"
+    CREATE INDEX test_more_like_this_alias_index ON test_more_like_this_alias
+    USING bm25 (id, flavour, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "taste": {
+                "column": "flavour",
+                "tokenizer": {"type": "default"}
+            },
+            "details": {
+                "column": "description",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );
+    "#
+    .execute(&mut conn);
+
+    // Test more_like_this with aliased field 'taste' (original 'flavour')
+    let rows: Vec<(i32, String, String)> = r#"
+    SELECT id, flavour, description FROM test_more_like_this_alias 
+    WHERE id @@@ paradedb.more_like_this(
+        min_doc_frequency => 0,
+        min_term_frequency => 0,
+        document_fields => '{"taste": "banana"}'
+    );
+    "#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana"));
+    assert!(rows.iter().any(|(_, flavour, _)| flavour == "banana split"));
+}
+
+#[rstest]
+fn multiple_aliases_same_column(mut conn: PgConnection) {
+    // Test multiple aliases pointing to the same column with different tokenizers
+    "CREATE TABLE multi_alias (
+        id SERIAL PRIMARY KEY,
+        content TEXT
+    );"
+    .execute(&mut conn);
+
+    "INSERT INTO multi_alias (content) VALUES 
+    ('running and jumping'),
+    ('ran and jumped'),
+    ('runner jumper athlete');"
+        .execute(&mut conn);
+
+    // Create index with multiple aliases for same column
+    r#"CREATE INDEX multi_alias_idx ON multi_alias
+    USING bm25 (id, content)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "content": {
+                "tokenizer": {"type": "default"}
+            },
+            "content_stem": {
+                "column": "content",
+                "tokenizer": {"type": "default", "stemmer": "English"}
+            },
+            "content_ngram": {
+                "column": "content", 
+                "tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    // Test each alias configuration
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content:running'".fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content_stem:running'".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM multi_alias WHERE multi_alias @@@ 'content_ngram:run'".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+}
+
+#[rstest]
+fn missing_source_column(mut conn: PgConnection) {
+    "CREATE TABLE missing_source (
+        id SERIAL PRIMARY KEY,
+        text_field TEXT
+    );"
+    .execute(&mut conn);
+
+    // Attempt to create index with alias pointing to non-existent column
+    let result = r#"CREATE INDEX missing_source_idx ON missing_source
+    USING bm25 (id, text_field)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "alias": {
+                "column": "nonexistent_column",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "error returned from database: 'nonexistent_column' cannot be indexed as a text field"
+    );
+}
+
+#[rstest]
+fn alias_type_mismatch(mut conn: PgConnection) {
+    "CREATE TABLE type_mismatch (
+        id SERIAL PRIMARY KEY,
+        numeric_field INTEGER,
+        text_field TEXT
+    );"
+    .execute(&mut conn);
+
+    // Try to create text alias pointing to numeric column
+    let result = r#"CREATE INDEX type_mismatch_idx ON type_mismatch
+    USING bm25 (id, numeric_field, text_field)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "wrong_type": {
+                "column": "numeric_field",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+}
+
+#[rstest]
+fn alias_chain_validation(mut conn: PgConnection) {
+    // Test that we can't create an alias that points to another alias
+    "CREATE TABLE alias_chain (
+        id SERIAL PRIMARY KEY,
+        base_field TEXT
+    );"
+    .execute(&mut conn);
+
+    let result = r#"CREATE INDEX alias_chain_idx ON alias_chain
+    USING bm25 (id, base_field)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "first_alias": {
+                "column": "base_field",
+                "tokenizer": {"type": "default"}
+            },
+            "second_alias": {
+                "column": "first_alias",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+}
+
+#[rstest]
+fn mixed_field_types_with_aliases(mut conn: PgConnection) {
+    // Test mixing different field types with aliases
+    "CREATE TABLE mixed_fields (
+        id SERIAL PRIMARY KEY,
+        text_content TEXT,
+        num_value INTEGER,
+        bool_flag BOOLEAN
+    );"
+    .execute(&mut conn);
+
+    "INSERT INTO mixed_fields (text_content, num_value, bool_flag) VALUES 
+    ('test content', 42, true),
+    ('another test', 100, false);"
+        .execute(&mut conn);
+
+    r#"CREATE INDEX mixed_fields_idx ON mixed_fields
+    USING bm25 (id, text_content, num_value, bool_flag)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "text_alias": {
+                "column": "text_content",
+                "tokenizer": {"type": "default"}
+            }
+        }',
+        numeric_fields='{
+            "num_alias": {
+                "column": "num_value"
+            }
+        }',
+        boolean_fields='{
+            "bool_alias": {
+                "column": "bool_flag"
+            }
+        }'
+    );"#
+    .execute(&mut conn);
+
+    // Test each type of alias
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'text_alias:test'".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'num_alias:42'".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mixed_fields WHERE mixed_fields @@@ 'bool_alias:true'".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
 }

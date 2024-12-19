@@ -60,11 +60,11 @@ impl From<u32> for SortDirection {
     }
 }
 
-impl From<SortDirection> for crate::index::reader::SortDirection {
+impl From<SortDirection> for crate::index::reader::index::SortDirection {
     fn from(value: SortDirection) -> Self {
         match value {
-            SortDirection::Asc => crate::index::reader::SortDirection::Asc,
-            SortDirection::Desc => crate::index::reader::SortDirection::Desc,
+            SortDirection::Asc => crate::index::reader::index::SortDirection::Asc,
+            SortDirection::Desc => crate::index::reader::index::SortDirection::Desc,
         }
     }
 }
@@ -277,6 +277,34 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
             self.flags.remove(&Flags::Force);
         }
         self
+    }
+
+    pub fn set_parallel(
+        mut self,
+        is_topn: bool,
+        row_estimate: Cardinality,
+        limit: Option<Cardinality>,
+        segment_count: usize,
+    ) -> Self {
+        unsafe {
+            // all non-topN/limit queries can do parallel
+            if !is_topn && limit.is_none() {
+                // we will try to parallelize based on the number of index segments
+                let nworkers = segment_count.min(pg_sys::max_parallel_workers as usize);
+
+                if nworkers > 0
+                    && row_estimate > (nworkers * nworkers) as f64
+                    && (*self.args.rel).consider_parallel
+                {
+                    self.custom_path_node.path.parallel_aware = true;
+                    self.custom_path_node.path.parallel_safe = true;
+                    self.custom_path_node.path.parallel_workers =
+                        nworkers.try_into().expect("nworkers should be a valid i32");
+                }
+            }
+
+            self
+        }
     }
 
     pub fn build(mut self) -> pg_sys::CustomPath {

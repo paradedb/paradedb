@@ -210,47 +210,49 @@ fn single_queries(mut conn: PgConnection) {
     assert_eq!(columns.len(), 5);
 
     // Test regex anchors
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
-        field => 'description',
-        pattern => '^running'
-    ) ORDER BY id"#
-        .fetch_collect(&mut conn);
-    assert_eq!(
-        columns.len(),
-        1,
-        "start anchor ^ should match exactly one item"
-    );
+    // TODO: Rebase Tantivy
+    // let columns: SimpleProductsTableVec = r#"
+    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+    //     field => 'description',
+    //     pattern => '^running'
+    // ) ORDER BY id"#
+    //     .fetch_collect(&mut conn);
+    // assert_eq!(
+    //     columns.len(),
+    //     1,
+    //     "start anchor ^ should match exactly one item"
+    // );
 
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
-        field => 'description',
-        pattern => 'keyboard$'
-    ) ORDER BY id"#
-        .fetch_collect(&mut conn);
-    assert_eq!(columns.len(), 2, "end anchor $ should match two items");
+    // let columns: SimpleProductsTableVec = r#"
+    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+    //     field => 'description',
+    //     pattern => 'keyboard$'
+    // ) ORDER BY id"#
+    //     .fetch_collect(&mut conn);
+    // assert_eq!(columns.len(), 2, "end anchor $ should match two items");
 
     // Regex Phrase
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_phrase(
-        field => 'description',
-        regexes => ARRAY['.*bot', '.*ing', 'kit']
-    ) ORDER BY id"#
-        .fetch_collect(&mut conn);
-    assert_eq!(columns.len(), 1);
+    // TODO: Bring back regex_phrase
+    // let columns: SimpleProductsTableVec = r#"
+    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_phrase(
+    //     field => 'description',
+    //     regexes => ARRAY['.*bot', '.*ing', 'kit']
+    // ) ORDER BY id"#
+    //     .fetch_collect(&mut conn);
+    // assert_eq!(columns.len(), 1);
 
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
-    '{
-        "regex_phrase": {
-            "field": "description",
-            "regexes": [".*eek", "shoes"],
-            "slop": 1,
-            "max_expansion": 10
-        }
-    }'::jsonb;"#
-        .fetch_collect(&mut conn);
-    assert_eq!(columns.len(), 1);
+    // let columns: SimpleProductsTableVec = r#"
+    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
+    // '{
+    //     "regex_phrase": {
+    //         "field": "description",
+    //         "regexes": [".*eek", "shoes"],
+    //         "slop": 1,
+    //         "max_expansion": 10
+    //     }
+    // }'::jsonb;"#
+    //     .fetch_collect(&mut conn);
+    // assert_eq!(columns.len(), 1);
 
     // Term
     let columns: SimpleProductsTableVec = r#"
@@ -352,7 +354,13 @@ fn more_like_this_raw(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -410,7 +418,13 @@ fn more_like_this_empty(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -447,7 +461,13 @@ fn more_like_this_text(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -478,7 +498,13 @@ fn more_like_this_boolean_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -512,7 +538,13 @@ fn more_like_this_uuid_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -545,7 +577,13 @@ fn more_like_this_i64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -579,7 +617,13 @@ fn more_like_this_i32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -612,7 +656,13 @@ fn more_like_this_i16_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -645,7 +695,13 @@ fn more_like_this_f32_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -677,7 +733,13 @@ fn more_like_this_f64_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -711,7 +773,13 @@ fn more_like_this_numeric_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -743,7 +811,13 @@ fn more_like_this_date_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -776,7 +850,13 @@ fn more_like_this_time_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -810,7 +890,13 @@ fn more_like_this_timestamp_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -844,7 +930,13 @@ fn more_like_this_timestamptz_key(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 
@@ -877,7 +969,13 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
     r#"
-        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour) WITH (key_field='id');
+        CREATE INDEX test_more_like_this_index on test_more_like_this_table USING bm25 (id, flavour)
+        WITH (
+            key_field='id',
+            text_fields='{
+                "flavour": { "stored": true }
+            }'
+        );
     "#
     .execute(&mut conn);
 

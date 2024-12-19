@@ -16,26 +16,29 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::reader::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
+use crate::postgres::customscan::pdbscan::parallel::PdbParallelScanState;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
-use pgrx::{name_data_to_str, pg_sys, PgRelation};
+use pgrx::heap_tuple::PgHeapTuple;
+use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
-use tantivy::query::Query;
+use tantivy::schema::OwnedValue;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::DocAddress;
 
 #[derive(Default)]
 pub struct PdbScanState {
+    pub parallel_state: Option<*mut PdbParallelScanState>,
+
     pub rti: pg_sys::Index,
 
-    pub query: Option<Box<dyn Query>>,
     pub search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 
@@ -57,6 +60,9 @@ pub struct PdbScanState {
     pub indexrelid: pg_sys::Oid,
     pub lockmode: pg_sys::LOCKMODE,
 
+    pub heaprel_namespace: String,
+    pub heaprel_relname: String,
+
     pub visibility_checker: Option<VisibilityChecker>,
 
     pub need_scores: bool,
@@ -65,7 +71,8 @@ pub struct PdbScanState {
 
     pub const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
     pub snippet_funcoid: pg_sys::Oid,
-    pub snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>>,
+    pub snippet_generators:
+        HashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
     pub var_attname_lookup: HashMap<(i32, pg_sys::AttrNumber), String>,
 
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
@@ -142,8 +149,13 @@ impl PdbScanState {
     }
 
     #[inline(always)]
+    pub fn heaprel_namespace(&self) -> &str {
+        &self.heaprel_namespace
+    }
+
+    #[inline(always)]
     pub fn heaprelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*(*self.heaprel()).rd_rel).relname) }
+        &self.heaprel_relname
     }
 
     #[inline(always)]
@@ -161,13 +173,56 @@ impl PdbScanState {
         self.visibility_checker.as_mut().unwrap()
     }
 
-    pub fn make_snippet(
-        &self,
-        doc_address: DocAddress,
-        snippet_info: &SnippetInfo,
-    ) -> Option<String> {
-        let doc = self.search_reader.as_ref()?.get_doc(doc_address).ok()?;
-        let generator = self.snippet_generators.get(snippet_info)?.as_ref()?;
+    pub fn make_snippet(&self, ctid: u64, snippet_info: &SnippetInfo) -> Option<String> {
+        let heaprel = self
+            .heaprel
+            .expect("make_snippet: heaprel should be initialized");
+        let mut ipd = pg_sys::ItemPointerData::default();
+        u64_to_item_pointer(ctid, &mut ipd);
+
+        let text = unsafe {
+            let mut heap_tuple = pg_sys::HeapTupleData {
+                t_self: ipd,
+                ..Default::default()
+            };
+            let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+            #[cfg(any(feature = "pg13", feature = "pg14"))]
+            {
+                if !pg_sys::heap_fetch(
+                    heaprel,
+                    pg_sys::GetActiveSnapshot(),
+                    &mut heap_tuple,
+                    &mut buffer,
+                ) {
+                    return None;
+                }
+            }
+
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+            {
+                if !pg_sys::heap_fetch(
+                    heaprel,
+                    pg_sys::GetActiveSnapshot(),
+                    &mut heap_tuple,
+                    &mut buffer,
+                    false,
+                ) {
+                    return None;
+                }
+            }
+
+            pg_sys::ReleaseBuffer(buffer);
+
+            let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+            PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple)
+                .get_by_name(&snippet_info.field)
+                .expect("{snippet_info.field} should exist in the heap tuple")
+                .unwrap_or_default()
+        };
+
+        let (field, generator) = self.snippet_generators.get(snippet_info)?.as_ref()?;
+        let doc = HashMap::from([(*field, OwnedValue::Str(text))]);
         let mut snippet = generator.snippet_from_doc(&doc);
 
         snippet.set_snippet_prefix_postfix(&snippet_info.start_tag, &snippet_info.end_tag);

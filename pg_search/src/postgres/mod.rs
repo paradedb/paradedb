@@ -31,7 +31,7 @@ pub mod customscan;
 pub mod datetime;
 pub mod index;
 mod parallel;
-pub mod transaction;
+pub mod storage;
 pub mod types;
 pub mod utils;
 pub mod visibility_checker;
@@ -77,6 +77,10 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.ambuild = Some(build::ambuild);
     amroutine.ambuildempty = Some(build::ambuildempty);
     amroutine.aminsert = Some(insert::aminsert);
+    #[cfg(feature = "pg17")]
+    {
+        amroutine.aminsertcleanup = Some(insert::aminsertcleanup);
+    }
     amroutine.ambulkdelete = Some(delete::ambulkdelete);
     amroutine.amvacuumcleanup = Some(vacuum::amvacuumcleanup);
     amroutine.amcostestimate = Some(cost::amcostestimate);

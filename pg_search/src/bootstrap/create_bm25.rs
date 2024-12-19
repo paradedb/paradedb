@@ -17,6 +17,17 @@
 
 use std::collections::HashMap;
 
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::BlockDirectoryType;
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::storage::block::{
+    LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
+};
+use crate::postgres::storage::LinkedItemList;
+use crate::schema::IndexRecordOption;
+use crate::schema::SearchFieldConfig;
+use crate::schema::SearchFieldName;
+use crate::schema::SearchFieldType;
 use anyhow::bail;
 use anyhow::Result;
 use pgrx::prelude::*;
@@ -27,14 +38,6 @@ use serde_json::Value;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::SearchNormalizer;
 use tokenizers::SearchTokenizer;
-
-use crate::index::{SearchFs, SearchIndex, WriterDirectory};
-use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
-use crate::postgres::options::SearchIndexCreateOptions;
-use crate::schema::IndexRecordOption;
-use crate::schema::SearchFieldConfig;
-use crate::schema::SearchFieldName;
-use crate::schema::SearchFieldType;
 
 #[allow(clippy::too_many_arguments)]
 #[pg_extern]
@@ -105,38 +108,6 @@ fn format_create_bm25(
         spi::quote_literal(&serde_json::to_string(&range_fields)?),
         spi::quote_literal(&serde_json::to_string(&datetime_fields)?),
         predicate_where))
-}
-
-#[pg_extern(sql = "
-CREATE OR REPLACE PROCEDURE paradedb.delete_bm25_index_by_oid(
-    index_oid oid
-)
-LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-")]
-unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
-    let database_oid = crate::MyDatabaseId();
-    let relfile_paths = WriterDirectory::relfile_paths(database_oid, index_oid.as_u32())
-        .expect("could not look up pg_search relfilenode directory");
-
-    for directory in relfile_paths {
-        // Drop the Tantivy data directory.
-        // It's expected that this will be queued to actually perform the delete upon
-        // transaction commit.
-        match SearchIndex::from_disk(&directory) {
-            Ok(mut search_index) => {
-                search_index.drop_index().unwrap_or_else(|err| {
-                    panic!("error dropping index with OID {index_oid:?}: {err:?}")
-                });
-            }
-            Err(e) => {
-                pgrx::warning!(
-                    "error dropping index with OID {index_oid:?} at path {}: {e:?}",
-                    directory.search_index_dir_path(false).unwrap().0.display()
-                );
-            }
-        }
-    }
-    Ok(())
 }
 
 #[pg_extern]
@@ -231,7 +202,7 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             _ => panic!("'{name}' cannot be indexed as a datetime field"),
         });
 
-    let key_field = rdopts.get_key_field().expect("must specify key field");
+    let key_field = rdopts.get_key_field().expect("must specify key_field");
     let key_field_type = match name_type_map.get(&key_field) {
         Some(field_type) => field_type,
         None => panic!("key field does not exist"),
@@ -241,38 +212,46 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
-                stored: true,
+                stored: false,
+                column: None,
             }
         }
         SearchFieldType::Text => SearchFieldConfig::Text {
             indexed: true,
             fast: true,
-            stored: true,
+            stored: false,
             fieldnorms: false,
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
+            column: None,
         },
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
             fast: true,
-            stored: true,
+            stored: false,
             expand_dots: false,
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             fieldnorms: true,
+            column: None,
         },
-        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
+        SearchFieldType::Range => SearchFieldConfig::Range {
+            stored: false,
+            column: None,
+        },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
-            stored: true,
+            stored: false,
+            column: None,
         },
         SearchFieldType::Date => SearchFieldConfig::Date {
             indexed: true,
             fast: true,
-            stored: true,
+            stored: false,
+            column: None,
         },
     };
 
@@ -288,13 +267,6 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             key_config,
             *key_field_type,
         )))
-        // "ctid" is a reserved column name in Postgres, so we don't need to worry about
-        // creating a name conflict with a user-named column.
-        .chain(std::iter::once((
-            "ctid".into(),
-            SearchFieldConfig::Ctid,
-            SearchFieldType::U64,
-        )))
         .map(|(name, config, _)| {
             (
                 name.0,
@@ -307,32 +279,7 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
     JsonB(serde_json::Value::from(fields))
 }
 
-#[pg_extern]
-fn index_size(index: PgRelation) -> Result<i64> {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function so it is not dropped or
-    // altered while we are reading it.
-    //
-    // Because we accept a PgRelation above, we have confidence that Postgres has already
-    // validated the existence of the relation. We are safe calling the function below as
-    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
-    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
-    let index_oid = index.oid();
-
-    let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_pg_relation(&index);
-
-    // Create a WriterDirectory with the obtained index_oid
-    let writer_directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
-
-    // Call the total_size method to get the size in bytes
-    let total_size = writer_directory.total_size()?;
-
-    Ok(total_size as i64)
-}
-
+#[allow(clippy::type_complexity)]
 #[pg_extern]
 fn index_info(
     index: PgRelation,
@@ -341,9 +288,16 @@ fn index_info(
         'static,
         (
             name!(segno, String),
-            name!(byte_size, i64),
-            name!(num_docs, i64),
-            name!(num_deleted, i64),
+            name!(byte_size, AnyNumeric),
+            name!(num_docs, AnyNumeric),
+            name!(num_deleted, AnyNumeric),
+            name!(termdict_bytes, AnyNumeric),
+            name!(postings_bytes, AnyNumeric),
+            name!(positions_bytes, AnyNumeric),
+            name!(fast_fields_bytes, AnyNumeric),
+            name!(fieldnorms_bytes, AnyNumeric),
+            name!(store_bytes, AnyNumeric),
+            name!(deletes_bytes, AnyNumeric),
         ),
     >,
 > {
@@ -358,63 +312,128 @@ fn index_info(
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
     // open the specified index
-    let index = open_search_index(&index).expect("should be able to open search index");
-    let directory = index.directory.clone();
-    let data = index
-        .underlying_index
-        .searchable_segment_metas()?
-        .into_iter()
-        .map(|meta| {
-            let segno = meta.id().short_uuid_string();
-            let byte_size = meta
-                .list_files()
-                .into_iter()
-                .map(|file| {
-                    let mut full_path = directory.tantivy_dir_path(false).unwrap().0;
-                    full_path.push(file);
+    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)?;
+    let data = search_reader
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| {
+            let segno = segment_reader.segment_id().short_uuid_string();
+            let space_usage = segment_reader.space_usage()?;
 
-                    if full_path.exists() {
-                        full_path
-                            .metadata()
-                            .map(|metadata| metadata.len())
-                            .unwrap_or(0)
-                    } else {
-                        0
-                    }
-                })
-                .sum::<u64>() as i64;
-            let num_docs = meta.num_docs() as i64;
-            let num_deleted = meta.num_deleted_docs() as i64;
-
-            (segno, byte_size, num_docs, num_deleted)
+            Ok((
+                segno,
+                space_usage.total().get_bytes().into(),
+                segment_reader.num_docs().into(),
+                segment_reader.num_deleted_docs().into(),
+                space_usage.termdict().total().get_bytes().into(),
+                space_usage.postings().total().get_bytes().into(),
+                space_usage.positions().total().get_bytes().into(),
+                space_usage.fast_fields().total().get_bytes().into(),
+                space_usage.fieldnorms().total().get_bytes().into(),
+                space_usage.store().total().get_bytes().into(),
+                space_usage.deletes().get_bytes().into(),
+            ))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(TableIterator::new(data))
+}
+
+#[pg_extern]
+fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+
+    // open the specified index
+    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)?;
+
+    let failed = search_reader.validate_checksum()?;
+    Ok(SetOfIterator::new(
+        failed.into_iter().map(|path| path.display().to_string()),
+    ))
 }
 
 #[pg_extern(sql = "")]
 fn create_bm25_jsonb() {}
 
-extension_sql!(
-    r#"
-    CREATE OR REPLACE FUNCTION paradedb.drop_bm25_event_trigger()
-    RETURNS event_trigger AS $$
-    DECLARE
-        obj RECORD;
-    BEGIN
-        FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() LOOP
-            IF obj.object_type = 'index' THEN
-                CALL paradedb.delete_bm25_index_by_oid(obj.objid);
-            END IF;
-        END LOOP;
-    END;
-    $$ LANGUAGE plpgsql;
-    
-    CREATE EVENT TRIGGER trigger_on_sql_index_drop
-    ON sql_drop
-    EXECUTE FUNCTION paradedb.drop_bm25_event_trigger();
-    "#
-    name = "create_drop_bm25_event_trigger",
-    requires = [ delete_bm25_index_by_oid ]
-);
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn storage_info(
+    index: PgRelation,
+) -> TableIterator<'static, (name!(block, i64), name!(max_offset, i32))> {
+    let segment_components =
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
+    let bman = segment_components.bman();
+    let mut blockno = segment_components.get_start_blockno();
+    let mut data = vec![];
+
+    while blockno != pg_sys::InvalidBlockNumber {
+        let buffer = bman.get_buffer(blockno);
+        let page = buffer.page();
+        let max_offset = page.max_offset_number();
+        data.push((blockno as i64, max_offset as i32));
+        blockno = page.next_blockno();
+    }
+
+    TableIterator::new(data)
+}
+
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn page_info(
+    index: PgRelation,
+    blockno: i64,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(offsetno, i32),
+            name!(size, i32),
+            name!(visible, bool),
+            name!(recyclable, bool),
+            name!(contents, JsonB),
+        ),
+    >,
+> {
+    let segment_components =
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START);
+    let bman = segment_components.bman();
+    let buffer = bman.get_buffer(blockno as pg_sys::BlockNumber);
+    let page = buffer.page();
+    let max_offset = page.max_offset_number();
+
+    if max_offset == pg_sys::InvalidOffsetNumber {
+        return Ok(TableIterator::new(vec![]));
+    }
+
+    let mut data = vec![];
+    let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+    let heap_oid = unsafe { pg_sys::IndexGetRelation(index.oid(), false) };
+    let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
+
+    for offsetno in pg_sys::FirstOffsetNumber..=max_offset {
+        unsafe {
+            if let Some((entry, size)) = page.read_item::<SegmentMetaEntry>(offsetno) {
+                data.push((
+                    offsetno as i32,
+                    size as i32,
+                    entry.visible(snapshot),
+                    entry.recyclable(snapshot, heap_relation),
+                    JsonB(serde_json::to_value(entry)?),
+                ))
+            } else {
+                data.push((offsetno as i32, 0_i32, false, false, JsonB(Value::Null)))
+            }
+        }
+    }
+
+    unsafe { pg_sys::RelationClose(heap_relation) };
+    Ok(TableIterator::new(data))
+}

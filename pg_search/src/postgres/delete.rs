@@ -26,6 +26,12 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
 
+#[repr(C)]
+pub struct BulkDeleteData {
+    stats: pg_sys::IndexBulkDeleteResult,
+    pub cleanup_lock: pg_sys::Buffer,
+}
+
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
@@ -82,23 +88,10 @@ pub extern "C" fn ambulkdelete(
         }
     }
 
-    unsafe {
-        let cleanup_buffer = pg_sys::ReadBufferExtended(
-            info.index,
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            CLEANUP_LOCK,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            info.strategy,
-        );
-        pg_sys::LockBufferForCleanup(cleanup_buffer);
-
-        // Don't merge here, amvacuumcleanup will merge
-        writer
-            .commit(false)
-            .expect("ambulkdelete: commit should succeed");
-
-        pg_sys::UnlockReleaseBuffer(cleanup_buffer);
-    }
+    // Don't merge here, amvacuumcleanup will merge
+    writer
+        .commit(false)
+        .expect("ambulkdelete: commit should succeed");
 
     if stats.is_null() {
         stats = unsafe {
@@ -109,6 +102,26 @@ pub extern "C" fn ambulkdelete(
         stats.pages_deleted = 0;
     }
 
-    // TODO: Update stats
-    stats.into_pg()
+    // As soon as ambulkdelete returns, Postgres will update the visibility map
+    // This can cause concurrent scans that have just read ctids, which are dead but
+    // are about to be marked visible, to return wrong results. To guard against this,
+    // we acquire a cleanup lock that guarantees that there are no pins on the index,
+    // which means that all concurrent scans have completed. This lock is then released in
+    // amvacuumcleanup, at which point the visibility map is updated and concurrent scans
+    // are safe to resume.
+    unsafe {
+        let cleanup_buffer = pg_sys::ReadBufferExtended(
+            info.index,
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            CLEANUP_LOCK,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            info.strategy,
+        );
+        pg_sys::LockBufferForCleanup(cleanup_buffer);
+
+        let mut opaque = PgBox::<BulkDeleteData>::alloc0();
+        opaque.stats = *stats;
+        opaque.cleanup_lock = cleanup_buffer;
+        opaque.into_pg() as *mut pg_sys::IndexBulkDeleteResult
+    }
 }

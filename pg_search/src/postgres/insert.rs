@@ -23,12 +23,18 @@ use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
 
+extern "C" {
+    fn IsLogicalWorker() -> bool;
+}
+
 pub struct InsertState {
     pub writer: Option<SearchIndexWriter>,
     abort_on_drop: bool,
+    #[cfg(not(feature = "pg17"))]
     committed: bool,
 }
 
+#[cfg(not(feature = "pg17"))]
 impl Drop for InsertState {
     /// When [`InsertState`] is dropped we'll either commit the underlying tantivy index changes
     /// or abort.
@@ -59,6 +65,7 @@ impl InsertState {
         Ok(Self {
             writer: Some(writer),
             abort_on_drop: false,
+            #[cfg(not(feature = "pg17"))]
             committed: false,
         })
     }
@@ -69,6 +76,9 @@ pub unsafe fn init_insert_state(
     index_info: *mut pg_sys::IndexInfo,
     writer_resources: WriterResources,
 ) -> *mut InsertState {
+    if IsLogicalWorker() {
+        panic!("pg_search logical replication is an enterprise feature");
+    }
     assert!(!index_info.is_null());
     let state = (*index_info).ii_AmCache;
     let index_relation = PgRelation::from_pg(index_relation);
@@ -164,4 +174,25 @@ unsafe fn aminsert_internal(
             resume_unwind(e)
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(feature = "pg17")]
+#[pg_guard]
+pub unsafe extern "C" fn aminsertcleanup(
+    _index_relation: pg_sys::Relation,
+    index_info: *mut pg_sys::IndexInfo,
+) {
+    let state = if (*index_info).ii_AmCache.cast::<InsertState>().is_null() {
+        panic!("SearchIndexWriter must not be null in aminsertcleanup InsertState");
+    } else {
+        Box::from_raw((*index_info).ii_AmCache.cast::<InsertState>())
+    };
+    let writer = state
+        .writer
+        .expect("SearchIndexWriter must not be null in aminsertcleanup InsertState");
+
+    writer
+        .commit_inserts()
+        .expect("tantivy index commit should succeed");
 }

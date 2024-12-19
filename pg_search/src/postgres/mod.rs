@@ -77,6 +77,9 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.ambuild = Some(build::ambuild);
     amroutine.ambuildempty = Some(build::ambuildempty);
     amroutine.aminsert = Some(insert::aminsert);
+    if cfg!(feature = "pg17") {
+        amroutine.aminsertcleanup = Some(insert::aminsertcleanup);
+    }
     amroutine.ambulkdelete = Some(delete::ambulkdelete);
     amroutine.amvacuumcleanup = Some(vacuum::amvacuumcleanup);
     amroutine.amcostestimate = Some(cost::amcostestimate);

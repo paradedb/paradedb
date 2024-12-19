@@ -31,7 +31,7 @@ pub mod customscan;
 pub mod datetime;
 pub mod index;
 mod parallel;
-pub mod transaction;
+pub mod storage;
 pub mod types;
 pub mod utils;
 pub mod visibility_checker;
@@ -107,3 +107,5 @@ pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)
         None
     }
 }
+
+pub type NeedWal = bool;

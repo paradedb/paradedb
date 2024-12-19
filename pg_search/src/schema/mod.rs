@@ -29,7 +29,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
     DateOptions, Field, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing, TextOptions,
-    FAST, INDEXED, STORED,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -112,7 +111,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -128,7 +127,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default)]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -142,7 +141,7 @@ pub enum SearchFieldConfig {
         normalizer: SearchNormalizer,
     },
     Range {
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
     },
     Numeric {
@@ -150,7 +149,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
     },
     Boolean {
@@ -158,7 +157,7 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
     },
     Date {
@@ -166,10 +165,9 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
-        #[serde(default = "default_as_true")]
+        #[serde(default = "default_as_false")]
         stored: bool,
     },
-    Ctid,
 }
 
 impl SearchFieldConfig {
@@ -196,7 +194,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         let fieldnorms = match obj.get("fieldnorms") {
@@ -255,7 +253,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         let expand_dots = match obj.get("expand_dots") {
@@ -308,7 +306,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         Ok(SearchFieldConfig::Range { stored })
@@ -337,7 +335,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         Ok(SearchFieldConfig::Numeric {
@@ -370,7 +368,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         Ok(SearchFieldConfig::Boolean {
@@ -403,7 +401,7 @@ impl SearchFieldConfig {
             Some(v) => v
                 .as_bool()
                 .ok_or_else(|| anyhow::anyhow!("'stored' field should be a boolean")),
-            None => Ok(true),
+            None => Ok(false),
         }?;
 
         Ok(SearchFieldConfig::Date {
@@ -601,14 +599,12 @@ impl From<&SearchField> for Field {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Into)]
+#[derive(Debug, Serialize, Deserialize, Clone, Into)]
 pub struct SearchIndexSchema {
     /// The fields that are stored in the index.
     pub fields: Vec<SearchField>,
     /// The index of the key field in the fields vector.
     pub key: usize,
-    /// The index of the ctid field in the fields vector.
-    pub ctid: usize,
     /// The underlying tantivy schema
     #[into]
     pub schema: Schema,
@@ -625,29 +621,18 @@ impl SearchIndexSchema {
         let mut builder = Schema::builder();
         let mut search_fields = vec![];
 
-        let mut ctid_index = 0;
-        for (index, (name, config, field_type)) in fields.into_iter().enumerate() {
-            if config == SearchFieldConfig::Ctid {
-                ctid_index = index
-            }
+        let key_field_name = fields[key_index].0 .0.clone();
 
-            let id: SearchFieldId = match &config {
-                SearchFieldConfig::Ctid => {
-                    // INDEXED because we might want to search the u64 version of a ctid
-                    // FAST because we return this field directly through our various searching methods
-                    // STORED because our VACUUM process decodes full documents while scanning the index
-                    builder.add_u64_field(name.as_ref(), INDEXED | FAST | STORED)
-                }
-                _ => match field_type {
-                    SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
-                    SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
-                    SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
-                    SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
-                    SearchFieldType::Bool => builder.add_bool_field(name.as_ref(), config.clone()),
-                    SearchFieldType::Json => builder.add_json_field(name.as_ref(), config.clone()),
-                    SearchFieldType::Range => builder.add_json_field(name.as_ref(), config.clone()),
-                    SearchFieldType::Date => builder.add_date_field(name.as_ref(), config.clone()),
-                },
+        for (name, config, field_type) in fields {
+            let id: SearchFieldId = match field_type {
+                SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
+                SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
+                SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
+                SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
+                SearchFieldType::Bool => builder.add_bool_field(name.as_ref(), config.clone()),
+                SearchFieldType::Json => builder.add_json_field(name.as_ref(), config.clone()),
+                SearchFieldType::Range => builder.add_json_field(name.as_ref(), config.clone()),
+                SearchFieldType::Date => builder.add_date_field(name.as_ref(), config.clone()),
             }
             .into();
 
@@ -659,11 +644,14 @@ impl SearchIndexSchema {
             });
         }
 
-        let schema = builder.build();
+        // hardcode the ctid field into the schema.  "ctid" is a reserved Postgres attribute name
+        // so we don't need to worry about name conflicts
+        builder.add_u64_field("ctid", tantivy::schema::INDEXED);
+
+        let schema = builder.build_with_key_field(&key_field_name);
 
         Ok(Self {
             key: key_index,
-            ctid: ctid_index,
             schema,
             lookup: Self::build_lookup(&search_fields).into(),
             fields: search_fields,
@@ -680,13 +668,6 @@ impl SearchIndexSchema {
                 lookup.insert(name, idx);
             });
         lookup
-    }
-
-    pub fn ctid_field(&self) -> SearchField {
-        self.fields
-            .get(self.ctid)
-            .expect("ctid field should be present on search schema")
-            .clone()
     }
 
     pub fn key_field(&self) -> SearchField {
@@ -737,7 +718,6 @@ impl SearchIndexSchema {
                 SearchFieldConfig::Numeric { fast: true, .. }
                     | SearchFieldConfig::Boolean { fast: true, .. }
                     | SearchFieldConfig::Date { fast: true, .. }
-                    | SearchFieldConfig::Ctid
             )
         } else {
             false
@@ -756,7 +736,6 @@ impl SearchIndexSchema {
             SearchFieldConfig::Numeric { fast: true, .. } => Some(()),
             SearchFieldConfig::Boolean { fast: true, .. } => Some(()),
             SearchFieldConfig::Date { fast: true, .. } => Some(()),
-            SearchFieldConfig::Ctid => Some(()),
             _ => None,
         }
     }
@@ -820,6 +799,10 @@ pub enum SearchIndexSchemaError {
 }
 
 fn default_as_true() -> bool {
+    true
+}
+
+fn default_as_false() -> bool {
     true
 }
 
@@ -905,29 +888,7 @@ mod tests {
     use rstest::rstest;
     use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
 
-    use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
-
-    #[test]
-    fn assert_ctid_attributes() {
-        let fields = vec![(
-            SearchFieldName("dummy_key_field".into()),
-            SearchFieldConfig::Numeric {
-                indexed: true,
-                fast: true,
-                stored: true,
-            },
-            SearchFieldType::U64,
-        )];
-        let schema = SearchIndexSchema::new(fields, 0).expect("schema should be valid");
-
-        let ctid_field = schema.ctid_field().id.0;
-        let ctid_field_entry = schema.schema.get_field_entry(ctid_field);
-
-        // the `ctid` field must be all of these
-        assert!(ctid_field_entry.is_indexed());
-        assert!(ctid_field_entry.is_fast());
-        assert!(ctid_field_entry.is_stored());
-    }
+    use crate::schema::SearchFieldConfig;
 
     #[rstest]
     fn test_search_text_options() {

@@ -42,7 +42,6 @@ sqlx = { version = "0.7.4", features = [
 strum = "0.26.3"
 strum_macros = "0.26.4"
 tantivy.workspace = true
-tantivy-common.workspace = true
 tempfile = "3.12.0"
 time = { version = "0.3.36", features = ["serde"] }
 tokenizers = { path = "../tokenizers" }

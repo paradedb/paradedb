@@ -15,37 +15,42 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::WriterDirectory;
-use crate::index::{SearchIndex, WriterResources};
-use crate::postgres::index::relfilenode_from_pg_relation;
-use crate::postgres::insert::init_insert_state;
-use crate::postgres::options::SearchIndexCreateOptions;
+use crate::index::writer::index::SearchIndexWriter;
+use crate::index::WriterResources;
+use crate::postgres::storage::block::{
+    DirectoryEntry, MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, DELETE_METAS_START,
+    DIRECTORY_START, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+};
+use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::row_to_search_document;
-use crate::schema::{IndexRecordOption, SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::schema::SearchIndexSchema;
+use pgrx::itemptr::item_pointer_get_both;
+use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::*;
-use std::collections::HashMap;
 use std::ffi::CStr;
 use std::time::Instant;
-use tokenizers::manager::SearchTokenizerFilters;
-use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 // For now just pass the count on the build callback state
 struct BuildState {
     count: usize,
     memctx: PgMemoryContexts,
-    index_info: *mut pg_sys::IndexInfo,
     tupdesc: PgTupleDesc<'static>,
     start: Instant,
+    writer: SearchIndexWriter,
+    schema: SearchIndexSchema,
 }
 
 impl BuildState {
-    fn new(indexrel: &PgRelation, index_info: *mut pg_sys::IndexInfo) -> Self {
+    fn new(indexrel: &PgRelation, writer: SearchIndexWriter) -> Self {
+        let schema = writer.schema.clone();
         BuildState {
             count: 0,
             memctx: PgMemoryContexts::new("pg_search_index_build"),
-            index_info,
             tupdesc: unsafe { PgTupleDesc::from_pg_copy(indexrel.rd_att) },
             start: Instant::now(),
+            writer,
+            schema,
         }
     }
 }
@@ -59,8 +64,9 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
-    let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_pg_relation(&index_relation);
+
+    // Create the metadata blocks for the index
+    unsafe { create_metadata(&index_relation) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -83,160 +89,27 @@ pub extern "C" fn ambuild(
         }
     }
 
-    let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
-        unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
-    } else {
-        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
-        ops.into_pg_boxed()
-    };
+    let tuple_count = do_heap_scan(index_info, &heap_relation, &index_relation);
 
-    // Create a map from column name to column type. We'll use this to verify that index
-    // configurations passed by the user reference the correct types for each column.
-    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heap_relation
-        .tuple_desc()
-        .into_iter()
-        .filter_map(|attribute| {
-            let attname = attribute.name();
-            let attribute_type_oid = attribute.type_oid();
-            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-            let base_oid = if array_type != pg_sys::InvalidOid {
-                PgOid::from(array_type)
-            } else {
-                attribute_type_oid
-            };
-            if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
-                Some((attname.into(), search_field_type))
-            } else {
-                None
+    // now send the whole thing we just created straight to the WAL
+    unsafe {
+        if relation_needs_wal(&index_relation) {
+            let nblocks =
+                pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
+
+            if crate::gucs::log_create_index_progress() {
+                pgrx::log!(
+                    "{tuple_count} rows indexed.  Sending the newly created index to the WAL, totaling {nblocks} blocks, or about {} bytes", nblocks as usize * pg_sys::BLCKSZ as usize
+                );
             }
-        })
-        .collect();
 
-    for (name, _) in rdopts.get_text_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Text)) {
-            panic!("'{name}' cannot be indexed as a text field");
+            pg_sys::log_newpage_range(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM, 0, nblocks, true);
         }
     }
 
-    for (name, _) in rdopts.get_numeric_fields() {
-        if !matches!(
-            name_type_map.get(&name),
-            Some(SearchFieldType::U64 | SearchFieldType::I64 | SearchFieldType::F64)
-        ) {
-            panic!("'{name}' cannot be indexed as a numeric field");
-        }
-    }
-
-    for (name, _) in rdopts.get_boolean_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Bool)) {
-            panic!("'{name}' cannot be indexed as a boolean field");
-        }
-    }
-
-    for (name, _) in rdopts.get_json_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Json)) {
-            panic!("'{name}' cannot be indexed as a JSON field");
-        }
-    }
-
-    for (name, _) in rdopts.get_range_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Range)) {
-            panic!("'{name}' cannot be indexed as a range field");
-        }
-    }
-
-    for (name, _) in rdopts.get_datetime_fields() {
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Date)) {
-            panic!("'{name}' cannot be indexed as a datetime field");
-        }
-    }
-
-    let key_field = rdopts.get_key_field().expect("must specify key field");
-    let key_field_type = match name_type_map.get(&key_field) {
-        Some(field_type) => field_type,
-        None => panic!("key field does not exist"),
-    };
-    let key_config = match key_field_type {
-        SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
-            SearchFieldConfig::Numeric {
-                indexed: true,
-                fast: true,
-                stored: true,
-            }
-        }
-        SearchFieldType::Text => SearchFieldConfig::Text {
-            indexed: true,
-            fast: true,
-            stored: true,
-            fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-        },
-        SearchFieldType::Json => SearchFieldConfig::Json {
-            indexed: true,
-            fast: true,
-            stored: true,
-            fieldnorms: false,
-            expand_dots: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-        },
-        SearchFieldType::Range => SearchFieldConfig::Range { stored: true },
-        SearchFieldType::Bool => SearchFieldConfig::Boolean {
-            indexed: true,
-            fast: true,
-            stored: true,
-        },
-        SearchFieldType::Date => SearchFieldConfig::Date {
-            indexed: true,
-            fast: true,
-            stored: true,
-        },
-    };
-
-    // Concatenate the separate lists of fields.
-    let fields: Vec<_> = rdopts
-        .get_fields(&heap_relation, index_info)
-        .into_iter()
-        .filter(|(name, _, _)| name != &key_field) // Process key_field separately.
-        .chain(std::iter::once((
-            key_field.clone(),
-            key_config,
-            *key_field_type,
-        )))
-        // "ctid" is a reserved column name in Postgres, so we don't need to worry about
-        // creating a name conflict with a user-named column.
-        .chain(std::iter::once((
-            "ctid".into(),
-            SearchFieldConfig::Ctid,
-            SearchFieldType::U64,
-        )))
-        .collect();
-
-    let key_field_index = fields
-        .iter()
-        .position(|(name, _, _)| name == &key_field)
-        .expect("key field not found in columns"); // key field is already validated by now.
-
-    // If there's only two fields in the vector, then those are just the Key and Ctid fields,
-    // which we added above, and the user has not specified any fields to index.
-    if fields.len() == 2 {
-        panic!("no fields specified")
-    }
-
-    let directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
-
-    SearchIndex::create_index(directory, fields, key_field_index)
-        .expect("error creating new index instance");
-
-    let state = do_heap_scan(index_info, &heap_relation, &index_relation);
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
-    result.heap_tuples = state.count as f64;
-    result.index_tuples = state.count as f64;
-
+    result.heap_tuples = tuple_count as f64;
+    result.index_tuples = tuple_count as f64;
     result.into_pg()
 }
 
@@ -247,9 +120,12 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
-) -> BuildState {
-    let mut state = BuildState::new(index_relation, index_info);
+) -> usize {
     unsafe {
+        let writer = SearchIndexWriter::create_index(index_relation)
+            .expect("do_heap_scan: should be able to open a SearchIndexWriter");
+        let mut state = BuildState::new(index_relation, writer);
+
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
             index_relation.as_ptr(),
@@ -258,47 +134,23 @@ fn do_heap_scan<'a>(
             &mut state,
         );
 
-        let insert_state = init_insert_state(
-            index_relation.as_ptr(),
-            index_info,
-            WriterResources::CreateIndex,
-        );
-        if let Some(mut writer) = (*insert_state).writer.take() {
-            writer
-                .commit()
-                .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
+        state
+            .writer
+            .commit_inserts()
+            .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
-            writer
-                .underlying_writer
-                .take()
-                .unwrap()
-                .wait_merging_threads()
-                .unwrap_or_else(|e| panic!("failed to wait for index merge: {e}"));
-        }
+        state.count
     }
-
-    state
 }
 
 #[pg_guard]
 unsafe extern "C" fn build_callback(
-    index: pg_sys::Relation,
+    indexrel: pg_sys::Relation,
     ctid: pg_sys::ItemPointer,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
     _tuple_is_alive: bool,
     state: *mut std::os::raw::c_void,
-) {
-    build_callback_internal(*ctid, values, isnull, state, index);
-}
-
-#[inline(always)]
-unsafe fn build_callback_internal(
-    ctid: pg_sys::ItemPointerData,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
-    state: *mut std::os::raw::c_void,
-    indexrel: pg_sys::Relation,
 ) {
     check_for_interrupts!();
     let build_state = (state as *mut BuildState)
@@ -306,18 +158,8 @@ unsafe fn build_callback_internal(
         .expect("BuildState pointer should not be null");
 
     let tupdesc = &build_state.tupdesc;
-    let insert_state = init_insert_state(
-        indexrel,
-        build_state.index_info,
-        WriterResources::CreateIndex,
-    );
-    let search_index = &(*insert_state).index;
-    let writer = (*insert_state)
-        .writer
-        .as_ref()
-        .expect("InsertState::writer should be set");
-    let schema = &(*insert_state).index.schema;
-
+    let schema = &build_state.schema;
+    let writer = &mut build_state.writer;
     // In the block below, we switch to the memory context we've defined on our build
     // state, resetting it before and after. We do this because we're looking up a
     // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it
@@ -330,16 +172,15 @@ unsafe fn build_callback_internal(
         build_state.memctx.reset();
         build_state.memctx.switch_to(|_| {
             let search_document =
-                row_to_search_document(ctid, tupdesc, values, isnull, schema).unwrap_or_else(|err| {
+                row_to_search_document(tupdesc, values, isnull, schema).unwrap_or_else(|err| {
                     panic!(
                         "error creating index entries for index '{}': {err}",
                         CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr())
                             .to_string_lossy()
                     );
                 });
-
-            search_index
-                .insert(writer, search_document)
+            writer
+                .insert(search_document, item_pointer_get_both(*ctid))
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
@@ -361,9 +202,93 @@ unsafe fn build_callback_internal(
     }
 }
 
+fn relation_needs_wal(relation: &PgRelation) -> bool {
+    // #define InvalidSubTransactionId		((SubTransactionId) 0)
+    const INVALID_SUB_TRANSACTION_ID: pg_sys::SubTransactionId = 0;
+
+    // /*
+    //  * Is WAL-logging necessary for archival or log-shipping, or can we skip
+    //  * WAL-logging if we fsync() the data before committing instead?
+    //  */
+    // #define XLogIsNeeded() (wal_level >= WAL_LEVEL_REPLICA)
+    unsafe fn xlog_is_needed() -> bool {
+        pg_sys::wal_level >= WAL_LEVEL_REPLICA as i32
+    }
+
+    // /*
+    //  * RelationIsPermanent
+    //  *		True if relation is permanent.
+    //  */
+    // #define RelationIsPermanent(relation) \
+    // 	((relation)->rd_rel->relpersistence == RELPERSISTENCE_PERMANENT)
+
+    unsafe fn relation_is_permanent(relation: &PgRelation) -> bool {
+        (*relation.rd_rel).relpersistence == pg_sys::RELPERSISTENCE_PERMANENT as core::ffi::c_char
+    }
+
+    // /*
+    //  * RelationNeedsWAL
+    //  *		True if relation needs WAL.
+    //  *
+    //  * Returns false if wal_level = minimal and this relation is created or
+    //  * truncated in the current transaction.  See "Skipping WAL for New
+    //  * RelFileLocator" in src/backend/access/transam/README.
+    //  */
+    // #define RelationNeedsWAL(relation)										\
+    // 	(RelationIsPermanent(relation) && (XLogIsNeeded() ||				\
+    // 	  (relation->rd_createSubid == InvalidSubTransactionId &&			\
+    // 	   relation->rd_firstRelfilelocatorSubid == InvalidSubTransactionId)))
+
+    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+    unsafe {
+        relation_is_permanent(relation)
+            && (xlog_is_needed()
+                || (relation.rd_createSubid == INVALID_SUB_TRANSACTION_ID
+                    && relation.rd_firstRelfilenodeSubid == INVALID_SUB_TRANSACTION_ID))
+    }
+    #[cfg(any(feature = "pg16", feature = "pg17"))]
+    unsafe {
+        relation_is_permanent(relation)
+            && (xlog_is_needed()
+                || (relation.rd_createSubid == INVALID_SUB_TRANSACTION_ID
+                    && relation.rd_firstRelfilelocatorSubid == INVALID_SUB_TRANSACTION_ID))
+    }
+}
+
 fn is_bm25_index(indexrel: &PgRelation) -> bool {
     unsafe {
         // SAFETY:  we ensure that `indexrel.rd_indam` is non null and can be dereferenced
         !indexrel.rd_indam.is_null() && (*indexrel.rd_indam).ambuild == Some(ambuild)
     }
+}
+
+unsafe fn create_metadata(index_relation: &PgRelation) {
+    let need_wal = WriterResources::CreateIndex.resources(index_relation).4;
+    let relation_oid = index_relation.oid();
+    let mut bman = BufferManager::new(relation_oid, need_wal);
+
+    // Init merge lock buffer
+    let mut merge_lock = bman.new_buffer();
+    assert_eq!(merge_lock.number(), MERGE_LOCK);
+    let mut page = merge_lock.init_page();
+    let metadata = page.contents_mut::<MergeLockData>();
+    metadata.last_merge = pg_sys::InvalidTransactionId;
+
+    // Init cleanup lock buffer
+    let mut cleanup_lock = bman.new_buffer();
+    assert_eq!(cleanup_lock.number(), CLEANUP_LOCK);
+    cleanup_lock.init_page();
+
+    // initialize all the other required buffers
+    let schema = LinkedBytesList::create(relation_oid, need_wal);
+    let settings = LinkedBytesList::create(relation_oid, need_wal);
+    let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid, need_wal);
+    let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, need_wal);
+    let delete_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, need_wal);
+
+    assert_eq!(schema.header_blockno, SCHEMA_START);
+    assert_eq!(settings.header_blockno, SETTINGS_START);
+    assert_eq!(directory.header_blockno, DIRECTORY_START);
+    assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
+    assert_eq!(delete_metas.header_blockno, DELETE_METAS_START);
 }

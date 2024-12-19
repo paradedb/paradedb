@@ -96,7 +96,9 @@ jobs:
         id: pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
@@ -138,7 +140,7 @@ jobs:
 
       - name: Install cargo-pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
       - name: Initialize cargo-pgrx environment
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -162,13 +164,22 @@ jobs:
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 
-      - name: Run pg_search test suite
+      - name: Run integration tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: tests/
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test --features pg${{ matrix.pg_version }},icu --no-default-features
+          RUST_BACKTRACE=1 cargo test --features icu
+
+      - name: Run pgrx tests
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_search/
+        run: |
+          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          export PARADEDB_TELEMETRY=false
+          RUST_BACKTRACE=1 cargo test --features pg${{ matrix.pg_version }} --no-default-features
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()
@@ -206,11 +217,27 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: dtolnay/rust-toolchain@stable
 
+      # This checks that the version in Cargo.toml is incremented to the next release. We only run it
+      # on PRs to main, which are our release promotion PRs.
+      - name: Check version in Cargo.toml
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
+        working-directory: pg_search/
+        run: |
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Version in Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($RELEASE_VERSION), did you forget to increment it?"
+            exit 1
+          fi
+          echo "Version check passed!"
+
       - name: Extract pgrx Version
         id: pgrx
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
@@ -266,14 +293,15 @@ jobs:
 
       - name: Start Postgres and create database
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
+        working-directory: tests/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
       - name: Run pg_search test suite against pgrx-managed Postgres
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=pg${{ matrix.pg_version }},icu -- --skip replication --skip ephemeral
+        working-directory: tests/
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=icu -- --skip replication --skip ephemeral
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()

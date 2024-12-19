@@ -33,8 +33,7 @@ use tantivy::{
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
         ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery,
-        PhraseQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
-        TermSetQuery,
+        PhraseQuery, Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
     schema::{Field, FieldType, OwnedValue, DATE_TIME_PRECISION_INDEXED},
@@ -206,12 +205,6 @@ pub enum SearchQueryInput {
     Regex {
         field: String,
         pattern: String,
-    },
-    RegexPhrase {
-        field: String,
-        regexes: Vec<String>,
-        slop: Option<u32>,
-        max_expansions: Option<u32>,
     },
     Term {
         field: Option<String>,
@@ -885,7 +878,15 @@ impl SearchQueryInput {
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
-                Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+                if let Some(path) = path {
+                    Ok(Box::new(RangeQuery::with_path(
+                        lower_bound,
+                        upper_bound,
+                        Some(path),
+                    )))
+                } else {
+                    Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+                }
             }
             Self::RangeContains {
                 field,
@@ -1504,28 +1505,6 @@ impl SearchQueryInput {
                 )
                 .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
             )),
-            Self::RegexPhrase {
-                field,
-                regexes,
-                slop,
-                max_expansions,
-            } => {
-                let (field, _) = split_field_and_path(&field);
-                let (_, _, field) = field_lookup
-                    .as_field_type(&field)
-                    .ok_or(QueryError::NonIndexedField(field))?;
-
-                let mut query = RegexPhraseQuery::new(field, regexes);
-
-                if let Some(slop) = slop {
-                    query.set_slop(slop)
-                }
-                if let Some(max_expansions) = max_expansions {
-                    query.set_max_expansions(max_expansions)
-                }
-                Ok(Box::new(query))
-            }
-
             Self::Term {
                 field,
                 value,

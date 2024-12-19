@@ -171,7 +171,7 @@ pub unsafe fn inject_placeholders(
     score_funcoid: pg_sys::Oid,
     snippet_funcoid: pg_sys::Oid,
     attname_lookup: &HashMap<(i32, pg_sys::AttrNumber), String>,
-    snippet_infos: &HashMap<SnippetInfo, Option<SnippetGenerator>>,
+    snippet_infos: &HashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
@@ -245,7 +245,7 @@ pub unsafe fn inject_placeholders(
 
         snippet_funcoid: pg_sys::Oid,
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
-        snippet_infos: &'a HashMap<SnippetInfo, Option<SnippetGenerator>>,
+        snippet_infos: &'a HashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
         const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
     }
 

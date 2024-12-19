@@ -26,6 +26,12 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
 
+#[repr(C)]
+pub struct BulkDeleteData {
+    stats: pg_sys::IndexBulkDeleteResult,
+    pub cleanup_lock: pg_sys::Buffer,
+}
+
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
@@ -82,23 +88,10 @@ pub extern "C" fn ambulkdelete(
         }
     }
 
-    unsafe {
-        let cleanup_buffer = pg_sys::ReadBufferExtended(
-            info.index,
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            CLEANUP_LOCK,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            info.strategy,
-        );
-        pg_sys::LockBufferForCleanup(cleanup_buffer);
-
-        // Don't merge here, amvacuumcleanup will merge
-        writer
-            .commit(false)
-            .expect("ambulkdelete: commit should succeed");
-
-        pg_sys::UnlockReleaseBuffer(cleanup_buffer);
-    }
+    // Don't merge here, amvacuumcleanup will merge
+    writer
+        .commit(false)
+        .expect("ambulkdelete: commit should succeed");
 
     if stats.is_null() {
         stats = unsafe {
@@ -109,6 +102,25 @@ pub extern "C" fn ambulkdelete(
         stats.pages_deleted = 0;
     }
 
-    // TODO: Update stats
-    stats.into_pg()
+    // Acquire cleanup lock, which ensures that no scans have pins on the index
+    unsafe {
+        let cleanup_buffer = pg_sys::ReadBufferExtended(
+            info.index,
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            CLEANUP_LOCK,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            info.strategy,
+        );
+        pg_sys::LockBufferForCleanup(cleanup_buffer);
+
+        let bulk_del_data = PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
+            let mut opaque = PgBox::<BulkDeleteData>::alloc0();
+            opaque.stats = *stats;
+            opaque.cleanup_lock = cleanup_buffer;
+            opaque.into_pg()
+        });
+
+        // TODO: Update stats
+        &mut (*bulk_del_data).stats
+    }
 }

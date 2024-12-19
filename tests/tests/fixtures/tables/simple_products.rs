@@ -47,16 +47,16 @@ BEGIN;
     WITH (
         key_field='id',
         text_fields='{
-            "description": {},
-            "category": {}
+            "description": { "stored": true },
+            "category": { "stored": true }
         }',
-        numeric_fields='{"rating": {}}',
-        boolean_fields='{"in_stock": {}}',
-        json_fields='{"metadata": {}}',
+        numeric_fields='{"rating": { "stored": true } }',
+        boolean_fields='{"in_stock": { "stored": true } }',
+        json_fields='{"metadata": { "stored": true } }',
         datetime_fields='{
-            "created_at": {},
-            "last_updated_date": {},
-            "latest_available_time": {}
+            "created_at": { "stored": true },
+            "last_updated_date": { "stored": true },
+            "latest_available_time": { "stored": true }
         }'
     );
 COMMIT;

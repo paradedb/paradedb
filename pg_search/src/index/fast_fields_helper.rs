@@ -16,12 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(dead_code)]
-use crate::index::reader::SearchIndexReader;
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
-use std::sync::Arc;
-use tantivy::columnar::{ColumnValues, StrColumn};
-use tantivy::fastfield::FastFieldReaders;
+use tantivy::columnar::StrColumn;
+use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
 use tantivy::{DocAddress, DocId};
 
@@ -39,10 +38,10 @@ impl FFHelper {
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
         let fast_fields = reader
-            .searcher
             .segment_readers()
             .iter()
             .map(|reader| {
+                let fast_fields = reader.fast_fields();
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
@@ -51,7 +50,7 @@ impl FFHelper {
                         | WhichFastField::Score
                         | WhichFastField::Junk(_) => lookup.push(FFType::Junk),
                         WhichFastField::Named(name, _) => {
-                            lookup.push(FFType::new(reader.fast_fields(), name))
+                            lookup.push(FFType::new(fast_fields, name))
                         }
                     }
                 }
@@ -81,11 +80,11 @@ impl FFHelper {
 pub enum FFType {
     Junk,
     Text(StrColumn),
-    I64(Arc<dyn ColumnValues<i64>>),
-    F64(Arc<dyn ColumnValues<f64>>),
-    U64(Arc<dyn ColumnValues<u64>>),
-    Bool(Arc<dyn ColumnValues<bool>>),
-    Date(Arc<dyn ColumnValues<tantivy::DateTime>>),
+    I64(Column<i64>),
+    F64(Column<f64>),
+    U64(Column<u64>),
+    Bool(Column<bool>),
+    Date(Column<tantivy::DateTime>),
 }
 
 impl FFType {
@@ -93,18 +92,18 @@ impl FFType {
     /// should be a known field name in the Tantivy index
     #[track_caller]
     pub fn new(ffr: &FastFieldReaders, field_name: &str) -> Self {
-        if let Ok(Some(ff)) = ffr.str(field_name) {
+        if let Ok(ff) = ffr.i64(field_name) {
+            Self::I64(ff)
+        } else if let Ok(Some(ff)) = ffr.str(field_name) {
             Self::Text(ff)
         } else if let Ok(ff) = ffr.u64(field_name) {
-            Self::U64(ff.first_or_default_col(0))
-        } else if let Ok(ff) = ffr.i64(field_name) {
-            Self::I64(ff.first_or_default_col(0))
+            Self::U64(ff)
         } else if let Ok(ff) = ffr.f64(field_name) {
-            Self::F64(ff.first_or_default_col(0.0))
+            Self::F64(ff)
         } else if let Ok(ff) = ffr.bool(field_name) {
-            Self::Bool(ff.first_or_default_col(false))
+            Self::Bool(ff)
         } else if let Ok(ff) = ffr.date(field_name) {
-            Self::Date(ff.first_or_default_col(tantivy::DateTime::MIN))
+            Self::Date(ff)
         } else {
             panic!("`{field_name}` is missing or is not configured as a fast field")
         }
@@ -125,11 +124,31 @@ impl FFType {
                     .expect("string should be retrievable for term ord");
                 TantivyValue(s.into())
             }
-            FFType::I64(ff) => TantivyValue(ff.get_val(doc).into()),
-            FFType::F64(ff) => TantivyValue(ff.get_val(doc).into()),
-            FFType::U64(ff) => TantivyValue(ff.get_val(doc).into()),
-            FFType::Bool(ff) => TantivyValue(ff.get_val(doc).into()),
-            FFType::Date(ff) => TantivyValue(ff.get_val(doc).into()),
+            FFType::I64(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+            FFType::F64(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+            FFType::U64(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+            FFType::Bool(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+            FFType::Date(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
         };
 
         value
@@ -174,7 +193,7 @@ impl FFType {
     #[inline(always)]
     pub fn as_i64(&self, doc: DocId) -> Option<i64> {
         if let FFType::I64(ff) = self {
-            Some(ff.get_val(doc))
+            ff.first(doc)
         } else {
             None
         }

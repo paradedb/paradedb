@@ -20,7 +20,7 @@ use std::ptr::addr_of_mut;
 
 #[derive(Debug)]
 #[repr(transparent)]
-struct Spinlock(pg_sys::slock_t);
+pub struct Spinlock(pg_sys::slock_t);
 
 impl Spinlock {
     #[inline(always)]

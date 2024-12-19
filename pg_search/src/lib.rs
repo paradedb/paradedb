@@ -17,14 +17,12 @@
 
 mod api;
 mod bootstrap;
-mod env;
 mod index;
 mod postgres;
 mod query;
 mod schema;
 
 #[cfg(test)]
-pub mod fixtures;
 pub mod github;
 pub mod gucs;
 pub mod telemetry;
@@ -51,6 +49,17 @@ extension_sql!(
 );
 
 static mut TRACE_HOOK: trace::TraceHook = trace::TraceHook;
+
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+/// For debugging
+#[allow(dead_code)]
+pub static LOG_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+pub fn log_message(message: &str) {
+    let _lock = LOG_MUTEX.lock().unwrap();
+    eprintln!("{}", message);
+}
 
 /// Convenience method for [`pgrx::pg_sys::MyDatabaseId`]
 #[allow(non_snake_case)]
@@ -95,6 +104,6 @@ pub mod pg_test {
 
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // return any postgresql.conf settings that are required for your tests
-        vec![]
+        vec!["shared_preload_libraries='pg_search'"]
     }
 }

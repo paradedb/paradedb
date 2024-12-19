@@ -20,7 +20,6 @@ mod fixtures;
 
 use std::path::PathBuf;
 
-use fixtures::utils::pg_search_index_directory_path;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -142,7 +141,7 @@ fn text_field_with_options(mut conn: PgConnection) {
         USING bm25 (id, description)
         WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "en_stem", "normalizer": "raw"}, "record": "freq", "fast": true}}');
 "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -166,7 +165,7 @@ fn multiple_text_fields(mut conn: PgConnection) {
             text_fields='{"description": {"tokenizer": {"type": "en_stem", "normalizer": "raw"}, "record": "freq", "fast": true}}'
         );
         "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -279,7 +278,7 @@ fn json_field_with_options(mut conn: PgConnection) {
             key_field='id',
             json_fields='{"metadata": {"fast": true, "expand_dots": false, "tokenizer": {"type": "raw", "normalizer": "raw"}}}'
         )"#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -317,7 +316,7 @@ fn datetime_field_with_options(mut conn: PgConnection) {
     r#"CREATE INDEX index_config_index ON paradedb.index_config
         USING bm25 (id, created_at, last_updated_date)
         WITH (key_field='id', datetime_fields='{"created_at": {"fast": true}, "last_updated_date": {"fast": false}}')"#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -509,7 +508,7 @@ fn partitioned_index(mut conn: PgConnection) {
     r#"CREATE INDEX sales_index ON sales_2023_q1
         USING bm25 (id, description, sale_date, amount) WITH (key_field='id', numeric_fields='{"amount": {"fast": true}}')
     "#
-    .execute(&mut conn);
+        .execute(&mut conn);
 
     // Test: Verify data is partitioned correctly by querying each partition
     let rows_q1: Vec<(i32, String, String)> = r#"
@@ -542,62 +541,6 @@ fn partitioned_index(mut conn: PgConnection) {
         amount_results.len(),
         3,
         "Expected 3 items with amount in range 175-250"
-    );
-}
-
-#[rstest]
-fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
-        .execute(&mut conn);
-
-    r#"CREATE INDEX index_config_index ON index_config
-        USING bm25 (id, description) WITH (key_field='id')"#
-        .execute(&mut conn);
-
-    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_index");
-    assert!(
-        index_dir.exists(),
-        "expected index directory to exist at: {:?}",
-        index_dir
-    );
-
-    "DROP INDEX index_config_index CASCADE".execute(&mut conn);
-
-    assert!(
-        !index_dir.join("search-index.json").exists(),
-        "expected index directory to have been deleted at: {:?}",
-        index_dir
-    );
-}
-
-#[rstest]
-fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
-        .execute(&mut conn);
-
-    r#"CREATE INDEX index_config_index ON index_config
-        USING bm25 (id, description) WITH (key_field='id')"#
-        .execute(&mut conn);
-
-    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_index");
-    assert!(
-        index_dir.exists(),
-        "expected index directory to exist at: {:?}",
-        index_dir
-    );
-
-    "DO $$ 
-    BEGIN
-        DROP INDEX index_config_index CASCADE;
-        RAISE EXCEPTION 'Aborting the transaction intentionally';
-    END $$;"
-        .execute_result(&mut conn)
-        .ok();
-
-    assert!(
-        index_dir.join("search-index.json").exists(),
-        "expected index directory to have been not been deleted at: {:?}",
-        index_dir
     );
 }
 

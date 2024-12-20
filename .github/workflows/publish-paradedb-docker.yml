@@ -57,6 +57,9 @@ jobs:
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
       - name: Setup Docker Image tags
         id: meta
@@ -78,6 +81,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      # We don't need to use secret mounts for the build-args here because
+      # the PostHog secrets are public-facing and don't need to be kept secret.
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
         uses: depot/build-push-action@v1
@@ -92,6 +97,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true
+          sbom: true
+          provenance: mode=max
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}

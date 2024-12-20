@@ -1,5 +1,5 @@
 use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
-use crate::postgres::storage::utils::{BM25Buffer, BM25BufferCache, BM25Page};
+use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use crate::postgres::NeedWal;
 use pgrx::pg_sys;
 use std::ptr::NonNull;
@@ -65,10 +65,6 @@ impl Buffer {
 
     pub fn page_size(&self) -> pg_sys::Size {
         unsafe { pg_sys::BufferGetPageSize(self.pg_buffer) }
-    }
-
-    pub fn next_blockno(&self) -> pg_sys::BlockNumber {
-        unsafe { self.pg_buffer.next_blockno() }
     }
 }
 
@@ -146,10 +142,6 @@ impl BufferMut {
     pub fn page_size(&self) -> pg_sys::Size {
         self.inner.page_size()
     }
-
-    pub fn next_blockno(&self) -> pg_sys::BlockNumber {
-        self.inner.next_blockno()
-    }
 }
 
 pub struct Page<'a> {
@@ -207,6 +199,13 @@ impl Page<'_> {
 
     pub fn is_recyclable(&self, heaprel: pg_sys::Relation) -> bool {
         unsafe { self.pg_page.recyclable(heaprel) }
+    }
+
+    pub fn next_blockno(&self) -> pg_sys::BlockNumber {
+        unsafe {
+            let special = pg_sys::PageGetSpecialPointer(self.pg_page) as *mut BM25PageSpecialData;
+            (*special).next_blockno
+        }
     }
 }
 
@@ -350,6 +349,13 @@ impl PageMut<'_> {
         };
         self.buffer.dirty = true;
         contents
+    }
+
+    pub fn next_blockno(&self) -> pg_sys::BlockNumber {
+        unsafe {
+            let special = pg_sys::PageGetSpecialPointer(self.pg_page) as *mut BM25PageSpecialData;
+            (*special).next_blockno
+        }
     }
 }
 

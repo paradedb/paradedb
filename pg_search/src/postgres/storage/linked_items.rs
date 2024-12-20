@@ -148,7 +148,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             if !delete_offsets.is_empty() {
                 page.delete_items(&mut delete_offsets);
             }
-            blockno = buffer.next_blockno();
+            blockno = page.next_blockno();
         }
 
         pg_sys::RelationClose(heap_relation);
@@ -174,9 +174,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 if offsetno != pg_sys::InvalidOffsetNumber {
                     // it added to this block
                     break 'append_loop;
-                } else if buffer.next_blockno() != pg_sys::InvalidBlockNumber {
+                } else if page.next_blockno() != pg_sys::InvalidBlockNumber {
                     // go to the next block
-                    let next_blockno = buffer.next_blockno();
+                    let next_blockno = page.next_blockno();
                     if need_hold && hold_open.is_none() {
                         hold_open = Some(buffer);
                     }
@@ -187,7 +187,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     let new_blockno = new_page.number();
                     new_page.init_page();
 
-                    let mut page = buffer.page_mut();
                     let special = page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = new_blockno;
 
@@ -234,7 +233,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 offsetno += 1;
             }
 
-            blockno = buffer.next_blockno();
+            blockno = page.next_blockno();
         }
 
         // if we get here, we didn't find what we were looking for
@@ -251,7 +250,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 mod tests {
     use super::*;
     use pgrx::prelude::*;
-    use std::path::PathBuf;
     use tantivy::index::SegmentId;
     use uuid::Uuid;
 

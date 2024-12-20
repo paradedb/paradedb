@@ -39,7 +39,7 @@ pub unsafe fn list_managed_files(relation_oid: pg_sys::Oid) -> tantivy::Result<H
             offsetno += 1;
         }
 
-        blockno = buffer.next_blockno();
+        blockno = page.next_blockno();
     }
 
     Ok(files)
@@ -371,7 +371,7 @@ pub unsafe fn load_metas(
             offsetno += 1;
         }
 
-        blockno = buffer.next_blockno();
+        blockno = page.next_blockno();
     }
 
     pg_sys::RelationClose(heap_relation);

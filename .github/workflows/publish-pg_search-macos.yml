@@ -109,7 +109,7 @@ jobs:
         id: pgrx
         working-directory: pg_search/
         run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv)
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo version=$version >> $GITHUB_OUTPUT
 
       - name: Install pgrx

@@ -1,5 +1,5 @@
-use crate::postgres::storage::block::{DirectoryEntry, DIRECTORY_START};
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::NeedWal;
 use pgrx::*;
 use std::io::{Result, Write};
@@ -27,6 +27,17 @@ impl SegmentComponentWriter {
             total_bytes: 0,
         }
     }
+
+    pub fn path(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    pub fn file_entry(&self) -> FileEntry {
+        FileEntry {
+            staring_block: self.header_blockno,
+            total_bytes: self.total_bytes,
+        }
+    }
 }
 
 impl Write for SegmentComponentWriter {
@@ -45,24 +56,8 @@ impl Write for SegmentComponentWriter {
 
 impl TerminatingWrite for SegmentComponentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
-        unsafe {
-            let mut directory = LinkedItemList::<DirectoryEntry>::open(
-                self.relation_oid,
-                DIRECTORY_START,
-                self.need_wal,
-            );
-            let entry = DirectoryEntry {
-                path: self.path.clone(),
-                total_bytes: self.total_bytes,
-                start: self.header_blockno,
-                xmin: pg_sys::GetCurrentTransactionId(),
-                xmax: pg_sys::InvalidTransactionId,
-            };
-            directory
-                .add_items(vec![entry])
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        }
-
+        // this is a no-op -- the FileEntry for this segment component
+        // is handled through Directory::save_meta()
         Ok(())
     }
 }

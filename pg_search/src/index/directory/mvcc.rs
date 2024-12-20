@@ -15,19 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::{
-    delete_unused_delete_metas, delete_unused_directory_entries, delete_unused_metas,
-    get_deleted_ids, list_managed_files, load_metas, save_delete_metas, save_new_metas,
-    save_schema, save_settings, DirectoryLookup,
-};
+use super::utils::{list_managed_files, load_metas, save_new_metas, save_schema, save_settings};
 use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::bm25_max_free_space;
+use crate::postgres::storage::block::{
+    FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
+};
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::NeedWal;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use rustc_hash::FxHashMap;
+use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::path::Path;
@@ -38,12 +37,19 @@ use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWrite
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MvccSatisfies {
+    Snapshot,
+    Any,
+}
+
 /// Tantivy Directory trait implementation over block storage
 /// This Directory implementation respects Postgres MVCC visibility rules
 /// and should back all Tantivy Indexes used in insert and scan operations
 #[derive(Clone, Debug)]
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
+    mvcc_style: MvccSatisfies,
     need_wal: NeedWal,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
@@ -53,22 +59,52 @@ pub struct MVCCDirectory {
 }
 
 impl MVCCDirectory {
-    pub fn new(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
+    pub fn snapshot(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
         Self {
             relation_oid,
             need_wal,
+            mvcc_style: MvccSatisfies::Snapshot,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
         }
     }
-}
 
-impl DirectoryLookup for MVCCDirectory {
-    fn relation_oid(&self) -> pg_sys::Oid {
-        self.relation_oid
+    pub fn any(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
+        Self {
+            relation_oid,
+            need_wal,
+            mvcc_style: MvccSatisfies::Any,
+            readers: Arc::new(Mutex::new(FxHashMap::default())),
+        }
     }
 
-    fn need_wal(&self) -> NeedWal {
+    pub fn need_wal(&self) -> NeedWal {
         self.need_wal
+    }
+
+    pub unsafe fn directory_lookup(&self, path: &Path) -> Result<FileEntry> {
+        let directory = LinkedItemList::<SegmentMetaEntry>::open(
+            self.relation_oid,
+            SEGMENT_METAS_START,
+            self.need_wal,
+        );
+
+        let segment_id = path.segment_id().expect("path should have a segment_id");
+
+        let entry = directory
+            .lookup(|entry| entry.segment_id == segment_id)
+            .map_err(|e| anyhow!(format!("problem looking for `{}`: {e}", path.display())))?;
+
+        let component_type = path
+            .component_type()
+            .expect("path should have a component_type");
+        let file_entry = entry.get_file_entry(component_type).ok_or_else(|| {
+            anyhow!(format!(
+                "directory lookup failed for path=`{}`.  entry={entry:?}",
+                path.display()
+            ))
+        })?;
+
+        Ok(file_entry)
     }
 }
 
@@ -78,7 +114,7 @@ impl Directory for MVCCDirectory {
         match self.readers.lock().entry(path.to_path_buf()) {
             Entry::Occupied(reader) => Ok(reader.get().clone()),
             Entry::Vacant(vacant) => {
-                let (opaque, _, _) = unsafe {
+                let file_entry = unsafe {
                     self.directory_lookup(path)
                         .map_err(|err| OpenReadError::IoError {
                             io_error: io::Error::new(io::ErrorKind::Other, err.to_string()).into(),
@@ -87,7 +123,7 @@ impl Directory for MVCCDirectory {
                 };
                 Ok(vacant
                     .insert(Arc::new(unsafe {
-                        SegmentComponentReader::new(self.relation_oid, opaque, self.need_wal)
+                        SegmentComponentReader::new(self.relation_oid, file_entry, self.need_wal)
                     }))
                     .clone())
             }
@@ -105,12 +141,9 @@ impl Directory for MVCCDirectory {
     }
 
     /// Returns a segment writer that implements std::io::Write
+    /// Our [`ChannelDirectory`] is what gets called for doing writes, not this impl
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path, self.need_wal) };
-        Ok(io::BufWriter::with_capacity(
-            bm25_max_free_space(),
-            Box::new(result),
-        ))
+        unimplemented!("open_write should not be called for {:?}", path);
     }
 
     /// atomic_read is used by Tantivy to read from managed.json and meta.json
@@ -166,9 +199,15 @@ impl Directory for MVCCDirectory {
     }
 
     /// Saves a Tantivy IndexMeta to block storage
-    fn save_metas(&self, meta: &IndexMeta, previous_meta: &IndexMeta) -> tantivy::Result<()> {
-        let opstamp = meta.opstamp;
-        let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
+    fn save_metas(
+        &self,
+        meta: &IndexMeta,
+        previous_meta: &IndexMeta,
+        payload: &mut (dyn Any + '_),
+    ) -> tantivy::Result<()> {
+        let payload = payload
+            .downcast_mut::<FxHashMap<PathBuf, FileEntry>>()
+            .expect("save_metas should have a payload");
 
         // Save Schema and IndexSettings if this is the first time
         save_schema(self.relation_oid, &meta.schema, self.need_wal)
@@ -182,40 +221,27 @@ impl Directory for MVCCDirectory {
             return Ok(());
         }
 
-        let deleted_ids = get_deleted_ids(meta, previous_meta);
         unsafe {
-            save_delete_metas(self.relation_oid, meta, opstamp, self.need_wal)
-                .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
             save_new_metas(
                 self.relation_oid,
                 meta,
                 previous_meta,
-                current_xid,
-                opstamp,
+                payload,
                 self.need_wal,
             )
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
-            delete_unused_metas(self.relation_oid, &deleted_ids, current_xid, self.need_wal);
-            delete_unused_directory_entries(
-                self.relation_oid,
-                &deleted_ids,
-                current_xid,
-                self.need_wal,
-            );
-            delete_unused_delete_metas(self.relation_oid, &deleted_ids, current_xid, self.need_wal);
         }
 
         Ok(())
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        let solve_mvcc = true;
         unsafe {
             load_metas(
                 self.relation_oid,
                 inventory,
                 pg_sys::GetActiveSnapshot(),
-                solve_mvcc,
+                self.mvcc_style,
             )
         }
     }
@@ -237,7 +263,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let directory = MVCCDirectory::new(relation_oid, true);
+        let directory = MVCCDirectory::snapshot(relation_oid, true);
         let listed_files = directory.list_managed_files().unwrap();
         assert_eq!(listed_files.len(), 6);
     }

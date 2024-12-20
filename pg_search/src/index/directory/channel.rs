@@ -1,3 +1,9 @@
+use crate::index::mvcc::MVCCDirectory;
+use crate::index::reader::channel::ChannelReader;
+use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::writer::channel::ChannelWriter;
+use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::storage::block::{bm25_max_free_space, FileEntry};
 use anyhow::Result;
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use pgrx::pg_sys;
@@ -17,22 +23,15 @@ use tantivy::directory::{
 use tantivy::index::SegmentMetaInventory;
 use tantivy::{Directory, IndexMeta};
 
-use super::utils::BlockDirectory;
-use crate::index::reader::channel::ChannelReader;
-use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::index::writer::channel::ChannelWriter;
-use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
-
 pub type Overwrite = bool;
 
 pub enum ChannelRequest {
     ListManagedFiles(oneshot::Sender<HashSet<PathBuf>>),
     RegisterFilesAsManaged(Vec<PathBuf>, Overwrite),
-    SegmentRead(Range<usize>, DirectoryEntry, oneshot::Sender<OwnedBytes>),
+    SegmentRead(Range<usize>, FileEntry, oneshot::Sender<OwnedBytes>),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
-    GetSegmentComponent(PathBuf, oneshot::Sender<DirectoryEntry>),
+    GetSegmentComponent(PathBuf, oneshot::Sender<FileEntry>),
     SaveMetas(IndexMeta, IndexMeta),
     LoadMetas(SegmentMetaInventory, oneshot::Sender<IndexMeta>),
 }
@@ -117,7 +116,10 @@ impl Directory for ChannelDirectory {
             .send(ChannelRequest::ListManagedFiles(oneshot_sender))
             .unwrap();
 
-        Ok(oneshot_receiver.recv().unwrap())
+        match oneshot_receiver.recv() {
+            Ok(result) => Ok(result),
+            Err(e) => Err(tantivy::TantivyError::InternalError(e.to_string())),
+        }
     }
 
     fn register_files_as_managed(
@@ -132,7 +134,12 @@ impl Directory for ChannelDirectory {
         Ok(())
     }
 
-    fn save_metas(&self, meta: &IndexMeta, previous_meta: &IndexMeta) -> tantivy::Result<()> {
+    fn save_metas(
+        &self,
+        meta: &IndexMeta,
+        previous_meta: &IndexMeta,
+        _payload: &mut (dyn Any + '_),
+    ) -> tantivy::Result<()> {
         self.sender
             .send(ChannelRequest::SaveMetas(
                 meta.clone(),
@@ -156,11 +163,13 @@ impl Directory for ChannelDirectory {
 type Action = Box<dyn FnOnce() -> Reply + Send + Sync>;
 type Reply = Box<dyn Any + Send + Sync>;
 pub struct ChannelRequestHandler {
-    directory: Box<dyn BlockDirectory>,
+    directory: MVCCDirectory,
     relation_oid: pg_sys::Oid,
     receiver: Receiver<ChannelRequest>,
     writers: FxHashMap<PathBuf, SegmentComponentWriter>,
-    readers: FxHashMap<PathBuf, SegmentComponentReader>,
+    readers: FxHashMap<FileEntry, SegmentComponentReader>,
+
+    file_entries: FxHashMap<PathBuf, FileEntry>,
 
     action: (Sender<Action>, Receiver<Action>),
     reply: (Sender<Reply>, Receiver<Reply>),
@@ -171,18 +180,19 @@ pub type ShouldTerminate = bool;
 
 impl ChannelRequestHandler {
     pub fn open(
-        directory: &dyn BlockDirectory,
+        directory: MVCCDirectory,
         relation_oid: pg_sys::Oid,
         receiver: Receiver<ChannelRequest>,
     ) -> Self {
         let (action_sender, action_receiver) = crossbeam::channel::bounded(1);
         let (reply_sender, reply_receiver) = crossbeam::channel::bounded(1);
         Self {
-            directory: BlockDirectory::box_clone(directory),
+            directory,
             relation_oid,
             receiver,
             writers: Default::default(),
             readers: Default::default(),
+            file_entries: Default::default(),
             action: (action_sender, action_receiver.clone()),
             reply: (reply_sender.clone(), reply_receiver),
             _worker: std::thread::spawn(move || {
@@ -245,20 +255,22 @@ impl ChannelRequestHandler {
                 self.directory.register_files_as_managed(files, overwrite)?;
             }
             ChannelRequest::GetSegmentComponent(path, sender) => {
-                let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
-                sender.send(opaque)?;
+                if self.file_entries.contains_key(&path) {
+                    sender.send(*self.file_entries.get(&path).unwrap())?;
+                    return Ok(false);
+                }
+
+                let file_entry = unsafe { self.directory.directory_lookup(&path)? };
+                sender.send(file_entry)?;
             }
             ChannelRequest::SegmentRead(range, handle, sender) => {
-                let reader = self
-                    .readers
-                    .entry(handle.path.clone())
-                    .or_insert_with(|| unsafe {
-                        SegmentComponentReader::new(
-                            self.relation_oid,
-                            handle,
-                            self.directory.need_wal(),
-                        )
-                    });
+                let reader = self.readers.entry(handle).or_insert_with(|| unsafe {
+                    SegmentComponentReader::new(
+                        self.relation_oid,
+                        handle,
+                        self.directory.need_wal(),
+                    )
+                });
                 let data = reader.read_bytes(range)?;
                 sender.send(data)?;
             }
@@ -270,10 +282,12 @@ impl ChannelRequestHandler {
             }
             ChannelRequest::SegmentWriteTerminate(path) => {
                 let writer = self.writers.remove(&path).expect("writer should exist");
+                self.file_entries.insert(writer.path(), writer.file_entry());
                 writer.terminate()?;
             }
             ChannelRequest::SaveMetas(metas, previous_metas) => {
-                self.directory.save_metas(&metas, &previous_metas)?;
+                self.directory
+                    .save_metas(&metas, &previous_metas, &mut self.file_entries)?;
             }
             ChannelRequest::LoadMetas(inventory, sender) => {
                 let metas = self.directory.load_metas(&inventory)?;

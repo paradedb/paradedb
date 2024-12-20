@@ -18,8 +18,8 @@
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::WriterResources;
 use crate::postgres::storage::block::{
-    DirectoryEntry, MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, DELETE_METAS_START,
-    DIRECTORY_START, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START,
+    SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -282,13 +282,9 @@ unsafe fn create_metadata(index_relation: &PgRelation) {
     // initialize all the other required buffers
     let schema = LinkedBytesList::create(relation_oid, need_wal);
     let settings = LinkedBytesList::create(relation_oid, need_wal);
-    let directory = LinkedItemList::<DirectoryEntry>::create(relation_oid, need_wal);
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, need_wal);
-    let delete_metas = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, need_wal);
 
     assert_eq!(schema.header_blockno, SCHEMA_START);
     assert_eq!(settings.header_blockno, SETTINGS_START);
-    assert_eq!(directory.header_blockno, DIRECTORY_START);
     assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
-    assert_eq!(delete_metas.header_blockno, DELETE_METAS_START);
 }

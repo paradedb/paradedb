@@ -15,23 +15,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::SKIPLIST_FREQ;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
+use std::hash::Hash;
 use std::mem::{offset_of, size_of};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::slice::from_raw_parts;
-use tantivy::index::SegmentId;
+use std::str::FromStr;
+use tantivy::index::{SegmentComponent, SegmentId};
+use tantivy::Opstamp;
 
 pub const MERGE_LOCK: pg_sys::BlockNumber = 0;
 pub const CLEANUP_LOCK: pg_sys::BlockNumber = 1;
 pub const SCHEMA_START: pg_sys::BlockNumber = 2;
 pub const SETTINGS_START: pg_sys::BlockNumber = 4;
-pub const DIRECTORY_START: pg_sys::BlockNumber = 6;
-pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 8;
-pub const DELETE_METAS_START: pg_sys::BlockNumber = 10;
+pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
 // ---------------------------------------------------------
 // BM25 page special data
@@ -93,7 +93,6 @@ impl Debug for LinkedListData {
 pub trait LinkedList {
     // Required methods
     fn get_header_blockno(&self) -> pg_sys::BlockNumber;
-    fn get_relation_oid(&self) -> pg_sys::Oid;
 
     // Provided methods
     fn get_start_blockno(&self) -> pg_sys::BlockNumber {
@@ -123,26 +122,26 @@ pub trait LinkedList {
         (metadata.skip_list[index], index * SKIPLIST_FREQ)
     }
 
-    unsafe fn get_linked_list_data(&self) -> LinkedListData {
-        let bman = BufferManager::new(self.get_relation_oid(), false);
-        let header_buffer = bman.get_buffer(self.get_header_blockno());
-        let page = header_buffer.page();
-        page.contents::<LinkedListData>()
-    }
+    unsafe fn get_linked_list_data(&self) -> LinkedListData;
 }
 
 // ---------------------------------------------------------
 // Linked list entry structs
 // ---------------------------------------------------------
 
-/// Metadata for tracking segment components
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct DirectoryEntry {
-    pub path: PathBuf,
-    pub start: pg_sys::BlockNumber,
+/// Metadata for tracking where to find a file
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub staring_block: pg_sys::BlockNumber,
     pub total_bytes: usize,
-    pub xmin: pg_sys::TransactionId,
-    pub xmax: pg_sys::TransactionId,
+}
+
+/// Metadata for tracking where to find a ".del" file
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct DeleteEntry {
+    pub file_entry: FileEntry,
+    pub num_deleted_docs: u32,
+    pub opstamp: Opstamp,
 }
 
 /// Metadata for tracking alive segments
@@ -153,15 +152,15 @@ pub struct SegmentMetaEntry {
     pub opstamp: tantivy::Opstamp,
     pub xmin: pg_sys::TransactionId,
     pub xmax: pg_sys::TransactionId,
-}
 
-/// Metadata for tracking segment deletes
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeleteMetaEntry {
-    pub segment_id: SegmentId,
-    pub num_deleted_docs: u32,
-    pub opstamp: tantivy::Opstamp,
-    pub xmax: pg_sys::TransactionId,
+    pub postings: Option<FileEntry>,
+    pub positions: Option<FileEntry>,
+    pub fast_fields: Option<FileEntry>,
+    pub field_norms: Option<FileEntry>,
+    pub terms: Option<FileEntry>,
+    pub store: Option<FileEntry>,
+    pub temp_store: Option<FileEntry>,
+    pub delete: Option<DeleteEntry>,
 }
 
 // ---------------------------------------------------------
@@ -170,18 +169,6 @@ pub struct DeleteMetaEntry {
 
 /// Wrapper for pg_sys::Item that also stores its size
 pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
-
-impl From<DirectoryEntry> for PgItem {
-    fn from(val: DirectoryEntry) -> Self {
-        let bytes: Vec<u8> =
-            bincode::serialize(&val).expect("expected to serialize valid DirectoryEntry");
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
-    }
-}
 
 impl From<SegmentMetaEntry> for PgItem {
     fn from(val: SegmentMetaEntry) -> Self {
@@ -192,29 +179,6 @@ impl From<SegmentMetaEntry> for PgItem {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
         }
         PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
-    }
-}
-
-impl From<DeleteMetaEntry> for PgItem {
-    fn from(val: DeleteMetaEntry) -> Self {
-        let bytes: Vec<u8> =
-            bincode::serialize(&val).expect("expected to serialize valid DeleteMetaEntry");
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
-    }
-}
-
-impl From<PgItem> for DirectoryEntry {
-    fn from(pg_item: PgItem) -> Self {
-        let PgItem(item, size) = pg_item;
-        let decoded: DirectoryEntry = unsafe {
-            bincode::deserialize(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid DirectoryEntry")
-        };
-        decoded
     }
 }
 
@@ -229,14 +193,120 @@ impl From<PgItem> for SegmentMetaEntry {
     }
 }
 
-impl From<PgItem> for DeleteMetaEntry {
-    fn from(pg_item: PgItem) -> Self {
-        let PgItem(item, size) = pg_item;
-        let decoded: DeleteMetaEntry = unsafe {
-            bincode::deserialize(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid DeleteMetaEntry")
-        };
-        decoded
+impl SegmentMetaEntry {
+    pub fn get_file_entry(&self, segment_component: SegmentComponent) -> Option<FileEntry> {
+        match segment_component {
+            SegmentComponent::Postings => self.postings,
+            SegmentComponent::Positions => self.positions,
+            SegmentComponent::FastFields => self.fast_fields,
+            SegmentComponent::FieldNorms => self.field_norms,
+            SegmentComponent::Terms => self.terms,
+            SegmentComponent::Store => self.store,
+            SegmentComponent::TempStore => self.temp_store,
+            SegmentComponent::Delete => self.delete.map(|entry| entry.file_entry),
+        }
+    }
+
+    pub fn get_component_paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::with_capacity(8);
+
+        let uuid = self.segment_id.uuid_string();
+        if self.postings.is_some() {
+            paths.push(PathBuf::from(format!(
+                "{}.{}",
+                uuid,
+                SegmentComponent::Postings
+            )));
+        }
+        if self.positions.is_some() {
+            paths.push(PathBuf::from(format!(
+                "{}.{}",
+                uuid,
+                SegmentComponent::Positions
+            )));
+        }
+        if self.fast_fields.is_some() {
+            paths.push(PathBuf::from(format!(
+                "{}.{}",
+                uuid,
+                SegmentComponent::FastFields
+            )));
+        }
+        if self.field_norms.is_some() {
+            paths.push(PathBuf::from(format!(
+                "{}.{}",
+                uuid,
+                SegmentComponent::FieldNorms
+            )));
+        }
+        if self.terms.is_some() {
+            paths.push(PathBuf::from(format!(
+                "{}.{}",
+                uuid,
+                SegmentComponent::Terms
+            )));
+        }
+        if self.store.is_some() {
+            paths.push(PathBuf::from(format!(
+                "{}.{}",
+                uuid,
+                SegmentComponent::Store
+            )));
+        }
+        if self.temp_store.is_some() {
+            paths.push(PathBuf::from(format!(
+                "{}.{}",
+                uuid,
+                SegmentComponent::TempStore
+            )));
+        }
+        if let Some(entry) = &self.delete {
+            paths.push(PathBuf::from(format!(
+                "{}.{}.{}",
+                uuid,
+                entry.opstamp,
+                SegmentComponent::Delete
+            )));
+        }
+
+        paths
+    }
+}
+
+pub trait SegmentFileDetails {
+    fn segment_id(&self) -> Option<SegmentId>;
+    fn component_type(&self) -> Option<SegmentComponent>;
+    fn opstamp(&self) -> Option<Opstamp>;
+}
+
+impl<T: AsRef<Path>> SegmentFileDetails for T {
+    fn segment_id(&self) -> Option<SegmentId> {
+        let mut parts = self.as_ref().file_name()?.to_str()?.split('.');
+        SegmentId::from_uuid_string(parts.next()?).ok()
+    }
+
+    fn component_type(&self) -> Option<SegmentComponent> {
+        let mut parts = self.as_ref().file_name()?.to_str()?.split('.');
+        let _ = parts.next()?; // skip segment id
+        let mut extension = parts.next()?;
+        if let Some(last) = parts.next() {
+            // it has three parts, so the extension is instead the last part
+            extension = last;
+        }
+        SegmentComponent::try_from(extension).ok()
+    }
+
+    fn opstamp(&self) -> Option<Opstamp> {
+        let mut parts = self.as_ref().file_name()?.to_str()?.split('.');
+        let _ = parts.next()?; // skip segment id
+        let opstamp = parts.next()?;
+        if parts.next().is_some() {
+            // there needs to be 3 parts in order for there to be an opstamp in the middle
+            return None;
+        }
+
+        // if the opstamp doesn't parse, then the Path doesn't have one, and that's okay
+        Opstamp::from_str(opstamp).ok()
     }
 }
 
@@ -259,10 +329,6 @@ pub trait MVCCEntry {
             && (pg_sys::TransactionIdIsCurrentTransactionId(xmax)
                 || !pg_sys::XidInMVCCSnapshot(xmax, snapshot));
         xmin_visible && !deleted
-    }
-
-    fn deleted(&self) -> bool {
-        self.get_xmax() != pg_sys::InvalidTransactionId
     }
 
     unsafe fn recyclable(
@@ -291,15 +357,6 @@ pub trait MVCCEntry {
     }
 }
 
-impl MVCCEntry for DirectoryEntry {
-    fn get_xmin(&self) -> pg_sys::TransactionId {
-        self.xmin
-    }
-    fn get_xmax(&self) -> pg_sys::TransactionId {
-        self.xmax
-    }
-}
-
 impl MVCCEntry for SegmentMetaEntry {
     fn get_xmin(&self) -> pg_sys::TransactionId {
         self.xmin
@@ -309,66 +366,10 @@ impl MVCCEntry for SegmentMetaEntry {
     }
 }
 
-impl MVCCEntry for DeleteMetaEntry {
-    fn get_xmax(&self) -> pg_sys::TransactionId {
-        self.xmax
-    }
-    // We want DeleteMetaEntry to be visible to all transactions immediately
-    // when it's written because ambulkdelete is atomic
-    fn get_xmin(&self) -> pg_sys::TransactionId {
-        pg_sys::FrozenTransactionId
-    }
-    unsafe fn visible(&self, _snapshot: pg_sys::Snapshot) -> bool {
-        true
-    }
-}
-
 pub const fn bm25_max_free_space() -> usize {
     unsafe {
         (pg_sys::BLCKSZ as usize)
             - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
             - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
-    }
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::*;
-    use uuid::Uuid;
-
-    #[pg_test]
-    unsafe fn test_directory_entry_into() {
-        let segment = DirectoryEntry {
-            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-            start: 0,
-            total_bytes: 100_usize,
-            xmin: pg_sys::GetCurrentTransactionId(),
-            xmax: pg_sys::InvalidTransactionId,
-        };
-        let pg_item: PgItem = segment.clone().into();
-        let segment_from_pg_item: DirectoryEntry = pg_item.into();
-        assert_eq!(segment, segment_from_pg_item);
-    }
-
-    #[pg_test]
-    unsafe fn test_serialized_size() {
-        let segment1 = DirectoryEntry {
-            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-            start: 0,
-            total_bytes: 100_usize,
-            xmin: pg_sys::GetCurrentTransactionId(),
-            xmax: pg_sys::InvalidTransactionId,
-        };
-        let segment2 = DirectoryEntry {
-            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-            start: 1000,
-            total_bytes: 100_usize,
-            xmin: pg_sys::GetCurrentTransactionId(),
-            xmax: pg_sys::GetCurrentTransactionId(),
-        };
-        let PgItem(_, size1) = segment1.into();
-        let PgItem(_, size2) = segment2.into();
-        assert_eq!(size1, size2);
     }
 }

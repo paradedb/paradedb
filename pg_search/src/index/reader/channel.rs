@@ -7,11 +7,11 @@ use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
 use crate::index::directory::channel::ChannelRequest;
-use crate::postgres::storage::block::DirectoryEntry;
+use crate::postgres::storage::block::FileEntry;
 
 #[derive(Clone, Debug)]
 pub struct ChannelReader {
-    opaque: DirectoryEntry,
+    entry: FileEntry,
     sender: Sender<ChannelRequest>,
 }
 
@@ -25,8 +25,8 @@ impl ChannelReader {
             ))
             .unwrap();
 
-        let opaque = oneshot_receiver.recv()?;
-        Ok(Self { opaque, sender })
+        let entry = oneshot_receiver.recv()?;
+        Ok(Self { entry, sender })
     }
 }
 
@@ -36,7 +36,7 @@ impl FileHandle for ChannelReader {
         self.sender
             .send(ChannelRequest::SegmentRead(
                 range.clone(),
-                self.opaque.clone(),
+                self.entry,
                 oneshot_sender,
             ))
             .unwrap();
@@ -49,6 +49,6 @@ impl FileHandle for ChannelReader {
 
 impl HasLen for ChannelReader {
     fn len(&self) -> usize {
-        self.opaque.total_bytes
+        self.entry.total_bytes
     }
 }

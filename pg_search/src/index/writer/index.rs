@@ -25,7 +25,6 @@ use tantivy::{
 };
 use thiserror::Error;
 
-use crate::index::bulk_delete::BulkDeleteDirectory;
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::merge_policy::MergeLock;
 use crate::index::mvcc::MVCCDirectory;
@@ -68,18 +67,8 @@ impl SearchIndexWriter {
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = match directory_type {
-            BlockDirectoryType::Mvcc => ChannelRequestHandler::open(
-                &MVCCDirectory::new(index_relation.oid(), need_wal),
-                index_relation.oid(),
-                req_receiver,
-            ),
-            BlockDirectoryType::BulkDelete => ChannelRequestHandler::open(
-                &BulkDeleteDirectory::new(index_relation.oid()),
-                index_relation.oid(),
-                req_receiver,
-            ),
-        };
+        let mut handler =
+            directory_type.channel_request_handler(index_relation, req_receiver, need_wal);
 
         let index = {
             let schema = schema.clone();
@@ -121,7 +110,7 @@ impl SearchIndexWriter {
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
         let mut handler = ChannelRequestHandler::open(
-            &MVCCDirectory::new(index_relation.oid(), need_wal),
+            MVCCDirectory::snapshot(index_relation.oid(), need_wal),
             index_relation.oid(),
             req_receiver,
         );

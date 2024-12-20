@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::buffer::{BufferManager, BufferMut};
 use crate::postgres::NeedWal;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use pgrx::pg_sys;
 use std::fmt::Debug;
 
@@ -68,8 +68,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
         self.header_blockno
     }
 
-    fn get_relation_oid(&self) -> pg_sys::Oid {
-        self.relation_oid
+    unsafe fn get_linked_list_data(&self) -> LinkedListData {
+        let header_buffer = self.bman.get_buffer(self.get_header_blockno());
+        let page = header_buffer.page();
+        page.contents::<LinkedListData>()
     }
 }
 
@@ -135,10 +137,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let mut delete_offsets = vec![];
 
             while offsetno <= max_offset {
-                let entry = page.read_item::<T>(offsetno);
-
-                if entry.recyclable(snapshot, heap_relation) {
-                    delete_offsets.push(offsetno);
+                if let Some(entry) = page.read_item::<T>(offsetno) {
+                    if entry.recyclable(snapshot, heap_relation) {
+                        delete_offsets.push(offsetno);
+                    }
                 }
                 offsetno += 1;
             }
@@ -146,68 +148,46 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             if !delete_offsets.is_empty() {
                 page.delete_items(&mut delete_offsets);
             }
-
-            blockno = buffer.next_blockno();
+            blockno = page.next_blockno();
         }
 
         pg_sys::RelationClose(heap_relation);
         Ok(())
     }
 
-    pub unsafe fn add_items(&mut self, items: Vec<T>) -> Result<()> {
+    pub unsafe fn add_items(&mut self, items: Vec<T>, buffer: Option<BufferMut>) -> Result<()> {
+        let need_hold = buffer.is_some();
+        let mut buffer =
+            buffer.unwrap_or_else(|| self.bman.get_buffer_mut(self.get_start_blockno()));
+
+        // this will get set to the `buffer` argument above and remain open (ie, exclusive locked)
+        // until we're done adding all the items, so long as the original `buffer` argument was
+        // Some(BufferMut)
+        let mut hold_open = None;
+
         for item in items {
             let PgItem(pg_item, size) = item.into();
 
-            // Find a page with free space and lock it
-            // TODO: Do we need to start from the beginning every time?
-            'insert_loop: loop {
-                let mut blockno = self.get_start_blockno();
-                let insert_buffer = loop {
-                    if blockno == pg_sys::InvalidBlockNumber {
-                        break None;
-                        // break pg_sys::InvalidBuffer as i32;
+            'append_loop: loop {
+                let mut page = buffer.page_mut();
+                let offsetno = page.append_item(pg_item, size, 0);
+                if offsetno != pg_sys::InvalidOffsetNumber {
+                    // it added to this block
+                    break 'append_loop;
+                } else if page.next_blockno() != pg_sys::InvalidBlockNumber {
+                    // go to the next block
+                    let next_blockno = page.next_blockno();
+                    if need_hold && hold_open.is_none() {
+                        hold_open = Some(buffer);
                     }
-
-                    let buffer = self.bman.get_buffer_mut(blockno);
-                    let free_space = buffer.page().free_space();
-                    if free_space >= size + size_of::<pg_sys::ItemIdData>() {
-                        break Some(buffer);
-                    } else {
-                        blockno = buffer.next_blockno();
-                    }
-                };
-
-                if let Some(mut insert_buffer) = insert_buffer {
-                    // We have found an existing page with free space -- append to it
-                    let mut page = insert_buffer.page_mut();
-                    let offsetno = page.append_item(pg_item, size, 0);
-
-                    assert_ne!(
-                        offsetno,
-                        pg_sys::InvalidOffsetNumber,
-                        "failed to add item to existing page {}",
-                        blockno
-                    );
-                    break 'insert_loop;
+                    buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
-                    // There are no more pages with free space, we need to create a new one
-                    // First, validate that another process has not already created a new page
-                    let last_blockno = self.get_last_blockno();
-                    let mut last_buffer = self.bman.get_buffer_mut(last_blockno);
+                    // need to create new block and link it to this one
+                    let mut new_page = self.bman.new_buffer();
+                    let new_blockno = new_page.number();
+                    new_page.init_page();
 
-                    // If another process has already created a new page, restart the insert loop
-                    if last_buffer.next_blockno() != pg_sys::InvalidBlockNumber {
-                        continue 'insert_loop;
-                    }
-
-                    // We indeed have the last page, create a new one
-                    let mut new_buffer = self.bman.new_buffer();
-                    let new_blockno = new_buffer.number();
-                    let mut new_page = new_buffer.init_page();
-
-                    // Update the last page to point to the new page
-                    let mut last_page = last_buffer.page_mut();
-                    let special = last_page.special_mut::<BM25PageSpecialData>();
+                    let special = page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = new_blockno;
 
                     // Update the header to point to the new last page
@@ -217,15 +197,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     metadata.inner.last_blockno = new_blockno;
                     metadata.inner.npages += 1;
 
-                    // Add the item to the new page
-                    let offsetno = new_page.append_item(pg_item, size, 0);
-                    assert_ne!(
-                        offsetno,
-                        pg_sys::InvalidOffsetNumber,
-                        "failed to add item to new page",
-                    );
-
-                    break 'insert_loop;
+                    if need_hold && hold_open.is_none() {
+                        hold_open = Some(buffer);
+                    }
+                    buffer = new_page;
                 }
             }
         }
@@ -233,14 +208,14 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         Ok(())
     }
 
-    pub unsafe fn lookup<K>(
+    pub unsafe fn lookup<Cmp: Fn(&T) -> bool>(&self, cmp: Cmp) -> Result<T> {
+        self.lookup_ex(cmp).map(|(t, _, _)| t)
+    }
+
+    pub unsafe fn lookup_ex<Cmp: Fn(&T) -> bool>(
         &self,
-        target: K,
-        cmp: fn(&T, &K) -> bool,
-    ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)>
-    where
-        K: Debug,
-    {
+        cmp: Cmp,
+    ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
         let mut blockno = self.get_start_blockno();
 
         while blockno != pg_sys::InvalidBlockNumber {
@@ -250,22 +225,23 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
-                let deserialized = page.read_item::<T>(offsetno);
-
-                if cmp(&deserialized, &target) {
-                    return Ok((deserialized, blockno, offsetno));
+                if let Some(deserialized) = page.read_item::<T>(offsetno) {
+                    if cmp(&deserialized) {
+                        return Ok((deserialized, blockno, offsetno));
+                    }
                 }
                 offsetno += 1;
             }
 
-            blockno = buffer.next_blockno();
+            blockno = page.next_blockno();
         }
 
-        bail!(
-            "transaction {} failed to find {:?}",
-            pg_sys::GetCurrentTransactionId(),
-            target
-        );
+        // if we get here, we didn't find what we were looking for
+        // but we should have -- how else could we have asked for something from the list?
+        Err(anyhow::anyhow!(format!(
+            "transaction {} failed to find the desired entry",
+            pg_sys::GetCurrentTransactionId()
+        )))
     }
 }
 
@@ -274,10 +250,34 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 mod tests {
     use super::*;
     use pgrx::prelude::*;
-    use std::path::PathBuf;
+    use tantivy::index::SegmentId;
     use uuid::Uuid;
 
-    use crate::postgres::storage::block::DirectoryEntry;
+    use crate::postgres::storage::block::SegmentMetaEntry;
+
+    fn random_segment_id() -> SegmentId {
+        SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
+    }
+
+    impl Default for SegmentMetaEntry {
+        fn default() -> Self {
+            Self {
+                segment_id: random_segment_id(),
+                xmin: 0,
+                xmax: 0,
+                opstamp: 0,
+                max_doc: 0,
+                postings: None,
+                positions: None,
+                fast_fields: None,
+                field_norms: None,
+                terms: None,
+                store: None,
+                temp_store: None,
+                delete: None,
+            }
+        }
+    }
 
     #[pg_test]
     unsafe fn test_linked_items_garbage_collect_single_page() {
@@ -301,43 +301,29 @@ mod tests {
             }
         };
 
-        let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid, true);
-        let entries_to_delete = vec![
-            DirectoryEntry {
-                path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-                start: 10,
-                total_bytes: 100_usize,
-                xmin: delete_xid,
-                xmax: delete_xid,
-            },
-            DirectoryEntry {
-                path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-                start: 12,
-                total_bytes: 200_usize,
-                xmin: delete_xid,
-                xmax: delete_xid,
-            },
-        ];
-        let entries_to_keep = vec![DirectoryEntry {
-            path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-            start: 10,
-            total_bytes: 100_usize,
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, true);
+        let entries_to_delete = vec![SegmentMetaEntry {
+            segment_id: random_segment_id(),
+            xmin: delete_xid,
+            xmax: delete_xid,
+            ..Default::default()
+        }];
+        let entries_to_keep = vec![SegmentMetaEntry {
+            segment_id: random_segment_id(),
             xmin: (*snapshot).xmin - 1,
             xmax: pg_sys::InvalidTransactionId,
+            ..Default::default()
         }];
 
-        list.add_items(entries_to_delete.clone()).unwrap();
-        list.add_items(entries_to_keep.clone()).unwrap();
+        list.add_items(entries_to_delete.clone(), None).unwrap();
+        list.add_items(entries_to_keep.clone(), None).unwrap();
         list.garbage_collect(strategy).unwrap();
 
         assert!(list
-            .lookup(entries_to_delete[0].clone(), |a, b| a.path == b.path)
+            .lookup(|entry| entry.segment_id == entries_to_delete[0].clone().segment_id)
             .is_err());
         assert!(list
-            .lookup(entries_to_delete[1].clone(), |a, b| a.path == b.path)
-            .is_err());
-        assert!(list
-            .lookup(entries_to_keep[0].clone(), |a, b| a.path == b.path)
+            .lookup(|entry| entry.segment_id == entries_to_keep[0].clone().segment_id)
             .is_ok());
     }
 
@@ -367,81 +353,84 @@ mod tests {
 
         // Add 2000 entries, delete every 10th entry
         {
-            let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid, true);
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, true);
             let entries = (1..2000)
-                .map(|i| DirectoryEntry {
-                    path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-                    start: i,
-                    total_bytes: 100_usize,
+                .map(|i| SegmentMetaEntry {
+                    segment_id: random_segment_id(),
                     xmin,
                     xmax: if i % 10 == 0 {
                         deleted_xid
                     } else {
                         not_deleted_xid
                     },
+                    ..Default::default()
                 })
                 .collect::<Vec<_>>();
 
-            list.add_items(entries.clone()).unwrap();
+            list.add_items(entries.clone(), None).unwrap();
             list.garbage_collect(strategy).unwrap();
 
             for entry in entries {
                 if entry.xmax == not_deleted_xid {
-                    assert!(list.lookup(entry.clone(), |a, b| a.path == b.path).is_ok());
+                    assert!(list
+                        .lookup(|el| el.segment_id == entry.clone().segment_id)
+                        .is_ok());
                 } else {
-                    assert!(list.lookup(entry.clone(), |a, b| a.path == b.path).is_err());
+                    assert!(list
+                        .lookup(|el| el.segment_id == entry.clone().segment_id)
+                        .is_err());
                 }
             }
         }
-
         // First n pages are full, next m pages need to be compacted, next n are full
         {
-            let mut list = LinkedItemList::<DirectoryEntry>::create(relation_oid, true);
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, true);
             let entries_1 = (1..500)
-                .map(|i| DirectoryEntry {
-                    path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-                    start: i,
-                    total_bytes: 100_usize,
+                .map(|_| SegmentMetaEntry {
+                    segment_id: random_segment_id(),
                     xmin,
                     xmax: not_deleted_xid,
+                    ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(entries_1.clone()).unwrap();
+            list.add_items(entries_1.clone(), None).unwrap();
 
             let entries_2 = (1..1000)
-                .map(|i| DirectoryEntry {
-                    path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-                    start: i,
-                    total_bytes: 100_usize,
+                .map(|i| SegmentMetaEntry {
+                    segment_id: random_segment_id(),
                     xmin,
                     xmax: if i % 10 == 0 {
                         not_deleted_xid
                     } else {
                         deleted_xid
                     },
+                    ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(entries_2.clone()).unwrap();
+            list.add_items(entries_2.clone(), None).unwrap();
 
             let entries_3 = (1..500)
-                .map(|i| DirectoryEntry {
-                    path: PathBuf::from(format!("{}.ext", Uuid::new_v4())),
-                    start: i,
-                    total_bytes: 100_usize,
+                .map(|_| SegmentMetaEntry {
+                    segment_id: random_segment_id(),
                     xmin,
                     xmax: not_deleted_xid,
+                    ..Default::default()
                 })
                 .collect::<Vec<_>>();
-            list.add_items(entries_3.clone()).unwrap();
+            list.add_items(entries_3.clone(), None).unwrap();
 
             list.garbage_collect(strategy).unwrap();
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {
                     if entry.xmax == not_deleted_xid {
-                        assert!(list.lookup(entry.clone(), |a, b| a.path == b.path).is_ok());
+                        assert!(list
+                            .lookup(|el| el.segment_id == entry.clone().segment_id)
+                            .is_ok());
                     } else {
-                        assert!(list.lookup(entry.clone(), |a, b| a.path == b.path).is_err());
+                        assert!(list
+                            .lookup(|el| el.segment_id == entry.clone().segment_id)
+                            .is_err());
                     }
                 }
             }

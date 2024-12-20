@@ -16,12 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
+use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
 use crate::index::merge_policy::AllowedMergePolicy;
+use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::index::get_fields;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::NeedWal;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use anyhow::Result;
+use crossbeam::channel::Receiver;
 use pgrx::PgRelation;
 use std::num::NonZeroUsize;
 use tantivy::Index;
@@ -47,6 +50,28 @@ pub type IndexConfig = (
 pub enum BlockDirectoryType {
     Mvcc,
     BulkDelete,
+}
+
+impl BlockDirectoryType {
+    pub fn directory(self, index_relation: &PgRelation, need_wal: NeedWal) -> MVCCDirectory {
+        match self {
+            BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid(), need_wal),
+            BlockDirectoryType::BulkDelete => MVCCDirectory::any(index_relation.oid(), need_wal),
+        }
+    }
+
+    pub fn channel_request_handler(
+        self,
+        index_relation: &PgRelation,
+        receiver: Receiver<ChannelRequest>,
+        need_wal: NeedWal,
+    ) -> ChannelRequestHandler {
+        ChannelRequestHandler::open(
+            self.directory(index_relation, need_wal),
+            index_relation.oid(),
+            receiver,
+        )
+    }
 }
 
 impl WriterResources {

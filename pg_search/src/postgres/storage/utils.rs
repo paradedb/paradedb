@@ -15,18 +15,32 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::block::BM25PageSpecialData;
+use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
+use pgrx::pg_sys::OffsetNumber;
 use pgrx::PgBox;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 pub trait BM25Page {
+    unsafe fn read_item<T: From<PgItem>>(&self, offsetno: pg_sys::OffsetNumber) -> Option<T>;
+
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool;
 }
 
 impl BM25Page for pg_sys::Page {
+    unsafe fn read_item<T: From<PgItem>>(&self, offno: OffsetNumber) -> Option<T> {
+        let item_id = pg_sys::PageGetItemId(*self, offno);
+
+        if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
+            return None;
+        }
+
+        let item = pg_sys::PageGetItem(*self, item_id);
+        Some(T::from(PgItem(item, (*item_id).lp_len() as pg_sys::Size)))
+    }
+
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool {
         if pg_sys::PageIsNew(self) {
             return true;
@@ -118,17 +132,7 @@ impl BM25BufferCache {
         blockno: pg_sys::BlockNumber,
         lock: Option<u32>,
     ) -> pg_sys::Buffer {
-        let buffer = pg_sys::ReadBufferExtended(
-            self.indexrel.as_ptr(),
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            blockno,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            std::ptr::null_mut(),
-        );
-        if let Some(lock) = lock {
-            pg_sys::LockBuffer(buffer, lock as i32);
-        }
-        buffer
+        self.get_buffer_with_strategy(blockno, std::ptr::null_mut(), lock)
     }
 
     pub unsafe fn get_buffer_with_strategy(
@@ -144,6 +148,7 @@ impl BM25BufferCache {
             pg_sys::ReadBufferMode::RBM_NORMAL,
             strategy,
         );
+        debug_assert!(buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         if let Some(lock) = lock {
             pg_sys::LockBuffer(buffer, lock as i32);
         }

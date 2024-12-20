@@ -22,17 +22,17 @@ use crate::index::reader::channel::ChannelReader;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::channel::ChannelWriter;
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry};
+use crate::postgres::storage::block::{bm25_max_free_space, FileEntry};
 
 pub type Overwrite = bool;
 
 pub enum ChannelRequest {
     ListManagedFiles(oneshot::Sender<HashSet<PathBuf>>),
     RegisterFilesAsManaged(Vec<PathBuf>, Overwrite),
-    SegmentRead(Range<usize>, DirectoryEntry, oneshot::Sender<OwnedBytes>),
+    SegmentRead(Range<usize>, FileEntry, oneshot::Sender<OwnedBytes>),
     SegmentWrite(PathBuf, Vec<u8>),
     SegmentWriteTerminate(PathBuf),
-    GetSegmentComponent(PathBuf, oneshot::Sender<DirectoryEntry>),
+    GetSegmentComponent(PathBuf, oneshot::Sender<FileEntry>),
     SaveMetas(IndexMeta, IndexMeta),
     LoadMetas(SegmentMetaInventory, oneshot::Sender<IndexMeta>),
 }
@@ -117,7 +117,10 @@ impl Directory for ChannelDirectory {
             .send(ChannelRequest::ListManagedFiles(oneshot_sender))
             .unwrap();
 
-        Ok(oneshot_receiver.recv().unwrap())
+        match oneshot_receiver.recv() {
+            Ok(result) => Ok(result),
+            Err(e) => Err(tantivy::TantivyError::InternalError(e.to_string())),
+        }
     }
 
     fn register_files_as_managed(
@@ -132,7 +135,12 @@ impl Directory for ChannelDirectory {
         Ok(())
     }
 
-    fn save_metas(&self, meta: &IndexMeta, previous_meta: &IndexMeta) -> tantivy::Result<()> {
+    fn save_metas(
+        &self,
+        meta: &IndexMeta,
+        previous_meta: &IndexMeta,
+        _payload: &mut (dyn Any + '_),
+    ) -> tantivy::Result<()> {
         self.sender
             .send(ChannelRequest::SaveMetas(
                 meta.clone(),
@@ -160,7 +168,9 @@ pub struct ChannelRequestHandler {
     relation_oid: pg_sys::Oid,
     receiver: Receiver<ChannelRequest>,
     writers: FxHashMap<PathBuf, SegmentComponentWriter>,
-    readers: FxHashMap<PathBuf, SegmentComponentReader>,
+    readers: FxHashMap<FileEntry, SegmentComponentReader>,
+
+    file_entries: FxHashMap<PathBuf, FileEntry>,
 
     action: (Sender<Action>, Receiver<Action>),
     reply: (Sender<Reply>, Receiver<Reply>),
@@ -183,6 +193,7 @@ impl ChannelRequestHandler {
             receiver,
             writers: Default::default(),
             readers: Default::default(),
+            file_entries: Default::default(),
             action: (action_sender, action_receiver.clone()),
             reply: (reply_sender.clone(), reply_receiver),
             _worker: std::thread::spawn(move || {
@@ -245,13 +256,26 @@ impl ChannelRequestHandler {
                 self.directory.register_files_as_managed(files, overwrite)?;
             }
             ChannelRequest::GetSegmentComponent(path, sender) => {
-                let (opaque, _, _) = unsafe { self.directory.directory_lookup(&path)? };
-                sender.send(opaque)?;
+                if self.file_entries.contains_key(&path) {
+                    sender.send(self.file_entries.get(&path).unwrap().clone())?;
+                    return Ok(false);
+                }
+
+                // TODO:  Don't think we need this check
+                for (writer_path, writer) in &self.writers {
+                    if writer_path == &path {
+                        sender.send(writer.file_entry())?;
+                        return Ok(false);
+                    }
+                }
+
+                let file_entry = unsafe { self.directory.directory_lookup(&path)? };
+                sender.send(file_entry)?;
             }
             ChannelRequest::SegmentRead(range, handle, sender) => {
                 let reader = self
                     .readers
-                    .entry(handle.path.clone())
+                    .entry(handle.clone())
                     .or_insert_with(|| unsafe {
                         SegmentComponentReader::new(
                             self.relation_oid,
@@ -270,10 +294,12 @@ impl ChannelRequestHandler {
             }
             ChannelRequest::SegmentWriteTerminate(path) => {
                 let writer = self.writers.remove(&path).expect("writer should exist");
+                self.file_entries.insert(writer.path(), writer.file_entry());
                 writer.terminate()?;
             }
             ChannelRequest::SaveMetas(metas, previous_metas) => {
-                self.directory.save_metas(&metas, &previous_metas)?;
+                self.directory
+                    .save_metas(&metas, &previous_metas, &mut self.file_entries)?;
             }
             ChannelRequest::LoadMetas(inventory, sender) => {
                 let metas = self.directory.load_metas(&inventory)?;

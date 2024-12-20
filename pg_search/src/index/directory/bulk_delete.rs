@@ -15,18 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::{
-    delete_unused_delete_metas, delete_unused_directory_entries, delete_unused_metas,
-    get_deleted_ids, list_managed_files, load_metas, save_delete_metas, DirectoryLookup,
-};
+use super::utils::{list_managed_files, load_metas};
 use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::utils::{save_new_metas, save_schema, save_settings, DirectoryLookup};
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::bm25_max_free_space;
+use crate::postgres::storage::block::{bm25_max_free_space, FileEntry};
 use crate::postgres::NeedWal;
 use anyhow::Result;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use rustc_hash::FxHashMap;
+use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::path::Path;
@@ -71,7 +70,7 @@ impl Directory for BulkDeleteDirectory {
         match self.readers.lock().entry(path.to_path_buf()) {
             Entry::Occupied(reader) => Ok(reader.get().clone()),
             Entry::Vacant(vacant) => {
-                let (opaque, _, _) = unsafe {
+                let file_entry = unsafe {
                     self.directory_lookup(path)
                         .map_err(|err| OpenReadError::IoError {
                             io_error: io::Error::new(io::ErrorKind::Other, err.to_string()).into(),
@@ -80,7 +79,7 @@ impl Directory for BulkDeleteDirectory {
                 };
                 Ok(vacant
                     .insert(Arc::new(unsafe {
-                        SegmentComponentReader::new(self.relation_oid, opaque, self.need_wal())
+                        SegmentComponentReader::new(self.relation_oid, file_entry, self.need_wal())
                     }))
                     .clone())
             }
@@ -138,49 +137,51 @@ impl Directory for BulkDeleteDirectory {
         Ok(())
     }
 
-    fn save_metas(&self, meta: &IndexMeta, previous_meta: &IndexMeta) -> tantivy::Result<()> {
-        let opstamp = meta.opstamp;
-        let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
+    fn save_metas(
+        &self,
+        meta: &IndexMeta,
+        previous_meta: &IndexMeta,
+        mut payload: &mut (dyn Any + '_),
+    ) -> tantivy::Result<()> {
+        let payload = payload
+            .downcast_mut::<FxHashMap<PathBuf, FileEntry>>()
+            .expect("save_metas should have a payload");
 
+        // Save Schema and IndexSettings if this is the first time
+        save_schema(self.relation_oid, &meta.schema, self.need_wal())
+            .map_err(|err| tantivy::TantivyError::SchemaError(err.to_string()))?;
+
+        save_settings(self.relation_oid, &meta.index_settings, self.need_wal())
+            .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
+
+        // If there were no new segments, skip the rest of the work
         if meta.segments.is_empty() {
             return Ok(());
         }
 
-        let deleted_ids = get_deleted_ids(meta, previous_meta);
         unsafe {
-            save_delete_metas(self.relation_oid, meta, opstamp, self.need_wal())
-                .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
-            delete_unused_metas(
+            save_new_metas(
                 self.relation_oid,
-                &deleted_ids,
-                current_xid,
+                meta,
+                previous_meta,
+                // current_xid,
+                // opstamp,
+                payload,
                 self.need_wal(),
-            );
-            delete_unused_directory_entries(
-                self.relation_oid,
-                &deleted_ids,
-                current_xid,
-                self.need_wal(),
-            );
-            delete_unused_delete_metas(
-                self.relation_oid,
-                &deleted_ids,
-                current_xid,
-                self.need_wal(),
-            );
+            )
+            .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
         }
 
         Ok(())
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        let solve_mvcc = false;
         unsafe {
             load_metas(
                 self.relation_oid,
                 inventory,
                 pg_sys::GetActiveSnapshot(),
-                solve_mvcc,
+                self.need_wal(),
             )
         }
     }

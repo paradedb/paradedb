@@ -17,10 +17,7 @@
 
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
-use crate::postgres::storage::block::{
-    DeleteMetaEntry, DirectoryEntry, SegmentMetaEntry, DELETE_METAS_START, DIRECTORY_START,
-    SEGMENT_METAS_START,
-};
+use crate::postgres::storage::block::{DeleteMetaEntry, SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::LinkedItemList;
 use pgrx::*;
@@ -61,19 +58,9 @@ pub extern "C" fn amvacuumcleanup(
         // Garbage collect linked lists
         // If new LinkedItemLists are created they should be garbage collected here
         let index_oid = index_relation.oid();
-        let mut directory =
-            LinkedItemList::<DirectoryEntry>::open(index_oid, DIRECTORY_START, true);
-        directory
-            .garbage_collect(info.strategy)
-            .expect("garbage collection should succeed");
         let mut segment_metas =
             LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START, true);
         segment_metas
-            .garbage_collect(info.strategy)
-            .expect("garbage collection should succeed");
-        let mut delete_metas =
-            LinkedItemList::<DeleteMetaEntry>::open(index_oid, DELETE_METAS_START, true);
-        delete_metas
             .garbage_collect(info.strategy)
             .expect("garbage collection should succeed");
 

@@ -1,4 +1,4 @@
-use crate::postgres::storage::block::{bm25_max_free_space, DirectoryEntry, LinkedList};
+use crate::postgres::storage::block::{bm25_max_free_space, FileEntry, LinkedList};
 use crate::postgres::storage::linked_bytes::RangeData;
 use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::NeedWal;
@@ -19,12 +19,12 @@ pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     npages: Arc<AtomicU32>,
     last_blockno: Arc<AtomicU32>,
-    entry: DirectoryEntry,
+    entry: FileEntry,
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(relation_oid: pg_sys::Oid, entry: DirectoryEntry, need_wal: NeedWal) -> Self {
-        let block_list = LinkedBytesList::open(relation_oid, entry.start, need_wal);
+    pub unsafe fn new(relation_oid: pg_sys::Oid, entry: FileEntry, need_wal: NeedWal) -> Self {
+        let block_list = LinkedBytesList::open(relation_oid, entry.staring_block, need_wal);
 
         Self {
             block_list,
@@ -142,12 +142,12 @@ mod tests {
         writer.terminate().unwrap();
 
         let directory = MVCCDirectory::new(relation_oid, false);
-        let (entry, _, _) = unsafe {
+        let file_entry = unsafe {
             directory
                 .directory_lookup(path)
                 .expect("open directory entry should succeed")
         };
-        let reader = SegmentComponentReader::new(relation_oid, entry.clone(), false);
+        let reader = SegmentComponentReader::new(relation_oid, file_entry.clone(), false);
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

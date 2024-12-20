@@ -164,6 +164,7 @@ impl LinkedBytesList {
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.skip_list[0] = start_blockno;
         metadata.inner.last_blockno = start_blockno;
+        metadata.inner.modification_count = 0;
         metadata.inner.npages = 1;
 
         Self {

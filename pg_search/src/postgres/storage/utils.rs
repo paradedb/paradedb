@@ -198,7 +198,19 @@ pub unsafe fn vacuum_get_freeze_limit(heap_relation: pg_sys::Relation) -> pg_sys
         pub static mut autovacuum_freeze_max_age: ::std::os::raw::c_int;
     }
 
-    let oldest_xmin = pg_sys::GetOldestNonRemovableTransactionId(heap_relation);
+    let oldest_xmin = {
+        #[cfg(feature = "pg13")]
+        {
+            pg_sys::TransactionIdLimitedForOldSnapshots(
+                pg_sys::GetOldestXmin(heap_relation, pg_sys::PROCARRAY_FLAGS_VACUUM as i32),
+                heap_relation,
+            )
+        }
+        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            pg_sys::GetOldestNonRemovableTransactionId(heap_relation)
+        }
+    };
 
     assert!(pg_sys::TransactionIdIsNormal(oldest_xmin));
     assert!(pg_sys::vacuum_freeze_min_age >= 0);
@@ -229,11 +241,23 @@ mod tests {
 
     #[pg_test]
     unsafe fn test_freeze_limit() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        let heap_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't' AND relnamespace = current_schema()::regnamespace;")
+                .expect("spi should succeed")
+                .unwrap();
+        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
         let vacuum_freeze_min_age = 50_000_000;
+
         if pg_sys::ReadNextFullTransactionId().value <= vacuum_freeze_min_age as u64 {
-            assert_eq!(vacuum_get_freeze_limit(), pg_sys::FirstNormalTransactionId);
+            assert_eq!(
+                vacuum_get_freeze_limit(heap_relation),
+                pg_sys::FirstNormalTransactionId
+            );
         } else {
-            assert!(vacuum_get_freeze_limit() > pg_sys::FirstNormalTransactionId);
+            assert!(vacuum_get_freeze_limit(heap_relation) > pg_sys::FirstNormalTransactionId);
         }
+
+        pg_sys::RelationClose(heap_relation);
     }
 }

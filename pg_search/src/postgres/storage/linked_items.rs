@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use crate::postgres::storage::buffer::{BufferManager, BufferMut};
-use crate::postgres::NeedWal;
+use super::buffer::{BufferManager, BufferMut};
+use super::NeedWal;
+use super::utils::vacuum_get_freeze_limit;
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::fmt::Debug;
@@ -124,8 +125,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     pub unsafe fn garbage_collect(&mut self, strategy: pg_sys::BufferAccessStrategy) -> Result<()> {
         // Delete all items that are definitely dead
         let snapshot = pg_sys::GetActiveSnapshot();
-        let heap_oid = unsafe { pg_sys::IndexGetRelation(self.relation_oid, false) };
-        let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
+        let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
+        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
+        let freeze_limit = vacuum_get_freeze_limit();
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
 
@@ -140,6 +142,16 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 if let Some(entry) = page.read_item::<T>(offsetno) {
                     if entry.recyclable(snapshot, heap_relation) {
                         delete_offsets.push(offsetno);
+                    } else {
+                        let xmin_needs_freeze = entry.xmin_needs_freeze(freeze_limit);
+                        let xmax_needs_freeze = entry.xmax_needs_freeze(freeze_limit);
+    
+                        if xmin_needs_freeze || xmax_needs_freeze {
+                            let frozen_entry = entry.into_frozen(xmin_needs_freeze, xmax_needs_freeze);
+                            let PgItem(item, size) = frozen_entry.clone().into();
+                            let did_replace = page.replace_item(offsetno, item, size);
+                            assert!(did_replace);
+                        }
                     }
                 }
                 offsetno += 1;

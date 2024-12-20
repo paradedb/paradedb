@@ -318,6 +318,7 @@ pub trait MVCCEntry {
     // Required methods
     fn get_xmin(&self) -> pg_sys::TransactionId;
     fn get_xmax(&self) -> pg_sys::TransactionId;
+    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self;
 
     // Provided methods
     unsafe fn visible(&self, snapshot: pg_sys::Snapshot) -> bool {
@@ -355,6 +356,16 @@ pub trait MVCCEntry {
             pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
         }
     }
+
+    unsafe fn xmin_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {
+        let xmin = self.get_xmin();
+        pg_sys::TransactionIdIsNormal(xmin) && pg_sys::TransactionIdPrecedes(xmin, freeze_limit)
+    }
+
+    unsafe fn xmax_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {
+        let xmax = self.get_xmax();
+        pg_sys::TransactionIdIsNormal(xmax) && pg_sys::TransactionIdPrecedes(xmax, freeze_limit)
+    }
 }
 
 impl MVCCEntry for SegmentMetaEntry {
@@ -364,6 +375,21 @@ impl MVCCEntry for SegmentMetaEntry {
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
     }
+    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self {
+        SegmentMetaEntry {
+            xmin: if should_freeze_xmin {
+                pg_sys::FrozenTransactionId
+            } else {
+                self.xmin
+            },
+            xmax: if should_freeze_xmax {
+                pg_sys::FrozenTransactionId
+            } else {
+                self.xmax
+            },
+            ..self.clone()
+        }
+    }
 }
 
 pub const fn bm25_max_free_space() -> usize {
@@ -371,5 +397,27 @@ pub const fn bm25_max_free_space() -> usize {
         (pg_sys::BLCKSZ as usize)
             - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
             - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[pg_test]
+    unsafe fn test_needs_freeze() {
+        let freeze_limit = 100;
+        let segment = SegmentMetaEntry {
+            segment_id: SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap(),
+            max_doc: 100,
+            opstamp: 0,
+            xmin: 50,
+            xmax: 150,
+        };
+
+        assert_eq!(segment.xmin_needs_freeze(freeze_limit), true);
+        assert_eq!(segment.xmax_needs_freeze(freeze_limit), false);
     }
 }

@@ -20,6 +20,7 @@ use parking_lot::Mutex;
 use pgrx::pg_sys;
 use pgrx::pg_sys::OffsetNumber;
 use pgrx::PgBox;
+use pgrx::*;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -186,6 +187,43 @@ impl Drop for BM25BufferCache {
                 pg_sys::RelationClose(self.indexrel.as_ptr());
                 pg_sys::RelationClose(self.heaprel.as_ptr());
             }
+        }
+    }
+}
+
+pub unsafe fn vacuum_get_freeze_limit() -> pg_sys::TransactionId {
+    extern "C" {
+        pub static mut autovacuum_freeze_max_age: ::std::os::raw::c_int;
+    }
+
+    assert!(pg_sys::vacuum_freeze_min_age >= 0);
+
+    let next_xid = pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
+    let freeze_min_age =
+        std::cmp::min(pg_sys::vacuum_freeze_min_age, autovacuum_freeze_max_age / 2);
+    if freeze_min_age > (next_xid as i32) {
+        return pg_sys::FirstNormalTransactionId;
+    }
+
+    let mut freeze_limit = next_xid - (freeze_min_age as u32);
+    if !pg_sys::TransactionIdIsNormal(freeze_limit) {
+        freeze_limit = pg_sys::FirstNormalTransactionId;
+    }
+    freeze_limit
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+
+    #[pg_test]
+    unsafe fn test_freeze_limit() {
+        let vacuum_freeze_min_age = 50_000_000;
+        if pg_sys::ReadNextFullTransactionId().value <= vacuum_freeze_min_age as u64 {
+            assert_eq!(vacuum_get_freeze_limit(), pg_sys::FirstNormalTransactionId);
+        } else {
+            assert!(vacuum_get_freeze_limit() > pg_sys::FirstNormalTransactionId);
         }
     }
 }

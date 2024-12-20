@@ -18,7 +18,7 @@
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
 use super::buffer::{BufferManager, BufferMut};
 use super::utils::vacuum_get_freeze_limit;
-use super::NeedWal;
+use crate::postgres::NeedWal;
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::fmt::Debug;
@@ -270,26 +270,6 @@ mod tests {
 
     fn random_segment_id() -> SegmentId {
         SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
-    }
-
-    impl Default for SegmentMetaEntry {
-        fn default() -> Self {
-            Self {
-                segment_id: random_segment_id(),
-                xmin: 0,
-                xmax: 0,
-                opstamp: 0,
-                max_doc: 0,
-                postings: None,
-                positions: None,
-                fast_fields: None,
-                field_norms: None,
-                terms: None,
-                store: None,
-                temp_store: None,
-                delete: None,
-            }
-        }
     }
 
     #[pg_test]

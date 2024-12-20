@@ -145,7 +145,7 @@ pub struct DeleteEntry {
 }
 
 /// Metadata for tracking alive segments
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SegmentMetaEntry {
     pub segment_id: SegmentId,
     pub max_doc: u32,
@@ -161,6 +161,26 @@ pub struct SegmentMetaEntry {
     pub store: Option<FileEntry>,
     pub temp_store: Option<FileEntry>,
     pub delete: Option<DeleteEntry>,
+}
+
+impl Default for SegmentMetaEntry {
+    fn default() -> Self {
+        Self {
+            segment_id: SegmentId::from_uuid_string(&uuid::Uuid::default().to_string()).unwrap(),
+            max_doc: Default::default(),
+            opstamp: Default::default(),
+            xmin: pg_sys::InvalidTransactionId,
+            xmax: pg_sys::InvalidTransactionId,
+            postings: None,
+            positions: None,
+            fast_fields: None,
+            field_norms: None,
+            terms: None,
+            store: None,
+            temp_store: None,
+            delete: None,
+        }
+    }
 }
 
 // ---------------------------------------------------------
@@ -404,7 +424,6 @@ pub const fn bm25_max_free_space() -> usize {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use uuid::Uuid;
 
     #[pg_test]
     unsafe fn test_needs_freeze() {

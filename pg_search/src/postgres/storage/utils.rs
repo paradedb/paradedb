@@ -20,7 +20,6 @@ use parking_lot::Mutex;
 use pgrx::pg_sys;
 use pgrx::pg_sys::OffsetNumber;
 use pgrx::PgBox;
-use pgrx::*;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -238,6 +237,7 @@ pub unsafe fn vacuum_get_freeze_limit(heap_relation: pg_sys::Relation) -> pg_sys
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::prelude::*;
 
     #[pg_test]
     unsafe fn test_freeze_limit_relaxed() {

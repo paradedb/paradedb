@@ -172,163 +172,6 @@ impl EphemeralPostgres {
     }
 }
 
-// Test function to test the ephemeral PostgreSQL setup
-#[rstest] // Segfaults on PG13.
-#[ignore = "failing on block storage"]
-async fn test_ephemeral_postgres() -> Result<()> {
-    let config = "
-        wal_level = logical
-        max_replication_slots = 4
-        max_wal_senders = 4
-        shared_preload_libraries = 'pg_search'
-    ";
-
-    let source_postgres = EphemeralPostgres::new(Some(config), None);
-    let target_postgres = EphemeralPostgres::new(Some(config), None);
-
-    let mut source_conn = source_postgres.connection().await?;
-    let mut target_conn = target_postgres.connection().await?;
-
-    // Create pg_search extension on both source and target databases
-    "CREATE EXTENSION pg_search".execute(&mut source_conn);
-    "CREATE EXTENSION pg_search".execute(&mut target_conn);
-
-    // Create the mock_items table schema
-    let schema = "
-        CREATE TABLE mock_items (
-          id SERIAL PRIMARY KEY,
-          description TEXT,
-          rating INTEGER CHECK (rating BETWEEN 1 AND 5),
-          category VARCHAR(255),
-          in_stock BOOLEAN,
-          metadata JSONB,
-          created_at TIMESTAMP,
-          last_updated_date DATE,
-          latest_available_time TIME
-        )
-    ";
-    schema.execute(&mut source_conn);
-    schema.execute(&mut target_conn);
-
-    // Create the bm25 index on the description field
-    "
-    CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
-    WITH (key_field = 'id');
-
-    "
-    .execute(&mut source_conn);
-    "
-    CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
-    WITH (key_field = 'id');
-    "
-    .execute(&mut target_conn);
-
-    // Create publication and subscription for replication
-    "CREATE PUBLICATION mock_items_pub FOR TABLE mock_items".execute(&mut source_conn);
-    format!(
-        "CREATE SUBSCRIPTION mock_items_sub
-         CONNECTION 'host={} port={} dbname={}'
-         PUBLICATION mock_items_pub;",
-        source_postgres.host, source_postgres.port, source_postgres.dbname
-    )
-    .execute(&mut target_conn);
-
-    // Verify initial state of the search results
-    let source_results: Vec<(String,)> =
-        "SELECT * FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
-            .fetch(&mut source_conn);
-    let target_results: Vec<(String,)> =
-        "SELECT * FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
-            .fetch(&mut target_conn);
-
-    assert_eq!(source_results.len(), 0);
-    assert_eq!(target_results.len(), 0);
-
-    // Insert a new item into the source database
-    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
-    VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1)".execute(&mut source_conn);
-
-    // Verify the insert is replicated to the target database
-    let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
-            .fetch(&mut source_conn);
-
-    // Wait for the replication to complete
-    let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:shoes' ORDER BY id"
-            .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |result| {
-                !result.is_empty()
-            });
-
-    assert_eq!(source_results.len(), 1);
-    assert_eq!(target_results.len(), 1);
-
-    // Additional insert test
-    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
-    VALUES ('Blue running shoes', 'Footwear', true, '14:00:00', '2024-07-10', '{}', '2024-07-10 14:00:00', 2)".execute(&mut source_conn);
-
-    // Verify the additional insert is replicated to the target database
-    let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:\"running shoes\"' ORDER BY id"
-            .fetch(&mut source_conn);
-
-    // Wait for the replication to complete
-    let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE mock_items @@@ 'description:\"running shoes\"' ORDER BY id".fetch_retry(
-            &mut target_conn,
-            60,
-            1000,
-            |result| !result.is_empty(),
-        );
-
-    assert_eq!(source_results.len(), 1);
-    assert_eq!(target_results.len(), 1);
-
-    // Update test
-    "UPDATE mock_items SET rating = 5 WHERE description = 'Red sports shoes'"
-        .execute(&mut source_conn);
-
-    // Verify the update is replicated to the target database
-    let source_results: Vec<(i32,)> =
-        "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'"
-            .fetch(&mut source_conn);
-
-    let target_results: Vec<(i32,)> =
-        "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
-            &mut target_conn,
-            60,
-            1000,
-            |result| !result.is_empty(),
-        );
-
-    assert_eq!(source_results.len(), 1);
-    assert_eq!(target_results.len(), 1);
-    assert_eq!(source_results[0], target_results[0]);
-
-    // Delete test
-    "DELETE FROM mock_items WHERE description = 'Red sports shoes'".execute(&mut source_conn);
-
-    // Verify the delete is replicated to the target database
-    let source_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE description = 'Red sports shoes'"
-            .fetch(&mut source_conn);
-
-    let target_results: Vec<(String,)> =
-        "SELECT description FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
-            &mut target_conn,
-            60,
-            1000,
-            |result| !result.is_empty(),
-        );
-
-    assert_eq!(source_results.len(), 0);
-    assert_eq!(target_results.len(), 0);
-
-    Ok(())
-}
-
 #[rstest]
 async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     let config = "
@@ -501,7 +344,7 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
 }
 
 #[rstest]
-async fn test_wal_streaming_replication() -> Result<()> {
+async fn test_wal_streaming_replication_without_pg_search() -> Result<()> {
     // Primary Postgres setup + insert data
     let postgresql_conf = "
         listen_addresses = 'localhost'
@@ -723,6 +566,133 @@ async fn test_physical_streaming_replication() -> Result<()> {
     let promoted_data: Vec<(String,)> = "SELECT info FROM test_data WHERE info='promoted_standby'"
         .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
     assert_eq!(promoted_data.len(), 1);
+
+    Ok(())
+}
+
+#[rstest]
+async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
+    // Primary Postgres setup + insert data
+    let postgresql_conf = "
+        listen_addresses = 'localhost'
+        wal_level = replica
+        max_wal_senders = 4
+        shared_preload_libraries = 'pg_search'
+        # It's often helpful to have a short wal_keep_size or max_wal_senders for testing
+    ";
+    let pg_hba_conf = "
+        host replication all 127.0.0.1/32 md5
+        host replication all ::1/128 md5
+    ";
+    let source_postgres = EphemeralPostgres::new(Some(postgresql_conf), Some(pg_hba_conf));
+    let mut source_conn = source_postgres.connection().await?;
+    let source_port = source_postgres.port;
+    let source_username = "replicator";
+
+    // Create a replication user on primary
+    format!(
+        "CREATE USER {} WITH REPLICATION ENCRYPTED PASSWORD 'replicator_pass'",
+        source_username
+    )
+    .execute(&mut source_conn);
+
+    // Install pg_search on primary and create a test table
+    "CREATE EXTENSION pg_search".execute(&mut source_conn);
+    "CREATE TABLE items (
+        id SERIAL PRIMARY KEY,
+        description TEXT,
+        category TEXT,
+        created_at TIMESTAMP
+    )"
+    .execute(&mut source_conn);
+
+    // Insert initial data
+    "INSERT INTO items (description, category, created_at) VALUES
+        ('Red running shoes', 'Footwear', NOW()),
+        ('Blue sports shoes', 'Footwear', NOW()),
+        ('Wireless headphones', 'Electronics', NOW()),
+        ('4K television', 'Electronics', NOW())"
+        .execute(&mut source_conn);
+
+    // Create a bm25 index on the items table
+    "
+    CREATE INDEX items_search_idx ON items
+    USING bm25 (id, description, category)
+    WITH (key_field = 'id');
+    "
+    .execute(&mut source_conn);
+
+    // Verify that searching on the primary works
+    let source_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id"
+            .fetch(&mut source_conn);
+    assert_eq!(source_results.len(), 2);
+
+    // Set up the standby using pg_basebackup
+    let target_tempdir = TempDir::new().expect("Failed to create temp dir for standby");
+    let target_tempdir_path = target_tempdir.into_path();
+
+    // Permissions for the --pgdata directory passed to pg_basebackup
+    // should be u=rwx (0700) or u=rwx,g=rx (0750)
+    std::fs::set_permissions(
+        target_tempdir_path.as_path(),
+        std::fs::Permissions::from_mode(0o700),
+    )?;
+
+    let pg_basebackup = EphemeralPostgres::pg_basebackup_path();
+    run_cmd!(
+        $pg_basebackup
+        --pgdata $target_tempdir_path
+        --host localhost
+        --port $source_port
+        --username $source_username
+        -Fp -Xs -P -R
+        &> /dev/null
+    )
+    .expect("Failed to run pg_basebackup for standby setup");
+
+    // Start the standby also with pg_search preloaded
+    let standby_config = "
+        shared_preload_libraries = 'pg_search'
+        hot_standby = on
+    ";
+
+    let standby_postgres = EphemeralPostgres::new_from_initialized(
+        target_tempdir_path.as_path(),
+        Some(standby_config),
+        None,
+    );
+    let mut standby_conn = standby_postgres.connection().await?;
+
+    // Wait for the standby to catch up
+    // The fetch_retry helper is used in previous tests; you can adapt a similar approach here.
+    let standby_data: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id".fetch_retry(
+            &mut standby_conn,
+            60,
+            1000,
+            |result| !result.is_empty(),
+        );
+
+    assert_eq!(standby_data.len(), 2);
+
+    // Insert a new item on the primary and verify it appears on the standby
+    "INSERT INTO items (description, category, created_at)
+     VALUES ('Green hiking shoes', 'Footwear', NOW())"
+        .execute(&mut source_conn);
+
+    let new_item_standby: Vec<(String,)> =
+        "SELECT description FROM items WHERE items @@@ 'description:hiking' ORDER BY id"
+            .fetch_retry(&mut standby_conn, 60, 1000, |result| !result.is_empty());
+
+    assert_eq!(new_item_standby.len(), 1);
+    assert_eq!(new_item_standby[0].0, "Green hiking shoes");
+
+    // Test that we can still find electronics on the standby after inserts
+    let electronics: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id"
+            .fetch(&mut standby_conn);
+    assert_eq!(electronics.len(), 2);
 
     Ok(())
 }

@@ -36,7 +36,7 @@ impl FileHandle for ChannelReader {
         self.sender
             .send(ChannelRequest::SegmentRead(
                 range.clone(),
-                self.entry.clone(),
+                self.entry,
                 oneshot_sender,
             ))
             .unwrap();

@@ -68,10 +68,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
         self.header_blockno
     }
 
-    fn get_relation_oid(&self) -> pg_sys::Oid {
-        self.relation_oid
-    }
-
     unsafe fn get_linked_list_data(&self) -> LinkedListData {
         let header_buffer = self.bman.get_buffer(self.get_header_blockno());
         let page = header_buffer.page();

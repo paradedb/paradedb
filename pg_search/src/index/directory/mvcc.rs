@@ -33,7 +33,6 @@ use std::sync::Arc;
 use std::{io, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
-use tantivy::index::SegmentComponent;
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
 /// Tantivy Directory trait implementation over block storage
@@ -165,7 +164,7 @@ impl Directory for MVCCDirectory {
         &self,
         meta: &IndexMeta,
         previous_meta: &IndexMeta,
-        mut payload: &mut (dyn Any + '_),
+        payload: &mut (dyn Any + '_),
     ) -> tantivy::Result<()> {
         let payload = payload
             .downcast_mut::<FxHashMap<PathBuf, FileEntry>>()

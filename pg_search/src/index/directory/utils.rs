@@ -4,45 +4,19 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::NeedWal;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use pgrx::pg_sys;
-#[cfg(any(test, feature = "pg_test"))]
-use pgrx::pg_test;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tantivy::index::SegmentComponent;
 use tantivy::{
     index::{DeleteMeta, IndexSettings, InnerSegmentMeta, SegmentId, SegmentMetaInventory},
     schema::Schema,
-    Directory, IndexMeta, Opstamp,
+    Directory, IndexMeta,
 };
-use tantivy_common::GroupByIteratorExtended;
-
-// Converts a SegmentID + SegmentComponent into a PathBuf
-pub struct SegmentComponentPath(pub PathBuf);
-pub struct SegmentComponentId(pub SegmentId);
-
-impl TryFrom<SegmentComponentPath> for SegmentComponentId {
-    type Error = anyhow::Error;
-
-    fn try_from(val: SegmentComponentPath) -> Result<Self, Self::Error> {
-        let path_str = val
-            .0
-            .to_str()
-            .ok_or_else(|| anyhow!("Invalid segment path: {:?}", val.0.to_str().unwrap()))?;
-        if let Some(pos) = path_str.find('.') {
-            Ok(SegmentComponentId(SegmentId::from_uuid_string(
-                &path_str[..pos],
-            )?))
-        } else {
-            bail!("Invalid segment path: {}", path_str);
-        }
-    }
-}
 
 pub trait DirectoryLookup {
     // Required methods
@@ -143,24 +117,6 @@ pub fn save_settings(
     Ok(())
 }
 
-pub fn get_deleted_ids(meta: &IndexMeta, previous_meta: &IndexMeta) -> HashSet<SegmentId> {
-    let meta_ids = meta.segments.iter().map(|s| s.id()).collect::<HashSet<_>>();
-    let empty_ids = meta
-        .segments
-        .iter()
-        .filter(|s| s.num_docs() == 0)
-        .map(|s| s.id())
-        .collect::<HashSet<_>>();
-    let merged_ids = previous_meta
-        .segments
-        .iter()
-        .filter(|s| !meta_ids.contains(&s.id()))
-        .map(|s| s.id())
-        .collect::<HashSet<_>>();
-
-    empty_ids.union(&merged_ids).cloned().collect()
-}
-
 pub unsafe fn save_new_metas(
     relation_oid: pg_sys::Oid,
     new_meta: &IndexMeta,
@@ -189,24 +145,22 @@ pub unsafe fn save_new_metas(
         .collect::<FxHashSet<_>>();
 
     // first, reorganize the directory_entries by segment id
-    let mut new_files = FxHashMap::<
-        SegmentId,
-        FxHashMap<SegmentComponent, (FileEntry, PathBuf, Option<Opstamp>)>,
-    >::default();
+    let mut new_files =
+        FxHashMap::<SegmentId, FxHashMap<SegmentComponent, (FileEntry, PathBuf)>>::default();
 
     for (path, file_entry) in directory_entries.drain() {
         let segment_id = path.segment_id();
         let component_type = path.component_type();
         let opstamp = path.opstamp();
 
-        if let (Some(segment_id), Some(component_type), opstamp) =
+        if let (Some(segment_id), Some(component_type), _opstamp) =
             (segment_id, component_type, opstamp)
         {
             // TODO: need to use this opstamp?  I don't think so
             new_files
                 .entry(segment_id)
                 .or_default()
-                .insert(component_type, (file_entry, path, opstamp));
+                .insert(component_type, (file_entry, path));
         } else {
             panic!("malformed PathBuf: {}", path.display());
         }
@@ -229,7 +183,7 @@ pub unsafe fn save_new_metas(
         .into_iter()
         .filter_map(|id| {
             let created_segment = incoming_segments.get(id).unwrap();
-            let mut files = new_files.remove(&id)?;
+            let mut files = new_files.remove(id)?;
 
             let meta_entry = SegmentMetaEntry {
                 segment_id: *id,
@@ -246,7 +200,7 @@ pub unsafe fn save_new_metas(
                 temp_store: files.remove(&SegmentComponent::TempStore).map(|e| e.0),
                 delete: files
                     .remove(&SegmentComponent::Delete)
-                    .map(|(file_entry, _, _)| DeleteEntry {
+                    .map(|(file_entry, _)| DeleteEntry {
                         file_entry,
                         num_deleted_docs: created_segment.num_deleted_docs(),
                         opstamp: created_segment.delete_opstamp().unwrap(),
@@ -268,21 +222,19 @@ pub unsafe fn save_new_metas(
     let modified_entries = modified_ids
         .into_iter()
         .filter_map(|id| {
-            let Some(mut files) = new_files.remove(id) else {
-                return None;
-            };
-
+            let mut files = new_files.remove(id)?;
             assert!(
                 files.len() == 1 && files.contains_key(&SegmentComponent::Delete),
                 "new files for segment_id `{id}` should be exactly one Delete component:  {files:#?}"
             );
+
             let existing_segment = incoming_segments.get(id).unwrap();
             let (mut meta_entry, blockno, _) = linked_list
                 .lookup_ex(|entry| entry.segment_id == *id)
                 .unwrap_or_else(|e| {
                     panic!("segment id `{id}` should be in the segment meta linked list:  {e}")
                 });
-            let (new_delete_entry, path, opstamp) = files
+            let (new_delete_entry, _path) = files
                 .remove(&SegmentComponent::Delete)
                 .unwrap_or_else(|| panic!("missing new delete file for segment_id `{id}`"));
 
@@ -308,7 +260,7 @@ pub unsafe fn save_new_metas(
     // find the deleted segment entries and set their `xmax` to this transaction id
     // and for each file in each deleted segment, locate its LinkedBytesList and .mark_deleted()
     //
-    let mut deleted_entries = deleted_ids
+    let deleted_entries = deleted_ids
         .into_iter()
         .map(|id| {
             let (mut meta_entry, blockno, _) = linked_list
@@ -331,9 +283,8 @@ pub unsafe fn save_new_metas(
         directory_entries.extend(
             new_files
                 .into_values()
-                .map(|segment| segment.into_values())
-                .flatten()
-                .map(|(entry, path, _)| (path, entry)),
+                .flat_map(|segment| segment.into_values())
+                .map(|(entry, path)| (path, entry)),
         )
     }
 
@@ -375,7 +326,7 @@ pub unsafe fn save_new_metas(
             entry.delete.map(|de| de.file_entry),
         ]
         .into_iter()
-        .filter_map(|e| e)
+        .flatten()
         {
             let mut file = LinkedBytesList::open(relation_oid, file_entry.staring_block, need_wal);
             file.mark_deleted();
@@ -486,30 +437,4 @@ pub unsafe fn load_metas(
         opstamp: opstamp.unwrap_or(0),
         payload: None,
     })
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::*;
-    use tantivy::index::SegmentId;
-
-    #[pg_test]
-    fn test_segment_component_path_to_id() {
-        let path = SegmentComponentPath(PathBuf::from("00000000-0000-0000-0000-000000000000.ext"));
-        let id = SegmentComponentId::try_from(path).unwrap();
-        assert_eq!(
-            id.0,
-            SegmentId::from_uuid_string("00000000-0000-0000-0000-000000000000").unwrap()
-        );
-
-        let path = SegmentComponentPath(PathBuf::from(
-            "00000000-0000-0000-0000-000000000000.123.del",
-        ));
-        let id = SegmentComponentId::try_from(path).unwrap();
-        assert_eq!(
-            id.0,
-            SegmentId::from_uuid_string("00000000-0000-0000-0000-000000000000").unwrap()
-        );
-    }
 }

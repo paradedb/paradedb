@@ -147,7 +147,7 @@ mod tests {
                 .directory_lookup(path)
                 .expect("open directory entry should succeed")
         };
-        let reader = SegmentComponentReader::new(relation_oid, file_entry.clone(), false);
+        let reader = SegmentComponentReader::new(relation_oid, file_entry, false);
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

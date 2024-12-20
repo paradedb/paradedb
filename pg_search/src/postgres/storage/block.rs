@@ -19,7 +19,7 @@ use crate::postgres::storage::SKIPLIST_FREQ;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::mem::{offset_of, size_of};
 use std::path::{Path, PathBuf};
 use std::slice::from_raw_parts;
@@ -94,7 +94,6 @@ impl Debug for LinkedListData {
 pub trait LinkedList {
     // Required methods
     fn get_header_blockno(&self) -> pg_sys::BlockNumber;
-    fn get_relation_oid(&self) -> pg_sys::Oid;
 
     // Provided methods
     fn get_start_blockno(&self) -> pg_sys::BlockNumber {
@@ -368,10 +367,6 @@ pub trait MVCCEntry {
             && (pg_sys::TransactionIdIsCurrentTransactionId(xmax)
                 || !pg_sys::XidInMVCCSnapshot(xmax, snapshot));
         xmin_visible && !deleted
-    }
-
-    fn deleted(&self) -> bool {
-        self.get_xmax() != pg_sys::InvalidTransactionId
     }
 
     unsafe fn recyclable(

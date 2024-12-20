@@ -257,7 +257,7 @@ impl ChannelRequestHandler {
             }
             ChannelRequest::GetSegmentComponent(path, sender) => {
                 if self.file_entries.contains_key(&path) {
-                    sender.send(self.file_entries.get(&path).unwrap().clone())?;
+                    sender.send(*self.file_entries.get(&path).unwrap())?;
                     return Ok(false);
                 }
 
@@ -273,16 +273,13 @@ impl ChannelRequestHandler {
                 sender.send(file_entry)?;
             }
             ChannelRequest::SegmentRead(range, handle, sender) => {
-                let reader = self
-                    .readers
-                    .entry(handle.clone())
-                    .or_insert_with(|| unsafe {
-                        SegmentComponentReader::new(
-                            self.relation_oid,
-                            handle,
-                            self.directory.need_wal(),
-                        )
-                    });
+                let reader = self.readers.entry(handle).or_insert_with(|| unsafe {
+                    SegmentComponentReader::new(
+                        self.relation_oid,
+                        handle,
+                        self.directory.need_wal(),
+                    )
+                });
                 let data = reader.read_bytes(range)?;
                 sender.send(data)?;
             }

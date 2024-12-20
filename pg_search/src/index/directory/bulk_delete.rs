@@ -141,7 +141,7 @@ impl Directory for BulkDeleteDirectory {
         &self,
         meta: &IndexMeta,
         previous_meta: &IndexMeta,
-        mut payload: &mut (dyn Any + '_),
+        payload: &mut (dyn Any + '_),
     ) -> tantivy::Result<()> {
         let payload = payload
             .downcast_mut::<FxHashMap<PathBuf, FileEntry>>()

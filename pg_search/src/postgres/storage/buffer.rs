@@ -121,10 +121,7 @@ impl BufferMut {
         page
     }
 
-    pub fn needs_init(&self) -> bool {
-        unsafe { pg_sys::PageIsNew(self.page().pg_page) }
-    }
-
+    #[allow(dead_code)]
     pub fn page(&self) -> Page {
         unsafe {
             Page {
@@ -164,6 +161,7 @@ pub struct Page<'a> {
 }
 
 impl Page<'_> {
+    #[allow(dead_code)]
     pub fn free_space(&self) -> usize {
         unsafe { pg_sys::PageGetFreeSpace(self.pg_page) }
     }

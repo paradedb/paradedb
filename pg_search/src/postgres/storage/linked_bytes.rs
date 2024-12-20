@@ -66,7 +66,6 @@ use std::sync::Arc;
 #[derive(Clone, Debug)]
 pub struct LinkedBytesList {
     bman: BufferManager,
-    relation_oid: pg_sys::Oid,
     pub header_blockno: pg_sys::BlockNumber,
     metadata: LinkedListData,
     skipcache: Arc<Mutex<FxHashMap<usize, pg_sys::BlockNumber>>>,
@@ -75,10 +74,6 @@ pub struct LinkedBytesList {
 impl LinkedList for LinkedBytesList {
     fn get_header_blockno(&self) -> pg_sys::BlockNumber {
         self.header_blockno
-    }
-
-    fn get_relation_oid(&self) -> pg_sys::Oid {
-        self.relation_oid
     }
 
     unsafe fn get_linked_list_data(&self) -> LinkedListData {
@@ -143,7 +138,6 @@ impl LinkedBytesList {
 
         Self {
             bman,
-            relation_oid,
             header_blockno,
             metadata,
             skipcache: Default::default(),
@@ -169,7 +163,6 @@ impl LinkedBytesList {
 
         Self {
             bman,
-            relation_oid,
             header_blockno,
             metadata: *metadata,
             skipcache: Default::default(),

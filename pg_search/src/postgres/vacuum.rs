@@ -17,7 +17,7 @@
 
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
-use crate::postgres::storage::block::{DeleteMetaEntry, SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::LinkedItemList;
 use pgrx::*;

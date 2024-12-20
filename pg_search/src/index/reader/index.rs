@@ -35,8 +35,6 @@ use tantivy::{
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
-use crate::index::bulk_delete::BulkDeleteDirectory;
-use crate::index::mvcc::MVCCDirectory;
 use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType};
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
@@ -249,14 +247,8 @@ impl SearchIndexReader {
             None
         };
 
-        let mut index = match directory_type {
-            BlockDirectoryType::Mvcc => {
-                Index::open(MVCCDirectory::new(index_relation.oid(), false))?
-            }
-            BlockDirectoryType::BulkDelete => {
-                Index::open(BulkDeleteDirectory::new(index_relation.oid()))?
-            }
-        };
+        let directory = directory_type.directory(index_relation, false);
+        let mut index = Index::open(directory)?;
 
         setup_tokenizers(&mut index, &schema);
         let reader = index

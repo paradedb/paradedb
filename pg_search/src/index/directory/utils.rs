@@ -1,69 +1,23 @@
+use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
     SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::NeedWal;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use pgrx::pg_sys;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tantivy::index::SegmentComponent;
 use tantivy::{
     index::{DeleteMeta, IndexSettings, InnerSegmentMeta, SegmentId, SegmentMetaInventory},
     schema::Schema,
-    Directory, IndexMeta,
+    IndexMeta,
 };
-
-pub trait DirectoryLookup {
-    // Required methods
-    fn relation_oid(&self) -> pg_sys::Oid;
-
-    fn need_wal(&self) -> NeedWal;
-
-    // Provided methods
-    unsafe fn directory_lookup(&self, path: &Path) -> Result<FileEntry> {
-        let directory = LinkedItemList::<SegmentMetaEntry>::open(
-            self.relation_oid(),
-            SEGMENT_METAS_START,
-            self.need_wal(),
-        );
-
-        let segment_id = path.segment_id().expect("path should have a segment_id");
-
-        let entry = directory
-            .lookup(|entry| entry.segment_id == segment_id)
-            .map_err(|e| anyhow!(format!("problem looking for `{}`: {e}", path.display())))?;
-
-        let component_type = path
-            .component_type()
-            .expect("path should have a component_type");
-        let file_entry = entry.get_file_entry(component_type).ok_or_else(|| {
-            anyhow!(format!(
-                "directory lookup failed for path=`{}`.  entry={entry:?}",
-                path.display()
-            ))
-        })?;
-
-        Ok(file_entry)
-    }
-}
-
-pub trait BlockDirectory: Directory + DirectoryLookup {
-    fn box_clone(&self) -> Box<dyn BlockDirectory>;
-}
-
-impl<T> BlockDirectory for T
-where
-    T: Directory + DirectoryLookup + Clone + 'static,
-{
-    fn box_clone(&self) -> Box<dyn BlockDirectory> {
-        Box::new(self.clone())
-    }
-}
 
 pub unsafe fn list_managed_files(relation_oid: pg_sys::Oid) -> tantivy::Result<HashSet<PathBuf>> {
     let segment_components =
@@ -378,7 +332,7 @@ pub unsafe fn load_metas(
     relation_oid: pg_sys::Oid,
     inventory: &SegmentMetaInventory,
     snapshot: pg_sys::Snapshot,
-    solve_mvcc: bool,
+    solve_mvcc: MvccSatisfies,
 ) -> tantivy::Result<IndexMeta> {
     let segment_metas =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START, false);
@@ -398,8 +352,8 @@ pub unsafe fn load_metas(
 
         while offsetno <= max_offset {
             if let Some(entry) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if entry.visible(snapshot)
-                    || (!solve_mvcc && !entry.recyclable(snapshot, heap_relation))
+                if (solve_mvcc == MvccSatisfies::Any && !entry.recyclable(snapshot, heap_relation))
+                    || entry.visible(snapshot)
                 {
                     let inner_segment_meta = InnerSegmentMeta {
                         max_doc: entry.max_doc,

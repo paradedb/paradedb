@@ -1,3 +1,9 @@
+use crate::index::mvcc::MVCCDirectory;
+use crate::index::reader::channel::ChannelReader;
+use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::writer::channel::ChannelWriter;
+use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::storage::block::{bm25_max_free_space, FileEntry};
 use anyhow::Result;
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use pgrx::pg_sys;
@@ -16,13 +22,6 @@ use tantivy::directory::{
 };
 use tantivy::index::SegmentMetaInventory;
 use tantivy::{Directory, IndexMeta};
-
-use super::utils::BlockDirectory;
-use crate::index::reader::channel::ChannelReader;
-use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::index::writer::channel::ChannelWriter;
-use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::{bm25_max_free_space, FileEntry};
 
 pub type Overwrite = bool;
 
@@ -164,7 +163,7 @@ impl Directory for ChannelDirectory {
 type Action = Box<dyn FnOnce() -> Reply + Send + Sync>;
 type Reply = Box<dyn Any + Send + Sync>;
 pub struct ChannelRequestHandler {
-    directory: Box<dyn BlockDirectory>,
+    directory: MVCCDirectory,
     relation_oid: pg_sys::Oid,
     receiver: Receiver<ChannelRequest>,
     writers: FxHashMap<PathBuf, SegmentComponentWriter>,
@@ -181,14 +180,14 @@ pub type ShouldTerminate = bool;
 
 impl ChannelRequestHandler {
     pub fn open(
-        directory: &dyn BlockDirectory,
+        directory: MVCCDirectory,
         relation_oid: pg_sys::Oid,
         receiver: Receiver<ChannelRequest>,
     ) -> Self {
         let (action_sender, action_receiver) = crossbeam::channel::bounded(1);
         let (reply_sender, reply_receiver) = crossbeam::channel::bounded(1);
         Self {
-            directory: BlockDirectory::box_clone(directory),
+            directory,
             relation_oid,
             receiver,
             writers: Default::default(),

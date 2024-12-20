@@ -17,10 +17,12 @@
 
 use super::utils::{list_managed_files, load_metas, save_new_metas, save_schema, save_settings};
 use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::index::utils::DirectoryLookup;
-use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::block::{
+    FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
+};
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::NeedWal;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use rustc_hash::FxHashMap;
@@ -35,12 +37,19 @@ use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWrite
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MvccSatisfies {
+    Snapshot,
+    Any,
+}
+
 /// Tantivy Directory trait implementation over block storage
 /// This Directory implementation respects Postgres MVCC visibility rules
 /// and should back all Tantivy Indexes used in insert and scan operations
 #[derive(Clone, Debug)]
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
+    mvcc_style: MvccSatisfies,
     need_wal: NeedWal,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
@@ -50,22 +59,52 @@ pub struct MVCCDirectory {
 }
 
 impl MVCCDirectory {
-    pub fn new(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
+    pub fn snapshot(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
         Self {
             relation_oid,
             need_wal,
+            mvcc_style: MvccSatisfies::Snapshot,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
         }
     }
-}
 
-impl DirectoryLookup for MVCCDirectory {
-    fn relation_oid(&self) -> pg_sys::Oid {
-        self.relation_oid
+    pub fn any(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Self {
+        Self {
+            relation_oid,
+            need_wal,
+            mvcc_style: MvccSatisfies::Any,
+            readers: Arc::new(Mutex::new(FxHashMap::default())),
+        }
     }
 
-    fn need_wal(&self) -> NeedWal {
+    pub fn need_wal(&self) -> NeedWal {
         self.need_wal
+    }
+
+    pub unsafe fn directory_lookup(&self, path: &Path) -> Result<FileEntry> {
+        let directory = LinkedItemList::<SegmentMetaEntry>::open(
+            self.relation_oid,
+            SEGMENT_METAS_START,
+            self.need_wal,
+        );
+
+        let segment_id = path.segment_id().expect("path should have a segment_id");
+
+        let entry = directory
+            .lookup(|entry| entry.segment_id == segment_id)
+            .map_err(|e| anyhow!(format!("problem looking for `{}`: {e}", path.display())))?;
+
+        let component_type = path
+            .component_type()
+            .expect("path should have a component_type");
+        let file_entry = entry.get_file_entry(component_type).ok_or_else(|| {
+            anyhow!(format!(
+                "directory lookup failed for path=`{}`.  entry={entry:?}",
+                path.display()
+            ))
+        })?;
+
+        Ok(file_entry)
     }
 }
 
@@ -202,7 +241,7 @@ impl Directory for MVCCDirectory {
                 self.relation_oid,
                 inventory,
                 pg_sys::GetActiveSnapshot(),
-                self.need_wal,
+                self.mvcc_style,
             )
         }
     }
@@ -224,7 +263,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let directory = MVCCDirectory::new(relation_oid, true);
+        let directory = MVCCDirectory::snapshot(relation_oid, true);
         let listed_files = directory.list_managed_files().unwrap();
         assert_eq!(listed_files.len(), 6);
     }

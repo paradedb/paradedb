@@ -87,6 +87,17 @@ jobs:
         working-directory: docker/
         run: docker build --file Dockerfile --tag paradedb/paradedb:latest ..
 
+      - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
+        uses: docker/scout-action@v1
+        with:
+          command: compare
+          image: paradedb/paradedb:latest # Local ParadeDB Docker Image
+          to-env: production # Docker Hub ParadeDB Docker Image
+          organization: paradedb
+          ignore-unchanged: true
+          only-severities: critical,high
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       # Sleep 10 seconds to give time for Postgres to start inside the container. The docker-compose.yml file
       # will use the local ParadeDB image that we just built.
       - name: Start the ParadeDB Docker Image
@@ -117,16 +128,6 @@ jobs:
             echo "Error: ParadeDB Docker container logs contain an error"
             exit 1
           fi
-
-      - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
-        uses: docker/scout-action@v1
-        with:
-          command: compare
-          image: paradedb/paradedb:latest # Local ParadeDB Docker Image
-          to-env: production # Docker Hub ParadeDB Docker Image
-          ignore-unchanged: true
-          only-severities: critical,high
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   # Only run this job on the `main` branch since it requires access to GitHub Secrets, which
   # community contributors don't have access to.

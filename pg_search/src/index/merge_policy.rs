@@ -74,13 +74,18 @@ impl MergeLock {
     // Merges should only happen if there is no other merge in progress
     // AND the effects of the previous merge are visible
     pub unsafe fn acquire_for_merge(relation_oid: pg_sys::Oid, need_wal: NeedWal) -> Option<Self> {
+        if !pg_sys::IsTransactionState() {
+            return None;
+        }
+
         let mut bman = BufferManager::new(relation_oid, need_wal);
 
         if let Some(mut merge_lock) = bman.get_buffer_conditional(MERGE_LOCK) {
             let mut page = merge_lock.page_mut();
             let metadata = page.contents_mut::<MergeLockData>();
             let last_merge = metadata.last_merge;
-            let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+
+            let snapshot = pg_sys::GetActiveSnapshot();
 
             if pg_sys::XidInMVCCSnapshot(last_merge, snapshot) {
                 None

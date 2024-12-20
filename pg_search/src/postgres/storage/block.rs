@@ -163,15 +163,6 @@ pub struct SegmentMetaEntry {
     pub delete: Option<DeleteEntry>,
 }
 
-/// Metadata for tracking segment deletes
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeleteMetaEntry {
-    pub segment_id: SegmentId,
-    pub num_deleted_docs: u32,
-    pub opstamp: tantivy::Opstamp,
-    pub xmax: pg_sys::TransactionId,
-}
-
 // ---------------------------------------------------------
 // Linked list entry <-> PgItem
 // ---------------------------------------------------------
@@ -191,35 +182,12 @@ impl From<SegmentMetaEntry> for PgItem {
     }
 }
 
-impl From<DeleteMetaEntry> for PgItem {
-    fn from(val: DeleteMetaEntry) -> Self {
-        let bytes: Vec<u8> =
-            bincode::serialize(&val).expect("expected to serialize valid DeleteMetaEntry");
-        let pg_bytes = unsafe { pg_sys::palloc(bytes.len()) as *mut u8 };
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pg_bytes, bytes.len());
-        }
-        PgItem(pg_bytes as pg_sys::Item, bytes.len() as pg_sys::Size)
-    }
-}
-
 impl From<PgItem> for SegmentMetaEntry {
     fn from(pg_item: PgItem) -> Self {
         let PgItem(item, size) = pg_item;
         let decoded: SegmentMetaEntry = unsafe {
             bincode::deserialize(from_raw_parts(item as *const u8, size))
                 .expect("expected to deserialize valid SegmentMetaEntry")
-        };
-        decoded
-    }
-}
-
-impl From<PgItem> for DeleteMetaEntry {
-    fn from(pg_item: PgItem) -> Self {
-        let PgItem(item, size) = pg_item;
-        let decoded: DeleteMetaEntry = unsafe {
-            bincode::deserialize(from_raw_parts(item as *const u8, size))
-                .expect("expected to deserialize valid DeleteMetaEntry")
         };
         decoded
     }
@@ -395,20 +363,6 @@ impl MVCCEntry for SegmentMetaEntry {
     }
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
-    }
-}
-
-impl MVCCEntry for DeleteMetaEntry {
-    fn get_xmax(&self) -> pg_sys::TransactionId {
-        self.xmax
-    }
-    // We want DeleteMetaEntry to be visible to all transactions immediately
-    // when it's written because ambulkdelete is atomic
-    fn get_xmin(&self) -> pg_sys::TransactionId {
-        pg_sys::FrozenTransactionId
-    }
-    unsafe fn visible(&self, _snapshot: pg_sys::Snapshot) -> bool {
-        true
     }
 }
 

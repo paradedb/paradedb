@@ -240,14 +240,21 @@ mod tests {
     use super::*;
 
     #[pg_test]
-    unsafe fn test_freeze_limit() {
+    unsafe fn test_freeze_limit_relaxed() {
+        let vacuum_freeze_min_age = 50_000_000;
+
+        Spi::run(&format!(
+            "SET vacuum_freeze_min_age = {};",
+            vacuum_freeze_min_age
+        ))
+        .unwrap();
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+
         let heap_oid: pg_sys::Oid =
             Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't' AND relnamespace = current_schema()::regnamespace;")
                 .expect("spi should succeed")
                 .unwrap();
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
-        let vacuum_freeze_min_age = 50_000_000;
 
         if pg_sys::ReadNextFullTransactionId().value <= vacuum_freeze_min_age as u64 {
             assert_eq!(
@@ -256,6 +263,45 @@ mod tests {
             );
         } else {
             assert!(vacuum_get_freeze_limit(heap_relation) > pg_sys::FirstNormalTransactionId);
+        }
+
+        pg_sys::RelationClose(heap_relation);
+    }
+
+    #[pg_test]
+    unsafe fn test_freeze_limit_aggressive() {
+        let vacuum_freeze_min_age = 0;
+
+        Spi::run(&format!(
+            "SET vacuum_freeze_min_age = {};",
+            vacuum_freeze_min_age
+        ))
+        .unwrap();
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('test')").unwrap();
+
+        let heap_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't' AND relnamespace = current_schema()::regnamespace;")
+                .expect("spi should succeed")
+                .unwrap();
+        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
+
+        #[cfg(feature = "pg13")]
+        {
+            assert_eq!(
+                vacuum_get_freeze_limit(heap_relation),
+                pg_sys::TransactionIdLimitedForOldSnapshots(
+                    pg_sys::GetOldestXmin(heap_relation, pg_sys::PROCARRAY_FLAGS_VACUUM as i32),
+                    heap_relation,
+                )
+            );
+        }
+        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            assert_eq!(
+                vacuum_get_freeze_limit(heap_relation),
+                pg_sys::GetOldestNonRemovableTransactionId(heap_relation),
+            );
         }
 
         pg_sys::RelationClose(heap_relation);

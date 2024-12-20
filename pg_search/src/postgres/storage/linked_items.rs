@@ -386,7 +386,7 @@ mod tests {
         {
             let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, true);
             let entries_1 = (1..500)
-                .map(|i| SegmentMetaEntry {
+                .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
                     xmin,
                     xmax: not_deleted_xid,
@@ -410,7 +410,7 @@ mod tests {
             list.add_items(entries_2.clone(), None).unwrap();
 
             let entries_3 = (1..500)
-                .map(|i| SegmentMetaEntry {
+                .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
                     xmin,
                     xmax: not_deleted_xid,

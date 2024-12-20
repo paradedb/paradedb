@@ -183,16 +183,14 @@ pub unsafe extern "C" fn aminsertcleanup(
     _index_relation: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) {
-    let state = if (*index_info).ii_AmCache.cast::<InsertState>().is_null() {
-        panic!("SearchIndexWriter must not be null in aminsertcleanup InsertState");
-    } else {
-        Box::from_raw((*index_info).ii_AmCache.cast::<InsertState>())
-    };
-    let writer = state
-        .writer
-        .expect("SearchIndexWriter must not be null in aminsertcleanup InsertState");
+    let state = (*index_info).ii_AmCache.cast::<InsertState>();
+    if state.is_null() {
+        return;
+    }
 
-    writer
-        .commit_inserts()
-        .expect("tantivy index commit should succeed");
+    if let Some(writer) = (*state).writer.take() {
+        writer
+            .commit_inserts()
+            .expect("must be able to commit inserts in aminsertcleanup");
+    };
 }

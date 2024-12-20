@@ -172,8 +172,7 @@ impl EphemeralPostgres {
 }
 
 // Test function to test the ephemeral PostgreSQL setup
-#[rstest] // Segfaults on PG13.
-#[ignore = "failing on block storage"]
+#[rstest]
 async fn test_ephemeral_postgres() -> Result<()> {
     let config = "
         wal_level = logical
@@ -424,7 +423,6 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
 }
 
 #[rstest] // Segfaults on PG13.
-#[ignore = "failing on block storage"]
 async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
     let config = "
         wal_level = logical

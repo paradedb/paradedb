@@ -956,21 +956,21 @@ fn json_term(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // let rows: Vec<(i32,)> = "
-    // SELECT id FROM paradedb.bm25_search
-    // WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.score', 4)
-    // ORDER BY id
-    // "
-    // .fetch(&mut conn);
-    // assert_eq!(rows, vec![(1,)]);
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search
+    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.score', 4)
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
 
-    // let rows: Vec<(i32,)> = "
-    // SELECT id FROM paradedb.bm25_search
-    // WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.keywords', 'electronics')
-    // ORDER BY id
-    // "
-    // .fetch(&mut conn);
-    // assert_eq!(rows, vec![(1,)]);
+    let rows: Vec<(i32,)> = "
+    SELECT id FROM paradedb.bm25_search
+    WHERE paradedb.bm25_search.id @@@ paradedb.term('metadata.attributes.keywords', 'electronics')
+    ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
 }
 
 #[rstest]

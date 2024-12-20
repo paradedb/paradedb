@@ -260,14 +260,6 @@ impl ChannelRequestHandler {
                     return Ok(false);
                 }
 
-                // TODO:  Don't think we need this check
-                for (writer_path, writer) in &self.writers {
-                    if writer_path == &path {
-                        sender.send(writer.file_entry())?;
-                        return Ok(false);
-                    }
-                }
-
                 let file_entry = unsafe { self.directory.directory_lookup(&path)? };
                 sender.send(file_entry)?;
             }

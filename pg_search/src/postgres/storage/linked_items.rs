@@ -17,8 +17,8 @@
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
 use super::buffer::{BufferManager, BufferMut};
-use super::NeedWal;
 use super::utils::vacuum_get_freeze_limit;
+use super::NeedWal;
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::fmt::Debug;
@@ -145,9 +145,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     } else {
                         let xmin_needs_freeze = entry.xmin_needs_freeze(freeze_limit);
                         let xmax_needs_freeze = entry.xmax_needs_freeze(freeze_limit);
-    
+
                         if xmin_needs_freeze || xmax_needs_freeze {
-                            let frozen_entry = entry.into_frozen(xmin_needs_freeze, xmax_needs_freeze);
+                            let frozen_entry =
+                                entry.into_frozen(xmin_needs_freeze, xmax_needs_freeze);
                             let PgItem(item, size) = frozen_entry.clone().into();
                             let did_replace = page.replace_item(offsetno, item, size);
                             assert!(did_replace);

@@ -145,7 +145,7 @@ pub struct DeleteEntry {
 }
 
 /// Metadata for tracking alive segments
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct SegmentMetaEntry {
     pub segment_id: SegmentId,
     pub max_doc: u32,
@@ -410,14 +410,27 @@ mod tests {
     unsafe fn test_needs_freeze() {
         let freeze_limit = 100;
         let segment = SegmentMetaEntry {
-            segment_id: SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap(),
-            max_doc: 100,
-            opstamp: 0,
             xmin: 50,
             xmax: 150,
+            ..Default::default()
         };
 
-        assert!(segment.xmin_needs_freeze(freeze_limit));
-        assert!(!segment.xmax_needs_freeze(freeze_limit));
+        let xmin_needs_freeze = segment.xmin_needs_freeze(freeze_limit);
+        let xmax_needs_freeze = segment.xmax_needs_freeze(freeze_limit);
+
+        assert!(xmin_needs_freeze);
+        assert!(!xmax_needs_freeze);
+
+        let frozen_segment = segment
+            .clone()
+            .into_frozen(xmin_needs_freeze, xmax_needs_freeze);
+
+        assert_eq!(
+            frozen_segment,
+            SegmentMetaEntry {
+                xmin: pg_sys::FrozenTransactionId,
+                ..segment.clone()
+            }
+        );
     }
 }

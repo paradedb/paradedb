@@ -148,7 +148,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             if !delete_offsets.is_empty() {
                 page.delete_items(&mut delete_offsets);
             }
-
             blockno = buffer.next_blockno();
         }
 
@@ -244,5 +243,199 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             "transaction {} failed to find the desired entry",
             pg_sys::GetCurrentTransactionId()
         )))
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+    use std::path::PathBuf;
+    use tantivy::index::SegmentId;
+    use uuid::Uuid;
+
+    use crate::postgres::storage::block::SegmentMetaEntry;
+
+    fn random_segment_id() -> SegmentId {
+        SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
+    }
+
+    impl Default for SegmentMetaEntry {
+        fn default() -> Self {
+            Self {
+                segment_id: random_segment_id(),
+                xmin: 0,
+                xmax: 0,
+                opstamp: 0,
+                max_doc: 0,
+                postings: None,
+                positions: None,
+                fast_fields: None,
+                field_norms: None,
+                terms: None,
+                store: None,
+                temp_store: None,
+                delete: None,
+            }
+        }
+    }
+
+    #[pg_test]
+    unsafe fn test_linked_items_garbage_collect_single_page() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
+        let snapshot = pg_sys::GetActiveSnapshot();
+        let delete_xid = {
+            #[cfg(feature = "pg13")]
+            {
+                pg_sys::RecentGlobalXmin - 1
+            }
+            #[cfg(not(feature = "pg13"))]
+            {
+                (*snapshot).xmin - 1
+            }
+        };
+
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, true);
+        let entries_to_delete = vec![SegmentMetaEntry {
+            segment_id: random_segment_id(),
+            xmin: delete_xid,
+            xmax: delete_xid,
+            ..Default::default()
+        }];
+        let entries_to_keep = vec![SegmentMetaEntry {
+            segment_id: random_segment_id(),
+            xmin: (*snapshot).xmin - 1,
+            xmax: pg_sys::InvalidTransactionId,
+            ..Default::default()
+        }];
+
+        list.add_items(entries_to_delete.clone(), None).unwrap();
+        list.add_items(entries_to_keep.clone(), None).unwrap();
+        list.garbage_collect(strategy).unwrap();
+
+        assert!(list
+            .lookup(|entry| entry.segment_id == entries_to_delete[0].clone().segment_id)
+            .is_err());
+        assert!(list
+            .lookup(|entry| entry.segment_id == entries_to_keep[0].clone().segment_id)
+            .is_ok());
+    }
+
+    #[pg_test]
+    unsafe fn test_linked_items_garbage_collect_multiple_pages() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+
+        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM);
+        let snapshot = pg_sys::GetActiveSnapshot();
+        let deleted_xid = {
+            #[cfg(feature = "pg13")]
+            {
+                pg_sys::RecentGlobalXmin - 1
+            }
+            #[cfg(not(feature = "pg13"))]
+            {
+                (*snapshot).xmin - 1
+            }
+        };
+        let not_deleted_xid = pg_sys::InvalidTransactionId;
+        let xmin = (*snapshot).xmin - 1;
+
+        // Add 2000 entries, delete every 10th entry
+        {
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, true);
+            let entries = (1..2000)
+                .map(|i| SegmentMetaEntry {
+                    segment_id: random_segment_id(),
+                    xmin,
+                    xmax: if i % 10 == 0 {
+                        deleted_xid
+                    } else {
+                        not_deleted_xid
+                    },
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+
+            list.add_items(entries.clone(), None).unwrap();
+            list.garbage_collect(strategy).unwrap();
+
+            for entry in entries {
+                if entry.xmax == not_deleted_xid {
+                    assert!(list
+                        .lookup(|el| el.segment_id == entry.clone().segment_id)
+                        .is_ok());
+                } else {
+                    assert!(list
+                        .lookup(|el| el.segment_id == entry.clone().segment_id)
+                        .is_err());
+                }
+            }
+        }
+        // First n pages are full, next m pages need to be compacted, next n are full
+        {
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create(relation_oid, true);
+            let entries_1 = (1..500)
+                .map(|i| SegmentMetaEntry {
+                    segment_id: random_segment_id(),
+                    xmin,
+                    xmax: not_deleted_xid,
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+            list.add_items(entries_1.clone(), None).unwrap();
+
+            let entries_2 = (1..1000)
+                .map(|i| SegmentMetaEntry {
+                    segment_id: random_segment_id(),
+                    xmin,
+                    xmax: if i % 10 == 0 {
+                        not_deleted_xid
+                    } else {
+                        deleted_xid
+                    },
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+            list.add_items(entries_2.clone(), None).unwrap();
+
+            let entries_3 = (1..500)
+                .map(|i| SegmentMetaEntry {
+                    segment_id: random_segment_id(),
+                    xmin,
+                    xmax: not_deleted_xid,
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>();
+            list.add_items(entries_3.clone(), None).unwrap();
+
+            list.garbage_collect(strategy).unwrap();
+
+            for entries in [entries_1, entries_2, entries_3] {
+                for entry in entries {
+                    if entry.xmax == not_deleted_xid {
+                        assert!(list
+                            .lookup(|el| el.segment_id == entry.clone().segment_id)
+                            .is_ok());
+                    } else {
+                        assert!(list
+                            .lookup(|el| el.segment_id == entry.clone().segment_id)
+                            .is_err());
+                    }
+                }
+            }
+        }
     }
 }

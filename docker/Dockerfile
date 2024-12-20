@@ -39,8 +39,7 @@ ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
 # Copy project because we need to extract the pgrx version
-WORKDIR /tmp
-COPY . ./
+COPY . /tmp/
 
 # Install the pgrx version of pg_search and pg_analytics
 RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') && \

@@ -42,6 +42,7 @@ ENV PATH="/root/.cargo/bin:$PATH" \
 COPY . /tmp/
 
 # Install the pgrx version of pg_search and pg_analytics
+WORKDIR tmp/
 RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \

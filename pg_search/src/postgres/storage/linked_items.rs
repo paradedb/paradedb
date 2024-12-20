@@ -127,7 +127,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let snapshot = pg_sys::GetActiveSnapshot();
         let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
-        let freeze_limit = vacuum_get_freeze_limit();
+        let freeze_limit = vacuum_get_freeze_limit(heap_relation);
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
 

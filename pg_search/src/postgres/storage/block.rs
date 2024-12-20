@@ -417,7 +417,7 @@ mod tests {
             xmax: 150,
         };
 
-        assert_eq!(segment.xmin_needs_freeze(freeze_limit), true);
-        assert_eq!(segment.xmax_needs_freeze(freeze_limit), false);
+        assert!(segment.xmin_needs_freeze(freeze_limit));
+        assert!(!segment.xmax_needs_freeze(freeze_limit));
     }
 }

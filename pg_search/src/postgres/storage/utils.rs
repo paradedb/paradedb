@@ -191,11 +191,16 @@ impl Drop for BM25BufferCache {
     }
 }
 
-pub unsafe fn vacuum_get_freeze_limit() -> pg_sys::TransactionId {
+/// Get the freeze limit for marking XIDs as frozen
+/// Inspired by vacuum_get_cutoffs in backend/commands/vacuum.c
+pub unsafe fn vacuum_get_freeze_limit(heap_relation: pg_sys::Relation) -> pg_sys::TransactionId {
     extern "C" {
         pub static mut autovacuum_freeze_max_age: ::std::os::raw::c_int;
     }
 
+    let oldest_xmin = pg_sys::GetOldestNonRemovableTransactionId(heap_relation);
+
+    assert!(pg_sys::TransactionIdIsNormal(oldest_xmin));
     assert!(pg_sys::vacuum_freeze_min_age >= 0);
 
     let next_xid = pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
@@ -206,8 +211,13 @@ pub unsafe fn vacuum_get_freeze_limit() -> pg_sys::TransactionId {
     }
 
     let mut freeze_limit = next_xid - (freeze_min_age as u32);
+    // ensure that freeze_limit is a normal transaction ID
     if !pg_sys::TransactionIdIsNormal(freeze_limit) {
         freeze_limit = pg_sys::FirstNormalTransactionId;
+    }
+    // freeze_limit must always be <= oldest_xmin
+    if pg_sys::TransactionIdPrecedes(oldest_xmin, freeze_limit) {
+        freeze_limit = oldest_xmin;
     }
     freeze_limit
 }

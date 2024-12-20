@@ -75,7 +75,6 @@ pub struct LinkedListData {
 pub struct Inner {
     /// Indicates the last BlockNumber of the linked list.
     pub last_blockno: pg_sys::BlockNumber,
-    pub modification_count: u64,
 
     /// Counts the total number of data pages in the linked list (excludes the header page)
     pub npages: u32,
@@ -110,11 +109,6 @@ pub trait LinkedList {
         assert!(last_blockno != 0);
         assert!(last_blockno != pg_sys::InvalidBlockNumber);
         last_blockno
-    }
-
-    fn get_modification_count(&self) -> u64 {
-        let metadata = unsafe { self.get_linked_list_data() };
-        metadata.inner.modification_count
     }
 
     fn npages(&self) -> u32 {

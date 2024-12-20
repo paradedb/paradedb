@@ -266,7 +266,6 @@ pub unsafe fn save_new_metas(
 
         let did_replace = page.replace_item(offno, pg_item, size);
         assert!(did_replace);
-        linked_list.inc_modification_count();
         drop(buffer);
 
         for file_entry in [
@@ -308,8 +307,6 @@ pub unsafe fn save_new_metas(
 
             // ... and add it to somewhere in the list, starting on this page
             linked_list.add_items(vec![entry.clone()], Some(buffer))?;
-        } else {
-            linked_list.inc_modification_count();
         }
     }
     // chase down the linked lists for any existing deleted entries and mark them as deleted

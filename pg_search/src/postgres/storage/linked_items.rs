@@ -111,7 +111,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.skip_list[0] = start_blockno;
         metadata.inner.last_blockno = start_blockno;
-        metadata.inner.modification_count = 0;
         metadata.inner.npages = 0;
 
         Self {
@@ -148,8 +147,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
             if !delete_offsets.is_empty() {
                 page.delete_items(&mut delete_offsets);
-                // increment the list's modification count
-                self.inc_modification_count();
             }
 
             blockno = buffer.next_blockno();
@@ -159,20 +156,14 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         Ok(())
     }
 
-    pub unsafe fn inc_modification_count(&mut self) {
-        // increment the list's modification count
-        let mut header_buffer = self.bman.get_buffer_mut(self.header_blockno);
-        let mut page = header_buffer.page_mut();
-        let metadata = page.contents_mut::<LinkedListData>();
-        metadata.inner.modification_count += 1;
-    }
-
     pub unsafe fn add_items(&mut self, items: Vec<T>, buffer: Option<BufferMut>) -> Result<()> {
+        let need_hold = buffer.is_some();
         let mut buffer =
             buffer.unwrap_or_else(|| self.bman.get_buffer_mut(self.get_start_blockno()));
 
         // this will get set to the `buffer` argument above and remain open (ie, exclusive locked)
-        // until we're done adding all the items
+        // until we're done adding all the items, so long as the original `buffer` argument was
+        // Some(BufferMut)
         let mut hold_open = None;
 
         for item in items {
@@ -187,7 +178,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 } else if buffer.next_blockno() != pg_sys::InvalidBlockNumber {
                     // go to the next block
                     let next_blockno = buffer.next_blockno();
-                    if hold_open.is_none() {
+                    if need_hold && hold_open.is_none() {
                         hold_open = Some(buffer);
                     }
                     buffer = self.bman.get_buffer_mut(next_blockno);
@@ -208,7 +199,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     metadata.inner.last_blockno = new_blockno;
                     metadata.inner.npages += 1;
 
-                    if hold_open.is_none() {
+                    if need_hold && hold_open.is_none() {
                         hold_open = Some(buffer);
                     }
                     buffer = new_page;
@@ -216,7 +207,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             }
         }
 
-        self.inc_modification_count();
         Ok(())
     }
 
@@ -228,43 +218,31 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         &self,
         cmp: Cmp,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        loop {
-            let modification_count = self.get_modification_count();
-            let mut blockno = self.get_start_blockno();
+        let mut blockno = self.get_start_blockno();
 
-            while blockno != pg_sys::InvalidBlockNumber {
-                let buffer = self.bman.get_buffer(blockno);
-                let page = buffer.page();
-                let mut offsetno = pg_sys::FirstOffsetNumber;
-                let max_offset = page.max_offset_number();
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
 
-                while offsetno <= max_offset {
-                    if let Some(deserialized) = page.read_item::<T>(offsetno) {
-                        if cmp(&deserialized) {
-                            return Ok((deserialized, blockno, offsetno));
-                        }
+            while offsetno <= max_offset {
+                if let Some(deserialized) = page.read_item::<T>(offsetno) {
+                    if cmp(&deserialized) {
+                        return Ok((deserialized, blockno, offsetno));
                     }
-                    offsetno += 1;
                 }
-
-                blockno = buffer.next_blockno();
+                offsetno += 1;
             }
 
-            // if we get here, we didn't find what we were looking for
-            // but we should, because someone asked for it, so if the last block number
-            // changed, that means the list changed and we need to scan again
-
-            if modification_count != self.get_modification_count() {
-                // the list changed while we were scanning it
-                continue;
-            }
-
-            // the list didn't change while we scanned it and that means it really doesn't
-            // contain what we're looking for
-            return Err(anyhow::anyhow!(format!(
-                "transaction {} failed to find the desired entry",
-                pg_sys::GetCurrentTransactionId()
-            )));
+            blockno = buffer.next_blockno();
         }
+
+        // if we get here, we didn't find what we were looking for
+        // but we should have -- how else could we have asked for something from the list?
+        Err(anyhow::anyhow!(format!(
+            "transaction {} failed to find the desired entry",
+            pg_sys::GetCurrentTransactionId()
+        )))
     }
 }

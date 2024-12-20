@@ -40,10 +40,10 @@ ENV PATH="/root/.cargo/bin:$PATH" \
 
 # Copy Cargo.toml because we need to extract the pgrx version
 WORKDIR /tmp
-COPY pg_search/Cargo.toml ./
+COPY pg_search/Cargo.toml pg_search/Cargo.lock ./
 
 # Install the pgrx version of pg_search and pg_analytics
-RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *{[^}]*rev *= *"\([^"]*\)".*}/\1/p' Cargo.toml) && \
+RUN PGRX_VERSION=$(cargo tree -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \

@@ -76,9 +76,9 @@ pub unsafe fn init_insert_state(
     index_info: *mut pg_sys::IndexInfo,
     writer_resources: WriterResources,
 ) -> *mut InsertState {
-    if IsLogicalWorker() {
-        panic!("pg_search logical replication is an enterprise feature");
-    }
+    // if IsLogicalWorker() {
+    //     panic!("pg_search logical replication is an enterprise feature");
+    // }
     assert!(!index_info.is_null());
     let state = (*index_info).ii_AmCache;
     let index_relation = PgRelation::from_pg(index_relation);

@@ -18,8 +18,7 @@
 use super::utils::{list_managed_files, load_metas};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::utils::{save_new_metas, save_schema, save_settings, DirectoryLookup};
-use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::storage::block::{bm25_max_free_space, FileEntry};
+use crate::postgres::storage::block::FileEntry;
 use crate::postgres::NeedWal;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -95,11 +94,7 @@ impl Directory for BulkDeleteDirectory {
     }
 
     fn open_write(&self, path: &Path) -> result::Result<WritePtr, OpenWriteError> {
-        let result = unsafe { SegmentComponentWriter::new(self.relation_oid, path, true) };
-        Ok(io::BufWriter::with_capacity(
-            bm25_max_free_space(),
-            Box::new(result),
-        ))
+        unimplemented!("open_write should not be called for {:?}", path);
     }
 
     fn atomic_read(&self, path: &Path) -> result::Result<Vec<u8>, OpenReadError> {

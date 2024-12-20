@@ -123,8 +123,8 @@ jobs:
         uses: docker/scout-action@v1
         with:
           command: compare
-          image: paradedb/paradedb:latest
-          to-env: production
+          image: paradedb/paradedb:latest # Local ParadeDB Docker Image
+          to-env: production # Docker Hub ParadeDB Docker Image
           ignore-unchanged: true
           only-severities: critical,high
           github-token: ${{ secrets.GITHUB_TOKEN }}

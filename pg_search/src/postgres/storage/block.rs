@@ -145,7 +145,7 @@ pub struct DeleteEntry {
 }
 
 /// Metadata for tracking alive segments
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SegmentMetaEntry {
     pub segment_id: SegmentId,
     pub max_doc: u32,
@@ -161,6 +161,26 @@ pub struct SegmentMetaEntry {
     pub store: Option<FileEntry>,
     pub temp_store: Option<FileEntry>,
     pub delete: Option<DeleteEntry>,
+}
+
+impl Default for SegmentMetaEntry {
+    fn default() -> Self {
+        Self {
+            segment_id: SegmentId::from_uuid_string(&uuid::Uuid::default().to_string()).unwrap(),
+            max_doc: Default::default(),
+            opstamp: Default::default(),
+            xmin: pg_sys::InvalidTransactionId,
+            xmax: pg_sys::InvalidTransactionId,
+            postings: None,
+            positions: None,
+            fast_fields: None,
+            field_norms: None,
+            terms: None,
+            store: None,
+            temp_store: None,
+            delete: None,
+        }
+    }
 }
 
 // ---------------------------------------------------------
@@ -318,6 +338,7 @@ pub trait MVCCEntry {
     // Required methods
     fn get_xmin(&self) -> pg_sys::TransactionId;
     fn get_xmax(&self) -> pg_sys::TransactionId;
+    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self;
 
     // Provided methods
     unsafe fn visible(&self, snapshot: pg_sys::Snapshot) -> bool {
@@ -355,6 +376,16 @@ pub trait MVCCEntry {
             pg_sys::GlobalVisCheckRemovableXid(heap_relation, xmax)
         }
     }
+
+    unsafe fn xmin_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {
+        let xmin = self.get_xmin();
+        pg_sys::TransactionIdIsNormal(xmin) && pg_sys::TransactionIdPrecedes(xmin, freeze_limit)
+    }
+
+    unsafe fn xmax_needs_freeze(&self, freeze_limit: pg_sys::TransactionId) -> bool {
+        let xmax = self.get_xmax();
+        pg_sys::TransactionIdIsNormal(xmax) && pg_sys::TransactionIdPrecedes(xmax, freeze_limit)
+    }
 }
 
 impl MVCCEntry for SegmentMetaEntry {
@@ -364,6 +395,21 @@ impl MVCCEntry for SegmentMetaEntry {
     fn get_xmax(&self) -> pg_sys::TransactionId {
         self.xmax
     }
+    fn into_frozen(self, should_freeze_xmin: bool, should_freeze_xmax: bool) -> Self {
+        SegmentMetaEntry {
+            xmin: if should_freeze_xmin {
+                pg_sys::FrozenTransactionId
+            } else {
+                self.xmin
+            },
+            xmax: if should_freeze_xmax {
+                pg_sys::FrozenTransactionId
+            } else {
+                self.xmax
+            },
+            ..self.clone()
+        }
+    }
 }
 
 pub const fn bm25_max_free_space() -> usize {
@@ -371,5 +417,39 @@ pub const fn bm25_max_free_space() -> usize {
         (pg_sys::BLCKSZ as usize)
             - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
             - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+
+    #[pg_test]
+    unsafe fn test_needs_freeze() {
+        let freeze_limit = 100;
+        let segment = SegmentMetaEntry {
+            xmin: 50,
+            xmax: 150,
+            ..Default::default()
+        };
+
+        let xmin_needs_freeze = segment.xmin_needs_freeze(freeze_limit);
+        let xmax_needs_freeze = segment.xmax_needs_freeze(freeze_limit);
+
+        assert!(xmin_needs_freeze);
+        assert!(!xmax_needs_freeze);
+
+        let frozen_segment = segment
+            .clone()
+            .into_frozen(xmin_needs_freeze, xmax_needs_freeze);
+
+        assert_eq!(
+            frozen_segment,
+            SegmentMetaEntry {
+                xmin: pg_sys::FrozenTransactionId,
+                ..segment.clone()
+            }
+        );
     }
 }

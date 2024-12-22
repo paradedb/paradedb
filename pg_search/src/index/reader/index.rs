@@ -35,7 +35,7 @@ use tantivy::{
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
-use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType};
+use crate::index::{setup_tokenizers, BlockDirectoryType};
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::query::SearchQueryInput;
@@ -231,8 +231,6 @@ impl SearchIndexReader {
         directory_type: BlockDirectoryType,
         needs_cleanup_lock: bool,
     ) -> Result<Self> {
-        let schema = get_index_schema(index_relation)?;
-
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -249,8 +247,9 @@ impl SearchIndexReader {
 
         let directory = directory_type.directory(index_relation, false);
         let mut index = Index::open(directory)?;
+        let schema = SearchIndexSchema::open(index.schema(), index_relation);
 
-        setup_tokenizers(&mut index, &schema);
+        setup_tokenizers(&mut index, index_relation);
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)

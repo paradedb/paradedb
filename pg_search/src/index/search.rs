@@ -130,14 +130,12 @@ pub fn get_index_schema(index_relation: &PgRelation) -> Result<SearchIndexSchema
     Ok(schema)
 }
 
-pub fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
-    let tokenizers = schema
-        .fields
+pub fn setup_tokenizers(underlying_index: &mut Index, index_relation: &PgRelation) {
+    let (fields, _) = unsafe { get_fields(index_relation) };
+    let tokenizers = fields
         .iter()
-        .filter_map(|field| {
-            let field_config = &field.config;
-            let field_name: &str = field.name.as_ref();
-            trace!(field_name, "attempting to create tokenizer");
+        .filter_map(|(field_name, field_config, _)| {
+            trace!("{} {}", field_name.0, "attempting to create tokenizer");
             match field_config {
                 SearchFieldConfig::Text { tokenizer, .. }
                 | SearchFieldConfig::Json { tokenizer, .. } => Some(tokenizer),

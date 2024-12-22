@@ -33,6 +33,7 @@ use tantivy::schema::{
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
+use crate::postgres::index::get_fields;
 use crate::query::AsFieldType;
 pub use anyenum::AnyEnum;
 
@@ -656,6 +657,29 @@ impl SearchIndexSchema {
             lookup: Self::build_lookup(&search_fields).into(),
             fields: search_fields,
         })
+    }
+
+    pub fn open(schema: Schema, index_relation: &PgRelation) -> Self {
+        let (fields, key_index) = unsafe { get_fields(index_relation) };
+        let search_fields = fields
+            .iter()
+            .map(|(field_name, field_config, field_type)| {
+                let field = schema.get_field(field_name.0.as_str()).unwrap();
+                SearchField {
+                    id: SearchFieldId(field),
+                    name: field_name.clone(),
+                    config: field_config.clone(),
+                    type_: *field_type,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            key: key_index,
+            schema,
+            lookup: Self::build_lookup(&search_fields).into(),
+            fields: search_fields,
+        }
     }
 
     fn build_lookup(search_fields: &[SearchField]) -> HashMap<SearchFieldName, usize> {

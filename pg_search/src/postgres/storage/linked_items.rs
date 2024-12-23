@@ -171,6 +171,15 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             // Adjust the pointer from the last known non-empty node to point to the next non-empty node
             if new_max_offset == pg_sys::InvalidOffsetNumber && current_blockno != start_blockno {
                 page.mark_deleted();
+
+                // We've reached the end of the list, which means the last filled block is now the
+                // last entry in the list
+                if blockno == pg_sys::InvalidBlockNumber {
+                    let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
+                    let mut page = last_filled_buffer.page_mut();
+                    let special = page.special_mut::<BM25PageSpecialData>();
+                    special.next_blockno = pg_sys::InvalidBlockNumber;
+                }
             } else if new_max_offset != pg_sys::InvalidOffsetNumber
                 && current_blockno != start_blockno
             {

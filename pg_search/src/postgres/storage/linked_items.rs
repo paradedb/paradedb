@@ -292,6 +292,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 mod tests {
     use super::*;
     use pgrx::prelude::*;
+    use std::collections::HashSet;
     use tantivy::index::SegmentId;
     use uuid::Uuid;
 
@@ -299,6 +300,22 @@ mod tests {
 
     fn random_segment_id() -> SegmentId {
         SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
+    }
+
+    fn linked_list_block_numbers(
+        list: &LinkedItemList<SegmentMetaEntry>,
+    ) -> HashSet<pg_sys::BlockNumber> {
+        let mut blockno = list.get_start_blockno();
+        let mut block_numbers = HashSet::new();
+
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = list.bman().get_buffer(blockno);
+            let page = buffer.page();
+            blockno = page.next_blockno();
+            block_numbers.insert(blockno);
+        }
+
+        block_numbers
     }
 
     #[pg_test]
@@ -418,14 +435,10 @@ mod tests {
             list.add_items(entries_1.clone(), None).unwrap();
 
             let entries_2 = (1..1000)
-                .map(|i| SegmentMetaEntry {
+                .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
                     xmin,
-                    xmax: if i % 10 == 0 {
-                        not_deleted_xid
-                    } else {
-                        deleted_xid
-                    },
+                    xmax: deleted_xid,
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -439,8 +452,10 @@ mod tests {
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
+
             list.add_items(entries_3.clone(), None).unwrap();
 
+            let pre_gc_blocks = linked_list_block_numbers(&list);
             list.garbage_collect(strategy).unwrap();
 
             for entries in [entries_1, entries_2, entries_3] {
@@ -456,6 +471,11 @@ mod tests {
                     }
                 }
             }
+
+            // Assert that compaction produced a smaller list with no new blocks
+            let post_gc_blocks = linked_list_block_numbers(&list);
+            assert!(pre_gc_blocks.len() > post_gc_blocks.len());
+            assert!(post_gc_blocks.is_subset(&pre_gc_blocks));
         }
     }
 }

@@ -130,6 +130,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let freeze_limit = vacuum_get_freeze_limit(heap_relation);
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
+        let mut last_filled_blockno = start_blockno;
 
         while blockno != pg_sys::InvalidBlockNumber {
             let mut buffer = self.bman.get_buffer_for_cleanup(blockno, strategy);
@@ -161,7 +162,26 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             if !delete_offsets.is_empty() {
                 page.delete_items(&mut delete_offsets);
             }
+
+            let new_max_offset = page.max_offset_number();
+            let current_blockno = blockno;
             blockno = page.next_blockno();
+
+            // Compaction step: If the page is entirely empty, mark as deleted
+            // Adjust the pointer from the last known non-empty node to point to the next non-empty node
+            if new_max_offset == pg_sys::InvalidOffsetNumber && current_blockno != start_blockno {
+                page.mark_deleted();
+            } else if new_max_offset != pg_sys::InvalidOffsetNumber
+                && current_blockno != start_blockno
+            {
+                let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
+                let mut page = last_filled_buffer.page_mut();
+                if page.next_blockno() != current_blockno {
+                    let special = page.special_mut::<BM25PageSpecialData>();
+                    special.next_blockno = current_blockno;
+                }
+                last_filled_blockno = current_blockno;
+            }
         }
 
         pg_sys::RelationClose(heap_relation);

@@ -78,7 +78,7 @@ impl WriterResources {
     pub fn resources(&self, indexrel: &PgRelation) -> IndexConfig {
         let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
         if options.is_null() {
-            panic!("must specify key field")
+            panic!("must specify key_field")
         }
         let options = unsafe { &*options };
         let target_segment_count = options.target_segment_count();
@@ -123,7 +123,7 @@ impl WriterResources {
 
 pub fn get_index_schema(index_relation: &PgRelation) -> Result<SearchIndexSchema> {
     if index_relation.rd_options.is_null() {
-        panic!("must specify key field")
+        panic!("must specify key_field")
     }
     let (fields, key_field_index) = unsafe { get_fields(index_relation) };
     let schema = SearchIndexSchema::new(fields, key_field_index)?;

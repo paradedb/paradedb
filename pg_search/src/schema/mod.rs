@@ -485,7 +485,6 @@ impl SearchFieldConfig {
             | Self::Numeric { column, .. }
             | Self::Boolean { column, .. }
             | Self::Date { column, .. } => column.as_ref(),
-            _ => None,
         }
     }
 }

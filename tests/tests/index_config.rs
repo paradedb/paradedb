@@ -41,7 +41,7 @@ fn invalid_create_index(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with no key_field"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: must specify a key_field"
+            "error returned from database: must specify key_field"
         ),
     };
 

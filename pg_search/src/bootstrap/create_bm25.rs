@@ -198,7 +198,7 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             _ => panic!("'{name}' cannot be indexed as a datetime field"),
         });
 
-    let key_field = rdopts.get_key_field().expect("must specify key field");
+    let key_field = rdopts.get_key_field().expect("must specify key_field");
     let key_field_type = match name_type_map.get(&key_field) {
         Some(field_type) => field_type,
         None => panic!("key field does not exist"),
@@ -209,6 +209,7 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
                 indexed: true,
                 fast: true,
                 stored: false,
+                column: None,
             }
         }
         SearchFieldType::Text => SearchFieldConfig::Text {
@@ -219,6 +220,7 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
+            column: None,
         },
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
@@ -229,17 +231,23 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             fieldnorms: true,
+            column: None,
         },
-        SearchFieldType::Range => SearchFieldConfig::Range { stored: false },
+        SearchFieldType::Range => SearchFieldConfig::Range {
+            stored: false,
+            column: None,
+        },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
             stored: false,
+            column: None,
         },
         SearchFieldType::Date => SearchFieldConfig::Date {
             indexed: true,
             fast: true,
             stored: false,
+            column: None,
         },
     };
 

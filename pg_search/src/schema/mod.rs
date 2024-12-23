@@ -33,6 +33,7 @@ use tantivy::schema::{
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
+use crate::postgres::index::get_fields;
 use crate::query::AsFieldType;
 pub use anyenum::AnyEnum;
 
@@ -121,6 +122,8 @@ pub enum SearchFieldConfig {
         record: IndexRecordOption,
         #[serde(default)]
         normalizer: SearchNormalizer,
+        #[serde(default)]
+        column: Option<String>,
     },
     Json {
         #[serde(default = "default_as_true")]
@@ -139,10 +142,14 @@ pub enum SearchFieldConfig {
         record: IndexRecordOption,
         #[serde(default)]
         normalizer: SearchNormalizer,
+        #[serde(default)]
+        column: Option<String>,
     },
     Range {
         #[serde(default = "default_as_false")]
         stored: bool,
+        #[serde(default)]
+        column: Option<String>,
     },
     Numeric {
         #[serde(default = "default_as_true")]
@@ -151,6 +158,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_false")]
         stored: bool,
+        #[serde(default)]
+        column: Option<String>,
     },
     Boolean {
         #[serde(default = "default_as_true")]
@@ -159,6 +168,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_false")]
         stored: bool,
+        #[serde(default)]
+        column: Option<String>,
     },
     Date {
         #[serde(default = "default_as_true")]
@@ -167,6 +178,8 @@ pub enum SearchFieldConfig {
         fast: bool,
         #[serde(default = "default_as_false")]
         stored: bool,
+        #[serde(default)]
+        column: Option<String>,
     },
 }
 
@@ -219,6 +232,14 @@ impl SearchFieldConfig {
             None => Ok(SearchNormalizer::Raw),
         }?;
 
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
         Ok(SearchFieldConfig::Text {
             indexed,
             fast,
@@ -227,6 +248,7 @@ impl SearchFieldConfig {
             tokenizer,
             record,
             normalizer,
+            column,
         })
     }
 
@@ -285,6 +307,14 @@ impl SearchFieldConfig {
             None => Ok(true),
         }?;
 
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
         Ok(SearchFieldConfig::Json {
             indexed,
             fast,
@@ -294,6 +324,7 @@ impl SearchFieldConfig {
             tokenizer,
             record,
             normalizer,
+            column,
         })
     }
 
@@ -309,7 +340,15 @@ impl SearchFieldConfig {
             None => Ok(false),
         }?;
 
-        Ok(SearchFieldConfig::Range { stored })
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
+        Ok(SearchFieldConfig::Range { stored, column })
     }
 
     pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
@@ -338,10 +377,19 @@ impl SearchFieldConfig {
             None => Ok(false),
         }?;
 
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
         Ok(SearchFieldConfig::Numeric {
             indexed,
             fast,
             stored,
+            column,
         })
     }
 
@@ -371,10 +419,19 @@ impl SearchFieldConfig {
             None => Ok(false),
         }?;
 
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
         Ok(SearchFieldConfig::Boolean {
             indexed,
             fast,
             stored,
+            column,
         })
     }
 
@@ -404,11 +461,31 @@ impl SearchFieldConfig {
             None => Ok(false),
         }?;
 
+        let column = match obj.get("column") {
+            Some(v) => v
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'column' field should be a string"))
+                .map(|s| Some(s.to_string())),
+            None => Ok(None),
+        }?;
+
         Ok(SearchFieldConfig::Date {
             indexed,
             fast,
             stored,
+            column,
         })
+    }
+
+    pub fn column(&self) -> Option<&String> {
+        match self {
+            Self::Text { column, .. }
+            | Self::Json { column, .. }
+            | Self::Range { column, .. }
+            | Self::Numeric { column, .. }
+            | Self::Boolean { column, .. }
+            | Self::Date { column, .. } => column.as_ref(),
+        }
     }
 }
 
@@ -451,6 +528,7 @@ impl From<SearchFieldConfig> for TextOptions {
                 tokenizer,
                 record,
                 normalizer,
+                ..
             } => {
                 if stored {
                     text_options = text_options.set_stored();
@@ -481,9 +559,10 @@ impl From<SearchFieldConfig> for NumericOptions {
                 indexed,
                 fast,
                 stored,
+                ..
             }
             // Following the example of Quickwit, which uses NumericOptions for boolean options.
-            | SearchFieldConfig::Boolean { indexed, fast, stored } => {
+            | SearchFieldConfig::Boolean { indexed, fast, stored, .. } => {
                 if stored {
                     numeric_options = numeric_options.set_stored();
                 }
@@ -517,6 +596,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 tokenizer,
                 record,
                 normalizer,
+                ..
             } => {
                 if stored {
                     json_options = json_options.set_stored();
@@ -536,7 +616,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                     json_options = json_options.set_indexing_options(text_field_indexing);
                 }
             }
-            SearchFieldConfig::Range { stored } => {
+            SearchFieldConfig::Range { stored, .. } => {
                 if stored {
                     json_options = json_options.set_stored();
                 }
@@ -562,6 +642,7 @@ impl From<SearchFieldConfig> for DateOptions {
                 indexed,
                 fast,
                 stored,
+                ..
             } => {
                 if stored {
                     date_options = date_options.set_stored();
@@ -658,6 +739,29 @@ impl SearchIndexSchema {
         })
     }
 
+    pub fn open(schema: Schema, index_relation: &PgRelation) -> Self {
+        let (fields, key_index) = unsafe { get_fields(index_relation) };
+        let search_fields = fields
+            .iter()
+            .map(|(field_name, field_config, field_type)| {
+                let field = schema.get_field(field_name.0.as_str()).unwrap();
+                SearchField {
+                    id: SearchFieldId(field),
+                    name: field_name.clone(),
+                    config: field_config.clone(),
+                    type_: *field_type,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            key: key_index,
+            schema,
+            lookup: Self::build_lookup(&search_fields).into(),
+            fields: search_fields,
+        }
+    }
+
     fn build_lookup(search_fields: &[SearchField]) -> HashMap<SearchFieldName, usize> {
         let mut lookup = HashMap::new();
         search_fields
@@ -738,6 +842,21 @@ impl SearchIndexSchema {
             SearchFieldConfig::Date { fast: true, .. } => Some(()),
             _ => None,
         }
+    }
+
+    /// A lookup from a Postgres column name to search fields that have
+    /// marked it as their source column with the 'column' key.
+    pub fn alias_lookup(&self) -> HashMap<String, Vec<&SearchField>> {
+        let mut lookup = HashMap::new();
+        for field in &self.fields {
+            if let Some(column) = field.config.column() {
+                lookup
+                    .entry(column.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(field);
+            }
+        }
+        lookup
     }
 }
 
@@ -824,6 +943,11 @@ impl AsTypeOid for (&PgRelation, &SearchIndexSchema) {
             let attname = attribute.name().to_string();
             let typeoid = attribute.type_oid();
             if search_field.name.0 == attname {
+                return typeoid;
+            }
+            // If the field was aliased, return the column
+            // it points to.
+            if search_field.config.column() == Some(&attname) {
                 return typeoid;
             }
         }

@@ -2241,6 +2241,45 @@ fn available_tokenizers(mut conn: PgConnection) {
     );
     "#
     .execute(&mut conn);
+
+    // Test multiple tokenizers for the same field
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "description": {"tokenizer": {"type": "whitespace"}},
+            "description_ngram": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}, "column": "description"},
+            "description_stem": {"tokenizer": {"type": "default", "stemmer": "English"}, "column": "description"}
+        }'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse('description_ngram:cam AND description_stem:digitally')
+    ORDER BY rating DESC
+    LIMIT 5;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].0.contains("camera"));
+    assert!(rows[0].0.contains("digital"));
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.parse('description:"Soft cotton" OR description_stem:shirts')
+    ORDER BY rating DESC
+    LIMIT 5;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+    assert!(rows.iter().any(|r| r.0.contains("cotton")));
+    assert!(rows.iter().any(|r| r.0.contains("shirt")));
 }
 
 #[rstest]
@@ -2305,7 +2344,7 @@ fn fast_fields(mut conn: PgConnection) {
 
     r#"
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, rating)
+    USING bm25 (id, description, rating)
     WITH (
         key_field = 'id',
         text_fields ='{

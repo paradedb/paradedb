@@ -57,13 +57,15 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
         })
         .collect();
 
-    for (name, _) in rdopts.get_text_fields() {
+    for (name, config) in rdopts.get_text_fields() {
+        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Text)) {
             panic!("'{name}' cannot be indexed as a text field");
         }
     }
 
-    for (name, _) in rdopts.get_numeric_fields() {
+    for (name, config) in rdopts.get_numeric_fields() {
+        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
         if !matches!(
             name_type_map.get(&name),
             Some(SearchFieldType::U64 | SearchFieldType::I64 | SearchFieldType::F64)
@@ -72,31 +74,35 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
         }
     }
 
-    for (name, _) in rdopts.get_boolean_fields() {
+    for (name, config) in rdopts.get_boolean_fields() {
+        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Bool)) {
             panic!("'{name}' cannot be indexed as a boolean field");
         }
     }
 
-    for (name, _) in rdopts.get_json_fields() {
+    for (name, config) in rdopts.get_json_fields() {
+        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Json)) {
             panic!("'{name}' cannot be indexed as a JSON field");
         }
     }
 
-    for (name, _) in rdopts.get_range_fields() {
+    for (name, config) in rdopts.get_range_fields() {
+        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Range)) {
             panic!("'{name}' cannot be indexed as a range field");
         }
     }
 
-    for (name, _) in rdopts.get_datetime_fields() {
+    for (name, config) in rdopts.get_datetime_fields() {
+        let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
         if !matches!(name_type_map.get(&name), Some(SearchFieldType::Date)) {
             panic!("'{name}' cannot be indexed as a datetime field");
         }
     }
 
-    let key_field = rdopts.get_key_field().expect("must specify key field");
+    let key_field = rdopts.get_key_field().expect("must specify key_field");
     let key_field_type = match name_type_map.get(&key_field) {
         Some(field_type) => field_type,
         None => panic!("key field does not exist"),
@@ -107,6 +113,7 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
                 indexed: true,
                 fast: true,
                 stored: false,
+                column: None,
             }
         }
         SearchFieldType::Text => SearchFieldConfig::Text {
@@ -117,6 +124,7 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
+            column: None,
         },
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
@@ -127,17 +135,23 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
+            column: None,
         },
-        SearchFieldType::Range => SearchFieldConfig::Range { stored: false },
+        SearchFieldType::Range => SearchFieldConfig::Range {
+            stored: false,
+            column: None,
+        },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
             fast: true,
             stored: false,
+            column: None,
         },
         SearchFieldType::Date => SearchFieldConfig::Date {
             indexed: true,
             fast: true,
             stored: false,
+            column: None,
         },
     };
 

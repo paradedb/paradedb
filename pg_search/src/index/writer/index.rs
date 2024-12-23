@@ -61,7 +61,6 @@ impl SearchIndexWriter {
         directory_type: BlockDirectoryType,
         resources: WriterResources,
     ) -> Result<Self> {
-        let schema = get_index_schema(index_relation)?;
         let (parallelism, memory_budget, wants_merge, merge_policy, need_wal) =
             resources.resources(index_relation);
 
@@ -70,26 +69,29 @@ impl SearchIndexWriter {
         let mut handler =
             directory_type.channel_request_handler(index_relation, req_receiver, need_wal);
 
-        let index = {
-            let schema = schema.clone();
+        let mut index = {
             handler
                 .wait_for(move || {
-                    let mut index = Index::open(channel_dir)?;
-                    setup_tokenizers(&mut index, &schema);
+                    let index = Index::open(channel_dir)?;
                     tantivy::Result::Ok(index)
                 })
                 .expect("scoped thread should not fail")?
         };
+        setup_tokenizers(&mut index, index_relation);
 
+        let index_clone = index.clone();
         let writer = handler
             .wait_for(move || {
-                let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
+                let writer =
+                    index_clone.writer_with_num_threads(parallelism.get(), memory_budget)?;
                 writer.set_merge_policy(merge_policy.into());
                 tantivy::Result::Ok(writer)
             })
             .expect("scoped thread should not fail")?;
 
+        let schema = SearchIndexSchema::open(index.schema(), index_relation);
         let ctid_field = schema.schema.get_field("ctid")?;
+
         Ok(Self {
             relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
@@ -115,7 +117,7 @@ impl SearchIndexWriter {
             req_receiver,
         );
 
-        let index = {
+        let mut index = {
             let schema = schema.clone();
             let settings = IndexSettings {
                 docstore_compress_dedicated_thread: false,
@@ -124,12 +126,12 @@ impl SearchIndexWriter {
 
             handler
                 .wait_for(move || {
-                    let mut index = Index::create(channel_dir, schema.schema.clone(), settings)?;
-                    setup_tokenizers(&mut index, &schema);
+                    let index = Index::create(channel_dir, schema.schema.clone(), settings)?;
                     tantivy::Result::Ok(index)
                 })
                 .expect("scoped thread should not fail")?
         };
+        setup_tokenizers(&mut index, index_relation);
 
         let writer = handler
             .wait_for(move || {

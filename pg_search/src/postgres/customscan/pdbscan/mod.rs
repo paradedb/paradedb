@@ -26,8 +26,9 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::{AsCStr, AsInt, Cardinality};
+use crate::index::mvcc::MVCCDirectory;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::{get_index_schema, BlockDirectoryType};
+use crate::index::BlockDirectoryType;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, OrderByStyle};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -62,6 +63,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
+use tantivy::Index;
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -107,8 +109,10 @@ impl CustomScan for PdbScan {
             };
 
             let root = builder.args().root;
-            let schema =
-                get_index_schema(&bm25_index).expect("should be able to get the index schema");
+
+            let directory = MVCCDirectory::snapshot(bm25_index.oid(), false);
+            let index = Index::open(directory).expect("custom_scan: should be able to open index");
+            let schema = SearchIndexSchema::open(index.schema(), &bm25_index);
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]

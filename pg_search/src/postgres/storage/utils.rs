@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 pub trait BM25Page {
     unsafe fn read_item<T: From<PgItem>>(&self, offsetno: pg_sys::OffsetNumber) -> Option<T>;
-
+    unsafe fn read_pg_item(&self, offsetno: pg_sys::OffsetNumber) -> Option<PgItem>;
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool;
 }
 
@@ -39,6 +39,17 @@ impl BM25Page for pg_sys::Page {
 
         let item = pg_sys::PageGetItem(*self, item_id);
         Some(T::from(PgItem(item, (*item_id).lp_len() as pg_sys::Size)))
+    }
+
+    unsafe fn read_pg_item(&self, offno: OffsetNumber) -> Option<PgItem> {
+        let item_id = pg_sys::PageGetItemId(*self, offno);
+
+        if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
+            return None;
+        }
+
+        let item = pg_sys::PageGetItem(*self, item_id);
+        Some(PgItem(item, (*item_id).lp_len() as pg_sys::Size))
     }
 
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool {

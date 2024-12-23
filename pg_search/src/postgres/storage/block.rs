@@ -188,6 +188,7 @@ impl Default for SegmentMetaEntry {
 // ---------------------------------------------------------
 
 /// Wrapper for pg_sys::Item that also stores its size
+#[derive(Clone)]
 pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 
 impl From<SegmentMetaEntry> for PgItem {

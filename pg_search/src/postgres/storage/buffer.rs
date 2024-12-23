@@ -170,6 +170,10 @@ impl Page<'_> {
         unsafe { self.pg_page.read_item(offno) }
     }
 
+    pub fn read_pg_item(&self, offno: pg_sys::OffsetNumber) -> Option<PgItem> {
+        unsafe { self.pg_page.read_pg_item(offno) }
+    }
+
     pub fn header(&self) -> &pg_sys::PageHeaderData {
         unsafe { &*(self.pg_page as *const pg_sys::PageHeaderData) }
     }

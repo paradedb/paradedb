@@ -20,6 +20,10 @@ use std::collections::HashMap;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::BlockDirectoryType;
 use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::storage::block::{
+    LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
+};
+use crate::postgres::storage::LinkedItemList;
 use crate::schema::IndexRecordOption;
 use crate::schema::SearchFieldConfig;
 use crate::schema::SearchFieldName;
@@ -358,3 +362,79 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
 
 #[pg_extern(sql = "")]
 fn create_bm25_jsonb() {}
+
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn storage_info(
+    index: PgRelation,
+) -> TableIterator<'static, (name!(block, i64), name!(max_offset, i32))> {
+    let segment_components =
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START, false);
+    let bman = segment_components.bman();
+    let mut blockno = segment_components.get_start_blockno();
+    let mut data = vec![];
+
+    while blockno != pg_sys::InvalidBlockNumber {
+        let buffer = bman.get_buffer(blockno);
+        let page = buffer.page();
+        let max_offset = page.max_offset_number();
+        data.push((blockno as i64, max_offset as i32));
+        blockno = page.next_blockno();
+    }
+
+    TableIterator::new(data)
+}
+
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn page_info(
+    index: PgRelation,
+    blockno: i64,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(offsetno, i32),
+            name!(size, i32),
+            name!(visible, bool),
+            name!(recyclable, bool),
+            name!(contents, JsonB),
+        ),
+    >,
+> {
+    let segment_components =
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START, false);
+    let bman = segment_components.bman();
+    let buffer = bman.get_buffer(blockno as pg_sys::BlockNumber);
+    let page = buffer.page();
+    let max_offset = page.max_offset_number();
+
+    if max_offset == pg_sys::InvalidOffsetNumber {
+        return Ok(TableIterator::new(vec![]));
+    }
+
+    let mut data = vec![];
+    let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+    let heap_oid = unsafe { pg_sys::IndexGetRelation(index.oid(), false) };
+    let heap_relation = unsafe { pg_sys::RelationIdGetRelation(heap_oid) };
+
+    for offsetno in pg_sys::FirstOffsetNumber..=max_offset {
+        unsafe {
+            if let Some(pg_item) = page.read_pg_item(offsetno) {
+                let entry = SegmentMetaEntry::from(pg_item.clone());
+                data.push((
+                    offsetno as i32,
+                    pg_item.1 as i32,
+                    entry.visible(snapshot),
+                    entry.recyclable(snapshot, heap_relation),
+                    JsonB(serde_json::to_value(entry)?),
+                ))
+            } else {
+                data.push((offsetno as i32, 0_i32, false, false, JsonB(Value::Null)))
+            }
+        }
+    }
+
+    unsafe { pg_sys::RelationClose(heap_relation) };
+    Ok(TableIterator::new(data))
+}

@@ -89,7 +89,7 @@ The nested configuration JSON for `text_fields` accepts the following keys.
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
   </ParamField>
   <ParamField body="fieldnorms" default={true}>
@@ -139,7 +139,7 @@ The nested configuration JSON for `json_fields` accepts the following keys.
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
   </ParamField>
   <ParamField body="fieldnorms" default={true}>
@@ -174,7 +174,7 @@ WITH (
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
   </ParamField>
   <ParamField body="fast" default={true}>
@@ -206,7 +206,7 @@ WITH (
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
   </ParamField>
   <ParamField body="fast" default={true}>
@@ -238,7 +238,7 @@ WITH (
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
   </ParamField>
   <ParamField body="fast" default={true}>
@@ -267,7 +267,7 @@ WITH (
 `CREATE INDEX` accepts several configuration options for `range_fields`:
 
 <Accordion title="Advanced Options">
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
   </ParamField>
 </Accordion>

@@ -188,9 +188,10 @@
               ]
             },
             {
-              "group": "Configuration",
+              "group": "Index Tuning",
               "pages": [
                 "documentation/configuration/index",
+                "documentation/configuration/write",
                 "documentation/configuration/parallel",
                 "documentation/configuration/scan",
                 "documentation/configuration/telemetry"
@@ -260,23 +261,25 @@
       "pages": [
         "deploy/overview",
         {
-          "group": "Self-Hosted ParadeDB",
+          "group": "Logical Replication",
           "pages": [
-            "deploy/self-hosted/k8s",
-            "deploy/self-hosted/docker",
-            "deploy/self-hosted/extensions"
+            "deploy/logical-replication/overview",
+            "deploy/logical-replication/getting-started",
+            "deploy/logical-replication/configure"
           ]
         },
         {
-          "group": "Logical Replication",
+          "group": "High Availability",
           "pages": [
-            "deploy/replication/managed",
-            "deploy/replication/self-hosted"
+            "deploy/high-availability/overview",
+            "deploy/high-availability/getting-started",
+            "deploy/high-availability/configure"
           ]
         },
-        "deploy/high-availability",
+        "deploy/enterprise",
+        "deploy/docker",
         "deploy/upgrading",
-        "deploy/extensions"
+        "deploy/third-party-extensions"
       ]
     },
     {

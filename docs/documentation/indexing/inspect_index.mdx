@@ -18,18 +18,12 @@ SELECT name, field_type FROM paradedb.schema('search_idx');
 
 ## Index Size
 
-Because BM25 indexes rely on a custom storage implementation, the built-in Postgres `pg_relation_size` function does not work. Instead, the custom
-`paradedb.index_size` function returns the size of a BM25 index in bytes.
-
-The following code block returns the size of an index called `search_idx`. The argument should be the index name quoted in a string.
+`pg_relation_size` can be used to inspect the index size. `pg_size_pretty` turns the size from bytes
+into a human-readable format.
 
 ```sql
-SELECT index_size FROM paradedb.index_size('search_idx');
+SELECT pg_size_pretty(pg_relation_size('search_idx'));
 ```
-
-<ParamField body="index" required>
-  The index to inspect.
-</ParamField>
 
 ## Index Segments
 

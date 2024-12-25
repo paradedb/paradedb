@@ -1,11 +1,14 @@
 ---
-title: Docker
+title: Docker Image
 ---
+
+<Note>
+  We do not recommend running the ParadeDB Docker image in production, as it
+  does not provide [high availability](/deploy/high-availability).
+</Note>
 
 To deploy ParadeDB via Docker, pull and run the `paradedb/paradedb` image locally. This is the recommended deployment method for
 testing and development.
-
-**Note**: ParadeDB supports Postgres 13+, and the `latest` tag ships with Postgres 17. To specify a different Postgres version, please refer to the available tags on [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags).
 
 ```bash
 docker run \
@@ -22,10 +25,10 @@ docker run \
 You may replace `myuser`, `mypassword`, and `mydatabase` with whatever values you want. These will be your database
 connection credentials.
 
+The `paradedb:latest` tag uses Postgres 17. Docker images are available for Postgres 13+. To specify a different Postgres version, please refer to the available tags on [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags).
+
 To connect to ParadeDB, install the `psql` client and run
 
 ```bash
 docker exec -it paradedb psql -U myuser -d mydatabase -W
 ```
-
-That's it! To get started, we suggest you follow the [quickstart guide](/documentation/getting-started/quickstart).

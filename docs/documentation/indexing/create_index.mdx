@@ -38,24 +38,27 @@ WITH (key_field='<key_field>');
   record. Usually, this is the same column that is the primary key of the table.
 </ParamField>
 
-## Indexing Settings
+## Optimizing Index Build Times
 
-Several [settings](/documentation/configuration/index) exist to control the amount of resources to allocate during index creation.  While they have sensible
-defaults, overall indexing performance can be drastically improved if configured for the host system.
+Indexes build significantly faster when ParadeDB is configured to take advantage of the underlying hardware.
+These [settings](/documentation/configuration/index) are `maintenance_work_mem`, `paradedb.create_index_parallelism`, and `paradedb.create_index_memory_budget`.
+
+```sql
+-- Should not exceed the server's RAM
+SET maintenance_work_mem = '16GB';
+-- Should not exceed the server's CPU count
+SET paradedb.create_index_parallelism = 8;
+-- Should not exceed the server's RAM / paradedb.create_index_parallelism
+SET paradedb.create_index_memory_budget = 4096;
+```
 
 ## Choosing a Key Field
 
+The `key_field` must be a **unique** column in the table. A non-unique key field is likely to lead to undefined behavior
+or incorrect search results.
+
 While the key field can be any unique text, numeric, or datetime value, an integer key field will be the most
 performant. The Postgres `SERIAL` type is an easy way to create a unique integer column.
-
-The key field is not intended to be tokenized. For instance, the following configuration is not allowed:
-
-```sql
--- This will throw an error
-CREATE INDEX search_idx ON mock_items
-USING bm25 (description)
-WITH (key_field = 'description');
-```
 
 Finally, the key field must be the first column in the target list.
 

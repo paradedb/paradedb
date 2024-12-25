@@ -1,13 +1,14 @@
 ---
-title: Postgres Extensions
+title: Self-Hosted Postgres
 ---
 
-ParadeDB is built from two Postgres extensions
+Enterprises that already self-manage Postgres may prefer to install ParadeDB directly within their self-managed
+Postgres instead of deploying the ParadeDB Kubernetes cluster.
+
+This can be done by installing the two extensions that ParadeDB uses:
 
 - The `pg_search` extension powers all of ParadeDB's [full text search API](/documentation).
 - The `pg_analytics` extension powers ParadeDB's [integrations](/integrations).
-
-This guide explains how to install these extensions inside an existing, self-hosted Postgres database.
 
 # Prerequisites
 
@@ -154,8 +155,6 @@ Finally, connect to your Postgres database via your client of choice (e.g. `psql
 CREATE EXTENSION pg_search;
 CREATE EXTENSION pg_analytics;
 ```
-
-That's it! To get started, follow the [quickstart guide](/documentation/getting-started/quickstart).
 
 <Note>
   `pg_search` can be combined with `pgvector` for hybrid search. You can find

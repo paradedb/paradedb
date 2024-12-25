@@ -8,26 +8,26 @@ title: Overview
   sales](mailto:sales@paradedb.com) for access.
 </Note>
 
-In production settings, we recommend deploying ParadeDB as a replica of your primary Postgres, connected via logical replication. This
-allows ParadeDB to integrate with managed Postgres providers like AWS RDS, Google CloudSQL, and Azure Postgres. It also isolates search
-and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.
+Deploying ParadeDB into production consists of two steps:
 
-## Logical Replication
+1. Configure [logical replication](#logical-replication) between your primary Postgres and ParadeDB. This requires a [ParadeDB Enterprise](/deploy/enterprise) license.
+2. Configure [high availability](#high-availability) for ParadeDB.
 
-Logical replication is a tool, native to Postgres, which enables keeping two or more Postgres databases synchronized in near real-time
-in a fully transaction-safe way, without needing an ETL or CDC pipeline (e.g. Debezium). It is possible to ingest a subset of tables or rows/columns
-via logical replication, and it is possible to ingest from many primary Postgres databases.
+### Logical Replication
 
-More information on how Postgres logical replication works can be found in the [Postgres documentation](https://www.postgresql.org/docs/current/logical-replication.html).
+If your primary Postgres is a managed service like AWS RDS, Google CloudSQL, or Azure Postgres, follow [these instructions](/deploy/logical-replication).
+If your primary Postgres is self-hosted, follow [these instructions](/deploy/logical-replication#self-hosted). If you do not use Postgres as your primary,
+you may skip this step.
 
-## Architecture
+### High Availability
 
-If your primary Postgres is hosted by a managed Postgres service, we recommend [deploying ParadeDB on Kubernetes](/deploy/self-hosted/k8s). To configure replication, please refer to [documentation for your managed Postgres service](/deploy/replication/managed).
+ParadeDB uses a Kubernetes operator called CloudNativePG to implement high availability. Follow [these instructions](/deploy/high-availability) to set up
+CloudNativePG.
+
+### That's It!
+
+You've successfully deployed a production-ready, highly available ParadeDB cluster with the following architecture:
 
 ![ParadeDB High Availability Architecture](/images/high-availability.png)
 
-If your primary Postgres is self-hosted, we recommend [installing the ParadeDB extension(s)](/deploy/self-hosted/extensions) directly in a replica within your cluster.
-
-## Development
-
-In development, we recommend [deploying ParadeDB with Docker](/deploy/self-hosted/docker).
+If you are interested in having ParadeDB configure and manage this deployment on your behalf, please [contact sales](mailto:sales@paradedb.com).

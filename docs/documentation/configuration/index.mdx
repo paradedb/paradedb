@@ -1,11 +1,17 @@
 ---
-title: Indexing
+title: Create Index
 ---
 
-## Index Settings
+### Maintenance Memory
 
-These settings can be set in `postgresql.conf` and affect system resources used during `CREATE INDEX`
-and normal `INSERT/UPDATE/COPY` statements.
+The default Postgres `maintenance_work_mem` value of `64MB` is quite conservative and can significantly slow down index builds. For large indexes,
+we recommend increasing `maintenance_work_mem`.
+
+```sql
+SET maintenance_work_mem = '16GB';
+```
+
+`maintenance_work_mem` should not exceed the server's available memory.
 
 ### Indexing Threads
 
@@ -39,77 +45,22 @@ SET paradedb.create_index_memory_budget = 1024;
 
 ### Indexing Progress
 
-When set to `true`, `paradedb.log_create_index_progress` creates Postgres `LOG:` entries every `100,000` rows with information on the indexing rate (in rows per second).
-Defaults to `false`.
+ParadeDB can write indexing progress to the Postgres logs, which helps monitor the progress of a long-running `CREATE INDEX` statement.
 
-This can be useful to monitor the progress of a long-running `CREATE INDEX` statement. This setting can be changed by any user.
+First, Postgres logs must be enabled in `postgresql.conf` and Postgres must be restarted afterward.
+
+```ini postgresql.conf
+logging_collector = on
+```
+
+Next, set `paradedb.log_create_index_progress` to `true`. This creates Postgres `LOG:` entries every `100,000` rows with information on the indexing rate (in rows per second).
 
 ```sql
 SET paradedb.log_create_index_progress = true;
 ```
 
-### Statement Parallelism
-
-<Note>This setting requires superuser privileges.</Note>
-
-`paradedb.statement_parallelism` controls the number of indexing threads used during `INSERT/UPDATE/COPY` statements. The default is `8`. A value of
-zero will automatically detect "available parallelism" of the host computer.
-
-If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `1` is ideal. If
-your update patterns typically update many thousands of rows at once, a larger value might be preferred for greater indexing
-concurrency.
+The logs will appear in the directory specified in `log_directory`.
 
 ```sql
-SET paradedb.statement_parallelism = 1;
-```
-
-### Statement Memory Budget
-
-<Note>This setting requires superuser privileges.</Note>
-
-`paradedb.statement_memory_budget` sets the amount of memory to dedicate **per indexing thread** before the index segment needs to be
-written to disk.
-
-Like [indexing memory](#indexing-memory), it defaults to `maintenance_work_mem` divided by the total parallelism, and is measured in megabytes.
-
-If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `15MB` is ideal. If
-your update patterns typically update many thousands of rows, a larger value might be preferred for greater indexing
-concurrency.
-
-Generally speaking, for statement level indexing, the parallelism value dictates the number of new index
-[segments](#segment-settings) that will be created, so there's a trade-off between finishing the `INSERT/UPDATE` statement quickly and the
-longer-term search overhead of having many additional index segments until `VACUUM` runs.
-
-```sql
-SET paradedb.statement_memory_budget = 15;
-```
-
-## Segment Settings
-
-### Target Segment Count
-
-Having too many [segments](/documentation/concepts/index#segment) can negatively impact search performance. During a `VACUUM`, smaller segments can be merged into larger segments.
-
-`target_segment_count` controls the number of segments that should exist and defaults to the number of available CPUs
-on the host machine. This allows multiple threads to read from segments in parallel during a search.
-
-<Note>
-  While ParadeDB attempts to create `target_segment_count` segments, the actual
-  number of segments may not always equal `target_segment_count`. For instance,
-  it could exceed this number of `VACUUM` is not run, or fall below this number
-  if the table contains a small number of rows.
-</Note>
-
-```sql
-ALTER INDEX search_idx SET (target_segment_count = 8);
-```
-
-### Merge on Insert
-
-`merge_on_insert` indicates if ParadeDB should look for merge opportunities during `INSERT`, `UPDATE`, or `DELETE`
-operations in addition to `VACUUM`s. The default is `true`. Setting this to `false` can improve `INSERT/UPDATE/COPY`
-throughput at the expense of creating more segments that will later be merged by `VACUUM`.
-
-```sql
-ALTER INDEX search_idx SET (merge_on_insert = true);
+SHOW log_directory;
 ```

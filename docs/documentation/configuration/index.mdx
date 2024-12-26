@@ -2,31 +2,19 @@
 title: Create Index
 ---
 
-### Maintenance Memory
+### Indexing Memory
 
 The default Postgres `maintenance_work_mem` value of `64MB` is quite conservative and can significantly slow down index builds. For large indexes,
 we recommend increasing `maintenance_work_mem`.
 
 ```sql
+-- Should not exceed the server's available memory.
 SET maintenance_work_mem = '16GB';
 ```
 
-`maintenance_work_mem` should not exceed the server's available memory.
+Generally speaking, this is the only setting that must be tuned to optimize index build times. The rest have sensible defaults.
 
-### Indexing Threads
-
-<Note>This setting requires superuser privileges.</Note>
-
-`paradedb.create_index_parallelism` sets the number of threads used during `CREATE INDEX`. The default is `8`. A value of zero will
-automatically detect "available parallelism" of the host computer.
-
-For best performance it is recommended to use one less than the total number of host computer cores.
-
-```sql
-SET paradedb.create_index_parallelism = 8;
-```
-
-### Indexing Memory
+### Indexing Memory per Thread
 
 <Note>This setting requires superuser privileges.</Note>
 
@@ -34,13 +22,25 @@ SET paradedb.create_index_parallelism = 8;
 written to disk.
 
 If unset, Postgres' `maintenance_work_mem` value is used, but is first divided by the total parallelism (`paradedb.create_index_parallelism`).
+The value is measured in megabytes. A value of `1024` is the same as `1GB`.
 
 In terms of raw indexing performance, larger is generally better.
 
-The value is measured in megabytes. A value of `1024` is the same as `1GB`.
-
 ```sql
 SET paradedb.create_index_memory_budget = 1024;
+```
+
+### Indexing Threads
+
+<Note>This setting requires superuser privileges.</Note>
+
+`paradedb.create_index_parallelism` sets the number of threads used during `CREATE INDEX`. The default is `0`, which
+automatically detects the "available parallelism" of the host computer.
+
+For best performance it is recommended to use one less than the total number of host computer cores.
+
+```sql
+SET paradedb.create_index_parallelism = 8;
 ```
 
 ### Indexing Progress

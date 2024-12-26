@@ -40,17 +40,15 @@ WITH (key_field='<key_field>');
 
 ## Optimizing Index Build Times
 
-Indexes build significantly faster when ParadeDB is configured to take advantage of the underlying hardware.
-These [settings](/documentation/configuration/index) are `maintenance_work_mem`, `paradedb.create_index_parallelism`, and `paradedb.create_index_memory_budget`.
+By default, Postgres' `maintenance_work_mem` allows `64MB` of indexing memory. For large indexes, a higher `maintenance_work_mem`
+can speed up index build times significantly.
 
 ```sql
 -- Should not exceed the server's RAM
 SET maintenance_work_mem = '16GB';
--- Should not exceed the server's CPU count
-SET paradedb.create_index_parallelism = 8;
--- Should not exceed the server's RAM / paradedb.create_index_parallelism
-SET paradedb.create_index_memory_budget = 4096;
 ```
+
+You can read more about indexing settings [here](/documentation/configuration/index).
 
 ## Choosing a Key Field
 

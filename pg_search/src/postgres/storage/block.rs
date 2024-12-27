@@ -441,15 +441,13 @@ mod tests {
         assert!(xmin_needs_freeze);
         assert!(!xmax_needs_freeze);
 
-        let frozen_segment = segment
-            .clone()
-            .into_frozen(xmin_needs_freeze, xmax_needs_freeze);
+        let frozen_segment = segment.into_frozen(xmin_needs_freeze, xmax_needs_freeze);
 
         assert_eq!(
             frozen_segment,
             SegmentMetaEntry {
                 xmin: pg_sys::FrozenTransactionId,
-                ..segment.clone()
+                ..segment
             }
         );
     }

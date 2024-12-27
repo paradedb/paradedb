@@ -105,12 +105,8 @@ pub unsafe fn save_new_metas(
     for (path, file_entry) in directory_entries.drain() {
         let segment_id = path.segment_id();
         let component_type = path.component_type();
-        let opstamp = path.opstamp();
 
-        if let (Some(segment_id), Some(component_type), _opstamp) =
-            (segment_id, component_type, opstamp)
-        {
-            // TODO: need to use this opstamp?  I don't think so
+        if let (Some(segment_id), Some(component_type)) = (segment_id, component_type) {
             new_files
                 .entry(segment_id)
                 .or_default()
@@ -142,7 +138,6 @@ pub unsafe fn save_new_metas(
             let meta_entry = SegmentMetaEntry {
                 segment_id: *id,
                 max_doc: created_segment.max_doc(),
-                opstamp: new_meta.opstamp,
                 xmin: current_xid,
                 xmax: pg_sys::InvalidTransactionId,
                 postings: files.remove(&SegmentComponent::Postings).map(|e| e.0),
@@ -157,7 +152,6 @@ pub unsafe fn save_new_metas(
                     .map(|(file_entry, _)| DeleteEntry {
                         file_entry,
                         num_deleted_docs: created_segment.num_deleted_docs(),
-                        opstamp: created_segment.delete_opstamp().unwrap(),
                     }),
             };
 
@@ -201,7 +195,6 @@ pub unsafe fn save_new_metas(
             meta_entry.delete = Some(DeleteEntry {
                 file_entry: new_delete_entry,
                 num_deleted_docs: existing_segment.num_deleted_docs(),
-                opstamp: existing_segment.delete_opstamp().unwrap(),
             });
 
             Some((meta_entry, blockno))
@@ -357,14 +350,13 @@ pub unsafe fn load_metas(
                         segment_id: entry.segment_id,
                         deletes: entry.delete.map(|delete_entry| DeleteMeta {
                             num_deleted_docs: delete_entry.num_deleted_docs,
-                            opstamp: delete_entry.opstamp,
+                            opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
                         }),
                         include_temp_doc_store: Arc::new(AtomicBool::new(false)),
                     };
                     alive_segments.push(inner_segment_meta.track(inventory));
 
-                    // TODO:  it seems we actually don't care about the opstamp
-                    opstamp = opstamp.max(Some(entry.opstamp));
+                    opstamp = opstamp.max(Some(entry.opstamp()));
                 }
             }
 

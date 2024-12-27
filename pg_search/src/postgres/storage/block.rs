@@ -130,14 +130,14 @@ pub trait LinkedList {
 // ---------------------------------------------------------
 
 /// Metadata for tracking where to find a file
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct FileEntry {
     pub staring_block: pg_sys::BlockNumber,
     pub total_bytes: usize,
 }
 
 /// Metadata for tracking where to find a ".del" file
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DeleteEntry {
     pub file_entry: FileEntry,
     pub num_deleted_docs: u32,
@@ -145,7 +145,7 @@ pub struct DeleteEntry {
 }
 
 /// Metadata for tracking alive segments
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SegmentMetaEntry {
     pub segment_id: SegmentId,
     pub max_doc: u32,
@@ -163,6 +163,7 @@ pub struct SegmentMetaEntry {
     pub delete: Option<DeleteEntry>,
 }
 
+#[cfg(any(test, feature = "pg_test"))]
 impl Default for SegmentMetaEntry {
     fn default() -> Self {
         Self {
@@ -407,7 +408,7 @@ impl MVCCEntry for SegmentMetaEntry {
             } else {
                 self.xmax
             },
-            ..self.clone()
+            ..self
         }
     }
 }

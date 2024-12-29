@@ -140,7 +140,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let mut delete_offsets = vec![];
 
             while offsetno <= max_offset {
-                if let Some(entry) = page.read_item::<T>(offsetno) {
+                if let Some((entry, _)) = page.read_item::<T>(offsetno) {
                     if entry.recyclable(snapshot, heap_relation) {
                         delete_offsets.push(offsetno);
                     } else {
@@ -267,7 +267,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
-                if let Some(deserialized) = page.read_item::<T>(offsetno) {
+                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
                     if cmp(&deserialized) {
                         return Ok((deserialized, blockno, offsetno));
                     }

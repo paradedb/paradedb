@@ -420,11 +420,10 @@ fn page_info(
 
     for offsetno in pg_sys::FirstOffsetNumber..=max_offset {
         unsafe {
-            if let Some(pg_item) = page.read_pg_item(offsetno) {
-                let entry = SegmentMetaEntry::from(pg_item.clone());
+            if let Some((entry, size)) = page.read_item::<SegmentMetaEntry>(offsetno) {
                 data.push((
                     offsetno as i32,
-                    pg_item.1 as i32,
+                    size as i32,
                     entry.visible(snapshot),
                     entry.recyclable(snapshot, heap_relation),
                     JsonB(serde_json::to_value(entry)?),

@@ -166,12 +166,11 @@ impl Page<'_> {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
 
-    pub fn read_item<T: From<PgItem>>(&self, offno: pg_sys::OffsetNumber) -> Option<T> {
+    pub fn read_item<T: From<PgItem>>(
+        &self,
+        offno: pg_sys::OffsetNumber,
+    ) -> Option<(T, pg_sys::Size)> {
         unsafe { self.pg_page.read_item(offno) }
-    }
-
-    pub fn read_pg_item(&self, offno: pg_sys::OffsetNumber) -> Option<PgItem> {
-        unsafe { self.pg_page.read_pg_item(offno) }
     }
 
     pub fn header(&self) -> &pg_sys::PageHeaderData {
@@ -231,7 +230,10 @@ impl PageMut<'_> {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
 
-    pub fn read_item<T: From<PgItem>>(&self, offno: pg_sys::OffsetNumber) -> Option<T> {
+    pub fn read_item<T: From<PgItem>>(
+        &self,
+        offno: pg_sys::OffsetNumber,
+    ) -> Option<(T, pg_sys::Size)> {
         unsafe { self.pg_page.read_item(offno) }
     }
 
@@ -241,7 +243,7 @@ impl PageMut<'_> {
     ) -> Option<pg_sys::OffsetNumber> {
         let max = self.max_offset_number();
         for offno in pg_sys::FirstOffsetNumber as pg_sys::OffsetNumber..=max {
-            let item = self.read_item::<T>(offno)?;
+            let (item, _) = self.read_item::<T>(offno)?;
             if cmp(item) {
                 return Some(offno);
             }

@@ -129,6 +129,12 @@ jobs:
             exit 1
           fi
 
+      # If we modified the Docker image as part of this PR, we push a test image, 17-0.0.0, to
+      # Docker Hub to enable convenient testing with the ParadeDB Helm Chart.
+      - name: Push `dev` Docker Image to Docker Hub (dev only)
+        if: steps.env.outputs.environment == 'dev'
+        run: docker push paradedb/paradedb:17-0.0.0
+
   # Only run this job on the `main` branch since it requires access to GitHub Secrets, which
   # community contributors don't have access to.
   test-paradedb-helm-chart:

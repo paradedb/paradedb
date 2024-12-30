@@ -178,16 +178,17 @@ pub async fn bench_eslogs_build_search_index(
     index: String,
     url: String,
 ) -> Result<()> {
-    let drop_query =
-        format!("CREATE EXTENSION IF NOT EXISTS pg_search; CALL paradedb.drop_bm25('{index}');");
+    let drop_query = format!(
+        "
+            CREATE EXTENSION IF NOT EXISTS pg_search;
+            DROP INDEX IF EXISTS {index};
+        "
+    );
 
     let create_query = format!(
-        "CALL paradedb.create_bm25(
-            table_name => '{table}',
-            index_name => '{index}',
-            key_field => 'id',
-            text_fields => paradedb.field('message')
-        );"
+        r#"
+        CREATE INDEX {index} on {table} USING bm25 (id, message) WITH (key_field='id')
+        "#
     );
 
     Benchmark {

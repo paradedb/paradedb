@@ -41,7 +41,7 @@ impl Default for Box<dyn ExecMethod> {
 }
 
 pub trait ExecMethod {
-    fn init(&mut self, state: &PdbScanState, cstate: *mut pg_sys::CustomScanState);
+    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState);
 
     fn query(&mut self, state: &PdbScanState) -> bool {
         false
@@ -66,7 +66,7 @@ pub trait ExecMethod {
 struct UnknownScanStyle;
 
 impl ExecMethod for UnknownScanStyle {
-    fn init(&mut self, _state: &PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, _state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::init()` should never be called"
         )

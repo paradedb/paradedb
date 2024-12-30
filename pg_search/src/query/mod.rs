@@ -60,7 +60,7 @@ pub enum SearchQueryInput {
     },
     Boost {
         query: Box<SearchQueryInput>,
-        boost: f32,
+        factor: f32,
     },
     ConstScore {
         query: Box<SearchQueryInput>,
@@ -520,9 +520,9 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
-            Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
+            Self::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
                 query.into_tantivy_query(field_lookup, parser, searcher)?,
-                boost,
+                factor,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
                 query.into_tantivy_query(field_lookup, parser, searcher)?,
@@ -584,7 +584,7 @@ impl SearchQueryInput {
                 let (field, path) = split_field_and_path(&field);
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
                 let term = value_to_term(
                     field,
                     &OwnedValue::Str(value),
@@ -624,7 +624,7 @@ impl SearchQueryInput {
 
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
 
                 let mut analyzer = searcher.index().tokenizer_for_field(field)?;
                 let mut stream = analyzer.token_stream(&value);
@@ -749,7 +749,7 @@ impl SearchQueryInput {
                 let (field, path) = split_field_and_path(&field);
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
                     value_to_term(
                         field,
@@ -809,7 +809,7 @@ impl SearchQueryInput {
                 let (field, path) = split_field_and_path(&field);
                 let (field_type, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
                 let terms = phrases.clone().into_iter().map(|phrase| {
                     value_to_term(
                         field,
@@ -878,7 +878,15 @@ impl SearchQueryInput {
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
-                Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+                if let Some(path) = path {
+                    Ok(Box::new(RangeQuery::with_path(
+                        lower_bound,
+                        upper_bound,
+                        Some(path),
+                    )))
+                } else {
+                    Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+                }
             }
             Self::RangeContains {
                 field,
@@ -1507,7 +1515,7 @@ impl SearchQueryInput {
                     let (field, path) = split_field_and_path(&field);
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
-                        .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                        .ok_or(QueryError::NonIndexedField(field))?;
 
                     let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     let term =
@@ -1540,7 +1548,7 @@ impl SearchQueryInput {
                     let (_, path) = split_field_and_path(&field);
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
-                        .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                        .ok_or(QueryError::NonIndexedField(field))?;
 
                     let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
                     terms.push(value_to_term(

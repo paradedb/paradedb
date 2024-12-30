@@ -15,164 +15,65 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Result};
+use std::collections::HashMap;
+
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::BlockDirectoryType;
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::schema::IndexRecordOption;
+use crate::schema::SearchFieldConfig;
+use crate::schema::SearchFieldName;
+use crate::schema::SearchFieldType;
+use anyhow::bail;
+use anyhow::Result;
 use pgrx::prelude::*;
-use pgrx::{JsonB, PgRelation, Spi};
+use pgrx::JsonB;
+use pgrx::PgRelation;
+use serde_json::Map;
 use serde_json::Value;
-use std::collections::HashSet;
+use tokenizers::manager::SearchTokenizerFilters;
+use tokenizers::SearchNormalizer;
+use tokenizers::SearchTokenizer;
 
-use crate::index::{SearchFs, SearchIndex, WriterDirectory};
-use crate::postgres::index::{open_search_index, relfilenode_from_pg_relation};
-
-#[pg_extern(
-    sql = "
-CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
-    index_name text DEFAULT '',
-    table_name text DEFAULT '',
-    key_field text DEFAULT '',
-    schema_name text DEFAULT CURRENT_SCHEMA,
-    text_fields jsonb DEFAULT '{}',
-    numeric_fields jsonb DEFAULT '{}',
-    boolean_fields jsonb DEFAULT '{}',
-    json_fields jsonb DEFAULT '{}',
-    range_fields jsonb DEFAULT '{}',
-    datetime_fields jsonb DEFAULT '{}',
-    predicates text DEFAULT ''
-)
-LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-",
-    name = "create_bm25"
-)]
 #[allow(clippy::too_many_arguments)]
-fn create_bm25_jsonb(
+#[pg_extern]
+fn format_create_bm25(
     index_name: &str,
     table_name: &str,
     key_field: &str,
-    schema_name: &str,
-    text_fields: JsonB,
-    numeric_fields: JsonB,
-    boolean_fields: JsonB,
-    json_fields: JsonB,
-    range_fields: JsonB,
-    datetime_fields: JsonB,
-    predicates: &str,
-) -> Result<()> {
-    create_bm25_impl(
-        index_name,
-        table_name,
-        key_field,
-        schema_name,
-        &serde_json::to_string(&text_fields)?,
-        &serde_json::to_string(&numeric_fields)?,
-        &serde_json::to_string(&boolean_fields)?,
-        &serde_json::to_string(&json_fields)?,
-        &serde_json::to_string(&range_fields)?,
-        &serde_json::to_string(&datetime_fields)?,
-        predicates,
-    )
-}
-
-#[inline]
-#[allow(clippy::too_many_arguments)]
-fn create_bm25_impl(
-    index_name: &str,
-    table_name: &str,
-    key_field: &str,
-    schema_name: &str,
-    text_fields: &str,
-    numeric_fields: &str,
-    boolean_fields: &str,
-    json_fields: &str,
-    range_fields: &str,
-    datetime_fields: &str,
-    predicates: &str,
-) -> Result<()> {
-    let original_client_min_messages =
-        Spi::get_one::<String>("SHOW client_min_messages")?.unwrap_or_default();
-    Spi::run("SET client_min_messages TO WARNING")?;
-
-    if index_name.is_empty() {
-        bail!("no index_name parameter given for bm25 index");
-    }
-
-    if table_name.is_empty() {
-        bail!(
-            "no table_name parameter given for bm25 index '{}'",
-            spi::quote_literal(index_name)
-        );
-    }
-
-    if key_field.is_empty() {
-        bail!(
-            "no key_field parameter given for bm25 index '{}'",
-            spi::quote_literal(index_name)
-        );
-    }
-
-    let is_partitioned_query = format!(
-        "SELECT EXISTS (SELECT 1 FROM pg_inherits WHERE inhparent = '{}.{}'::regclass)",
-        spi::quote_identifier(schema_name),
-        spi::quote_identifier(table_name),
-    );
-    let partitioned = Spi::get_one::<bool>(&is_partitioned_query)?.ok_or_else(|| {
-        anyhow::anyhow!(
-            "Could not check if {}.{} is partitioned",
-            schema_name,
-            table_name
-        )
-    })?;
-
-    if partitioned {
-        bail!(
-            "Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature. Contact support@paradedb.com for access."
-        );
-    }
-
-    if text_fields == "{}"
-        && numeric_fields == "{}"
-        && boolean_fields == "{}"
-        && json_fields == "{}"
-        && range_fields == "{}"
-        && datetime_fields == "{}"
-    {
-        bail!(
-            "no text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields were specified for index {}",
-            spi::quote_literal(index_name)
-        );
-    }
-
-    let mut column_names = HashSet::new();
+    schema_name: default!(&str, "''"),
+    text_fields: default!(JsonB, "'{}'::jsonb"),
+    numeric_fields: default!(JsonB, "'{}'::jsonb"),
+    boolean_fields: default!(JsonB, "'{}'::jsonb"),
+    json_fields: default!(JsonB, "'{}'::jsonb"),
+    range_fields: default!(JsonB, "'{}'::jsonb"),
+    datetime_fields: default!(JsonB, "'{}'::jsonb"),
+    predicates: default!(&str, "''"),
+) -> Result<String> {
+    let mut column_names = vec![key_field.to_string()];
     for fields in [
-        text_fields,
-        numeric_fields,
-        boolean_fields,
-        json_fields,
-        range_fields,
-        datetime_fields,
+        &text_fields,
+        &numeric_fields,
+        &boolean_fields,
+        &json_fields,
+        &range_fields,
+        &datetime_fields,
     ] {
-        match json5::from_str::<Value>(fields) {
-            Ok(obj) => {
-                if let Value::Object(map) = obj {
-                    for key in map.keys() {
-                        if key == key_field {
-                            bail!(
-                                "key_field {} cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields",
-                                spi::quote_identifier(key.clone())
-                            );
-                        }
-
-                        column_names.insert(spi::quote_identifier(key.clone()));
-                    }
+        if let Value::Object(ref map) = fields.0 {
+            for key in map.keys() {
+                if key != key_field {
+                    column_names.push(spi::quote_identifier(key.clone()));
                 }
             }
-            Err(err) => {
-                bail!("Error parsing {}: {}", fields, err);
-            }
+        } else {
+            bail!("Expected a JSON object, received: {}", fields.0);
         }
     }
+
     let column_names_csv = column_names
         .clone()
         .into_iter()
+        .filter(|name| name != key_field)
         .collect::<Vec<String>>()
         .join(", ");
 
@@ -182,95 +83,31 @@ fn create_bm25_impl(
         "".to_string()
     };
 
-    Spi::run(&format!(
-        "CREATE INDEX {} ON {}.{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
+    let schema_prefix = if schema_name.is_empty() {
+        "".to_string()
+    } else {
+        format!("{}.", spi::quote_identifier(schema_name))
+    };
+
+    Ok(format!(
+        "CREATE INDEX {} ON {}{} USING bm25 ({}, {}) WITH (key_field={}, text_fields={}, numeric_fields={}, boolean_fields={}, json_fields={}, range_fields={}, datetime_fields={}) {};",
         spi::quote_identifier(index_name),
-        spi::quote_identifier(schema_name),
+        schema_prefix,
         spi::quote_identifier(table_name),
         spi::quote_identifier(key_field),
         column_names_csv,
         spi::quote_literal(key_field),
-        spi::quote_literal(text_fields),
-        spi::quote_literal(numeric_fields),
-        spi::quote_literal(boolean_fields),
-        spi::quote_literal(json_fields),
-        spi::quote_literal(range_fields),
-        spi::quote_literal(datetime_fields),
-        predicate_where))?;
-
-    Spi::run(&format!(
-        "SET client_min_messages TO {}",
-        spi::quote_literal(original_client_min_messages)
-    ))?;
-
-    Ok(())
-}
-
-#[pg_extern(sql = "
-CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
-    index_name text,
-    schema_name text DEFAULT CURRENT_SCHEMA
-)
-LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-")]
-fn drop_bm25(index_name: &str, schema_name: Option<&str>) -> Result<()> {
-    let schema_name = schema_name.unwrap_or("current_schema()");
-
-    Spi::run(&format!(
-        r#"
-        DO $$
-        DECLARE 
-            original_client_min_messages TEXT;
-        BEGIN
-            SELECT INTO original_client_min_messages current_setting('client_min_messages');
-            SET client_min_messages TO WARNING;
-
-            EXECUTE 'DROP INDEX IF EXISTS {}.{} CASCADE'; 
-            EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
-        END;
-        $$;
-        "#,
-        spi::quote_identifier(schema_name),
-        spi::quote_identifier(index_name),
-    ))?;
-
-    Ok(())
-}
-
-#[pg_extern(sql = "
-CREATE OR REPLACE PROCEDURE paradedb.delete_bm25_index_by_oid(
-    index_oid oid
-)
-LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-")]
-unsafe fn delete_bm25_index_by_oid(index_oid: pg_sys::Oid) -> Result<()> {
-    let database_oid = crate::MyDatabaseId();
-    let relfile_paths = WriterDirectory::relfile_paths(database_oid, index_oid.as_u32())
-        .expect("could not look up pg_search relfilenode directory");
-
-    for directory in relfile_paths {
-        // Drop the Tantivy data directory.
-        // It's expected that this will be queued to actually perform the delete upon
-        // transaction commit.
-        match SearchIndex::from_disk(&directory) {
-            Ok(mut search_index) => {
-                search_index.drop_index().unwrap_or_else(|err| {
-                    panic!("error dropping index with OID {index_oid:?}: {err:?}")
-                });
-            }
-            Err(e) => {
-                pgrx::warning!(
-                    "error dropping index with OID {index_oid:?} at path {}: {e:?}",
-                    directory.search_index_dir_path(false).unwrap().0.display()
-                );
-            }
-        }
-    }
-    Ok(())
+        spi::quote_literal(&serde_json::to_string(&text_fields)?),
+        spi::quote_literal(&serde_json::to_string(&numeric_fields)?),
+        spi::quote_literal(&serde_json::to_string(&boolean_fields)?),
+        spi::quote_literal(&serde_json::to_string(&json_fields)?),
+        spi::quote_literal(&serde_json::to_string(&range_fields)?),
+        spi::quote_literal(&serde_json::to_string(&datetime_fields)?),
+        predicate_where))
 }
 
 #[pg_extern]
-fn index_size(index: PgRelation) -> Result<i64> {
+pub unsafe fn index_fields(index: PgRelation) -> JsonB {
     // # Safety
     //
     // Lock the index relation until the end of this function so it is not dropped or
@@ -280,21 +117,165 @@ fn index_size(index: PgRelation) -> Result<i64> {
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
-    let index_oid = index.oid();
+    let rdopts: PgBox<SearchIndexCreateOptions> = if !index.rd_options.is_null() {
+        unsafe { PgBox::from_pg(index.rd_options as *mut SearchIndexCreateOptions) }
+    } else {
+        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
+        ops.into_pg_boxed()
+    };
 
-    let database_oid = crate::MyDatabaseId();
-    let relfilenode = relfilenode_from_pg_relation(&index);
+    // Create a map from column name to column type. We'll use this to verify that index
+    // configurations passed by the user reference the correct types for each column.
+    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = index
+        .tuple_desc()
+        .into_iter()
+        .filter_map(|attribute| {
+            let attname = attribute.name();
+            let attribute_type_oid = attribute.type_oid();
+            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+            let base_oid = if array_type != pg_sys::InvalidOid {
+                PgOid::from(array_type)
+            } else {
+                attribute_type_oid
+            };
+            if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
+                Some((attname.into(), search_field_type))
+            } else {
+                None
+            }
+        })
+        .collect();
 
-    // Create a WriterDirectory with the obtained index_oid
-    let writer_directory =
-        WriterDirectory::from_oids(database_oid, index_oid.as_u32(), relfilenode.as_u32());
+    // Parse and validate the index configurations for each column.
+    let text_fields =
+        rdopts
+            .get_text_fields()
+            .into_iter()
+            .map(|(name, config)| match name_type_map.get(&name) {
+                Some(field_type @ SearchFieldType::Text) => (name, config, *field_type),
+                _ => panic!("'{name}' cannot be indexed as a text field"),
+            });
 
-    // Call the total_size method to get the size in bytes
-    let total_size = writer_directory.total_size()?;
+    let numeric_fields = rdopts
+        .get_numeric_fields()
+        .into_iter()
+        .map(|(name, config)| match name_type_map.get(&name) {
+            Some(field_type @ SearchFieldType::U64)
+            | Some(field_type @ SearchFieldType::I64)
+            | Some(field_type @ SearchFieldType::F64) => (name, config, *field_type),
+            _ => panic!("'{name}' cannot be indexed as a numeric field"),
+        });
 
-    Ok(total_size as i64)
+    let boolean_fields = rdopts
+        .get_boolean_fields()
+        .into_iter()
+        .map(|(name, config)| match name_type_map.get(&name) {
+            Some(field_type @ SearchFieldType::Bool) => (name, config, *field_type),
+            _ => panic!("'{name}' cannot be indexed as a boolean field"),
+        });
+
+    let json_fields =
+        rdopts
+            .get_json_fields()
+            .into_iter()
+            .map(|(name, config)| match name_type_map.get(&name) {
+                Some(field_type @ SearchFieldType::Json) => (name, config, *field_type),
+                _ => panic!("'{name}' cannot be indexed as a JSON field"),
+            });
+
+    let range_fields = rdopts.get_range_fields().into_iter().map(|(name, config)| {
+        match name_type_map.get(&name) {
+            Some(field_type @ SearchFieldType::Range) => (name, config, *field_type),
+            _ => panic!("'{name}' cannot be indexed as a range field"),
+        }
+    });
+
+    let datetime_fields = rdopts
+        .get_datetime_fields()
+        .into_iter()
+        .map(|(name, config)| match name_type_map.get(&name) {
+            Some(field_type @ SearchFieldType::Date) => (name, config, *field_type),
+            _ => panic!("'{name}' cannot be indexed as a datetime field"),
+        });
+
+    let key_field = rdopts.get_key_field().expect("must specify key_field");
+    let key_field_type = match name_type_map.get(&key_field) {
+        Some(field_type) => field_type,
+        None => panic!("key field does not exist"),
+    };
+    let key_config = match key_field_type {
+        SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
+            SearchFieldConfig::Numeric {
+                indexed: true,
+                fast: true,
+                stored: false,
+                column: None,
+            }
+        }
+        SearchFieldType::Text => SearchFieldConfig::Text {
+            indexed: true,
+            fast: true,
+            stored: false,
+            fieldnorms: false,
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+            column: None,
+        },
+        SearchFieldType::Json => SearchFieldConfig::Json {
+            indexed: true,
+            fast: true,
+            stored: false,
+            expand_dots: false,
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+            fieldnorms: true,
+            column: None,
+        },
+        SearchFieldType::Range => SearchFieldConfig::Range {
+            stored: false,
+            column: None,
+        },
+        SearchFieldType::Bool => SearchFieldConfig::Boolean {
+            indexed: true,
+            fast: true,
+            stored: false,
+            column: None,
+        },
+        SearchFieldType::Date => SearchFieldConfig::Date {
+            indexed: true,
+            fast: true,
+            stored: false,
+            column: None,
+        },
+    };
+
+    // Concatenate the separate lists of fields.
+    let fields = text_fields
+        .chain(numeric_fields)
+        .chain(boolean_fields)
+        .chain(json_fields)
+        .chain(range_fields)
+        .chain(datetime_fields)
+        .chain(std::iter::once((
+            key_field.clone(),
+            key_config,
+            *key_field_type,
+        )))
+        .map(|(name, config, _)| {
+            (
+                name.0,
+                serde_json::to_value(config)
+                    .expect("must be able to convert search field config to JSON"),
+            )
+        })
+        .collect::<Map<_, _>>();
+
+    JsonB(serde_json::Value::from(fields))
 }
 
+#[allow(clippy::type_complexity)]
 #[pg_extern]
 fn index_info(
     index: PgRelation,
@@ -303,9 +284,16 @@ fn index_info(
         'static,
         (
             name!(segno, String),
-            name!(byte_size, i64),
-            name!(num_docs, i64),
-            name!(num_deleted, i64),
+            name!(byte_size, AnyNumeric),
+            name!(num_docs, AnyNumeric),
+            name!(num_deleted, AnyNumeric),
+            name!(termdict_bytes, AnyNumeric),
+            name!(postings_bytes, AnyNumeric),
+            name!(positions_bytes, AnyNumeric),
+            name!(fast_fields_bytes, AnyNumeric),
+            name!(fieldnorms_bytes, AnyNumeric),
+            name!(store_bytes, AnyNumeric),
+            name!(deletes_bytes, AnyNumeric),
         ),
     >,
 > {
@@ -320,60 +308,53 @@ fn index_info(
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
     // open the specified index
-    let index = open_search_index(&index).expect("should be able to open search index");
-    let directory = index.directory.clone();
-    let data = index
-        .underlying_index
-        .searchable_segment_metas()?
-        .into_iter()
-        .map(|meta| {
-            let segno = meta.id().short_uuid_string();
-            let byte_size = meta
-                .list_files()
-                .into_iter()
-                .map(|file| {
-                    let mut full_path = directory.tantivy_dir_path(false).unwrap().0;
-                    full_path.push(file);
+    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)?;
+    let data = search_reader
+        .segment_readers()
+        .iter()
+        .map(|segment_reader| {
+            let segno = segment_reader.segment_id().short_uuid_string();
+            let space_usage = segment_reader.space_usage()?;
 
-                    if full_path.exists() {
-                        full_path
-                            .metadata()
-                            .map(|metadata| metadata.len())
-                            .unwrap_or(0)
-                    } else {
-                        0
-                    }
-                })
-                .sum::<u64>() as i64;
-            let num_docs = meta.num_docs() as i64;
-            let num_deleted = meta.num_deleted_docs() as i64;
-
-            (segno, byte_size, num_docs, num_deleted)
+            Ok((
+                segno,
+                space_usage.total().get_bytes().into(),
+                segment_reader.num_docs().into(),
+                segment_reader.num_deleted_docs().into(),
+                space_usage.termdict().total().get_bytes().into(),
+                space_usage.postings().total().get_bytes().into(),
+                space_usage.positions().total().get_bytes().into(),
+                space_usage.fast_fields().total().get_bytes().into(),
+                space_usage.fieldnorms().total().get_bytes().into(),
+                space_usage.store().total().get_bytes().into(),
+                space_usage.deletes().get_bytes().into(),
+            ))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(TableIterator::new(data))
 }
 
-extension_sql!(
-    r#"
-    CREATE OR REPLACE FUNCTION paradedb.drop_bm25_event_trigger()
-    RETURNS event_trigger AS $$
-    DECLARE
-        obj RECORD;
-    BEGIN
-        FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() LOOP
-            IF obj.object_type = 'index' THEN
-                CALL paradedb.delete_bm25_index_by_oid(obj.objid);
-            END IF;
-        END LOOP;
-    END;
-    $$ LANGUAGE plpgsql;
-    
-    CREATE EVENT TRIGGER trigger_on_sql_index_drop
-    ON sql_drop
-    EXECUTE FUNCTION paradedb.drop_bm25_event_trigger();
-    "#
-    name = "create_drop_bm25_event_trigger",
-    requires = [ delete_bm25_index_by_oid ]
-);
+#[pg_extern]
+fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+
+    // open the specified index
+    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)?;
+
+    let failed = search_reader.validate_checksum()?;
+    Ok(SetOfIterator::new(
+        failed.into_iter().map(|path| path.display().to_string()),
+    ))
+}
+
+#[pg_extern(sql = "")]
+fn create_bm25_jsonb() {}

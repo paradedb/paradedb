@@ -21,8 +21,8 @@ use super::{
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
-use crate::index::SearchIndex;
-use crate::postgres::index::open_search_index;
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::BlockDirectoryType;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
@@ -47,29 +47,24 @@ pub fn search_with_query_input(
             // with the WithIndex when it is rewritten with our custom operator.
             match query {
                 SearchQueryInput::WithIndex { oid, .. } => oid,
-                _ => panic!("the SeachQueryInput must be wrapped in a WithIndex variant"),
+                _ => panic!("the SearchQueryInput must be wrapped in a WithIndex variant"),
             }
         };
-        let indexrel = unsafe {
-            &PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
+        let index_relation = unsafe {
+            PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         };
-        let search_index =
-            open_search_index(indexrel).expect("should be able to open search index");
+        let search_reader =
+            SearchIndexReader::open(&index_relation, BlockDirectoryType::Mvcc, false)
+                .expect("search_with_query_input: should be able to open a SearchIndexReader");
 
-        let key_field = search_index.key_field_name();
-        let key_field_type = search_index.key_field().type_.into();
-        let search_reader = search_index.get_reader().unwrap();
+        let key_field = search_reader.key_field();
+        let key_field_name = key_field.name.0;
+        let key_field_type = key_field.type_.into();
         let fast_fields = FFHelper::with_fields(
             &search_reader,
-            &[(key_field.clone(), key_field_type).into()],
+            &[(key_field_name.clone(), key_field_type).into()],
         );
-        let top_docs = search_reader.search_via_channel(
-            query.contains_more_like_this(),
-            false,
-            SearchIndex::executor(),
-            &search_index.query(indexrel, &query, &search_reader),
-            None,
-        );
+        let top_docs = search_reader.search(query.contains_more_like_this(), false, &query, None);
         let mut hs = FxHashSet::default();
         for (_, doc_address) in top_docs {
             check_for_interrupts!();
@@ -80,7 +75,7 @@ pub fn search_with_query_input(
             );
         }
 
-        (key_field, hs)
+        (key_field_name, hs)
     };
 
     let cached = unsafe { pg_func_extra(fcinfo, default_hash_set) };

@@ -1,0 +1,203 @@
+# workflows/publish-pg_search-debian.yml
+#
+# Publish pg_search (Debian)
+# Build and publish the pg_search extension as .deb to GitHub Releases.
+
+name: Publish pg_search (Debian)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to set for the pg_search release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        required: true
+        default: ""
+
+concurrency:
+  group: publish-pg_search-debian-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# Used by actions/attest-build-provenance to sign the builds
+permissions:
+  id-token: write
+  attestations: write
+
+jobs:
+  publish-pg_search:
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on Debian 12 (Bookworm) ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ${{ matrix.image }}
+    strategy:
+      matrix:
+        include:
+          # Debian 12 (Bookworm)
+          - runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 14
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 14
+            arch: arm64
+          - runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 15
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 15
+            arch: arm64
+          - runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 16
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 16
+            arch: arm64
+          - runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 17
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 17
+            arch: arm64
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg gpg lsb-release pkg-config libssl-dev jq
+
+      # Used to upload the release to GitHub Releases
+      - name: Install GitHub CLI
+        run: |
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y gh
+          gh --version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, since
+      # /bin/sh does not support the `[[` syntax.
+      - name: Retrieve OS & GitHub Tag Versions
+        id: version
+        shell: bash
+        run: |
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+
+          OS_VERSION="$(lsb_release -cs)"
+          echo "OS Version: $OS_VERSION"
+          echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') >> $GITHUB_OUTPUT
+
+      - name: Install pgrx
+        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize pgrx for Current PostgreSQL Version
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
+
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
+
+      - name: Create .deb Package
+        run: |
+          # Create installable package
+          mkdir archive
+          cp `find target/release -type f -name "pg_search*"` archive
+          package_dir=pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
+
+          # Copy files into directory structure
+          mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+          mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
+          cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+          cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+          cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+
+          # Create control file (package name cannot have underscore)
+          mkdir -p ${package_dir}/DEBIAN
+          touch ${package_dir}/DEBIAN/control
+          deb_version=${{ steps.version.outputs.tag_version }}
+          CONTROL_FILE="${package_dir}/DEBIAN/control"
+          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-search' >> $CONTROL_FILE
+          echo 'Version:' ${deb_version} >> $CONTROL_FILE
+          echo 'Section: database' >> $CONTROL_FILE
+          echo 'Priority: optional' >> $CONTROL_FILE
+          echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
+          echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
+          echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
+          echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
+
+          # Create .deb package
+          sudo chown -R root:root ${package_dir}
+          sudo chmod -R 755 ${package_dir}
+          sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
+
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+
+      # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, which
+      # is not capable of parsing certain control characters
+      - name: Retrieve GitHub Release Upload URL
+        id: upload_url
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+        run: |
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+          echo "REST API Response: $RESPONSE"
+
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
+          echo "GitHub Release Upload URL is: $UPLOAD_URL"
+          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+
+      - name: Upload pg_search .deb to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
+          overwrite: true

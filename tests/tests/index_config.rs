@@ -20,7 +20,6 @@ mod fixtures;
 
 use std::path::PathBuf;
 
-use fixtures::utils::pg_search_index_directory_path;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -31,53 +30,27 @@ fn fmt_err<T: std::error::Error>(err: T) -> String {
 }
 
 #[rstest]
-fn invalid_create_bm25(mut conn: PgConnection) {
+fn invalid_create_index(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
         .execute(&mut conn);
 
-    match "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config'
-    )"
-    .execute_result(&mut conn)
+    match r#"CREATE INDEX index_config_index ON index_config
+        USING bm25 (id) "#
+        .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with no key_field"),
-        Err(err) => assert!(err.to_string().contains("no key_field parameter")),
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: must specify key_field"
+        ),
     };
 
-    match "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    key_field => 'id'
-    )"
-    .execute_result(&mut conn)
+    match r#"CREATE INDEX index_config_index ON index_config
+        USING bm25 (id) WITH (key_field='id')"#
+        .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with no fields"),
         Err(err) => assert!(err.to_string().contains("specified"), "{}", fmt_err(err)),
-    };
-
-    match "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    key_field => 'id',
-	    invalid_field => '{}'		
-    )"
-    .execute_result(&mut conn)
-    {
-        Ok(_) => panic!("should fail with invalid field"),
-        Err(err) => assert!(err.to_string().contains("not exist"), "{}", fmt_err(err)),
-    };
-
-    match "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    key_field => 'id',
-	    numeric_fields => paradedb.field('id')		
-    )"
-    .execute_result(&mut conn)
-    {
-        Ok(_) => panic!("should fail with invalid field"),
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: key_field id cannot be included in text_fields, numeric_fields, boolean_fields, json_fields, range_fields, or datetime_fields")
     };
 }
 
@@ -86,20 +59,12 @@ fn prevent_duplicate(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description'))"
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description) WITH (key_field='id')"#
         .execute(&mut conn);
 
-    match "CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description'))"
+    match r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description) WITH (key_field='id')"#
         .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with relation already exists"),
@@ -130,30 +95,16 @@ async fn drop_column(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    r#"
-    CALL paradedb.create_bm25(
-        index_name => 'test_index',
-        schema_name => 'public',
-        table_name => 'test_table',
-        key_field => 'id',
-        text_fields => paradedb.field('fulltext')
-    );
+    r#"CREATE INDEX test_index ON test_table
+        USING bm25 (id, fulltext) WITH (key_field='id')"#
+        .execute(&mut conn);
 
-    DROP INDEX test_index CASCADE;
+    r#"DROP INDEX test_index CASCADE;
     ALTER TABLE test_table DROP COLUMN fkey;
-    "#
-    .execute(&mut conn);
 
-    r#"
-    CALL paradedb.create_bm25(
-        index_name => 'test_index',
-        schema_name => 'public',
-        table_name => 'test_table',
-        key_field => 'id',
-        text_fields => paradedb.field('fulltext')
-    );
-    "#
-    .execute(&mut conn);
+    CREATE INDEX test_index ON test_table
+        USING bm25 (id, fulltext) WITH (key_field='id')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('test_index')".fetch(&mut conn);
@@ -168,12 +119,8 @@ fn default_text_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    text_fields => paradedb.field('description'))"
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description) WITH (key_field='id')"#
         .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
@@ -190,15 +137,11 @@ fn text_field_with_options(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    r#"
-    CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    text_fields => paradedb.field('description', fast => true, record => 'freq', normalizer => 'raw', tokenizer => paradedb.tokenizer('en_stem'))
-    )"#
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description)
+        WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "en_stem", "normalizer": "raw"}, "record": "freq", "fast": true}}');
+"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -214,16 +157,15 @@ fn multiple_text_fields(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    r#"
-    CALL paradedb.create_bm25(
-	index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    text_fields => paradedb.field('description', fast => true, record => 'freq', normalizer => 'raw', tokenizer => paradedb.tokenizer('en_stem')) ||
-                       paradedb.field('category')
-    )"#
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+
+        USING bm25 (id, description, category)
+        WITH (
+            key_field='id',
+            text_fields='{"description": {"tokenizer": {"type": "en_stem", "normalizer": "raw"}, "record": "freq", "fast": true}}'
+        );
+        "#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -240,14 +182,9 @@ fn default_numeric_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    numeric_fields => paradedb.field('rating')
-    );"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, rating) WITH (key_field='id')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -263,14 +200,9 @@ fn numeric_field_with_options(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    numeric_fields => paradedb.field('rating', fast => false)
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, rating) WITH (key_field='id', numeric_fields='{"rating": {"fast": true}}')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -286,14 +218,9 @@ fn default_boolean_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    boolean_fields => paradedb.field('in_stock')
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, in_stock) WITH (key_field='id')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -309,14 +236,9 @@ fn boolean_field_with_options(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    boolean_fields => paradedb.field('in_stock', fast => false)
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, in_stock) WITH (key_field='id', boolean_fields='{"in_stock": {"fast": false}}')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -332,14 +254,9 @@ fn default_json_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    json_fields => paradedb.field('metadata')
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, metadata) WITH (key_field='id')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -355,14 +272,13 @@ fn json_field_with_options(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    r#"CALL paradedb.create_bm25(
-	    index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    json_fields => paradedb.field('metadata', fast => true, expand_dots => false, tokenizer => paradedb.tokenizer('raw'), normalizer => 'raw')
-    )"#
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, metadata)
+        WITH (
+            key_field='id',
+            json_fields='{"metadata": {"fast": true, "expand_dots": false, "tokenizer": {"type": "raw", "normalizer": "raw"}}}'
+        )"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -378,14 +294,9 @@ fn default_datetime_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date')
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, created_at, last_updated_date) WITH (key_field='id')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -402,14 +313,10 @@ fn datetime_field_with_options(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    r#"CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        datetime_fields => paradedb.field('created_at', fast => true) || paradedb.field('last_updated_date', fast => false)
-    )"#
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, created_at, last_updated_date)
+        WITH (key_field='id', datetime_fields='{"created_at": {"fast": true}, "last_updated_date": {"fast": false}}')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -426,16 +333,9 @@ fn multiple_fields(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25( index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    text_fields => paradedb.field('description') || paradedb.field('category'),
-	    numeric_fields => paradedb.field('rating'),
-	    boolean_fields => paradedb.field('in_stock'),
-	    json_fields => paradedb.field('metadata')
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description, category, rating, in_stock, metadata) WITH (key_field='id')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, String)> =
         "SELECT name, field_type FROM paradedb.schema('paradedb.index_config_index')"
@@ -469,17 +369,9 @@ fn null_values(mut conn: PgConnection) {
     "INSERT INTO paradedb.index_config (description, category, rating) VALUES ('Null Item 1', NULL, NULL), ('Null Item 2', NULL, 2)"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25( 
-        index_name => 'index_config_index',
-	    table_name => 'index_config',
-	    schema_name => 'paradedb',
-	    key_field => 'id',
-	    text_fields => paradedb.field('description') || paradedb.field('category'),
-	    numeric_fields => paradedb.field('rating'),
-	    boolean_fields => paradedb.field('in_stock'),
-	    json_fields => paradedb.field('metadata')
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description, category, rating, in_stock, metadata) WITH (key_field='id')"#
+        .execute(&mut conn);
 
     let rows: Vec<(String, Option<String>, Option<i32>)> = "
         SELECT description, category, rating
@@ -491,8 +383,6 @@ fn null_values(mut conn: PgConnection) {
     assert_eq!(rows[0], ("Null Item 1".into(), None, None));
     assert_eq!(rows[1], ("Null Item 2".into(), None, Some(2)));
 
-    // If incorrectly handled, false booleans can be mistaken as NULL values and ignored during indexing
-    // This tests that false booleans are correctly indexed as such
     let rows: Vec<(bool,)> =
         "SELECT in_stock FROM paradedb.index_config WHERE index_config @@@ 'in_stock:false'"
             .fetch(&mut conn);
@@ -506,13 +396,9 @@ fn null_key_field_build(mut conn: PgConnection) {
     "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 1'), (2, 'Null Item 2')"
         .execute(&mut conn);
 
-    match "CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )".execute_result(&mut conn)
+    match r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description) WITH (key_field='id')"#
+        .execute_result(&mut conn)
     {
         Ok(_) => panic!("should fail with null key_field"),
         Err(err) => assert_eq!(
@@ -528,14 +414,9 @@ fn null_key_field_insert(mut conn: PgConnection) {
     "INSERT INTO paradedb.index_config VALUES (1, 'Null Item 1'), (2, 'Null Item 2')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 (id, description) WITH (key_field='id')"#
+        .execute(&mut conn);
 
     match "INSERT INTO paradedb.index_config VALUES (NULL, 'Null Item 3')".execute_result(&mut conn)
     {
@@ -554,14 +435,9 @@ fn column_name_camelcase(mut conn: PgConnection) {
     "INSERT INTO paradedb.index_config VALUES (1, 'Plastic Keyboard'), (2, 'Bluetooth Headphones')"
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'IdName',
-        text_fields => paradedb.field('ColumnName')
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config_index ON paradedb.index_config
+        USING bm25 ("IdName", "ColumnName") WITH (key_field='IdName')"#
+        .execute(&mut conn);
 
     let rows: Vec<(i32, String)> =
         "SELECT * FROM paradedb.index_config WHERE index_config @@@ 'ColumnName:keyboard'"
@@ -575,22 +451,12 @@ fn column_name_camelcase(mut conn: PgConnection) {
 fn multi_index_insert_in_transaction(mut conn: PgConnection) {
     "CREATE TABLE paradedb.index_config1(id INTEGER, description TEXT)".execute(&mut conn);
     "CREATE TABLE paradedb.index_config2(id INTEGER, description TEXT)".execute(&mut conn);
-    "CALL paradedb.create_bm25(
-        index_name => 'index_config1_index',
-        table_name => 'index_config1',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
-    .execute(&mut conn);
-    "CALL paradedb.create_bm25(
-        index_name => 'index_config2_index',
-        table_name => 'index_config2',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
-    .execute(&mut conn);
+    r#"CREATE INDEX index_config1_index ON paradedb.index_config1
+        USING bm25 (id, description) WITH (key_field='id')"#
+        .execute(&mut conn);
+    r#"CREATE INDEX index_config2_index ON paradedb.index_config2
+        USING bm25 (id, description) WITH (key_field='id')"#
+        .execute(&mut conn);
     "BEGIN".execute(&mut conn);
     "INSERT INTO paradedb.index_config1 VALUES (1, 'Item 1'), (2, 'Item 2')".execute(&mut conn);
     "INSERT INTO paradedb.index_config2 VALUES (1, 'Item 1'), (2, 'Item 2')".execute(&mut conn);
@@ -609,11 +475,12 @@ fn multi_index_insert_in_transaction(mut conn: PgConnection) {
 
 #[rstest]
 fn partitioned_index(mut conn: PgConnection) {
+    // Set up the partitioned table with two partitions
     r#"
         CREATE TABLE sales (
             id SERIAL,
             sale_date DATE NOT NULL,
-            amount NUMERIC NOT NULL, description TEXT,
+            amount real NOT NULL, description TEXT,
             PRIMARY KEY (id, sale_date)
         ) PARTITION BY RANGE (sale_date);
 
@@ -637,97 +504,43 @@ fn partitioned_index(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    match r#"
-        CALL paradedb.create_bm25(
-            index_name => 'sales_index',
-            table_name => 'sales',
-            schema_name => 'public',
-            key_field => 'id',
-            text_fields => paradedb.field('description'),
-            datetime_fields => paradedb.field('sale_date'),
-            numeric_fields => paradedb.field('amount')
-        )
-    "#.execute_result(&mut conn) {
-        Ok(_) => panic!("should fail with partitioned table"),
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: Creating BM25 indexes over partitioned tables is a ParadeDB enterprise feature. Contact support@paradedb.com for access."),
-    };
-}
-
-#[rstest]
-fn delete_index_deletes_tantivy_files(mut conn: PgConnection) {
-    // Create the test table and BM25 index
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
+    // Create the BM25 index on the partitioned table
+    r#"CREATE INDEX sales_index ON sales_2023_q1
+        USING bm25 (id, description, sale_date, amount) WITH (key_field='id', numeric_fields='{"amount": {"fast": true}}')
+    "#
         .execute(&mut conn);
 
-    "CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
-    .execute(&mut conn);
+    // Test: Verify data is partitioned correctly by querying each partition
+    let rows_q1: Vec<(i32, String, String)> = r#"
+        SELECT id, description, sale_date::text FROM sales_2023_q1
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows_q1.len(), 5, "Expected 5 rows in Q1 partition");
 
-    // Ensure the expected directory exists.
-    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_index");
-    assert!(
-        index_dir.exists(),
-        "expected index directory to exist at: {:?}",
-        index_dir
-    );
+    let rows_q2: Vec<(i32, String, String)> = r#"
+        SELECT id, description, sale_date::text FROM sales_2023_q2
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows_q2.len(), 3, "Expected 3 rows in Q2 partition");
 
-    // Delete the index.
-    "DROP INDEX index_config_index CASCADE".execute(&mut conn);
+    // Test: Search using the bm25 index
+    let search_results: Vec<(i32, String)> = r#"
+        SELECT id, description FROM sales_2023_q1 WHERE id @@@ 'description:keyboard'
+    "#
+    .fetch(&mut conn);
+    assert_eq!(search_results.len(), 2, "Expected 2 items with 'keyboard'");
 
-    // Ensure deletion has worked as expected.
-    // Tantivy is a little stubborn about deletion. While the contents of the index
-    // will indeed be cleaned up, lingering Readers cached in connections seem to re-create
-    // certain files if they are found to be deleted. This makes it difficult to completely
-    // clean up the folder, so we will just test if our configuration JSON has been deleted.
-    assert!(
-        !index_dir.join("search-index.json").exists(),
-        "expected index directory to have been deleted at: {:?}",
-        index_dir
-    );
-}
-
-#[rstest]
-fn delete_index_aborted_maintains_tantivy_files(mut conn: PgConnection) {
-    // Create the test table and BM25 index
-    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'public')"
-        .execute(&mut conn);
-
-    "CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'public',
-        key_field => 'id',
-        text_fields => paradedb.field('description')
-    )"
-    .execute(&mut conn);
-
-    // Ensure the expected directory exists.
-    let index_dir = pg_search_index_directory_path(&mut conn, "index_config_index");
-    assert!(
-        index_dir.exists(),
-        "expected index directory to exist at: {:?}",
-        index_dir
-    );
-
-    // Delete the index.
-    "DO $$ 
-    BEGIN
-        DROP INDEX index_config_index CASCADE;
-        RAISE EXCEPTION 'Aborting the transaction intentionally';
-    END $$;"
-        .execute_result(&mut conn)
-        .ok();
-
-    // Ensure index files still exist.
-    assert!(
-        index_dir.join("search-index.json").exists(),
-        "expected index directory to have been not been deleted at: {:?}",
-        index_dir
+    // Test: Retrieve items by a numeric range (amount field) and verify bm25 compatibility
+    let amount_results: Vec<(i32, String, f32)> = r#"
+        SELECT id, description, amount FROM sales_2023_q1
+        WHERE amount @@@ '[175 TO 250]'
+        ORDER BY amount ASC
+    "#
+    .fetch(&mut conn);
+    assert_eq!(
+        amount_results.len(),
+        3,
+        "Expected 3 items with amount in range 175-250"
     );
 }
 
@@ -741,14 +554,9 @@ fn custom_enum_term(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description'),
-        numeric_fields => paradedb.field('color')
-    )
+    CREATE INDEX index_config_index ON paradedb.index_config
+    USING bm25 (id, description, color)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 
@@ -768,14 +576,9 @@ fn custom_enum_parse(mut conn: PgConnection) {
     .execute(&mut conn);
 
     r#"
-    CALL paradedb.create_bm25(
-        index_name => 'index_config_index',
-        table_name => 'index_config',
-        schema_name => 'paradedb',
-        key_field => 'id',
-        text_fields => paradedb.field('description'),
-        numeric_fields => paradedb.field('color')
-    )
+    CREATE INDEX index_config_index ON paradedb.index_config
+    USING bm25 (id, description, color)
+    WITH (key_field='id');
     "#
     .execute(&mut conn);
 

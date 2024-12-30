@@ -68,7 +68,7 @@
       "url": "changelog"
     }
   ],
-  "versions": ["v0.12.1"],
+  "versions": ["v0.13.2"],
   "navigation": [
     {
       "group": "Documentation",
@@ -91,9 +91,13 @@
               "pages": [
                 "documentation/indexing/create_index",
                 "documentation/indexing/inspect_index",
-                "documentation/indexing/delete_index",
-                "documentation/indexing/partitioned",
-                "documentation/indexing/partial",
+                "documentation/indexing/delete_index"
+              ]
+            },
+            {
+              "group": "Field Configuration",
+              "pages": [
+                "documentation/indexing/field_options",
                 "documentation/indexing/tokenizers",
                 "documentation/indexing/token_filters",
                 "documentation/indexing/fast_fields",
@@ -278,6 +282,10 @@
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.13.2",
+        "changelog/0.13.1",
+        "changelog/0.13.0",
+        "changelog/0.12.2",
         "changelog/0.12.1",
         "changelog/0.12.0",
         "changelog/0.11.1",

@@ -30,15 +30,15 @@ fn hybrid_deprecated(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CALL paradedb.create_bm25(
-        index_name => 'search_idx',
-        table_name => 'mock_items',
-        key_field => 'id',
-        text_fields => paradedb.field('description') || paradedb.field('category'),
-        numeric_fields => paradedb.field('rating'),
-        boolean_fields => paradedb.field('in_stock'),
-        datetime_fields => paradedb.field('created_at'),
-        json_fields => paradedb.field('metadata')
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"description": {}, "category": {}}',
+        numeric_fields = '{"rating": {}}',
+        boolean_fields = '{"in_stock": {}}',
+        datetime_fields = '{"created_at": {}}',
+        json_fields = '{"metadata": {}}'
     );
 
     CREATE EXTENSION vector;

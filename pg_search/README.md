@@ -50,7 +50,7 @@ This enables the extension to spawn a background worker process that performs wr
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux for Postgres 17, 16, 15 and 14. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide prebuilt binaries for Debian-based Linux for Postgres 14, 15, 16, and 17. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 Our prebuilt binaries come with the ICU tokenizer enabled, which requires the `libicu` library. If you don't have it installed, you can do so with:
 
@@ -99,12 +99,12 @@ Then, install the PostgreSQL version of your choice using your system package ma
 
 ```bash
 # macOS
-brew install postgresql@16
+brew install postgresql@17
 
 # Ubuntu
 wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
 sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-sudo apt-get update && sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+sudo apt-get update && sudo apt-get install -y postgresql-17 postgresql-server-dev-17
 
 # Arch Linux
 sudo pacman -S extra/postgresql
@@ -119,20 +119,20 @@ export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
 Then, install and initialize `pgrx`:
 
 ```bash
-# Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
+# Note: Replace --pg17 with your version of Postgres, if different (i.e. --pg16, etc.)
 cargo install --locked cargo-pgrx --version 0.12.7
 
 # macOS arm64
-cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config
+cargo pgrx init --pg17=/opt/homebrew/opt/postgresql@17/bin/pg_config
 
 # macOS amd64
-cargo pgrx init --pg16=/usr/local/opt/postgresql@16/bin/pg_config
+cargo pgrx init --pg17=/usr/local/opt/postgresql@17/bin/pg_config
 
 # Ubuntu
-cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
+cargo pgrx init --pg17=/usr/lib/postgresql/17/bin/pg_config
 
 # Arch Linux
-cargo pgrx init --pg16=/usr/bin/pg_config
+cargo pgrx init --pg17=/usr/bin/pg_config
 ```
 
 If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
@@ -154,21 +154,21 @@ sudo pacman -S extra/clang
 `pgvector` needed for hybrid search unit tests.
 
 ```bash
-# Note: Replace 16 with your version of Postgres
+# Note: Replace 17 with your version of Postgres
 git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
 # macOS arm64
-PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config make
-sudo PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config make install # may need sudo
+PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config make
+sudo PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config make install # may need sudo
 
 # macOS amd64
-PG_CONFIG=/usr/local/opt/postgresql@16/bin/pg_config make
-sudo PG_CONFIG=/usr/local/opt/postgresql@16/bin/pg_config make install # may need sudo
+PG_CONFIG=/usr/local/opt/postgresql@17/bin/pg_config make
+sudo PG_CONFIG=/usr/local/opt/postgresql@17/bin/pg_config make install # may need sudo
 
 # Ubuntu
-PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config make
-sudo PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config make install # may need sudo
+PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config make
+sudo PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config make install # may need sudo
 
 # Arch Linux
 PG_CONFIG=/usr/bin/pg_config make
@@ -252,7 +252,7 @@ DATABASE_URL=postgres://USER_NAME@localhost:PORT/pg_search
 
 USER_NAME should be replaced with your system user name. (eg: output of `whoami`)
 
-PORT should be replaced with 28800 + your postgres version. (eg: 28816 for postgres 16)
+PORT should be replaced with 28800 + your postgres version. (eg: 28817 for Postgres 17)
 
 ## License
 

@@ -38,14 +38,26 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
         ('이하은', '축구 경기 리뷰', '어제 열린 축구 경기에서 화려한 골이 터졌습니다. 마지막 순간의 반전이 경기의 하이라이트였습니다.'),
         ('박지후', '지역 축제 개최 소식', '이번 주말 지역 축제가 열립니다. 다양한 음식과 공연이 준비되어 있어 기대가 됩니다.');
 
-    CALL paradedb.create_bm25(
-    	index_name => 'korean_idx',
-    	table_name => 'korean',
-    	key_field => 'id',
-        text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('korean_lindera'), record => 'position') ||
-                       paradedb.field('title', tokenizer => paradedb.tokenizer('korean_lindera'), record => 'position') ||
-                       paradedb.field('message', tokenizer => paradedb.tokenizer('korean_lindera'), record => 'position')
-    )"#
+        CREATE INDEX korean_idx ON korean
+        USING bm25 (id, author, title, message)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "author": {
+                    "tokenizer": {"type": "korean_lindera"},
+                    "record": "position"
+                },
+                "title": {
+                    "tokenizer": {"type": "korean_lindera"},
+                    "record": "position"
+                },
+                "message": {
+                    "tokenizer": {"type": "korean_lindera"},
+                    "record": "position"
+                }
+            }'
+        );
+    "#
     .execute(&mut conn);
 
     let row: (i32,) = r#"SELECT id FROM korean WHERE korean @@@ 'author:김민준' ORDER BY id"#
@@ -74,14 +86,27 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
         ('李华', '北京的新餐馆', '北京市中心新开了一家餐馆，以其现代设计和独特的菜肴选择而闻名。'),
         ('张伟', '篮球比赛回顾', '昨日篮球比赛精彩纷呈，尤其是最后时刻的逆转成为了比赛的亮点。'),
         ('王芳', '本地文化节', '本周末将举行一个地方文化节，预计将有各种食物和表演。');
-    CALL paradedb.create_bm25(
-    	index_name => 'chinese_idx',
-    	table_name => 'chinese',
-        key_field => 'id',
-        text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('chinese_lindera'), record => 'position') ||
-                       paradedb.field('title', tokenizer => paradedb.tokenizer('chinese_lindera'), record => 'position') ||
-                       paradedb.field('message', tokenizer => paradedb.tokenizer('chinese_lindera'), record => 'position')
-    )"#
+
+    CREATE INDEX chinese_idx ON chinese
+    USING bm25 (id, author, title, message)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "author": {
+                "tokenizer": {"type": "chinese_lindera"},
+                "record": "position"
+            },
+            "title": {
+                "tokenizer": {"type": "chinese_lindera"},
+                "record": "position"
+            },
+            "message": {
+                "tokenizer": {"type": "chinese_lindera"},
+                "record": "position"
+            }
+        }'
+    ); 
+    "#
     .execute(&mut conn);
 
     let row: (i32,) =
@@ -111,14 +136,27 @@ async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
         ('佐藤健', '東京の新しいカフェ', '東京の中心部に新しいカフェがオープンしました。モダンなデザインとユニークなコーヒーが特徴です。'),
         ('鈴木一郎', 'サッカー試合レビュー', '昨日のサッカー試合では素晴らしいゴールが見られました。終了間際のドラマチックな展開がハイライトでした。'),
         ('高橋花子', '地元の祭り', '今週末に地元で祭りが開催されます。様々な食べ物とパフォーマンスが用意されています。');
-    CALL paradedb.create_bm25(
-    	index_name => 'japanese_idx',
-    	table_name => 'japanese',
-        key_field => 'id',
-        text_fields => paradedb.field('author', tokenizer => paradedb.tokenizer('japanese_lindera'), record => 'position') ||
-                       paradedb.field('title', tokenizer => paradedb.tokenizer('japanese_lindera'), record => 'position') ||
-                       paradedb.field('message', tokenizer => paradedb.tokenizer('japanese_lindera'), record => 'position')
-    )"#
+
+    CREATE INDEX japanese_idx ON japanese
+    USING bm25 (id, author, title, message)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "author": {
+                "tokenizer": {"type": "japanese_lindera"},
+                "record": "position"
+            },
+            "title": {
+                "tokenizer": {"type": "japanese_lindera"},
+                "record": "position"
+            },
+            "message": {
+                "tokenizer": {"type": "japanese_lindera"},
+                "record": "position"
+            }
+        }'
+    );
+    "#
     .execute(&mut conn);
 
     let row: (i32,) = r#"SELECT id FROM japanese WHERE japanese @@@ 'author:佐藤' ORDER BY id"#

@@ -26,7 +26,9 @@ use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
 };
 use crate::api::{AsCStr, AsInt, Cardinality};
-use crate::index::SearchIndex;
+use crate::index::mvcc::MVCCDirectory;
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::BlockDirectoryType;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, OrderByStyle};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -46,10 +48,10 @@ use crate::postgres::customscan::pdbscan::projections::{
 use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod, PlainExecCapable};
-use crate::postgres::index::open_search_index;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use exec_methods::normal::NormalScanExecState;
 use exec_methods::top_n::TopNScanExecState;
@@ -61,6 +63,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
+use tantivy::Index;
 
 #[derive(Default)]
 pub struct PdbScan;
@@ -106,9 +109,11 @@ impl CustomScan for PdbScan {
             };
 
             let root = builder.args().root;
-            let search_index =
-                open_search_index(&bm25_index).expect("should be able to open search index");
-            let pathkey = pullup_orderby_pathkey(&mut builder, rti, &search_index, root);
+
+            let directory = MVCCDirectory::snapshot(bm25_index.oid(), false);
+            let index = Index::open(directory).expect("custom_scan: should be able to open index");
+            let schema = SearchIndexSchema::open(index.schema(), &bm25_index);
+            let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
@@ -474,6 +479,11 @@ impl CustomScan for PdbScan {
             state.custom_state_mut().indexrel = Some(indexrel);
             state.custom_state_mut().lockmode = lockmode;
 
+            state.custom_state_mut().heaprel_namespace =
+                PgRelation::from_pg(heaprel).namespace().to_string();
+            state.custom_state_mut().heaprel_relname =
+                PgRelation::from_pg(heaprel).name().to_string();
+
             // setup the structures we need to do mvcc checking
             state.custom_state_mut().visibility_checker = Some(
                 VisibilityChecker::with_rel_and_snap(heaprel, pg_sys::GetActiveSnapshot()),
@@ -513,38 +523,35 @@ impl CustomScan for PdbScan {
             .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
             .expect("custom_state.indexrel should already be open");
 
-        let search_index =
-            open_search_index(&indexrel).expect("should be able to open search index");
-        let search_reader = search_index
-            .get_reader()
-            .expect("search index reader should have been constructed correctly");
-        let query = search_index.query(
-            &indexrel,
-            &state.custom_state().search_query_input,
-            &search_reader,
-        );
-
+        let search_reader = SearchIndexReader::open(&indexrel, BlockDirectoryType::Mvcc, true)
+            .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
-        state.custom_state_mut().query = Some(query);
 
         let csstate = addr_of_mut!(state.csstate);
         state.custom_state_mut().init_exec_method(csstate);
 
         if need_snippets {
-            let mut snippet_generators: HashMap<SnippetInfo, Option<SnippetGenerator>> = state
+            let mut snippet_generators: HashMap<
+                SnippetInfo,
+                Option<(tantivy::schema::Field, SnippetGenerator)>,
+            > = state
                 .custom_state_mut()
                 .snippet_generators
                 .drain()
                 .collect();
-            let query = &state.custom_state().query.as_ref().unwrap();
             for (snippet_info, generator) in &mut snippet_generators {
                 let mut new_generator = state
                     .custom_state()
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(snippet_info.field.as_ref(), *query);
-                new_generator.set_max_num_chars(snippet_info.max_num_chars);
+                    .snippet_generator(
+                        &snippet_info.field,
+                        &state.custom_state().search_query_input,
+                    );
+                new_generator
+                    .1
+                    .set_max_num_chars(snippet_info.max_num_chars);
                 *generator = Some(new_generator);
             }
 
@@ -624,10 +631,12 @@ impl CustomScan for PdbScan {
                                     for (snippet_info, const_snippet_node) in
                                         &state.custom_state().const_snippet_nodes
                                     {
-                                        if let Some(snippet) = state
-                                            .custom_state()
-                                            .make_snippet(doc_address, snippet_info)
-                                        {
+                                        if let Some(snippet) = state.custom_state().make_snippet(
+                                            state.custom_state().heaprel_namespace(),
+                                            state.custom_state().heaprelname(),
+                                            ctid,
+                                            snippet_info,
+                                        ) {
                                             (**const_snippet_node).constvalue =
                                                 snippet.into_datum().unwrap();
                                             (**const_snippet_node).constisnull = false;
@@ -735,7 +744,7 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
 unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
     builder: &mut CustomPathBuilder<P>,
     rti: pg_sys::Index,
-    search_index: &SearchIndex,
+    schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
 ) -> Option<OrderByStyle> {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
@@ -754,7 +763,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if search_index.schema.is_field_lower_sortable(att.name()) {
+                    if schema.is_field_lower_sortable(att.name()) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }
@@ -764,7 +773,7 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if search_index.schema.is_field_raw_sortable(att.name()) {
+                        if schema.is_field_raw_sortable(att.name()) {
                             return Some(OrderByStyle::Field(
                                 first_pathkey,
                                 att.name().to_string(),
@@ -774,10 +783,13 @@ unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
                 }
             } else if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let (heaprelid, attno, _) = find_var_relation(var, root);
+                if heaprelid == pg_sys::Oid::INVALID {
+                    return None;
+                }
                 let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                 let tupdesc = heaprel.tuple_desc();
                 if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if search_index.schema.is_field_raw_sortable(att.name()) {
+                    if schema.is_field_raw_sortable(att.name()) {
                         return Some(OrderByStyle::Field(first_pathkey, att.name().to_string()));
                     }
                 }

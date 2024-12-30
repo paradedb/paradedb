@@ -20,3 +20,11 @@ When a search query is executed, the inverted index is used to quickly retrieve 
 The BM25 index is the name given to the inverted index that enables ParadeDB to perform full text search over a
 Postgres table. This index is strongly consistent, which means that new data is immediately searchable across all connections.
 Once this index is created, it automatically stays in sync with the underlying table as the data changes.
+
+## Segment
+
+A BM25 index is made up of many segments. Each segment stores a small part of the index. A segment is analogous to an ElasticSearch shard,
+with the caveat that all segments are stored on the same Postgres node.
+
+Every atomic insert or update creates a new segment. Because having too many (or too few) segments can negatively impact performance, ParadeDB tries to
+maintain an optimal segment count during index build, insert, and vacuum operations. This behavior can be configured in the [index settings](/documentation/configuration/index#target-segment-count).

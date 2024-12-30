@@ -92,7 +92,7 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
     SELECT * FROM paradedb.bm25_search
     WHERE id @@@ 
     paradedb.boost(
-        boost => 1.5,
+        factor => 1.5,
         query => paradedb.more_like_this(
             min_doc_frequency => 2,
             min_term_frequency => 1,
@@ -153,7 +153,7 @@ fn mlt_scoring_nested(mut conn: PgConnection) {
         should => paradedb.disjunction_max(
             disjuncts => ARRAY[
                 paradedb.boost(
-                    boost => 3,
+                    factor => 3,
                     query => paradedb.more_like_this(
                         min_doc_frequency => 2,
                         min_term_frequency => 1,

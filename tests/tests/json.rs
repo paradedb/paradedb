@@ -40,12 +40,8 @@ fn json_datatype(mut conn: PgConnection) {
 
     // if we don't segfault postgres here, we're good
     r#"
-    CALL paradedb.create_bm25(
-        table_name => 'test_table',
-        index_name => 'test_index',
-        key_field => 'id',
-        json_fields => paradedb.field('value', indexed => true, fast => true)
-    );
+    CREATE INDEX test_index ON test_table
+    USING bm25 (id, value) WITH (key_field='id', json_fields='{"value": {"indexed": true, "fast": true}}');
     "#
     .execute(&mut conn);
 }
@@ -56,7 +52,7 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     // Prior to 82fb7126ce6d2368cf19dd4dc6e28915afc5cf1e (PR #1618, <=v0.9.4) this didn't work
 
     r#"    
-    create table crash
+    CREATE TABLE crash
     (
         id serial8,
         j  jsonb
@@ -64,12 +60,8 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     
     INSERT INTO crash (j) SELECT '["one-element-string-array"]' FROM generate_series(1, 10000);
     
-    call paradedb.create_bm25(
-            table_name => 'crash',
-            index_name => 'crash_idx',
-            key_field => 'id',
-            json_fields => paradedb.field('j', indexed => true, fast => true)
-         );
+    CREATE INDEX crash_idx ON crash
+    USING bm25 (id, j) WITH (key_field='id', json_fields='{"j": {"indexed": true, "fast": true}}');
     "#
     .execute(&mut conn);
 }

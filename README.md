@@ -17,7 +17,6 @@
 
 ---
 
-[![Publish ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
 [![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
 [![License](https://img.shields.io/github/license/paradedb/paradedb?color=blue)](https://github.com/paradedb/paradedb?tab=AGPL-3.0-1-ov-file#readme)
@@ -53,7 +52,7 @@ For more information, including enterprise features and support, please [contact
 
 ### Extensions
 
-You can find prebuilt binaries for all ParadeDB extensions on Debian 12, Ubuntu 22.04 and 24.04, and Red Hat Enterprise Linux 8 and 9 for Postgres 14, 15, 16 and 17 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
+You can find prebuilt binaries for the ParadeDB Postgres extensions on Debian 12, Ubuntu 22.04 and 24.04, Red Hat Enterprise Linux 8 and 9, and macOS 14 (Sonoma) and 15 (Sequoia) for Postgres 14, 15, 16 and 17 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 13+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
 ### Docker Image
 

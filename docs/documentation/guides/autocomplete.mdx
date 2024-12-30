@@ -110,15 +110,11 @@ the [ngrams tokenizer](/documentation/indexing/create_index#ngrams) can be used 
 For the purpose of this example, let's assume that we have an index called `ngrams_idx`:
 
 ```sql
-CALL paradedb.create_bm25(
-    index_name => 'ngrams_idx',
-    schema_name => 'public',
-    table_name => 'mock_items',
-    key_field => 'id',
-    text_fields => paradedb.field(
-        'description',
-        tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false)
-    )
+CREATE INDEX ngrams_idx ON public.mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{"description": {"tokenizer": {"type": "ngram", "min_gram": 3, "max_gram": 3, "prefix_only": false}}}'
 );
 ```
 

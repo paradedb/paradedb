@@ -1,0 +1,79 @@
+---
+title: 0.13.0
+---
+
+## Syntax Changes 💡
+
+### Introducing `CREATE INDEX`
+
+`paradedb.create_bm25` has been deprecated in favor of `CREATE INDEX`:
+
+```sql
+-- Old syntax
+CALL paradedb.create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description') || paradedb.field('category'),
+  numeric_fields => paradedb.field('rating'),
+  boolean_fields => paradedb.field('in_stock'),
+  datetime_fields => paradedb.field('created_at'),
+  json_fields => paradedb.field('metadata'),
+  range_fields => paradedb.field('weight_range')
+);
+
+-- New syntax
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
+```
+
+`CREATE INDEX` conforms with PostgreSQL dialect and unlocks several new features:
+
+- Support for `CREATE INDEX CONCURRENTLY`
+- Support for indexing partitioned tables
+
+### Deprecated Syntax Migration
+
+In ParadeDB `v0.13.0`, the old `paradedb.create_bm25` function was deprecated in favor of the `CREATE INDEX` syntax. To make migration to the new
+`CREATE INDEX` syntax easier, a new `paradedb.format_create_bm25` function has been introduced. This function accepts the same arguments as the deprecated
+`paradedb.create_bm25` function and outputs an equivalent `CREATE INDEX` statement which can be copy, pasted, and executed.
+
+```sql
+SELECT * FROM paradedb.format_create_bm25(
+  index_name => 'search_idx',
+  table_name => 'mock_items',
+  key_field => 'id',
+  text_fields => paradedb.field('description') || paradedb.field('category'),
+  numeric_fields => paradedb.field('rating'),
+  boolean_fields => paradedb.field('in_stock'),
+  datetime_fields => paradedb.field('created_at'),
+  json_fields => paradedb.field('metadata'),
+  range_fields => paradedb.field('weight_range')
+);
+```
+
+<Note>
+  `paradedb.format_create_bm25` does **not** create the index. It simply outputs
+  a `CREATE INDEX` statement for you to run.
+</Note>
+
+## New Features
+
+### Improved Regex queries
+
+Added support for `^` and `$` in our regex query.
+
+## Stability Improvements 💪
+
+- [#1955](https://github.com/paradedb/paradedb/pull/1955) fixed a bug where joins of three or more tables would not produce BM25 scores
+- [#1951](https://github.com/paradedb/paradedb/pull/1951) fixed a bug where search queries wrapped in CTEs would fast_fields
+- [#1959](https://github.com/paradedb/paradedb/pull/1951) fixed a potential compatibility issue with Citus
+
+## Docker Image 🐳
+
+The ParadeDB Docker Image now defaults to Postgres 17 instead of 16.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.13.0).

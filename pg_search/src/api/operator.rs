@@ -19,21 +19,24 @@ mod searchqueryinput;
 mod text;
 
 use crate::api::index::{fieldname_typoid, FieldName};
-use crate::postgres::index::open_search_index;
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::BlockDirectoryType;
+use crate::nodecast;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
+use pgrx::pg_sys::expression_tree_walker;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
 use pgrx::*;
 use std::ffi::CStr;
-use std::ptr::NonNull;
+use std::ptr::{addr_of_mut, NonNull};
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct ReturnedNodePointer(Option<NonNull<pg_sys::Node>>);
+pub struct ReturnedNodePointer(pub Option<NonNull<pg_sys::Node>>);
 
 unsafe impl BoxRet for ReturnedNodePointer {
     unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> Datum<'fcx> {
@@ -135,18 +138,9 @@ pub(crate) fn estimate_selectivity(
         return None;
     }
 
-    let search_index = open_search_index(indexrel).expect("should be able to open search index");
-    let search_reader = search_index
-        .get_reader()
-        .expect("search reader creation should not fail");
-    let estimate = search_reader
-        .estimate_docs(
-            indexrel,
-            search_index.query_parser(),
-            search_query_input.clone(),
-        )
-        .unwrap_or(1) as f64;
-
+    let search_reader = SearchIndexReader::open(indexrel, BlockDirectoryType::Mvcc, false)
+        .expect("estimate_selectivity: should be able to open a SearchIndexReader");
+    let estimate = search_reader.estimate_docs(search_query_input).unwrap_or(1) as f64;
     let mut selectivity = estimate / reltuples;
     if selectivity > 1.0 {
         selectivity = 1.0;
@@ -233,7 +227,7 @@ unsafe fn make_search_query_input_opexpr_node(
         let search_query_input_const = pg_sys::makeConst(
             searchqueryinput_typoid(),
             -1,
-            pg_sys::DEFAULT_COLLATION_OID,
+            pg_sys::Oid::INVALID,
             -1,
             wrapped_query.into_datum().unwrap(),
             false,
@@ -291,7 +285,7 @@ unsafe fn make_search_query_input_opexpr_node(
             parse_with_field_procoid(),
             searchqueryinput_typoid(),
             parse_with_field_args.into_pg(),
-            pg_sys::DEFAULT_COLLATION_OID,
+            pg_sys::Oid::INVALID,
             pg_sys::DEFAULT_COLLATION_OID,
             pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
         );
@@ -305,7 +299,7 @@ unsafe fn make_search_query_input_opexpr_node(
     }
 
     newopexpr.opresulttype = pg_sys::BOOLOID;
-    newopexpr.opcollid = pg_sys::DEFAULT_COLLATION_OID;
+    newopexpr.opcollid = pg_sys::Oid::INVALID;
     newopexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
     newopexpr.location = (*(*srs).fcall).location;
 
@@ -402,6 +396,32 @@ pub unsafe fn find_var_relation(
         }
         _ => panic!("unsupported RTEKind: {}", (*rte).rtekind),
     }
+}
+
+/// Find all the Vars referenced in the specified node
+pub unsafe fn find_vars(node: *mut pg_sys::Node) -> Vec<*mut pg_sys::Var> {
+    #[pg_guard]
+    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            let data = data.cast::<Data>();
+            (*data).vars.push(var);
+        }
+
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Data {
+        vars: Vec<*mut pg_sys::Var>,
+    }
+
+    let mut data = Data { vars: Vec::new() };
+
+    walker(node, addr_of_mut!(data).cast());
+    data.vars
 }
 
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`

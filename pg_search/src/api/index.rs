@@ -18,7 +18,8 @@
 use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 
-use crate::postgres::index::open_search_index;
+use crate::index::reader::index::SearchIndexReader;
+use crate::index::BlockDirectoryType;
 use crate::postgres::types::TantivyValue;
 use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::AnyEnum;
@@ -59,8 +60,9 @@ pub fn schema(
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
-    let search_index = open_search_index(&index).expect("should be able to open search index");
-    let schema = search_index.schema.schema.clone();
+    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)
+        .expect("could not open search index reader");
+    let schema = search_reader.schema().schema.clone();
     let mut field_entries: Vec<_> = schema.fields().collect();
 
     // To ensure consistent ordering of outputs, we'll sort the results by field name.
@@ -160,10 +162,10 @@ pub fn boolean_singles(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn boost(boost: f32, query: SearchQueryInput) -> SearchQueryInput {
+pub fn boost(factor: f32, query: SearchQueryInput) -> SearchQueryInput {
     SearchQueryInput::Boost {
         query: Box::new(query),
-        boost,
+        factor,
     }
 }
 

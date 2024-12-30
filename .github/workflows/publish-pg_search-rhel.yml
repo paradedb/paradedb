@@ -1,0 +1,312 @@
+# workflows/publish-pg_search-rhel.yml
+#
+# Publish pg_search (Red Hat)
+# Build and publish the pg_search extension as .rpm to GitHub Releases.
+
+name: Publish pg_search (Red Hat)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to set for the pg_search release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        required: true
+        default: ""
+
+concurrency:
+  group: publish-pg_search-rhel-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# Used by actions/attest-build-provenance to sign the builds
+permissions:
+  id-token: write
+  attestations: write
+
+jobs:
+  publish-pg_search:
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ${{ matrix.image }}
+      credentials:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+    strategy:
+      matrix:
+        include:
+          # Red Hat Enterprise Linux 8
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-8
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi8:latest
+            pg_version: 14
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-8
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi8:latest
+            pg_version: 15
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-8
+            image: redhat/ubi8:latest
+            pg_version: 16
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi8:latest
+            pg_version: 16
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-8
+            image: redhat/ubi8:latest
+            pg_version: 17
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 8
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi8:latest
+            pg_version: 17
+            arch: aarch64
+          # Red Hat Enterprise Linux 9
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
+            image: redhat/ubi9:latest
+            pg_version: 14
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi9:latest
+            pg_version: 14
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
+            image: redhat/ubi9:latest
+            pg_version: 15
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi9:latest
+            pg_version: 15
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
+            image: redhat/ubi9:latest
+            pg_version: 16
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi9:latest
+            pg_version: 16
+            arch: aarch64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-8
+            image: redhat/ubi9:latest
+            pg_version: 17
+            arch: x86_64
+          - name: Red Hat Enterprise Linux 9
+            runner: ubicloud-standard-4-arm
+            image: redhat/ubi9:latest
+            pg_version: 17
+            arch: aarch64
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          # Extract RHEL version from the image name
+          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+
+          # Install dependencies
+          dnf install -y sudo wget gcc llvm-toolset pkgconf-pkg-config openssl-devel jq rpm-build
+
+          # Add Oracle Linux ${RHEL_VERSION} repositories to enable epel-release
+          sudo tee /etc/yum.repos.d/oracle-linux-ol${RHEL_VERSION}.repo > /dev/null <<EOF
+          [ol${RHEL_VERSION}_baseos_latest]
+          name=Oracle Linux ${RHEL_VERSION} BaseOS Latest (\$basearch)
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/baseos/latest/\$basearch/
+          gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          gpgcheck=1
+          enabled=1
+
+          [ol${RHEL_VERSION}_appstream]
+          name=Oracle Linux ${RHEL_VERSION} Application Stream (\$basearch)
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/appstream/\$basearch/
+          gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          gpgcheck=1
+          enabled=1
+
+          [ol${RHEL_VERSION}_codeready_builder]
+          name=Oracle Linux ${RHEL_VERSION} CodeReady Builder (\$basearch) - Unsupported
+          baseurl=https://yum.oracle.com/repo/OracleLinux/OL${RHEL_VERSION}/codeready/builder/\$basearch/
+          gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          gpgcheck=1
+          enabled=1
+          EOF
+
+          # Install epel-release, which is required by PostgreSQL via Perl-IPC-Run
+          wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol${RHEL_VERSION} -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+          sudo dnf install -y epel-release
+
+          # This package requires epel-release, which is why we install it last. It is required to
+          # configure the build environment for creating the RPM package via rpmbuild
+          sudo dnf install -y rpmdevtools
+
+      # Used to upload the release to GitHub Releases
+      - name: Install GitHub CLI
+        run: |
+          sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+          sudo dnf install -y gh
+          gh --version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Retrieve OS & GitHub Tag Versions
+        id: version
+        run: |
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+
+          OS_VERSION="el$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)"
+          echo "OS Version: $OS_VERSION"
+          echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
+
+          # Retrieve the current date for the changelog
+          CURRENT_DATE=$(LC_TIME=C date +"%a %b %d %Y")
+          echo "Current Date: $CURRENT_DATE"
+          echo "current_date=$CURRENT_DATE" >> $GITHUB_OUTPUT
+
+      - name: Install & Configure Supported PostgreSQL Version on RHEL
+        run: |
+          # Extract RHEL version from the image name
+          RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
+
+          # Install the repository RPM:
+          sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
+
+          # Disable the built-in PostgreSQL module:
+          sudo dnf -qy module disable postgresql
+
+          # Install PostgreSQL:
+          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel
+
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') >> $GITHUB_OUTPUT
+
+      - name: Install pgrx
+        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize pgrx for Current PostgreSQL Version
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
+
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx package --pg-config $PG_CONFIG_PATH
+
+      - name: Create .rpm Package
+        run: |
+          echo "Configuring RPM build environment..."
+          rpmdev-setuptree
+
+          echo "Creating RPM SPEC file..."
+          spec_file=~/rpmbuild/SPECS/pg_search.spec
+          cat <<EOF > $spec_file
+          Name:           pg_search_${{ matrix.pg_version }}
+          Version:        ${{ steps.version.outputs.tag_version }}
+          Release:        1%{?dist}
+          Summary:        Full-text search for PostgreSQL using BM25
+          License:        GNU Affero General Public License v3.0
+          URL:            https://github.com/paradedb/paradedb
+
+          BuildRequires:  postgresql${{ matrix.pg_version }}-devel
+          Requires:       postgresql${{ matrix.pg_version }}-server
+
+          %description
+          pg_search is a Postgres extension that enables full-text search over
+          PostgreSQL tables using the BM25 algorithm. It is built on top of Tantivy,
+          the Rust-based alternative to Apache Lucene, using pgrx.
+
+          %install
+          %{__rm} -rf %{buildroot}
+          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
+          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 755 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
+          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+
+          %files
+          /usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so
+          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control
+          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
+
+          %changelog
+          * ${{ steps.version.outputs.current_date }} ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}
+          - Latest RPM Release
+          * Sat Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
+          - Initial RPM Release
+          EOF
+
+          echo "Copying pg_search binaries to RPM build directory..."
+          cp -r target/release/pg_search-pg${{ matrix.pg_version }}/ ~/rpmbuild/SOURCES/pg_search_${{ matrix.pg_version }}
+
+          echo "Building RPM package..."
+          rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
+
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+
+      - name: Retrieve GitHub Release Upload URL
+        id: upload_url
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+        run: |
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+          echo "REST API Response: $RESPONSE"
+
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
+          echo "GitHub Release Upload URL is: $UPLOAD_URL"
+          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+
+      - name: Upload pg_search .rpm to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          overwrite: true

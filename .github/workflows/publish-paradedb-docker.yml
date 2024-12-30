@@ -1,11 +1,11 @@
-# workflows/publish-paradedb.yml
+# workflows/publish-paradedb-docker.yml
 #
-# Publish ParadeDB
+# Publish ParadeDB (Docker)
 # Publish ParadeDB as a Docker image to Docker Hub and as a Helm Chart to paradedb.github.io via our
 # `paradedb/charts` repository. This workflow only runs after a GitHub Release gets created, which
 # happens once we merge to `main`.
 
-name: Publish ParadeDB
+name: Publish ParadeDB (Docker)
 
 on:
   push:
@@ -19,7 +19,7 @@ on:
         default: ""
 
 concurrency:
-  group: publish-paradedb-${{ github.head_ref || github.ref }}
+  group: publish-paradedb-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 # Used by actions/attest-build-provenance to sign the builds
@@ -34,6 +34,8 @@ jobs:
     strategy:
       matrix:
         pg_version: [13, 14, 15, 16, 17]
+    env:
+      default_pg_version: 17
 
     steps:
       - name: Checkout Git Repository
@@ -55,6 +57,9 @@ jobs:
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
       - name: Setup Docker Image tags
         id: meta
@@ -66,9 +71,9 @@ jobs:
             type=raw,value=${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }}
             type=raw,value=${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}
             type=raw,value=latest-pg${{ matrix.pg_version }}
-            type=raw,value=latest,enable=${{ matrix.pg_version == 16 }}
-            type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == 16 }}
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == 16 }}
+            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -76,6 +81,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      # We don't need to use secret mounts for the build-args here because
+      # the PostHog secrets are public-facing and don't need to be kept secret.
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
         uses: depot/build-push-action@v1
@@ -90,6 +97,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true
+          sbom: true
+          provenance: mode=max
           project: ${{ secrets.DEPOT_PROJECT }}
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -106,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [16]
+        pg_version: [17]
 
     steps:
       - name: Retrieve GitHub Release Version

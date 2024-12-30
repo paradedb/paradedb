@@ -20,7 +20,7 @@ async-std = { version = "1.13.0", features = ["attributes"] }
 bigdecimal = { version = "0.3.1", features = ["serde"] }
 bytes = "1.7.2"
 chrono = { version = "0.4.38", features = ["clock", "alloc"] }
-cmd_lib = "1.9.4"
+cmd_lib = "1.9.5"
 dotenvy = "0.15.7"
 futures = "0.3.30"
 pgvector = { version = "0.3.4", features = ["sqlx"] }
@@ -42,7 +42,6 @@ sqlx = { version = "0.7.4", features = [
 strum = "0.26.3"
 strum_macros = "0.26.4"
 tantivy.workspace = true
-tantivy-common.workspace = true
 tempfile = "3.12.0"
 time = { version = "0.3.36", features = ["serde"] }
 tokenizers = { path = "../tokenizers" }

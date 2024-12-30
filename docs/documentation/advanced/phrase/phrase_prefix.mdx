@@ -20,7 +20,7 @@ WHERE id @@@
 '{
     "phrase_prefix": {
         "field": "description",
-        "values": ["running", "sh"]
+        "phrases": ["running", "sh"]
     }
 }'::jsonb;
 ```
@@ -35,7 +35,7 @@ WHERE id @@@
   An `ARRAY` of words that the search is looking to match, followed by a term
   prefix rather than a complete term.
 </ParamField>
-<ParamField body="max_expansion">
+<ParamField body="max_expansions">
   Limits the number of term variations that the prefix can expand to during the
   search. This helps in controlling the breadth of the search by setting a cap
   on how many different terms the prefix can match.

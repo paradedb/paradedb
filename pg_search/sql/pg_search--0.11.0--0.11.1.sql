@@ -29,4 +29,3 @@ DROP FUNCTION IF EXISTS search_config_restrict(planner_info internal, operator_o
                                                _var_relid pg_catalog.int4);
 DROP FUNCTION IF EXISTS search_with_search_config(element anyelement, config_json jsonb);
 DROP FUNCTION IF EXISTS search_config_support(arg internal);
-

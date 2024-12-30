@@ -28,7 +28,7 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        pg_version: [16]
+        pg_version: [16] # We test extension upgrade on Postgres 16 for compatibility with older versions of pg_search
 
     steps:
       - name: Checkout Git Repository
@@ -42,7 +42,9 @@ jobs:
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | cut -f2 -dv) >> $GITHUB_OUTPUT
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.

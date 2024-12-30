@@ -1,5 +1,5 @@
 # The default Postgres major version ParadeDB ships with. In CI, this gets updated to ship builds for all official PGDG versions.
-ARG PG_VERSION_MAJOR=16
+ARG PG_VERSION_MAJOR=17
 
 ###############################################
 # First Stage: Builder
@@ -9,7 +9,7 @@ ARG PG_VERSION_MAJOR=16
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR
-ARG RUST_VERSION=1.80.0
+ARG RUST_VERSION=stable
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
@@ -38,12 +38,12 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-# Copy Cargo.toml because we need to extract the pgrx version
-WORKDIR /tmp
-COPY pg_search/Cargo.toml ./
+# Copy project because we need to extract the pgrx version
+COPY . /tmp/
 
 # Install the pgrx version of pg_search and pg_analytics
-RUN PGRX_VERSION=$(sed -n 's/^pgrx *= *"=*\([0-9.]*\)"/\1/p' Cargo.toml) && \
+WORKDIR /tmp/
+RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
@@ -89,7 +89,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-RUN git clone --branch v0.2.3 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
+RUN git clone --branch v0.2.4 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 
 # Build the extension
 WORKDIR /tmp/pg_analytics
@@ -198,7 +198,7 @@ RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \
-    pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]~=3.11' && \
+    pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]<3.12' && \
     apt-get remove -y python3-dev python3-pip --purge && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* && \

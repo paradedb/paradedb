@@ -4,7 +4,7 @@ title: Indexing
 
 ## Index Settings
 
-These settings can be set in `postgresql.conf` and affect system resources used by the `paradedb.create_bm25()` function
+These settings can be set in `postgresql.conf` and affect system resources used during `CREATE INDEX`
 and normal `INSERT/UPDATE/COPY` statements.
 
 ### Indexing Threads
@@ -86,11 +86,9 @@ SET paradedb.statement_memory_budget = 15;
 
 ## Segment Settings
 
-A segment is an individual unit of an index. Each BM25 index is comprised of multiple segments. Every atomic insert or update creates a new segment.
-
 ### Target Segment Count
 
-Having too many segments can negatively impact search performance. During a `VACUUM`, smaller segments can be merged into larger segments.
+Having too many [segments](/documentation/concepts/index#segment) can negatively impact search performance. During a `VACUUM`, smaller segments can be merged into larger segments.
 
 `target_segment_count` controls the number of segments that should exist and defaults to the number of available CPUs
 on the host machine. This allows multiple threads to read from segments in parallel during a search.

@@ -12,11 +12,13 @@ By default, [numeric](/documentation/indexing/create_index#numeric-fields), [dat
 are indexed as fast. The following code block demonstrates how to specify a fast field.
 
 ```sql
-CALL paradedb.create_bm25(
-  index_name => 'search_idx',
-  table_name => 'mock_items',
-  key_field => 'id',
-  numeric_fields => paradedb.field('rating', fast => true)
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, rating)
+WITH (
+    key_field = 'id',
+    text_fields ='{
+        "description": {"fast": true}
+    }'
 );
 ```
 
@@ -26,7 +28,14 @@ The normalizer controls how text fast fields are stored. By default, the `raw` n
 queries that [sort by the text field](/documentation/full-text/sorting#fast-ordering).
 
 ```sql
-paradedb.field('category', fast => true, normalizer => 'raw')
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, category)
+WITH (
+    key_field='id',
+    text_fields='{
+        "category": {"fast": true, "normalizer": "raw"}
+    }'
+);
 ```
 
 Setting the normalizer to `lowercase` is useful for queries that [sort by the lowercase text field](/documentation/full-text/sorting#ordering-by-text-field).

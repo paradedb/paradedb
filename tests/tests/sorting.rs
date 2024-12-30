@@ -30,17 +30,32 @@ fn sort_by_lower(mut conn: PgConnection) {
         SET enable_indexscan TO off;
         CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
-        CALL paradedb.create_bm25(
-            index_name => 'bm25_search_idx',
-            table_name => 'bm25_search',
-            schema_name => 'paradedb',
-            key_field => 'id',
-            text_fields => paradedb.field('description') || paradedb.field('category', fast=>true, normalizer=>'lowercase'),
-            numeric_fields => paradedb.field('rating'),
-            boolean_fields => paradedb.field('in_stock'),
-            json_fields => paradedb.field('metadata'),
-            datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date') || paradedb.field('latest_available_time')        
-        );        
+        CREATE INDEX bm25_search_idx ON paradedb.bm25_search
+        USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "description": {},
+                "category": {
+                    "fast": true,
+                    "normalizer": "lowercase"
+                }
+            }',
+            numeric_fields = '{
+                "rating": {}
+            }',
+            boolean_fields = '{
+                "in_stock": {}
+            }',
+            json_fields = '{
+                "metadata": {}
+            }',
+            datetime_fields = '{
+                "created_at": {},
+                "last_updated_date": {},
+                "latest_available_time": {}
+            }'
+        );
     "#.execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY lower(category) LIMIT 5".fetch_one::<(Value,)>(&mut conn);
@@ -63,17 +78,32 @@ fn sort_by_raw(mut conn: PgConnection) {
         SET enable_indexscan TO off;
         CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
-        CALL paradedb.create_bm25(
-            index_name => 'bm25_search_idx',
-            table_name => 'bm25_search',
-            schema_name => 'paradedb',
-            key_field => 'id',
-            text_fields => paradedb.field('description') || paradedb.field('category', fast=>true, normalizer=>'raw'),
-            numeric_fields => paradedb.field('rating'),
-            boolean_fields => paradedb.field('in_stock'),
-            json_fields => paradedb.field('metadata'),
-            datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date') || paradedb.field('latest_available_time')        
-        );        
+        CREATE INDEX bm25_search_idx ON paradedb.bm25_search
+        USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "description": {},
+                "category": {
+                    "fast": true,
+                    "normalizer": "raw"
+                }
+            }',
+            numeric_fields = '{
+                "rating": {}
+            }',
+            boolean_fields = '{
+                "in_stock": {}
+            }',
+            json_fields = '{
+                "metadata": {}
+            }',
+            datetime_fields = '{
+                "created_at": {},
+                "last_updated_date": {},
+                "latest_available_time": {}
+            }'
+        );
     "#.execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
@@ -96,17 +126,32 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
         SET enable_indexscan TO off;
         CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
 
-        CALL paradedb.create_bm25(
-            index_name => 'bm25_search_idx',
-            table_name => 'bm25_search',
-            schema_name => 'paradedb',
-            key_field => 'id',
-            text_fields => paradedb.field('description') || paradedb.field('category', fast=>true, normalizer=>'raw'),
-            numeric_fields => paradedb.field('rating'),
-            boolean_fields => paradedb.field('in_stock'),
-            json_fields => paradedb.field('metadata'),
-            datetime_fields => paradedb.field('created_at') || paradedb.field('last_updated_date') || paradedb.field('latest_available_time')        
-        );        
+        CREATE INDEX bm25_search_idx ON paradedb.bm25_search
+        USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "description": {},
+                "category": {
+                    "fast": true,
+                    "normalizer": "raw"
+                }
+            }',
+            numeric_fields = '{
+                "rating": {}
+            }',
+            boolean_fields = '{
+                "in_stock": {}
+            }',
+            json_fields = '{
+                "metadata": {}
+            }',
+            datetime_fields = '{
+                "created_at": {},
+                "last_updated_date": {},
+                "latest_available_time": {}
+            }'
+        );
     "#.execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT paradedb.score(id), * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);

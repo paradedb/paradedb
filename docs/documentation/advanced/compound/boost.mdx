@@ -25,7 +25,7 @@ WHERE id @@@
     "boolean": {
         "should": [
             {"term": {"field": "description", "value": "shoes"}},
-            {"boost": {"boost": 2.0, "query": {"term": {"field": "description", "value": "running"}}}}
+            {"boost": {"factor": 2.0, "query": {"term": {"field": "description", "value": "running"}}}}
         ]
     }
 }'::jsonb;
@@ -34,7 +34,7 @@ WHERE id @@@
 
 <div className="mt-8" />
 
-<ParamField body="boost" required>
+<ParamField body="factor" required>
   The factor by which to multiply the score of each result.
 </ParamField>
 <ParamField body="query" required>

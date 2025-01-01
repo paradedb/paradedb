@@ -43,6 +43,7 @@ CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description)
 WITH (key_field='id', target_segment_count = 16);
 
+-- Changed afterward
 ALTER INDEX search_idx SET (target_segment_count = 16);
 ```
 

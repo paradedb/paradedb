@@ -529,8 +529,9 @@ async fn test_physical_streaming_replication() -> Result<()> {
     // Reconfigure primary to require synchronous replication
     // This ensures commits wait for replication confirmation.
     "ALTER SYSTEM SET synchronous_standby_names = '*';".execute(&mut primary_conn);
+    let pg_ctl_path = primary_postgres.pg_ctl_path.clone();
     let tempdir_path = primary_postgres.tempdir_path.clone();
-    run_cmd!(pg_ctl -D $tempdir_path restart &> /dev/null)
+    run_cmd!($pg_ctl_path -D $tempdir_path restart &> /dev/null)
         .expect("Failed to restart primary with sync config");
 
     // Reconnect after restart

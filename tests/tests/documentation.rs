@@ -968,7 +968,46 @@ fn phrase_level_queries(mut conn: PgConnection) {
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items
-    WHERE id @@@ paradedb.phrase('description', ARRAY['running', 'shoes'])
+    WHERE id @@@ paradedb.phrase(
+        field => 'description',
+        phrases => ARRAY['running', 'shoes']
+    )"#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "phrase": {
+            "field": "description",
+            "phrases": ["running", "shoes"]
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.phrase('description', ARRAY['sleek', 'shoes'], slop => 1);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "phrase": {
+            "field": "description",
+            "phrases": ["sleek", "shoes"],
+            "slop": 1
+        }
+    }'::jsonb;
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);

@@ -631,12 +631,9 @@ impl CustomScan for PdbScan {
                                     for (snippet_info, const_snippet_node) in
                                         &state.custom_state().const_snippet_nodes
                                     {
-                                        if let Some(snippet) = state.custom_state().make_snippet(
-                                            state.custom_state().heaprel_namespace(),
-                                            state.custom_state().heaprelname(),
-                                            ctid,
-                                            snippet_info,
-                                        ) {
+                                        if let Some(snippet) =
+                                            state.custom_state().make_snippet(ctid, snippet_info)
+                                        {
                                             (**const_snippet_node).constvalue =
                                                 snippet.into_datum().unwrap();
                                             (**const_snippet_node).constisnull = false;

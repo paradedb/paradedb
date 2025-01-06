@@ -44,7 +44,7 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 static LOG_CREATE_INDEX_PROGRESS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// How many threads should tantivy use during CREATE INDEX?
-static CREATE_INDEX_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(8);
+static CREATE_INDEX_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// How much memory should tantivy use during CREATE INDEX.  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
@@ -103,10 +103,14 @@ pub fn init() {
     GucRegistry::define_int_guc(
         "paradedb.create_index_parallelism",
         "The number of threads to use when creating an index",
-        "Default is 8.  Recommended value is roughly the number of cores in the machine.  Value of zero means a thread for as many cores in the machine",
+        "Default is 0, which means a thread for as many cores in the machine",
         &CREATE_INDEX_PARALLELISM,
         0,
-        std::thread::available_parallelism().expect("your computer should have at least one core").get().try_into().expect("your computer has too many cores"),
+        std::thread::available_parallelism()
+            .expect("your computer should have at least one core")
+            .get()
+            .try_into()
+            .expect("your computer has too many cores"),
         GucContext::Suset,
         GucFlags::default(),
     );

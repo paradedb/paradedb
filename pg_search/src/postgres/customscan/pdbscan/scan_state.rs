@@ -25,8 +25,8 @@ use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
-use pgrx::itemptr::item_pointer_get_both;
-use pgrx::{name_data_to_str, pg_sys, PgRelation, Spi};
+use pgrx::heap_tuple::PgHeapTuple;
+use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use tantivy::schema::OwnedValue;
@@ -170,24 +170,54 @@ impl PdbScanState {
         self.visibility_checker.as_mut().unwrap()
     }
 
-    pub fn make_snippet(
-        &self,
-        relschema: &str,
-        relname: &str,
-        ctid: u64,
-        snippet_info: &SnippetInfo,
-    ) -> Option<String> {
+    pub fn make_snippet(&self, ctid: u64, snippet_info: &SnippetInfo) -> Option<String> {
+        let heaprel = self
+            .heaprel
+            .expect("make_snippet: heaprel should be initialized");
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
-        let sql = format!(
-            r#"SELECT "{}"::text FROM "{}"."{}" WHERE ctid = '{:?}';"#,
-            snippet_info.field,
-            relschema,
-            relname,
-            item_pointer_get_both(ipd)
-        );
-        let text =
-            Spi::get_one::<String>(&sql).expect("SPI lookup for snippet text should not fail")?;
+
+        let text = unsafe {
+            let mut heap_tuple = pg_sys::HeapTupleData {
+                t_self: ipd,
+                ..Default::default()
+            };
+            let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+            #[cfg(any(feature = "pg13", feature = "pg14"))]
+            {
+                if !pg_sys::heap_fetch(
+                    heaprel,
+                    pg_sys::GetActiveSnapshot(),
+                    &mut heap_tuple,
+                    &mut buffer,
+                ) {
+                    return None;
+                }
+            }
+
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+            {
+                if !pg_sys::heap_fetch(
+                    heaprel,
+                    pg_sys::GetActiveSnapshot(),
+                    &mut heap_tuple,
+                    &mut buffer,
+                    false,
+                ) {
+                    return None;
+                }
+            }
+
+            pg_sys::ReleaseBuffer(buffer);
+
+            let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
+            PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple)
+                .get_by_name(&snippet_info.field)
+                .expect("{snippet_info.field} should exist in the heap tuple")
+                .unwrap_or_default()
+        };
+
         let (field, generator) = self.snippet_generators.get(snippet_info)?.as_ref()?;
         let doc = HashMap::from([(*field, OwnedValue::Str(text))]);
         let mut snippet = generator.snippet_from_doc(&doc);

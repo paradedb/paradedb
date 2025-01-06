@@ -1,9 +1,11 @@
 ---
-title: Getting Started
+title: Kubernetes
 ---
 
-To configure high availability, we will be deploying the [ParadeDB Helm Chart](https://github.com/paradedb/charts).
-This chart is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
+Kubernetes is the recommended way to run ParadeDB in production. To deploy on Kubernetes, we will be using the [ParadeDB Helm Chart](https://github.com/paradedb/charts),
+which can wrap around either the ParadeDB Community or Enterprise binaries. The chart is also available on [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
+
+## Prerequisites
 
 This guide assumes you have installed [Helm](https://helm.sh/docs/intro/install/) and have a Kubernetes cluster running v1.25+.
 For local testing, we recommend [Minikube](https://minikube.sigs.k8s.io/docs/start/).
@@ -39,30 +41,63 @@ cnpg/cloudnative-pg
 
 Create a `values.yaml` and configure it to your requirements. Here is a basic example:
 
-```yaml
+<CodeGroup>
+
+```yaml ParadeDB Community
 type: paradedb
 mode: standalone
 
 cluster:
-  instances: 3
+  instances: 1
   storage:
     size: 256Mi
 ```
 
-Then, launch the ParadeDB cluster. If you do not wish to monitor your cluster, omit the `--set` command.
+```yaml ParadeDB Enterprise
+type: paradedb-enterprise
+mode: standalone
+
+cluster:
+  instances: 1
+  storage:
+    size: 256Mi
+```
+
+</CodeGroup>
+
+<Note>
+  If you are using ParadeDB Enterprise, `instances` should be set to a number
+  greater than `1` for [high
+  availability](/deploy/self-hosted/high-availability).
+</Note>
+
+Next, create a namespace for this step or use an existing namespace. The namespace can be any value.
+
+```bash
+kubectl create namespace <your-namespace>
+```
+
+For ParadeDB Enterprise, you should have received an enterprise Docker username and personal access token. The following step passes these
+credentials to Kubernetes and should be skipped if you are deploying ParadeDB Community.
+
+```bash ParadeDB Enterprise
+kubectl create secret docker-registry paradedb-enterprise-registry-cred
+--namespace <your-namespace>
+--docker-server="https://index.docker.io/v1/"
+--docker-username="<enterprise_docker_username>"
+--docker-password="<enterprise_docker_access_token>"
+```
+
+Finally, launch the ParadeDB cluster.
 
 ```bash
 helm repo add paradedb https://paradedb.github.io/charts
 helm upgrade --atomic --install paradedb \
---namespace paradedb \
---create-namespace \
+--namespace <your-namespace> \
 --values values.yaml \
 --set cluster.monitoring.enabled=true \
 paradedb/paradedb
 ```
-
-If `--values values.yaml` is omitted, the default values will be used. For advanced cluster configuration options, including configuring
-backups and PgBouncer, please refer to the [ParadeDB Helm Chart documentation](https://artifacthub.io/packages/helm/paradedb/paradedb#values).
 
 ## Connect to the Cluster
 

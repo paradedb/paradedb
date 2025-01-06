@@ -2,32 +2,17 @@
 title: Overview
 ---
 
-<Note>
-  ParadeDB BYOC (Bring Your Own Cloud), a managed deployment of ParadeDB inside
-  your AWS, Azure, or GCP account, is now available. Please [contact
-  sales](mailto:sales@paradedb.com) for access.
-</Note>
+There are two ways to deploy ParadeDB: self-hosting ParadeDB or using ParadeDB BYOC (Bring Your Own Cloud).
 
-Deploying ParadeDB into production consists of two steps:
+## Self-Hosted ParadeDB
 
-1. Configure [logical replication](#logical-replication) between your primary Postgres and ParadeDB. This requires a [ParadeDB Enterprise](/deploy/enterprise) license.
-2. Configure [high availability](#high-availability) for ParadeDB.
+For hobby environments, ParadeDB Community can be deployed as a [Docker image](/deploy/self-hosted/docker),
+inside [Kubernetes](/deploy/self-hosted/kubernetes), or as an [extension](/deploy/self-hosted/extensions) inside an existing self-hosted Postgres.
 
-### Logical Replication
+For production environments, we recommend deploying the [ParadeDB Enterprise](/deploy/enterprise) binary inside Kubernetes. This unlocks support for
+[logical replication](/deploy/self-hosted/logical-replication) and [high availability](/deploy/self-hosted/high-availability), which must be configured separately.
 
-If your primary Postgres is a managed service like AWS RDS, Google CloudSQL, or Azure Postgres, follow [these instructions](/deploy/logical-replication).
-If your primary Postgres is self-hosted, follow [these instructions](/deploy/logical-replication#self-hosted). If you do not use Postgres as your primary,
-you may skip this step.
+## ParadeDB BYOC
 
-### High Availability
-
-ParadeDB uses a Kubernetes operator called CloudNativePG to implement high availability. Follow [these instructions](/deploy/high-availability) to set up
-CloudNativePG.
-
-### That's It!
-
-You've successfully deployed a production-ready, highly available ParadeDB cluster with the following architecture:
-
-![ParadeDB High Availability Architecture](/images/high-availability.png)
-
-If you are interested in having ParadeDB configure and manage this deployment on your behalf, please [contact sales](mailto:sales@paradedb.com).
+[ParadeDB BYOC (Bring Your Own Cloud)]() is a managed deployment of ParadeDB Enterprise inside your AWS, Azure, or GCP account.
+Please [contact sales](mailto:sales@paradedb.com) for access.

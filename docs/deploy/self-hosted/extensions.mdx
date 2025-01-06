@@ -2,6 +2,13 @@
 title: Extensions
 ---
 
+<Note>
+  If you are self-hosting, we do not recommend installing ParadeDB in your
+  primary Postgres. ParadeDB is designed to run as a [logical
+  replica](/deploy/self-hosted/logical-replication) of your primary, which
+  isolates search and analytical workloads from your primary.
+</Note>
+
 If you already self-manage Postgres, you may prefer to install ParadeDB directly within your self-managed
 Postgres instead of deploying the ParadeDB Helm chart.
 

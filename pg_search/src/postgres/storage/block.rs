@@ -23,7 +23,6 @@ use std::hash::Hash;
 use std::mem::{offset_of, size_of};
 use std::path::{Path, PathBuf};
 use std::slice::from_raw_parts;
-use std::str::FromStr;
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
 
@@ -141,7 +140,6 @@ pub struct FileEntry {
 pub struct DeleteEntry {
     pub file_entry: FileEntry,
     pub num_deleted_docs: u32,
-    pub opstamp: Opstamp,
 }
 
 /// Metadata for tracking alive segments
@@ -149,7 +147,6 @@ pub struct DeleteEntry {
 pub struct SegmentMetaEntry {
     pub segment_id: SegmentId,
     pub max_doc: u32,
-    pub opstamp: tantivy::Opstamp,
     pub xmin: pg_sys::TransactionId,
     pub xmax: pg_sys::TransactionId,
 
@@ -166,9 +163,8 @@ pub struct SegmentMetaEntry {
 impl Default for SegmentMetaEntry {
     fn default() -> Self {
         Self {
-            segment_id: SegmentId::from_uuid_string(&uuid::Uuid::default().to_string()).unwrap(),
+            segment_id: SegmentId::generate_random(),
             max_doc: Default::default(),
-            opstamp: Default::default(),
             xmin: pg_sys::InvalidTransactionId,
             xmax: pg_sys::InvalidTransactionId,
             postings: None,
@@ -214,6 +210,11 @@ impl From<PgItem> for SegmentMetaEntry {
 }
 
 impl SegmentMetaEntry {
+    /// Fake an opstamp value based on our internal `xmin` and `xmax` values
+    pub fn opstamp(&self) -> Opstamp {
+        ((self.xmax as u64) << 32) | (self.xmin as u64)
+    }
+
     pub fn get_file_entry(&self, segment_component: SegmentComponent) -> Option<FileEntry> {
         match segment_component {
             SegmentComponent::Postings => self.postings,
@@ -280,11 +281,10 @@ impl SegmentMetaEntry {
                 SegmentComponent::TempStore
             )));
         }
-        if let Some(entry) = &self.delete {
+        if let Some(_entry) = &self.delete {
             paths.push(PathBuf::from(format!(
-                "{}.{}.{}",
+                "{}.0.{}", // we can hardcode zero as the opstamp component of the path as it's not used by anyone
                 uuid,
-                entry.opstamp,
                 SegmentComponent::Delete
             )));
         }
@@ -296,7 +296,6 @@ impl SegmentMetaEntry {
 pub trait SegmentFileDetails {
     fn segment_id(&self) -> Option<SegmentId>;
     fn component_type(&self) -> Option<SegmentComponent>;
-    fn opstamp(&self) -> Option<Opstamp>;
 }
 
 impl<T: AsRef<Path>> SegmentFileDetails for T {
@@ -314,19 +313,6 @@ impl<T: AsRef<Path>> SegmentFileDetails for T {
             extension = last;
         }
         SegmentComponent::try_from(extension).ok()
-    }
-
-    fn opstamp(&self) -> Option<Opstamp> {
-        let mut parts = self.as_ref().file_name()?.to_str()?.split('.');
-        let _ = parts.next()?; // skip segment id
-        let opstamp = parts.next()?;
-        if parts.next().is_some() {
-            // there needs to be 3 parts in order for there to be an opstamp in the middle
-            return None;
-        }
-
-        // if the opstamp doesn't parse, then the Path doesn't have one, and that's okay
-        Opstamp::from_str(opstamp).ok()
     }
 }
 

@@ -171,7 +171,7 @@ jobs:
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
             ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb

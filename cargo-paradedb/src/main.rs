@@ -80,9 +80,9 @@ fn main() -> Result<()> {
                     url,
                     elastic_url,
                 } => block_on(subcommand::bench_eslogs_build_elastic_table(
+                    elastic_url,
                     url,
                     table,
-                    elastic_url,
                 )),
                 EsLogsCommand::QueryElasticIndex {
                     elastic_url,

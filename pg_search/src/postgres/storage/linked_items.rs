@@ -313,10 +313,10 @@ mod tests {
         list.garbage_collect(strategy).unwrap();
 
         assert!(list
-            .lookup(|entry| entry.segment_id == entries_to_delete[0].clone().segment_id)
+            .lookup(|entry| entry.segment_id == entries_to_delete[0].segment_id)
             .is_err());
         assert!(list
-            .lookup(|entry| entry.segment_id == entries_to_keep[0].clone().segment_id)
+            .lookup(|entry| entry.segment_id == entries_to_keep[0].segment_id)
             .is_ok());
     }
 
@@ -365,13 +365,9 @@ mod tests {
 
             for entry in entries {
                 if entry.xmax == not_deleted_xid {
-                    assert!(list
-                        .lookup(|el| el.segment_id == entry.clone().segment_id)
-                        .is_ok());
+                    assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_ok());
                 } else {
-                    assert!(list
-                        .lookup(|el| el.segment_id == entry.clone().segment_id)
-                        .is_err());
+                    assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_err());
                 }
             }
         }
@@ -417,13 +413,9 @@ mod tests {
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {
                     if entry.xmax == not_deleted_xid {
-                        assert!(list
-                            .lookup(|el| el.segment_id == entry.clone().segment_id)
-                            .is_ok());
+                        assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_ok());
                     } else {
-                        assert!(list
-                            .lookup(|el| el.segment_id == entry.clone().segment_id)
-                            .is_err());
+                        assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_err());
                     }
                 }
             }

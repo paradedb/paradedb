@@ -24,13 +24,15 @@ use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 pub trait BM25Page {
-    unsafe fn read_item<T: From<PgItem>>(&self, offsetno: pg_sys::OffsetNumber) -> Option<T>;
-
+    unsafe fn read_item<T: From<PgItem>>(
+        &self,
+        offsetno: pg_sys::OffsetNumber,
+    ) -> Option<(T, pg_sys::Size)>;
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool;
 }
 
 impl BM25Page for pg_sys::Page {
-    unsafe fn read_item<T: From<PgItem>>(&self, offno: OffsetNumber) -> Option<T> {
+    unsafe fn read_item<T: From<PgItem>>(&self, offno: OffsetNumber) -> Option<(T, pg_sys::Size)> {
         let item_id = pg_sys::PageGetItemId(*self, offno);
 
         if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
@@ -38,7 +40,8 @@ impl BM25Page for pg_sys::Page {
         }
 
         let item = pg_sys::PageGetItem(*self, item_id);
-        Some(T::from(PgItem(item, (*item_id).lp_len() as pg_sys::Size)))
+        let size = (*item_id).lp_len() as pg_sys::Size;
+        Some((T::from(PgItem(item, size)), size))
     }
 
     unsafe fn recyclable(self, heap_relation: pg_sys::Relation) -> bool {

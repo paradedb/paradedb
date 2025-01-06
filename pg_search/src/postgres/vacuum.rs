@@ -17,9 +17,7 @@
 
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
-use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::LinkedItemList;
 use pgrx::*;
 
 use super::delete::BulkDeleteData;
@@ -54,17 +52,9 @@ pub extern "C" fn amvacuumcleanup(
     .vacuum()
     .expect("amvacuumcleanup: SearchIndexWriter.vacuum() should succeed");
 
+    // return all recyclable pages to the free space map
     unsafe {
-        // Garbage collect linked lists
-        // If new LinkedItemLists are created they should be garbage collected here
         let index_oid = index_relation.oid();
-        let mut segment_metas =
-            LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START, true);
-        segment_metas
-            .garbage_collect(info.strategy)
-            .expect("garbage collection should succeed");
-
-        // Return all recyclable pages to the free space map
         let nblocks =
             pg_sys::RelationGetNumberOfBlocksInFork(info.index, pg_sys::ForkNumber::MAIN_FORKNUM);
         let mut bman = BufferManager::new(index_oid, true);
@@ -83,7 +73,6 @@ pub extern "C" fn amvacuumcleanup(
         pg_sys::IndexFreeSpaceMapVacuum(info.index);
     }
 
-    // TODO: Mark XIDs as frozen
     // TODO: Update stats
     stats
 }

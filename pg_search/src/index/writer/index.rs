@@ -29,6 +29,8 @@ use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::merge_policy::MergeLock;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
+use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::NeedWal;
 use crate::{
     postgres::types::TantivyValueError,
@@ -208,19 +210,35 @@ impl SearchIndexWriter {
     }
 
     pub fn commit_inserts(self) -> Result<()> {
+        let index_oid = self.relation_oid;
         let merge_lock = if self.wants_merge {
             unsafe { MergeLock::acquire_for_merge(self.relation_oid, self.need_wal) }
         } else {
             None
         };
-        self.commit(merge_lock.is_some())
+        self.commit(merge_lock.is_some())?;
+
+        if merge_lock.is_some() {
+            unsafe {
+                garbage_collect_metas(index_oid)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn vacuum(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
 
+        let index_oid = self.relation_oid;
         let merge_lock = unsafe { MergeLock::acquire_for_merge(self.relation_oid, self.need_wal) };
-        self.commit(merge_lock.is_some())
+        self.commit(merge_lock.is_some())?;
+
+        if merge_lock.is_some() {
+            unsafe {
+                garbage_collect_metas(index_oid)?;
+            }
+        }
+        Ok(())
     }
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
@@ -230,6 +248,14 @@ impl SearchIndexWriter {
             .wait_for(move || writer.run(insert_queue))
             .expect("spawned thread should not fail")
     }
+}
+
+unsafe fn garbage_collect_metas(index_oid: pg_sys::Oid) -> Result<()> {
+    let mut segment_metas =
+        LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START, true);
+    segment_metas.garbage_collect(pg_sys::GetAccessStrategy(
+        pg_sys::BufferAccessStrategyType::BAS_VACUUM,
+    ))
 }
 
 #[derive(Error, Debug)]

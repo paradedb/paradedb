@@ -33,7 +33,7 @@ pub unsafe fn list_managed_files(relation_oid: pg_sys::Oid) -> tantivy::Result<H
         let mut offsetno = pg_sys::FirstOffsetNumber;
 
         while offsetno <= max_offset {
-            if let Some(entry) = page.read_item::<SegmentMetaEntry>(offsetno) {
+            if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
                 files.extend(entry.get_component_paths());
             }
             offsetno += 1;
@@ -341,7 +341,7 @@ pub unsafe fn load_metas(
         let mut offsetno = pg_sys::FirstOffsetNumber;
 
         while offsetno <= max_offset {
-            if let Some(entry) = page.read_item::<SegmentMetaEntry>(offsetno) {
+            if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
                 if (solve_mvcc == MvccSatisfies::Any && !entry.recyclable(snapshot, heap_relation))
                     || entry.visible(snapshot)
                 {

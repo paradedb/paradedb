@@ -130,6 +130,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let freeze_limit = vacuum_get_freeze_limit(heap_relation);
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
+        let mut last_filled_blockno = start_blockno;
 
         while blockno != pg_sys::InvalidBlockNumber {
             let mut buffer = self.bman.get_buffer_for_cleanup(blockno, strategy);
@@ -139,7 +140,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let mut delete_offsets = vec![];
 
             while offsetno <= max_offset {
-                if let Some(entry) = page.read_item::<T>(offsetno) {
+                if let Some((entry, _)) = page.read_item::<T>(offsetno) {
                     if entry.recyclable(snapshot, heap_relation) {
                         delete_offsets.push(offsetno);
                     } else {
@@ -161,7 +162,35 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             if !delete_offsets.is_empty() {
                 page.delete_items(&mut delete_offsets);
             }
+
+            let new_max_offset = page.max_offset_number();
+            let current_blockno = blockno;
             blockno = page.next_blockno();
+
+            // Compaction step: If the page is entirely empty, mark as deleted
+            // Adjust the pointer from the last known non-empty node to point to the next non-empty node
+            if new_max_offset == pg_sys::InvalidOffsetNumber && current_blockno != start_blockno {
+                page.mark_deleted();
+
+                // We've reached the end of the list, which means the last filled block is now the
+                // last entry in the list
+                if blockno == pg_sys::InvalidBlockNumber {
+                    let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
+                    let mut page = last_filled_buffer.page_mut();
+                    let special = page.special_mut::<BM25PageSpecialData>();
+                    special.next_blockno = pg_sys::InvalidBlockNumber;
+                }
+            } else if new_max_offset != pg_sys::InvalidOffsetNumber
+                && current_blockno != start_blockno
+            {
+                let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
+                let mut page = last_filled_buffer.page_mut();
+                if page.next_blockno() != current_blockno {
+                    let special = page.special_mut::<BM25PageSpecialData>();
+                    special.next_blockno = current_blockno;
+                }
+                last_filled_blockno = current_blockno;
+            }
         }
 
         pg_sys::RelationClose(heap_relation);
@@ -238,7 +267,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             let max_offset = page.max_offset_number();
 
             while offsetno <= max_offset {
-                if let Some(deserialized) = page.read_item::<T>(offsetno) {
+                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
                     if cmp(&deserialized) {
                         return Ok((deserialized, blockno, offsetno));
                     }
@@ -263,6 +292,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 mod tests {
     use super::*;
     use pgrx::prelude::*;
+    use std::collections::HashSet;
     use tantivy::index::SegmentId;
     use uuid::Uuid;
 
@@ -270,6 +300,22 @@ mod tests {
 
     fn random_segment_id() -> SegmentId {
         SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
+    }
+
+    fn linked_list_block_numbers(
+        list: &LinkedItemList<SegmentMetaEntry>,
+    ) -> HashSet<pg_sys::BlockNumber> {
+        let mut blockno = list.get_start_blockno();
+        let mut block_numbers = HashSet::new();
+
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = list.bman().get_buffer(blockno);
+            let page = buffer.page();
+            blockno = page.next_blockno();
+            block_numbers.insert(blockno);
+        }
+
+        block_numbers
     }
 
     #[pg_test]
@@ -385,14 +431,10 @@ mod tests {
             list.add_items(entries_1.clone(), None).unwrap();
 
             let entries_2 = (1..1000)
-                .map(|i| SegmentMetaEntry {
+                .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
                     xmin,
-                    xmax: if i % 10 == 0 {
-                        not_deleted_xid
-                    } else {
-                        deleted_xid
-                    },
+                    xmax: deleted_xid,
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
@@ -406,8 +448,10 @@ mod tests {
                     ..Default::default()
                 })
                 .collect::<Vec<_>>();
+
             list.add_items(entries_3.clone(), None).unwrap();
 
+            let pre_gc_blocks = linked_list_block_numbers(&list);
             list.garbage_collect(strategy).unwrap();
 
             for entries in [entries_1, entries_2, entries_3] {
@@ -419,6 +463,11 @@ mod tests {
                     }
                 }
             }
+
+            // Assert that compaction produced a smaller list with no new blocks
+            let post_gc_blocks = linked_list_block_numbers(&list);
+            assert!(pre_gc_blocks.len() > post_gc_blocks.len());
+            assert!(post_gc_blocks.is_subset(&pre_gc_blocks));
         }
     }
 }

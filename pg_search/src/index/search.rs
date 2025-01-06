@@ -105,7 +105,7 @@ impl WriterResources {
                     gucs::statement_memory_budget(),
                     merge_on_insert, // user/index decides if we merge for INSERT/UPDATE statements
                     policy,
-                    false, // regular statements do need WAL support
+                    true, // regular statements do need WAL support
                 )
             }
             WriterResources::Vacuum => {
@@ -114,7 +114,7 @@ impl WriterResources {
                     gucs::statement_memory_budget(),
                     true, // we always want a merge on (auto)VACUUM
                     AllowedMergePolicy::NPlusOne(target_segment_count),
-                    false, // VACUUM always needs WAL support
+                    true, // VACUUM always needs WAL support
                 )
             }
         }

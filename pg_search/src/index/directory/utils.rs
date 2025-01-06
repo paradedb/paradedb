@@ -255,7 +255,7 @@ pub unsafe fn save_new_metas(
             );
         };
 
-        let PgItem(pg_item, size) = entry.clone().into();
+        let PgItem(pg_item, size) = entry.into();
 
         let did_replace = page.replace_item(offno, pg_item, size);
         assert!(did_replace);
@@ -292,14 +292,14 @@ pub unsafe fn save_new_metas(
             );
         };
 
-        let PgItem(pg_item, size) = entry.clone().into();
+        let PgItem(pg_item, size) = entry.into();
         let did_replace = page.replace_item(offno, pg_item, size);
         if !did_replace {
             // couldn't replace because it doesn't fit in that slot, so delete the item...
             page.delete_item(offno);
 
             // ... and add it to somewhere in the list, starting on this page
-            linked_list.add_items(vec![entry.clone()], Some(buffer))?;
+            linked_list.add_items(vec![entry], Some(buffer))?;
         }
     }
     // chase down the linked lists for any existing deleted entries and mark them as deleted

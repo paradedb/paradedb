@@ -1,0 +1,99 @@
+# workflows/test-stressgres.yml
+#
+# Test Stressgres
+# Run the Stressgres test suite against multiple PostgreSQL versions using cargo-pgrx.
+
+name: Test Stressgres
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - dev
+      - main
+    paths:
+      - ".github/workflows/test-stressgres.yml"
+      - "pg_search/**"
+      - "tokenizers/**"
+
+jobs:
+  test-stressgres:
+    name: Run stressgres on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    if: github.event.pull_request.draft == false
+    strategy:
+      matrix:
+        include:
+          - runner: ubicloud-standard-8
+            pg_version: 17
+            arch: amd64
+    env:
+      default_pg_version: 17
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+        with:
+          path: paradedb
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: paradedb/pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
+      # save the cache on the 'dev' branch, but load it on all branches.
+      - name: Install Rust Cache
+        uses: ubicloud/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
+          cache-targets: true
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+
+      - name: Install required system tools
+        run: sudo apt-get update && sudo apt-get install -y lsof
+
+      - name: Install llvm-tools-preview
+        run: rustup component add llvm-tools-preview
+
+      - name: Install cargo-pgrx
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize cargo-pgrx environment
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+
+      - name: Checkout Stressgres Repo
+        uses: actions/checkout@v4
+        with:
+          repository: paradedb/stressgres
+          path: stressgres
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+
+      - name: Add pg_search to shared_preload_libraries
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+
+      - name: Compile & install pg_search extension
+        working-directory: paradedb/pg_search/
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+
+      - name: Start Postgres and create database
+        working-directory: paradedb/tests/
+        run: |
+          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
+
+      - name: Run Stressgres Test Suite
+        working-directory: stressgres/
+        run: |
+          RUST_BACKTRACE=1 cargo run suites/ci.toml "host=localhost port=288${{ matrix.pg_version }} dbname=postgres" 600
+
+      - name: Print Postgres Logs
+        run: cat ~/.pgrx/${{ matrix.pg_version }}.log

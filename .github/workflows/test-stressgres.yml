@@ -15,12 +15,6 @@ on:
       - ".github/workflows/test-stressgres.yml"
       - "pg_search/**"
       - "tokenizers/**"
-  workflow_dispatch:
-    inputs:
-      timeout:
-        description: "Timeout for stressgres in seconds"
-        required: true
-        default: "600"
 
 jobs:
   test-stressgres:
@@ -99,7 +93,7 @@ jobs:
       - name: Run Stressgres Test Suite
         working-directory: stressgres/
         run: |
-          RUST_BACKTRACE=1 cargo run suites/ci.toml "host=localhost port=288${{ matrix.pg_version }} dbname=postgres" ${{ github.event.inputs.timeout }}
+          RUST_BACKTRACE=1 cargo run suites/ci.toml "host=localhost port=288${{ matrix.pg_version }} dbname=postgres" 600
 
       - name: Print Postgres Logs
         run: cat ~/.pgrx/${{ matrix.pg_version }}.log

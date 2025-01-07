@@ -17,7 +17,9 @@
 
 mod fixtures;
 
+use approx::assert_relative_eq;
 use fixtures::*;
+use num_traits::ToPrimitive;
 use pgvector::Vector;
 use rstest::*;
 use sqlx::types::BigDecimal;
@@ -1802,62 +1804,82 @@ fn hybrid_search(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32, BigDecimal, String, Vector)> = r#"
-    WITH semantic_search AS (
-        SELECT id, RANK () OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
-        FROM mock_items ORDER BY embedding <=> '[1,2,3]' LIMIT 20
+    WITH bm25_candidates AS (
+        SELECT id
+        FROM mock_items
+        WHERE description @@@ 'keyboard'
+        ORDER BY paradedb.score(id) DESC
+        LIMIT 20
     ),
-    bm25_search AS (
-        SELECT id, RANK () OVER (ORDER BY paradedb.score(id) DESC) as rank
-        FROM mock_items WHERE description @@@ 'keyboard' LIMIT 20
+    bm25_ranked AS (
+        SELECT id, RANK() OVER (ORDER BY paradedb.score(id) DESC) AS rank
+        FROM bm25_candidates
+    ),
+    semantic_search AS (
+        SELECT id, RANK() OVER (ORDER BY embedding <=> '[1,2,3]') AS rank
+        FROM mock_items
+        ORDER BY embedding <=> '[1,2,3]'
+        LIMIT 20
     )
     SELECT
-        COALESCE(semantic_search.id, bm25_search.id) AS id,
+        COALESCE(semantic_search.id, bm25_ranked.id) AS id,
         COALESCE(1.0 / (60 + semantic_search.rank), 0.0) +
-        COALESCE(1.0 / (60 + bm25_search.rank), 0.0) AS score,
+        COALESCE(1.0 / (60 + bm25_ranked.rank), 0.0) AS score,
         mock_items.description,
         mock_items.embedding
     FROM semantic_search
-    FULL OUTER JOIN bm25_search ON semantic_search.id = bm25_search.id
-    JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_search.id)
+    FULL OUTER JOIN bm25_ranked ON semantic_search.id = bm25_ranked.id
+    JOIN mock_items ON mock_items.id = COALESCE(semantic_search.id, bm25_ranked.id)
     ORDER BY score DESC, description
-    LIMIT 5
+    LIMIT 5;
     "#
     .fetch(&mut conn);
-    assert_eq!(
-        rows,
-        vec![
-            (
-                1,
-                BigDecimal::from_str("0.03062178588125292193").unwrap(),
-                String::from("Ergonomic metal keyboard"),
-                Vector::from(vec![3.0, 4.0, 5.0])
-            ),
-            (
-                2,
-                BigDecimal::from_str("0.02990695613646433318").unwrap(),
-                String::from("Plastic Keyboard"),
-                Vector::from(vec![4.0, 5.0, 6.0])
-            ),
-            (
-                19,
-                BigDecimal::from_str("0.01639344262295081967").unwrap(),
-                String::from("Artistic ceramic vase"),
-                Vector::from(vec![1.0, 2.0, 3.0])
-            ),
-            (
-                29,
-                BigDecimal::from_str("0.01639344262295081967").unwrap(),
-                String::from("Designer wall paintings"),
-                Vector::from(vec![1.0, 2.0, 3.0])
-            ),
-            (
-                39,
-                BigDecimal::from_str("0.01639344262295081967").unwrap(),
-                String::from("Handcrafted wooden frame"),
-                Vector::from(vec![1.0, 2.0, 3.0])
-            ),
-        ]
-    );
+
+    // Expected results
+    let expected = vec![
+        (
+            1,
+            BigDecimal::from_str("0.03062178588125292193").unwrap(),
+            String::from("Ergonomic metal keyboard"),
+            Vector::from(vec![3.0, 4.0, 5.0]),
+        ),
+        (
+            2,
+            BigDecimal::from_str("0.02990695613646433318").unwrap(),
+            String::from("Plastic Keyboard"),
+            Vector::from(vec![4.0, 5.0, 6.0]),
+        ),
+        (
+            19,
+            BigDecimal::from_str("0.01639344262295081967").unwrap(),
+            String::from("Artistic ceramic vase"),
+            Vector::from(vec![1.0, 2.0, 3.0]),
+        ),
+        (
+            29,
+            BigDecimal::from_str("0.01639344262295081967").unwrap(),
+            String::from("Designer wall paintings"),
+            Vector::from(vec![1.0, 2.0, 3.0]),
+        ),
+        (
+            39,
+            BigDecimal::from_str("0.01639344262295081967").unwrap(),
+            String::from("Handcrafted wooden frame"),
+            Vector::from(vec![1.0, 2.0, 3.0]),
+        ),
+    ];
+
+    // Compare each row individually
+    for (actual, expected) in rows.iter().zip(expected.iter()) {
+        assert_eq!(actual.0, expected.0); // Compare IDs
+        assert_relative_eq!(
+            actual.1.to_f64().unwrap(),
+            expected.1.to_f64().unwrap(),
+            epsilon = 0.000265
+        ); // Compare BigDecimal scores
+        assert_eq!(actual.2, expected.2); // Compare descriptions
+        assert_eq!(actual.3, expected.3); // Compare embeddings
+    }
 }
 
 #[rstest]

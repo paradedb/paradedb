@@ -105,7 +105,14 @@ impl PdbScanState {
     }
 
     #[inline(always)]
-    pub fn exec_method<'a>(&mut self) -> &'a mut Box<dyn ExecMethod> {
+    pub fn exec_method<'a>(&self) -> &'a Box<dyn ExecMethod> {
+        let ptr = self.exec_method.get();
+        assert!(!ptr.is_null());
+        unsafe { ptr.as_ref().unwrap_unchecked() }
+    }
+
+    #[inline(always)]
+    pub fn exec_method_mut<'a>(&mut self) -> &'a mut Box<dyn ExecMethod> {
         let ptr = self.exec_method.get();
         assert!(!ptr.is_null());
         unsafe { ptr.as_mut().unwrap_unchecked() }

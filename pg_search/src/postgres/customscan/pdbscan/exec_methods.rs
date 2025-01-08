@@ -44,11 +44,15 @@ impl Default for Box<dyn ExecMethod> {
 pub trait ExecMethod {
     fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState);
 
-    fn query(&mut self, state: &PdbScanState) -> bool {
+    fn uses_visibility_map(&self, state: &PdbScanState) -> bool {
+        true
+    }
+
+    fn query(&mut self, state: &mut PdbScanState) -> bool {
         false
     }
 
-    fn next(&mut self, state: &PdbScanState) -> ExecState {
+    fn next(&mut self, state: &mut PdbScanState) -> ExecState {
         loop {
             match self.internal_next() {
                 ExecState::Eof => {

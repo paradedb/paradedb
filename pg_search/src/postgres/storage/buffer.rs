@@ -18,6 +18,11 @@ impl Drop for Buffer {
 }
 
 impl Buffer {
+    fn new(pg_buffer: pg_sys::Buffer) -> Self {
+        assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+        Self { pg_buffer }
+    }
+
     pub fn page(&self) -> Page {
         let pg_page = unsafe { pg_sys::BufferGetPage(self.pg_buffer) };
         Page {
@@ -93,6 +98,27 @@ impl BufferMut {
 
     pub fn page_size(&self) -> pg_sys::Size {
         self.inner.page_size()
+    }
+}
+
+pub struct PinnedBuffer {
+    pg_buffer: pg_sys::Buffer,
+}
+
+impl Drop for PinnedBuffer {
+    fn drop(&mut self) {
+        unsafe {
+            if pg_sys::IsTransactionState() {
+                pg_sys::ReleaseBuffer(self.pg_buffer);
+            }
+        }
+    }
+}
+
+impl PinnedBuffer {
+    fn new(pg_buffer: pg_sys::Buffer) -> Self {
+        assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+        Self { pg_buffer }
     }
 }
 
@@ -357,11 +383,10 @@ impl BufferManager {
 
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
         unsafe {
-            Buffer {
-                pg_buffer: self
-                    .bcache
+            Buffer::new(
+                self.bcache
                     .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE)),
-            }
+            )
         }
     }
 
@@ -369,13 +394,16 @@ impl BufferManager {
         unsafe {
             BufferMut {
                 dirty: false,
-                inner: Buffer {
-                    pg_buffer: self
-                        .bcache
+                inner: Buffer::new(
+                    self.bcache
                         .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE)),
-                },
+                ),
             }
         }
+    }
+
+    pub fn get_buffer_pinned(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
+        unsafe { PinnedBuffer::new(self.bcache.get_buffer(blockno, None)) }
     }
 
     pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {
@@ -384,7 +412,7 @@ impl BufferManager {
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
                 Some(BufferMut {
                     dirty: false,
-                    inner: Buffer { pg_buffer },
+                    inner: Buffer::new(pg_buffer),
                 })
             } else {
                 pg_sys::ReleaseBuffer(pg_buffer);
@@ -405,7 +433,7 @@ impl BufferManager {
             pg_sys::LockBufferForCleanup(buffer);
             BufferMut {
                 dirty: false,
-                inner: Buffer { pg_buffer: buffer },
+                inner: Buffer::new(buffer),
             }
         }
     }

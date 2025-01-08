@@ -36,7 +36,7 @@ use tantivy::{snippet::SnippetGenerator, Executor};
 
 use crate::index::{setup_tokenizers, BlockDirectoryType};
 use crate::postgres::storage::block::CLEANUP_LOCK;
-use crate::postgres::storage::buffer::{Buffer, BufferManager};
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::utils::ctid_to_u64;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
@@ -189,11 +189,11 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
 
-    // [`Buffer`] has a Drop impl, so we hold onto the lock, but don't otherwise use it
+    // [`PinnedBuffer`] has a Drop impl, so we hold onto the lock, but don't otherwise use it
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
-    _cleanup_lock: Arc<Option<Buffer>>,
+    _cleanup_lock: Arc<Option<PinnedBuffer>>,
 }
 
 impl SearchIndexReader {
@@ -209,9 +209,12 @@ impl SearchIndexReader {
         //rendering those dead ctids visible. The concurrent scan then returns the wrong results.
         // To prevent this, ambulkdelete acquires an exclusive cleanup lock. Readers must also acquire this lock (shared)
         // to prevent a reader from reading dead ctids right before ambulkdelete finishes.
+        //
+        // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
+        // a pinned but unlocked buffer.
         let cleanup_lock = if needs_cleanup_lock {
             let bman = BufferManager::new(index_relation.oid());
-            Some(bman.get_buffer(CLEANUP_LOCK))
+            Some(bman.get_buffer_pinned(CLEANUP_LOCK))
         } else {
             None
         };

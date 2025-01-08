@@ -40,6 +40,14 @@ we recommend experimenting with higher values for larger indexes.
 shared_buffers = '8GB'
 ```
 
+The `pg_prewarm` extension can be used to load the BM25 index into the buffer cache after Postgres restarts. A higher `shared_buffers` value allows more of the index to be
+stored in the buffer cache.
+
+```sql
+CREATE EXTENSION pg_prewarm;
+SELECT pg_prewarm('search_idx');
+```
+
 ## Target Segment Count
 
 Having too many or too few [segments](/documentation/concepts/index#segment) can negatively impact search performance.
@@ -57,6 +65,8 @@ WITH (key_field='id', target_segment_count = 16);
 -- Changed afterward
 ALTER INDEX search_idx SET (target_segment_count = 16);
 ```
+
+While having the same number of segments as CPUs is a sane default, we recommend experimenting with different segment counts.
 
 <Note>
   While ParadeDB attempts to create `target_segment_count` segments, the actual

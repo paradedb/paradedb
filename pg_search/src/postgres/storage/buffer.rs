@@ -10,10 +10,10 @@ pub struct Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
-            if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                if pg_sys::IsTransactionState() {
-                    pg_sys::UnlockReleaseBuffer(self.pg_buffer);
-                }
+            if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer
+                && pg_sys::IsTransactionState()
+            {
+                pg_sys::UnlockReleaseBuffer(self.pg_buffer);
             }
         }
     }

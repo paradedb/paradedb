@@ -89,7 +89,7 @@ The nested configuration JSON for `text_fields` accepts the following keys.
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
     Required only for use with the [More Like This](/documentation/advanced/specialized/more_like_this) query.
   </ParamField>
@@ -140,7 +140,7 @@ The nested configuration JSON for `json_fields` accepts the following keys.
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
     Required only for use with the [More Like This](/documentation/advanced/specialized/more_like_this) query.
   </ParamField>
@@ -176,7 +176,7 @@ WITH (
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
     Required only for use with the [More Like This](/documentation/advanced/specialized/more_like_this) query.
   </ParamField>
@@ -209,7 +209,7 @@ WITH (
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
     Required only for use with the [More Like This](/documentation/advanced/specialized/more_like_this) query.
   </ParamField>
@@ -242,7 +242,7 @@ WITH (
     Whether the field is indexed. Must be `true` in order for the field to be
     tokenized and searchable.
   </ParamField>
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
     Required only for use with the [More Like This](/documentation/advanced/specialized/more_like_this) query.
   </ParamField>
@@ -272,7 +272,7 @@ WITH (
 `CREATE INDEX` accepts several configuration options for `range_fields`:
 
 <Accordion title="Advanced Options">
-  <ParamField body="stored" default={true}>
+  <ParamField body="stored" default={false}>
     Whether the original value of the field is stored.
     Required only for use with the [More Like This](/documentation/advanced/specialized/more_like_this) query.
   </ParamField>

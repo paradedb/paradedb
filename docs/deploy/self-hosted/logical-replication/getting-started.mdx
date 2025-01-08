@@ -12,8 +12,6 @@ In production, ParadeDB is designed to be deployed as a logical replica of your 
 allows ParadeDB to stay in sync with managed Postgres providers like AWS RDS, Google CloudSQL, and Azure Postgres with zero additional
 infrastructure overhead. It also isolates search and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.
 
-Logical replication can be configured granularly to replicate specific tables or even rows/columns. Please see the [Postgres documentation](https://www.postgresql.org/docs/current/logical-replication.html) for more details.
-
 ParadeDB supports logical replication from any primary Postgres. This could be AWS RDS/Aurora, Azure Database, GCP CloudSQL for PostgreSQL, AlloyDB for PostgreSQL, or a self-hosted Postgres.
 
 ## AWS RDS/Aurora

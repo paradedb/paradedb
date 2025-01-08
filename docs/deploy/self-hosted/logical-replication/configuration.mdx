@@ -1,5 +1,5 @@
 ---
-title: Schema Changes
+title: Configuration
 ---
 
 <Note>
@@ -40,4 +40,6 @@ ALTER PUBLICATION mock_items_pub ADD TABLE newly_added_table;
 ALTER SUBSCRIPTION mock_items_sub REFRESH PUBLICATION;
 ```
 
-That's it! ParadeDB will now stay in near real-time synchronization with your primary PostgreSQL database.
+## Granular Replication
+
+Logical replication can be configured to replicate specific tables, column lists, or rows. Please see the [Postgres documentation](https://www.postgresql.org/docs/current/logical-replication.html).

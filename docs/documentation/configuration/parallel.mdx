@@ -3,10 +3,12 @@ title: Search Performance
 ---
 
 As a general rule of thumb, the performance of expensive search queries can be greatly improved
-if they are able to access more parallel Postgres workers. The number of parallel workers depends on the server's CPU count and certain
-Postgres settings in `postgresql.conf`.
+if they are able to access more parallel Postgres workers and more shared buffer memory.
 
 ## Parallel Workers
+
+The number of parallel workers depends on the server's CPU count and certain
+Postgres settings in `postgresql.conf`.
 
 `max_parallel_workers` and `max_worker_processes` control how many workers are available to parallel scans.
 `max_worker_processes` is a global limit for the number of available workers across all connections, and
@@ -28,6 +30,15 @@ SET max_parallel_workers_per_gather = 16;
 ```
 
 The number of parallel workers should not exceed the server's CPU count.
+
+## Shared Buffers
+
+`shared_buffers` controls how much memory is available to the Postgres buffer cache. While a general rule of thumb is to allocate up to 40% of total system memory to `shared_buffers`,
+we recommend experimenting with higher values for larger indexes.
+
+```sql postgresql.conf
+shared_buffers = '8GB'
+```
 
 ## Target Segment Count
 

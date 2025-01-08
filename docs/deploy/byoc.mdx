@@ -3,11 +3,10 @@ title: ParadeDB BYOC
 ---
 
 <Info>
-  ParadeDB BYOC is a [ParadeDB Enterprise](/deploy/enterprise) feature. This
-  guide assumes you are using a ParadeDB Enterprise build.
+  For access to ParadeDB BYOC, [contact sales](mailto:sales@paradedb.com).
 </Info>
 
-ParadeDB BYOC (Bring Your Own Cloud) is a managed deployment of ParadeDB within your cloud environment. 
+ParadeDB BYOC (Bring Your Own Cloud) is a managed deployment of ParadeDB within your cloud environment.
 It combines the benefits of a managed platform with the security posture of a self-hosted deployment.
 
 ParadeDB BYOC is supported on GCP and AWS, including GovCloud regions and airgapped environments.
@@ -15,138 +14,147 @@ To request access for Azure, Oracle Cloud, or another cloud platform please cont
 
 ## How BYOC Works
 
-ParadeDB BYOC works by provisioning a ParadeDB Kubernetes cluster in your cloud environment via infrastructure-as-code. The BYOC module is configured via a simple configuration
-file and automates [high availability](/deploy/self-hosted/high-availability) configuration and [logical replication](/deploy/self-hosted/logical-replication) integration with
-existing Postgres managed service(s). The BYOC module ships with integrated backups, connection pooling, monitoring, access control, and audit logging.
+ParadeDB BYOC provisions a Kubernetes cluster in your cloud environment with [high availability](/deploy/self-hosted/high-availability) preconfigured.
+It also configures [logical replication](/deploy/self-hosted/logical-replication) with your primary Postgres, backups, connection pooling, monitoring, access control, and audit logging.
 
-ParadeDB BYOC deployment and support is available as one of two options:
+ParadeDB BYOC can be deployed and managed in one of two ways:
 
-- **Fully Managed** Under this deployment mode, the ParadeDB team will deploy and manage the ParadeDB BYOC module on your behalf. In order to proceed with this deployment mode, you will
-  need to provide access to a sub-account or project within your cloud provider via an IAM user or a service account.
-
-- **Just-in-Time Managed** Under this deployment mode, you will deploy the ParadeDB BYOC module and can optionally provide just-in-time access to the ParadeDB team when hands-on support is required. This
-  deployment mode is optimal for airgapped environment where providing external access to even a subset of your cloud environment is undesirable.
+- **Fully Managed**: ParadeDB will deploy and manage the ParadeDB BYOC module for you. ParadeDB requires a sub-account or project within your cloud provider via an IAM user or a service account.
+- **Just-in-Time Managed**: You will deploy the ParadeDB BYOC module and can choose to provide just-in-time access to the ParadeDB team when support is required. This is typically useful for airgapped environments.
 
 ## Getting Started
 
-This section assumes you are deploying the ParadeDB BYOC module yourself. If you are not, this will be handled by the ParadeDB team. The following commands must be executed from
-within your BYOC module repository.
+This section assumes that you have received access to the ParadeDB BYOC module and are deploying it yourself on AWS or GCP.
+In a fully managed deployment, these steps will be performed by ParadeDB on your behalf.
 
-### Installing Dependencies
+### Install Dependencies
 
-To get started, install Terraform, Kubectl, PostgreSQL, and the CLI for your desired cloud provider:
+First, ensure that you are in the BYOC module repository. Next, install Terraform, Kubectl, PostgreSQL, and the CLI for your desired cloud provider:
 
-```bash
-# macOS
+<CodeGroup>
+
+```bash macOS
 brew install terraform kubectl postgresql
+```
 
-# Ubuntu
+```bash Ubuntu
 sudo apt-get install -y terraform kubectl postgresql
 ```
 
-Instructions for installing the AWS CLI can be found [here](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) and for installing the GCP CLI can be found [here](https://cloud.google.com/sdk/docs/install#deb).
+</CodeGroup>
 
-### Authenticating your Cloud Provider
+### Authenticate CLI
 
-#### Setting up AWS
+Install and authenticate with either the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) or [GCP CLI](https://cloud.google.com/sdk/docs/install#deb).
 
-If you want to deploy to AWS, authenticate by following the prompts and providing your AWS Access Key and AWS Secret Key.
+<CodeGroup>
 
-```bash
+```bash AWS
 aws configure
 ```
 
-#### Setting up GCP
-
-If you want to deploy to GCP, authenticate by following the prompts and creating or providing your GCP project and access credentials.
-
-```bash
+```bash GCP
 gcloud init
 gcloud auth application-default login
 ```
 
-### Provisioning the ParadeDB infrastructure
+</CodeGroup>
 
-Our Terraform project will provision for you a Kubernetes cluster (EKS or GKE) along with all the necessary infrastructure to run ParadeDB on it.
+### Provision ParadeDB
 
-To start, from within the `aws/` or `gcp/` subfolder, copy the `byoc.example.tfvars` file to `byoc.tfvars` and customize it with your own configuration. Instructions for configuring each file can be found directly in the file.
+Our Terraform project will provision a Kubernetes cluster (EKS or GKE) along with all the necessary infrastructure to run ParadeDB.
+
+First, copy either `aws.example.tfvars` or `gcp.example.tfvars` into a new file called `byoc.tfvars`.
+
+<CodeGroup>
+
+```bash AWS
+cp aws.example.tfvars byoc.tfvars
+```
+
+```bash GCP
+cp gcp.example.tfvars byoc.tfvars
+```
+
+</CodeGroup>
+
+Next, open and configure `byoc.tfvars`. Configuration instructions can be found directly within the file.
 
 ```bash
-# AWS
-cp aws.example.tfvars byoc.tfvars
-
-# GCP
-cp gcp.example.tfvars byoc.tfvars
-
-# Open and customize the file
 open byoc.tfvars || xdg-open byoc.tfvars
 ```
 
-#### Running Terraform
+### Run Terraform
 
-To get started you need to initialize Terraform, which will install all the required Terraform integrations.
+First, initialize Terraform.
 
-```bash
+<CodeGroup>
+
+```bash AWS
 terraform -chdir=infrastructure/aws init
-# or
+```
+
+```bash GCP
 terraform -chdir=infrastructure/gcp init
 ```
 
-To apply the infrastructure, simply run `apply`. It will execute the actions proposed in the `plan` step. There should
-not be any manual intervention required, but if an error seems spurious simply re-run `apply`.
+</CodeGroup>
 
-```bash
+Next, run Terraform `apply`.
+
+<CodeGroup>
+
+```bash AWS
 terraform -chdir=infrastructure/aws apply -var-file=../../byoc.tfvars
-# or
+```
+
+```bash GCP
 terraform -chdir=infrastructure/gcp apply -var-file=../../byoc.tfvars
 ```
 
-Note that the first apply may take up to ~30 minutes to provision all the necessary infrastructure.
+</CodeGroup>
 
-### Removing the ParadeDB infrastructure
+<Note>
+  It may take up to 30 minutes to provision all the necessary infrastructure.
+</Note>
 
-To remove the ParadeDB infrastructure, you can use Terraform to destroy all the resources it provisioned.
+When this command is complete, you will see a `kubectl` command printed as Terraform output to the terminal.
+Run this command, which will add the EKS or GKE cluster configuration to your local `.kubeconfig` file.
 
-```bash
-terraform -chdir=infrastructure/aws destroy -var-file=../../byoc.tfvars
-# or
-terraform -chdir=infrastructure/gcp destroy -var-file=../../byoc.tfvars
-```
+That's it! You're now ready to connect to ParadeDB.
 
-### Accessing the ParadeDB Cluster
+### Connect to ParadeDB
 
-First, run the `kubectl` command printed as Terraform output to the terminal to add the EKS or GKE cluster configuration to your local `.kubeconfig` file.
+#### Access the Grafana Dashboard
 
-#### Accessing the Grafana Dashboard
-
-1. Port-forward the Grafana service to localhost via:
+First, port-forward the Grafana service to localhost.
 
 ```bash
 kubectl --namespace monitoring port-forward service/prometheus-grafana 8080:80
 ```
 
-2. Go to `http://localhost:8080` and provide the Grafana credentials printed as Terraform output to the terminal.
+Then, go to `http://localhost:8080`. Your Grafana credentials have been printed in the terminal output of the above Terraform `apply` command.
 
-You can find the ParadeDB dashboard by typing `CloudNativePG` in the search bar, and selecting `paradedb` for the Database Namespace. By default, the dashboard will display metrics over the last 7 days. If you've just spun up the cluster, change it to the last 15 minutes to start seeing results immediately.
+You can find the ParadeDB dashboard by typing `CloudNativePG` in the search bar, and selecting `paradedb` for the Database Namespace.
 
-#### Accessing the ParadeDB Database
+By default, the dashboard will display metrics over the last 7 days. If you've just spun up the cluster, change it to the last 15 minutes to start seeing results immediately.
 
-1. Retrieve the database credentials via:
+#### Access the ParadeDB Instance
+
+First, retrieve the database credentials.
 
 ```bash
 kubectl --namespace paradedb get secrets paradedb-superuser -o json | jq -r '.data | map_values(@base64d)'
 ```
 
-2. Port-forward the ParadeDB service to localhost via:
+Next, port-forward the ParadeDB service to localhost.
 
 ```bash
 kubectl --namespace paradedb port-forward service/paradedb-rw 5432:5432
 ```
 
-3. Connect to the ParadeDB database via the credentials retrieved:
+Now you can connect to the ParadeDB instance using the credentials you've retrieved.
 
 ```bash
 PGPASSWORD=<your-password> psql -h localhost -d paradedb -p 5432 -U <your-user>
 ```
-
-You can also connect with your favorite PostgreSQL client.

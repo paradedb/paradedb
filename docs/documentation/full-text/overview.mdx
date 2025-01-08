@@ -29,4 +29,4 @@ It also accepts [query builder functions](/documentation/advanced) for advanced,
 ## Performance Tuning
 
 The BM25 index is designed to take advantage of Postgres parallel workers for optimized query performance. For
-large tables, increasing the default [parallel worker count](/documentation/configuration/parallel) is encouraged.
+large tables, increasing the default [parallel worker count](/documentation/configuration/parallel) and [shared buffer size](/documentation/configuration/parallel#shared-buffers) is encouraged.

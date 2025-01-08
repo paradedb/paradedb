@@ -105,10 +105,10 @@ impl PdbScanState {
     }
 
     #[inline(always)]
-    pub fn exec_method<'a>(&self) -> &'a Box<dyn ExecMethod> {
+    pub fn exec_method<'a>(&self) -> &'a dyn ExecMethod {
         let ptr = self.exec_method.get();
         assert!(!ptr.is_null());
-        unsafe { ptr.as_ref().unwrap_unchecked() }
+        unsafe { ptr.as_ref().unwrap_unchecked().as_ref() }
     }
 
     #[inline(always)]

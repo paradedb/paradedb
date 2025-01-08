@@ -10,8 +10,10 @@ pub struct Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
-            if pg_sys::IsTransactionState() {
-                pg_sys::UnlockReleaseBuffer(self.pg_buffer);
+            if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                if pg_sys::IsTransactionState() {
+                    pg_sys::UnlockReleaseBuffer(self.pg_buffer);
+                }
             }
         }
     }
@@ -21,6 +23,17 @@ impl Buffer {
     fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self { pg_buffer }
+    }
+
+    pub fn unlock(mut self) -> PinnedBuffer {
+        unsafe {
+            let pg_buffer = self.pg_buffer;
+            self.pg_buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
+
+            // unlock this buffer and convert to a PinnedBuffer
+            pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+            PinnedBuffer::new(pg_buffer)
+        }
     }
 
     pub fn page(&self) -> Page {
@@ -400,10 +413,6 @@ impl BufferManager {
                 ),
             }
         }
-    }
-
-    pub fn get_buffer_pinned(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
-        unsafe { PinnedBuffer::new(self.bcache.get_buffer(blockno, None)) }
     }
 
     pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {

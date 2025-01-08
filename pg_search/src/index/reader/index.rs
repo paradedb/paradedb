@@ -189,7 +189,7 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
 
-    // [`PinnedBuffer`] has a Drop impl, so we hold onto the lock, but don't otherwise use it
+    // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
     // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
     // buffer dropped once
@@ -214,7 +214,7 @@ impl SearchIndexReader {
         // a pinned but unlocked buffer.
         let cleanup_lock = if needs_cleanup_lock {
             let bman = BufferManager::new(index_relation.oid());
-            Some(bman.get_buffer_pinned(CLEANUP_LOCK))
+            Some(bman.get_buffer(CLEANUP_LOCK).unlock())
         } else {
             None
         };

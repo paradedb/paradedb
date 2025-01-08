@@ -57,7 +57,7 @@ impl ExecMethod for NumericFastFieldExecState {
         }
     }
 
-    fn query(&mut self, state: &PdbScanState) -> bool {
+    fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_ord) = unsafe { checkout_segment(parallel_state) } {
                 self.inner.search_results = state.search_reader.as_ref().unwrap().search_segment(

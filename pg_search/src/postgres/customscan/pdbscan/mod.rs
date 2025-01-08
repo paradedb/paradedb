@@ -604,8 +604,15 @@ impl CustomScan for PdbScan {
             .map(|indexrel| unsafe { PgRelation::from_pg(*indexrel) })
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::open(&indexrel, BlockDirectoryType::Mvcc, true)
-            .expect("should be able to open the search index reader");
+        let search_reader = SearchIndexReader::open(
+            &indexrel,
+            BlockDirectoryType::Mvcc,
+            state
+                .custom_state()
+                .exec_method()
+                .uses_visibility_map(state.custom_state()),
+        )
+        .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -647,12 +654,14 @@ impl CustomScan for PdbScan {
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         loop {
-            let exec_method = state.custom_state_mut().exec_method();
+            let exec_method = state.custom_state_mut().exec_method_mut();
 
             // get the next matching document from our search results and look for it in the heap
-            match exec_method.next(state.custom_state()) {
+            match exec_method.next(state.custom_state_mut()) {
                 // reached the end of the SearchResults
-                ExecState::Eof => return std::ptr::null_mut(),
+                ExecState::Eof => {
+                    return std::ptr::null_mut();
+                }
 
                 // SearchResults found a match
                 ExecState::RequiresVisibilityCheck {

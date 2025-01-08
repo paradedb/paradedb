@@ -70,7 +70,12 @@ impl ExecMethod for NormalScanExecState {
         }
     }
 
-    fn query(&mut self, state: &PdbScanState) -> bool {
+    fn uses_visibility_map(&self, state: &PdbScanState) -> bool {
+        // if we don't return any actual fields, then we'll use the visibility map
+        state.targetlist_len == 0
+    }
+
+    fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_ord) = unsafe { checkout_segment(parallel_state) } {
                 self.search_results = state.search_reader.as_ref().unwrap().search_segment(

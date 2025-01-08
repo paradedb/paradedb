@@ -25,8 +25,3 @@ LIMIT 5;
 The query string on the right-hand side of `@@@` uses a mini query language that supports [term](/documentation/full-text/term),
 [phrase](/documentation/full-text/phrase), [filtered](/documentation/full-text/filtering), and [boosted](/documentation/full-text/boosting) queries.
 It also accepts [query builder functions](/documentation/advanced) for advanced, "Elastic DSL" style queries.
-
-## Performance Tuning
-
-The BM25 index is designed to take advantage of Postgres parallel workers for optimized query performance. For
-large tables, increasing the default [parallel worker count](/documentation/configuration/parallel) and [shared buffer size](/documentation/configuration/parallel#shared-buffers) is encouraged.

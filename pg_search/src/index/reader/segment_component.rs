@@ -2,16 +2,14 @@ use crate::postgres::storage::block::{bm25_max_free_space, FileEntry, LinkedList
 use crate::postgres::storage::linked_bytes::RangeData;
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
-use parking_lot::Mutex;
 use pgrx::*;
 use std::io::Error;
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
-use tantivy_common::StableDeref;
 
 #[derive(Clone, Debug)]
 pub struct SegmentComponentReader {
@@ -73,35 +71,12 @@ impl SegmentComponentReader {
     }
 }
 
-struct DeferredReader {
-    reader: SegmentComponentReader,
-    range: Range<usize>,
-    bytes: Mutex<RangeData>,
-}
-
-unsafe impl StableDeref for DeferredReader {}
-impl Deref for DeferredReader {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        let mut range_data = self.bytes.lock();
-        if range_data.is_empty() {
-            *range_data = self
-                .reader
-                .read_bytes_raw(self.range.clone())
-                .expect("DeferredReader.deref():  failed to read bytes");
-        }
-        unsafe { std::slice::from_raw_parts(range_data.as_ptr(), range_data.len()) }
-    }
-}
-
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
-        Ok(OwnedBytes::new(DeferredReader {
-            reader: self.clone(),
-            range,
-            bytes: Default::default(),
-        }))
+        let range_data = self.read_bytes_raw(range)?;
+        let bytes =
+            unsafe { std::slice::from_raw_parts(range_data.as_ptr(), range_data.len()).to_vec() };
+        Ok(OwnedBytes::new(bytes))
     }
 }
 

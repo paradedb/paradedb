@@ -26,12 +26,13 @@ use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
 use tantivy::{DocAddress, DocId};
 
+type FastFieldReadersCache = Vec<Vec<(FastFieldReaders, String, Mutex<Option<FFType>>)>>;
 /// A helper for tracking specific "fast field" readers from a [`SearchIndexReader`] reference
 ///
 /// They're organized by index positions and not names to eliminate as much runtime overhead as
 /// possible when looking up the value of a specific fast field.
 #[derive(Default)]
-pub struct FFHelper(Vec<Vec<(FastFieldReaders, String, Mutex<Option<FFType>>)>>);
+pub struct FFHelper(FastFieldReadersCache);
 // TODO:  There's probably a smarter way to structure things so that we don't need to do
 //        interior mutability through a Mutex, but for expediency, this works and resolves
 //        the major perf issue we've been having with fast fields

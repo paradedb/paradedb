@@ -20,8 +20,8 @@ use super::buffer::{BufferManager, BufferMut};
 use super::utils::vacuum_get_freeze_limit;
 use anyhow::Result;
 use pgrx::pg_sys;
+use pgrx::pg_sys::BlockNumber;
 use std::fmt::Debug;
-
 // ---------------------------------------------------------------
 // Linked list implementation over block storage,
 // where each node in the list is a pg_sys::Item
@@ -68,6 +68,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
         self.header_blockno
     }
 
+    fn block_for_ord(&self, ord: usize) -> Option<BlockNumber> {
+        unimplemented!("block_for_ord is not implemented for LinkedItemList")
+    }
+
     unsafe fn get_linked_list_data(&self) -> LinkedListData {
         let header_buffer = self.bman.get_buffer(self.get_header_blockno());
         let page = header_buffer.page();
@@ -105,9 +109,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         start_buffer.init_page();
 
         let metadata = header_page.contents_mut::<LinkedListData>();
-        metadata.skip_list[0] = start_blockno;
-        metadata.inner.last_blockno = start_blockno;
-        metadata.inner.npages = 0;
+        metadata.start_blockno = start_blockno;
+        metadata.last_blockno = start_blockno;
+        metadata.npages = 0;
 
         Self {
             relation_oid,
@@ -231,8 +235,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                     let mut header_buffer = self.bman.get_buffer_mut(self.header_blockno);
                     let mut page = header_buffer.page_mut();
                     let metadata = page.contents_mut::<LinkedListData>();
-                    metadata.inner.last_blockno = new_blockno;
-                    metadata.inner.npages += 1;
+                    metadata.last_blockno = new_blockno;
+                    metadata.npages += 1;
 
                     if need_hold && hold_open.is_none() {
                         hold_open = Some(buffer);

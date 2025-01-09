@@ -3169,6 +3169,7 @@ version = "0.13.2"
 dependencies = [
  "anyhow",
  "bincode",
+ "bitpacking",
  "chrono",
  "crossbeam",
  "derive_more",

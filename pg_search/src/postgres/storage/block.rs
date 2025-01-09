@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::SKIPLIST_FREQ;
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -60,30 +59,26 @@ pub struct MergeLockData {
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct LinkedListData {
-    pub inner: Inner,
+    /// Indicates the first BlockNumber of the linked list.
+    pub start_blockno: pg_sys::BlockNumber,
 
-    /// contains every [`SKIPLIST_FREQ`]th BlockNumber in the list, and
-    /// element zero is always the first block number
-    pub skip_list: [pg_sys::BlockNumber; {
-        (bm25_max_free_space() - size_of::<Inner>()) / size_of::<pg_sys::BlockNumber>()
-    }],
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(C, packed)]
-pub struct Inner {
     /// Indicates the last BlockNumber of the linked list.
     pub last_blockno: pg_sys::BlockNumber,
 
     /// Counts the total number of data pages in the linked list (excludes the header page)
     pub npages: u32,
+
+    /// Indicates where the BlockList for this linked list starts;
+    pub blocklist_start: pg_sys::BlockNumber,
 }
 
 impl Debug for LinkedListData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LinkedListData")
-            .field("inner", &{ self.inner })
-            .field("skip_list", &{ self.skip_list })
+            .field("start_blockno", &{ self.start_blockno })
+            .field("last_blockno", &{ self.last_blockno })
+            .field("npages", &{ self.npages })
+            .field("blocklist_start", &{ self.blocklist_start })
             .finish()
     }
 }
@@ -96,7 +91,7 @@ pub trait LinkedList {
     // Provided methods
     fn get_start_blockno(&self) -> pg_sys::BlockNumber {
         let metadata = unsafe { self.get_linked_list_data() };
-        let start_blockno = metadata.skip_list[0];
+        let start_blockno = metadata.start_blockno;
         assert!(start_blockno != 0);
         assert!(start_blockno != pg_sys::InvalidBlockNumber);
         start_blockno
@@ -104,7 +99,7 @@ pub trait LinkedList {
 
     fn get_last_blockno(&self) -> pg_sys::BlockNumber {
         let metadata = unsafe { self.get_linked_list_data() };
-        let last_blockno = metadata.inner.last_blockno;
+        let last_blockno = metadata.last_blockno;
         assert!(last_blockno != 0);
         assert!(last_blockno != pg_sys::InvalidBlockNumber);
         last_blockno
@@ -112,14 +107,10 @@ pub trait LinkedList {
 
     fn npages(&self) -> u32 {
         let metadata = unsafe { self.get_linked_list_data() };
-        metadata.inner.npages - 1
+        metadata.npages - 1
     }
 
-    fn nearest_block_by_ord(&self, ord: usize) -> (pg_sys::BlockNumber, usize) {
-        let index = ord / SKIPLIST_FREQ;
-        let metadata = unsafe { self.get_linked_list_data() };
-        (metadata.skip_list[index], index * SKIPLIST_FREQ)
-    }
+    fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber>;
 
     unsafe fn get_linked_list_data(&self) -> LinkedListData;
 }

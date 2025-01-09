@@ -498,6 +498,11 @@ pub mod reader {
             Self { blocks }
         }
 
+        #[allow(dead_code)]
+        pub fn len(&self) -> usize {
+            self.blocks.len()
+        }
+
         pub fn get(&self, i: usize) -> Option<pg_sys::BlockNumber> {
             self.blocks.get(i).cloned()
         }

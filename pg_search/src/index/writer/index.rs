@@ -204,6 +204,11 @@ impl SearchIndexWriter {
         Ok(())
     }
 
+    pub fn commit_build(self) -> Result<()> {
+        self.commit(false)?;
+        Ok(())
+    }
+
     pub fn commit_inserts(self) -> Result<()> {
         let index_oid = self.relation_oid;
         let merge_lock = if self.wants_merge {

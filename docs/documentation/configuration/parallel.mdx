@@ -21,7 +21,7 @@ max_parallel_workers = 16;
 ## Max Parallel Workers per Gather
 
 `max_parallel_workers_per_gather` is a limit for the number of parallel workers that a single parallel query can use. The default is `2`.
-This setting can be set in `postgresql.conf` to apply to all connections, or within a connection to apply to a single
+This setting can be specified in the `postgresql.conf` file to apply to all connections, or within a connection via `SET` to apply to a single
 session.
 
 ```sql

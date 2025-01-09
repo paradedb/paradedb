@@ -4,8 +4,9 @@ title: Indexing
 
 ## Index Settings
 
-These settings can be set in `postgresql.conf` and affect system resources used during `CREATE INDEX`
-and normal `INSERT/UPDATE/COPY` statements.
+These settings affect system resources used during `CREATE INDEX` and normal `INSERT/UPDATE/COPY` statements. They
+can be set can be specified in the `postgresql.conf` file to apply to all connections, or within a connection via `SET` to apply to a single
+session.
 
 ### Indexing Threads
 

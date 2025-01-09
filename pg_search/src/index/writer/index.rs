@@ -205,7 +205,7 @@ impl SearchIndexWriter {
     }
 
     pub fn commit_build(self) -> Result<()> {
-        self.commit(false)?;
+        self.commit(true)?;
         Ok(())
     }
 

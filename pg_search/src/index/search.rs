@@ -89,7 +89,7 @@ impl WriterResources {
                     gucs::create_index_parallelism(),
                     gucs::create_index_memory_budget(),
                     true, // we always want a merge on CREATE INDEX
-                    AllowedMergePolicy::NPlusOne(target_segment_count),
+                    AllowedMergePolicy::Log,
                 )
             }
             WriterResources::Statement => {

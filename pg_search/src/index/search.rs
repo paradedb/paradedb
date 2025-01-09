@@ -94,7 +94,7 @@ impl WriterResources {
             }
             WriterResources::Statement => {
                 let policy = if merge_on_insert {
-                    AllowedMergePolicy::NPlusOne(target_segment_count)
+                    AllowedMergePolicy::Log
                 } else {
                     AllowedMergePolicy::None
                 };
@@ -110,7 +110,7 @@ impl WriterResources {
                     gucs::statement_parallelism(),
                     gucs::statement_memory_budget(),
                     true, // we always want a merge on (auto)VACUUM
-                    AllowedMergePolicy::NPlusOne(target_segment_count),
+                    AllowedMergePolicy::Log,
                 )
             }
         }

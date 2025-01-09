@@ -1,7 +1,7 @@
 use crate::postgres::storage::block::{MergeLockData, MERGE_LOCK};
 use crate::postgres::storage::buffer::{BufferManager, BufferMut};
 use pgrx::pg_sys;
-use tantivy::indexer::{MergeCandidate, MergePolicy};
+use tantivy::indexer::{LogMergePolicy, MergeCandidate, MergePolicy};
 use tantivy::merge_policy::NoMergePolicy;
 use tantivy::SegmentMeta;
 
@@ -9,6 +9,7 @@ use tantivy::SegmentMeta;
 pub enum AllowedMergePolicy {
     None,
     NPlusOne(usize),
+    Log,
 }
 
 impl From<AllowedMergePolicy> for Box<dyn MergePolicy> {
@@ -19,6 +20,7 @@ impl From<AllowedMergePolicy> for Box<dyn MergePolicy> {
                 n,
                 min_num_segments: 2,
             }),
+            AllowedMergePolicy::Log => Box::new(LogMergePolicy::default()),
         }
     }
 }

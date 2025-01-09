@@ -205,9 +205,9 @@ pub mod builder {
                 }
             }
 
-            if self.queue.len() == BitPacker8x::BLOCK_LEN {
+            if self.queue.len() == BitPacker1x::BLOCK_LEN {
                 self.chunks
-                    .push(self.pack_8x(&self.queue, self.last_chunked_blockno));
+                    .push(self.pack_1x(&self.queue, self.last_chunked_blockno));
 
                 let last = self.queue.last().cloned();
                 self.queue.clear();

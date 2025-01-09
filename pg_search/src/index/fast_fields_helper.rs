@@ -16,9 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(dead_code)]
+
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
+use parking_lot::Mutex;
 use tantivy::columnar::StrColumn;
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
@@ -29,7 +31,10 @@ use tantivy::{DocAddress, DocId};
 /// They're organized by index positions and not names to eliminate as much runtime overhead as
 /// possible when looking up the value of a specific fast field.
 #[derive(Default)]
-pub struct FFHelper(Vec<Vec<FFType>>);
+pub struct FFHelper(Vec<Vec<(FastFieldReaders, String, Mutex<Option<FFType>>)>>);
+// TODO:  There's probably a smarter way to structure things so that we don't need to do
+//        interior mutability through a Mutex, but for expediency, this works and resolves
+//        the major perf issue we've been having with fast fields
 
 impl FFHelper {
     pub fn empty() -> Self {
@@ -41,17 +46,23 @@ impl FFHelper {
             .segment_readers()
             .iter()
             .map(|reader| {
-                let fast_fields = reader.fast_fields();
+                let fast_fields_reader = reader.fast_fields().clone();
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
                         WhichFastField::Ctid
                         | WhichFastField::TableOid
                         | WhichFastField::Score
-                        | WhichFastField::Junk(_) => lookup.push(FFType::Junk),
-                        WhichFastField::Named(name, _) => {
-                            lookup.push(FFType::new(fast_fields, name))
-                        }
+                        | WhichFastField::Junk(_) => lookup.push((
+                            fast_fields_reader.clone(),
+                            String::from("junk"),
+                            Mutex::new(Some(FFType::Junk)),
+                        )),
+                        WhichFastField::Named(name, _) => lookup.push((
+                            fast_fields_reader.clone(),
+                            name.to_string(),
+                            Mutex::new(None),
+                        )),
                     }
                 }
                 lookup
@@ -62,17 +73,34 @@ impl FFHelper {
 
     #[track_caller]
     pub fn value(&self, field: usize, doc_address: DocAddress) -> Option<TantivyValue> {
-        Some(self.0[doc_address.segment_ord as usize][field].value(doc_address.doc_id))
+        let entry = &self.0[doc_address.segment_ord as usize][field];
+        Some(
+            entry
+                .2
+                .lock()
+                .get_or_insert_with(|| FFType::new(&entry.0, &entry.1))
+                .value(doc_address.doc_id),
+        )
     }
 
     #[track_caller]
     pub fn i64(&self, field: usize, doc_address: DocAddress) -> Option<i64> {
-        self.0[doc_address.segment_ord as usize][field].as_i64(doc_address.doc_id)
+        let entry = &self.0[doc_address.segment_ord as usize][field];
+        entry
+            .2
+            .lock()
+            .get_or_insert_with(|| FFType::new(&entry.0, &entry.1))
+            .as_i64(doc_address.doc_id)
     }
 
     #[track_caller]
     pub fn string(&self, field: usize, doc_address: DocAddress, value: &mut String) -> Option<()> {
-        self.0[doc_address.segment_ord as usize][field].string(doc_address.doc_id, value)
+        let entry = &self.0[doc_address.segment_ord as usize][field];
+        entry
+            .2
+            .lock()
+            .get_or_insert_with(|| FFType::new(&entry.0, &entry.1))
+            .string(doc_address.doc_id, value)
     }
 }
 

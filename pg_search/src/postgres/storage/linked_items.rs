@@ -69,7 +69,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
     }
 
     fn block_for_ord(&self, ord: usize) -> Option<BlockNumber> {
-        unimplemented!("block_for_ord is not implemented for LinkedItemList")
+        unimplemented!(
+            "block_for_ord is not implemented for LinkedItemList.  caller requested ord: {ord}"
+        )
     }
 
     unsafe fn get_linked_list_data(&self) -> LinkedListData {

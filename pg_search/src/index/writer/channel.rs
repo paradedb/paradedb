@@ -37,7 +37,7 @@ impl Write for ChannelWriter {
     }
 
     fn write_all(&mut self, buf: &[u8]) -> Result<()> {
-        self.write(buf)?;
+        let _ = self.write(buf)?;
         Ok(())
     }
 }

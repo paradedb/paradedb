@@ -22,6 +22,7 @@ use tantivy::directory::{
     WritePtr,
 };
 use tantivy::index::SegmentMetaInventory;
+use tantivy::merge_policy::MergePolicy;
 use tantivy::{Directory, IndexMeta};
 
 pub type Overwrite = bool;
@@ -36,6 +37,11 @@ pub enum ChannelRequest {
     GetSegmentComponent(PathBuf, oneshot::Sender<FileEntry>),
     SaveMetas(IndexMeta, IndexMeta),
     LoadMetas(SegmentMetaInventory, oneshot::Sender<IndexMeta>),
+    ReconsiderMergePolicy(
+        IndexMeta,
+        IndexMeta,
+        oneshot::Sender<Option<Box<dyn MergePolicy>>>,
+    ),
 }
 
 #[derive(Clone, Debug)]
@@ -159,6 +165,23 @@ impl Directory for ChannelDirectory {
             .unwrap();
 
         Ok(oneshot_receiver.recv().unwrap())
+    }
+
+    fn reconsider_merge_policy(
+        &self,
+        meta: &IndexMeta,
+        previous_meta: &IndexMeta,
+    ) -> Option<Box<dyn MergePolicy>> {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
+        self.sender
+            .send(ChannelRequest::ReconsiderMergePolicy(
+                meta.clone(),
+                previous_meta.clone(),
+                oneshot_sender,
+            ))
+            .unwrap();
+
+        oneshot_receiver.recv().unwrap()
     }
 }
 
@@ -308,6 +331,12 @@ impl ChannelRequestHandler {
             ChannelRequest::LoadMetas(inventory, sender) => {
                 let metas = self.directory.load_metas(&inventory)?;
                 sender.send(metas)?;
+            }
+            ChannelRequest::ReconsiderMergePolicy(meta, previous_meta, sender) => {
+                let policy = self
+                    .directory
+                    .reconsider_merge_policy(&meta, &previous_meta);
+                sender.send(policy)?;
             }
         }
         Ok(false)

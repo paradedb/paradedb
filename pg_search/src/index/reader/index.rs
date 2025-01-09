@@ -260,7 +260,7 @@ impl SearchIndexReader {
             None
         };
 
-        let directory = directory_type.directory(index_relation);
+        let directory = directory_type.directory(index_relation, AllowedMergePolicy::None);
         let mut index = Index::open(directory)?;
         let schema = SearchIndexSchema::open(index.schema(), index_relation);
 

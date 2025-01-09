@@ -144,7 +144,7 @@ By default, the dashboard will display metrics over the last 7 days. If you've j
 First, retrieve the database credentials.
 
 ```bash
-kubectl --namespace paradedb get secrets paradedb-superuser -o json | jq -r '.data | map_values(@base64d)'
+kubectl --namespace paradedb get secrets paradedb-superuser -o json | jq -r '.data | map_values(@base64d) | .uri |= sub("\\*"; "paradedb") | .dbname = "paradedb"'
 ```
 
 Next, port-forward the ParadeDB service to localhost.

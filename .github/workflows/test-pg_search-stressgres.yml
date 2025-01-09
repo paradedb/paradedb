@@ -1,26 +1,19 @@
-# workflows/test-stressgres.yml
+# workflows/test-pg_search-stressgres.yml
 #
-# Test Stressgres
-# Run the Stressgres test suite against multiple PostgreSQL versions using cargo-pgrx.
+# Test pg_search Stressgres
+# Run the Stressgres stress testing against pg_search.
 
-name: Test Stressgres
+name: Test pg_search Stressgres
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - dev
-      - main
-    paths:
-      - ".github/workflows/test-stressgres.yml"
-      - "pg_search/**"
-      - "tokenizers/**"
+  schedule:
+    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
+  workflow_dispatch:
 
 jobs:
-  test-stressgres:
-    name: Run stressgres on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+  test-pg_search-stressgres:
+    name: Run Stressgres on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         include:
@@ -92,8 +85,12 @@ jobs:
 
       - name: Run Stressgres Test Suite
         working-directory: stressgres/
-        run: |
-          RUST_BACKTRACE=1 cargo run suites/ci.toml "host=localhost port=288${{ matrix.pg_version }} dbname=postgres" 600
+        run: RUST_BACKTRACE=1 cargo run suites/ci.toml "host=localhost port=288${{ matrix.pg_version }} dbname=postgres" 600
 
       - name: Print Postgres Logs
         run: cat ~/.pgrx/${{ matrix.pg_version }}.log
+
+      - name: Notify Slack on Failure
+        if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Stressgres pg_search Workflow failed in `paradedb/paradedb` -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

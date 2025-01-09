@@ -8,10 +8,18 @@ Finds documents similar to a given document or set of field values. This is usef
 
 You must pass either:
 
-- `document_id`, which takes a [`key_field`](/documentation/indexing/create_index#choosing-a-key-field) value to match against the corresponding document.
+- `document_id`, which takes a [key_field](/documentation/indexing/create_index#choosing-a-key-field) value to match against the corresponding document.
 - `document_fields`, which takes a JSON object string to match against.
 
 All other parameters are compatible with both `document_id` and `document_fields`.
+
+<Note>
+  When querying with the `document_id` parameter, the index fields must be configured with the
+  [stored](/documentation/indexing/field_options#all-configuration-options) parameter set to `true`.
+
+The `key_field` of an index is configured automatically as `stored: true`.
+
+</Note>
 
 <CodeGroup>
 ```sql Function Syntax

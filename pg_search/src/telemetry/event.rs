@@ -56,4 +56,8 @@ impl TelemetryEvent {
     pub fn commit_sha(&self) -> Option<String> {
         option_env!("COMMIT_SHA").map(String::from)
     }
+
+    pub fn paradedb_version(&self) -> Option<String> {
+        option_env!("PARADEDB_VERSION").map(String::from)
+    }
 }

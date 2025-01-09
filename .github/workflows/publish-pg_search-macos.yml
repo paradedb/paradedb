@@ -89,6 +89,7 @@ jobs:
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           OS_VERSION=$(sw_vers -productVersion)
           case $OS_VERSION in
@@ -128,6 +129,12 @@ jobs:
           export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
           export PATH="/opt/homebrew/bin:$PATH"
           cargo pgrx package --pg-config $PG_CONFIG_PATH --features icu
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
+          PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
+          PARADEDB_TELEMETRY: true
 
       - name: Create .pkg Package
         run: |

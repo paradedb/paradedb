@@ -39,7 +39,7 @@ impl FileHandle for ChannelReader {
                 self.entry,
                 oneshot_sender,
             ))
-            .unwrap();
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, e.to_string()))?;
 
         oneshot_receiver
             .recv()

@@ -93,6 +93,7 @@ jobs:
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
+            PARADEDB_VERSION=${{ steps.version.outputs.version }}
             PARADEDB_TELEMETRY=true
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile

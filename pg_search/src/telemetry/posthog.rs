@@ -57,6 +57,7 @@ impl TelemetryConnection for PosthogConnection {
     fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<()> {
         let mut properties = serde_json::to_value(event)?;
         properties["commit_sha"] = serde_json::to_value(event.commit_sha())?;
+        properties["paradedb_version"] = serde_json::to_value(event.paradedb_version())?;
 
         let data = json!({
             "api_key": self.api_key,

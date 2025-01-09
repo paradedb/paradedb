@@ -73,6 +73,7 @@ pub mod builder {
             }
         }
 
+        #[allow(dead_code)]
         pub fn len(&self) -> usize {
             match self {
                 ChunkStyle::Sorted1x { .. } => BitPacker1x::BLOCK_LEN,
@@ -101,7 +102,7 @@ pub mod builder {
                 ChunkStyle::Uncompressed(values) => {
                     size_of::<u8>() // tag
                         + size_of::<u8>() // len
-                        + values.len() * std::mem::size_of::<pg_sys::BlockNumber>()
+                        + values.len() * size_of::<pg_sys::BlockNumber>()
                 }
             }
         }
@@ -189,6 +190,7 @@ pub mod builder {
     }
 
     impl BlockList {
+        #[allow(dead_code)]
         pub fn is_empty(&self) -> bool {
             self.chunks.is_empty() && self.queue.is_empty()
         }
@@ -400,7 +402,7 @@ pub mod reader {
                         | tag @ ChunkSyleTag::StrictlySorted1x
                         | tag @ ChunkSyleTag::StrictlySorted4x
                         | tag @ ChunkSyleTag::StrictlySorted8x => {
-                            let num_bits = slice[offset] as u8;
+                            let num_bits = slice[offset];
                             offset += 1;
                             let initial = u32::from_le_bytes(
                                 slice[offset..offset + size_of::<pg_sys::BlockNumber>()]

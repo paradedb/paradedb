@@ -40,6 +40,7 @@ use crate::{
 /// How big should our insert queue get before we go ahead and add them to the tantivy index?
 const MAX_INSERT_QUEUE_SIZE: usize = 1000;
 const CHANNEL_QUEUE_LEN: usize = 1000;
+const MIN_NUM_SEGMENTS: usize = 2;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
@@ -189,7 +190,7 @@ impl SearchIndexWriter {
                 let target_segments = std::cmp::max(n, num_segments as usize);
                 let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
                     n: target_segments,
-                    min_num_segments: 2,
+                    min_num_segments: MIN_NUM_SEGMENTS,
                 });
 
                 let _opstamp = self

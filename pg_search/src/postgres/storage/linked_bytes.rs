@@ -256,14 +256,18 @@ impl LinkedBytesList {
     }
 
     pub unsafe fn mark_deleted(&mut self) {
-        let mut blockno = self.get_start_blockno();
-        while blockno != pg_sys::InvalidBlockNumber {
-            let mut buffer = self.bman.get_buffer_mut(blockno);
-            let page = buffer.page_mut();
-            let special = page.special::<BM25PageSpecialData>();
+        // in addition to the list itself, we also have a secondary list of linked blocks (which
+        // contain the blocknumbers of this list) that needs to be marked deleted too
+        for starting_blockno in [self.metadata.start_blockno, self.metadata.blocklist_start] {
+            let mut blockno = starting_blockno;
+            while blockno != pg_sys::InvalidBlockNumber {
+                let mut buffer = self.bman.get_buffer_mut(blockno);
+                let page = buffer.page_mut();
+                let special = page.special::<BM25PageSpecialData>();
 
-            blockno = special.next_blockno;
-            page.mark_deleted();
+                blockno = special.next_blockno;
+                page.mark_deleted();
+            }
         }
 
         let mut header_buffer = self.bman.get_buffer_mut(self.header_blockno);

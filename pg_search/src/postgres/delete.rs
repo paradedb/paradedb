@@ -93,7 +93,7 @@ pub extern "C" fn ambulkdelete(
 
     // Don't merge here, amvacuumcleanup will merge
     writer
-        .commit(None)
+        .commit()
         .expect("ambulkdelete: commit should succeed");
 
     if stats.is_null() {

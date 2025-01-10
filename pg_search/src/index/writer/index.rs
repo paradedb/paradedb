@@ -40,7 +40,6 @@ use crate::{
 /// How big should our insert queue get before we go ahead and add them to the tantivy index?
 const MAX_INSERT_QUEUE_SIZE: usize = 1000;
 const CHANNEL_QUEUE_LEN: usize = 1000;
-const MIN_NUM_SEGMENTS: usize = 2;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
@@ -50,7 +49,6 @@ pub struct SearchIndexWriter {
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
     writer: Arc<IndexWriter>,
-    merge_policy: AllowedMergePolicy,
     handler: ChannelRequestHandler,
     wants_merge: bool,
     insert_queue: Vec<UserOperation>,
@@ -68,7 +66,7 @@ impl SearchIndexWriter {
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = directory_type.channel_request_handler(index_relation, req_receiver);
+        let mut handler = directory_type.channel_request_handler(index_relation, req_receiver, merge_policy);
 
         let mut index = {
             handler
@@ -95,7 +93,6 @@ impl SearchIndexWriter {
         Ok(Self {
             relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
-            merge_policy,
             schema,
             handler,
             wants_merge,
@@ -111,11 +108,7 @@ impl SearchIndexWriter {
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = ChannelRequestHandler::open(
-            MVCCDirectory::snapshot(index_relation.oid()),
-            index_relation.oid(),
-            req_receiver,
-        );
+        let mut handler = BlockDirectoryType::Mvcc.channel_request_handler(index_relation, req_receiver, merge_policy);
 
         let mut index = {
             let schema = schema.clone();
@@ -144,7 +137,6 @@ impl SearchIndexWriter {
         Ok(Self {
             relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
-            merge_policy,
             schema,
             ctid_field,
             handler,
@@ -179,75 +171,38 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    pub fn commit(mut self, merge_lock: Option<MergeLock>) -> Result<()> {
+    pub fn commit(mut self) -> Result<()> {
         self.drain_insert_queue()?;
         let mut writer =
             Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
 
-        if let Some(mut merge_lock) = merge_lock {
-            if let AllowedMergePolicy::NPlusOne(n) = self.merge_policy {
-                //
-                // because very large indexes or inserts may necessitate more segments than
-                // the index's target segment count, we set the target to the maximum of the two
-                let num_segments = unsafe { merge_lock.num_segments() };
-                let target_segments = std::cmp::max(n, num_segments as usize);
-                let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segments,
-                    min_num_segments: MIN_NUM_SEGMENTS,
-                });
-
-                let _opstamp = self
-                    .handler
-                    .wait_for(move || {
-                        writer.set_merge_policy(merge_policy);
-                        let opstamp = writer.commit()?;
-                        writer.wait_merging_threads()?;
-                        tantivy::Result::Ok(opstamp)
-                    })
-                    .expect("spawned thread should not fail")?;
-
-                unsafe {
-                    garbage_collect_metas(self.relation_oid)?;
-                }
-
-                return Ok(());
-            }
-        }
-
         self.handler
             .wait_for(move || {
-                let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
-                writer.set_merge_policy(policy);
                 let opstamp = writer.commit()?;
+                writer.wait_merging_threads()?;
                 tantivy::Result::Ok(opstamp)
             })
             .expect("spawned thread should not fail")?;
 
+        // TODO: Bring this back
+        // unsafe {
+        //     garbage_collect_metas(self.relation_oid)?;
+        // }
         Ok(())
     }
 
+    // TODO: Remove redundant methods
     pub fn commit_build(self) -> Result<()> {
-        self.commit(None)?;
-
-        // TODO: Set num segments here
-
-        Ok(())
+        self.commit()
     }
 
     pub fn commit_inserts(self) -> Result<()> {
-        let merge_lock = if self.wants_merge {
-            unsafe { MergeLock::acquire_for_merge(self.relation_oid) }
-        } else {
-            None
-        };
-        self.commit(merge_lock)
+        self.commit()
     }
 
     pub fn vacuum(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
-
-        let merge_lock = unsafe { MergeLock::acquire_for_merge(self.relation_oid) };
-        self.commit(merge_lock)
+        self.commit()
     }
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {

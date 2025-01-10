@@ -35,6 +35,7 @@ use tantivy::{
 use tantivy::{snippet::SnippetGenerator, Executor};
 
 use crate::index::{setup_tokenizers, BlockDirectoryType};
+use crate::index::merge_policy::AllowedMergePolicy;
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::utils::ctid_to_u64;
@@ -219,7 +220,7 @@ impl SearchIndexReader {
             None
         };
 
-        let directory = directory_type.directory(index_relation);
+        let directory = directory_type.directory(index_relation, AllowedMergePolicy::None);
         let mut index = Index::open(directory)?;
         let schema = SearchIndexSchema::open(index.schema(), index_relation);
 

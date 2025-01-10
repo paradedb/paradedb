@@ -46,10 +46,10 @@ pub enum BlockDirectoryType {
 }
 
 impl BlockDirectoryType {
-    pub fn directory(self, index_relation: &PgRelation) -> MVCCDirectory {
+    pub fn directory(self, index_relation: &PgRelation, merge_policy: AllowedMergePolicy) -> MVCCDirectory {
         match self {
-            BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid()),
-            BlockDirectoryType::BulkDelete => MVCCDirectory::any(index_relation.oid()),
+            BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid(), merge_policy),
+            BlockDirectoryType::BulkDelete => MVCCDirectory::any(index_relation.oid(), merge_policy),
         }
     }
 
@@ -57,9 +57,10 @@ impl BlockDirectoryType {
         self,
         index_relation: &PgRelation,
         receiver: Receiver<ChannelRequest>,
+        merge_policy: AllowedMergePolicy
     ) -> ChannelRequestHandler {
         ChannelRequestHandler::open(
-            self.directory(index_relation),
+            self.directory(index_relation, merge_policy),
             index_relation.oid(),
             receiver,
         )

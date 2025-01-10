@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{list_managed_files, load_metas, save_new_metas, save_schema, save_settings};
-use crate::index::merge_policy::set_num_segments;
+use crate::index::merge_policy::{AllowedMergePolicy, MergeLock, NPlusOneMergePolicy, set_num_segments};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -38,6 +38,9 @@ use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHa
 use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
+// Minimum number of segments for the NPlusOneMergePolicy to maintain
+const MIN_NUM_SEGMENTS: usize = 2;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
     Snapshot,
@@ -51,6 +54,8 @@ pub enum MvccSatisfies {
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
     mvcc_style: MvccSatisfies,
+    merge_policy: AllowedMergePolicy,
+    merge_lock: Arc<Mutex<Option<MergeLock>>>,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
@@ -59,19 +64,23 @@ pub struct MVCCDirectory {
 }
 
 impl MVCCDirectory {
-    pub fn snapshot(relation_oid: pg_sys::Oid) -> Self {
+    pub fn snapshot(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
         Self {
             relation_oid,
+            merge_policy,
             mvcc_style: MvccSatisfies::Snapshot,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
+            merge_lock: Default::default(),
         }
     }
 
-    pub fn any(relation_oid: pg_sys::Oid) -> Self {
+    pub fn any(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
         Self {
             relation_oid,
+            merge_policy,
             mvcc_style: MvccSatisfies::Any,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
+            merge_lock: Default::default(),
         }
     }
 
@@ -251,6 +260,10 @@ impl Directory for MVCCDirectory {
             .collect::<FxHashSet<_>>()
             .len();
 
+        if matches!(self.merge_policy, AllowedMergePolicy::None) {
+            return Some(Box::new(NoMergePolicy));
+        }
+
         //
         // if more than 1 segment was created, that means a bulk insert occurred
         // we should not merge these new segments because that would be a very expensive operation
@@ -259,17 +272,34 @@ impl Directory for MVCCDirectory {
             pgrx::log!("{} segments created, skipping merge", segments_created);
             unsafe { set_num_segments(self.relation_oid, new_ids.len() as u32 - 1) };
             pgrx::log!("done setting num segments");
-            Some(Box::new(NoMergePolicy))
-        } else {
-            pgrx::log!("proceeding with merge");
-            None
+            return Some(Box::new(NoMergePolicy));
+        } 
+
+        // try to acquire merge lock and do merge
+        if let Some(mut merge_lock) = unsafe { MergeLock::acquire_for_merge(self.relation_oid) } {
+            if let AllowedMergePolicy::NPlusOne(n) = self.merge_policy {
+                let num_segments = unsafe { merge_lock.num_segments() };
+                let target_segments = std::cmp::max(n, num_segments as usize);
+                let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segments,
+                    min_num_segments: MIN_NUM_SEGMENTS,
+                });
+
+                let mut lock = self.merge_lock.lock();
+                *lock = Some(merge_lock);
+
+                return Some(merge_policy);
+            }
         }
+
+        Some(Box::new(NoMergePolicy))
     }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use crate::index::merge_policy::AllowedMergePolicy;
     use super::*;
     use pgrx::prelude::*;
 
@@ -283,7 +313,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let directory = MVCCDirectory::snapshot(relation_oid);
+        let directory = MVCCDirectory::snapshot(relation_oid, AllowedMergePolicy::None);
         let listed_files = directory.list_managed_files().unwrap();
         assert_eq!(listed_files.len(), 6);
     }

@@ -53,6 +53,7 @@ impl MergePolicy for NPlusOneMergePolicy {
 }
 
 /// Only one merge can happen at a time, so we need to lock the merge process
+#[derive(Debug, Clone)]
 pub struct MergeLock(BufferMut);
 
 impl MergeLock {

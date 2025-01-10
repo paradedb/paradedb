@@ -11,8 +11,8 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/test-remove-depot
+    # branches:
+    #   - phil/test-remove-depot
   workflow_dispatch:
     inputs:
       version:
@@ -52,13 +52,18 @@ jobs:
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
           else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=${{ github.event.inputs.version }}
           fi
-          echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "GitHub Tag Version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -80,15 +85,22 @@ jobs:
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
-            COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
+            COMMIT_SHA=${{ steps.version.outputs.commit_sha }}
             PARADEDB_VERSION=${{ steps.version.outputs.version }}
             PARADEDB_TELEMETRY=true
           platforms: ${{ matrix.arch }}
           file: docker/Dockerfile
-          push: false # TODO
+          push: true
           sbom: true
           provenance: mode=max
           tags: paradedb/paradedb-pg${{ matrix.pg_version }}-${{ matrix.arch }}
+
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: index.docker.io/paradedb/paradedb
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
 
   # This job combines the single-architecture ParadeDB Docker images into a multi-architecture manifest, so that users
   # can pull the correct image for their architecture without needing to know the specific image tag. We do this manually
@@ -112,12 +124,21 @@ jobs:
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+              if [[ $GITHUB_REF == refs/tags/v* ]]; then
+                VERSION=${GITHUB_REF#refs/tags/v}
+                TAG=${GITHUB_REF#refs/tags/}
+              else
+                # If there is no tag and no provided version, it's a test run and we set a default version
+                VERSION="0.0.0"
+                TAG="v0.0.0"
+              fi
           else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=${{ github.event.inputs.version }}"
+            TAG=v${{ github.event.inputs.version }}"
           fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -176,9 +197,6 @@ jobs:
             docker manifest push paradedb/paradedb:${{ steps.version.outputs.version }}
           fi
 
-
-
-   
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v2
         with:
@@ -199,10 +217,17 @@ jobs:
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
           else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=${{ github.event.inputs.version }}
           fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Trigger paradedb/charts Release Workflow
         uses: multinarity/workflow-dispatch@master

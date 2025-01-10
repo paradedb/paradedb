@@ -92,6 +92,7 @@ jobs:
         id: version
         shell: bash
         run: |
+          # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}

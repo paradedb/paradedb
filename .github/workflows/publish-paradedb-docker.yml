@@ -46,14 +46,22 @@ jobs:
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
           else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=${{ github.event.inputs.version }}
           fi
-          echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "GitHub Tag Version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      # Cross-compilation is incredibly slow, so we use an external service called Depot to
+      # speed up container builds for universal images. We could eventually replace this with
+      # Docker Build Cloud once they add support for multiple concurrent builders.
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 
@@ -92,7 +100,7 @@ jobs:
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
-            COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
+            COMMIT_SHA=${{ steps.version.outputs.commit_sha }}
             PARADEDB_VERSION=${{ steps.version.outputs.version }}
             PARADEDB_TELEMETRY=true
           platforms: linux/amd64,linux/arm64
@@ -124,10 +132,17 @@ jobs:
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
           if [ -z "${{ github.event.inputs.version }}" ]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
           else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION=${{ github.event.inputs.version }}
           fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Trigger paradedb/charts Release Workflow
         uses: multinarity/workflow-dispatch@master

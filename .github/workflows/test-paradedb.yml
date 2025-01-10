@@ -47,37 +47,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Set up Docker Buildx with Build Cloud
-        if: steps.env.outputs.environment == 'prod'
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           platforms: linux/amd64,linux/arm64
-          version: lab:latest
-          driver: cloud
-          endpoint: ${{ secrets.DOCKERHUB_USERNAME }}/paradedb
-          install: true
-
-      # We only build with Docker Build Cloud when promoting to `main` as doing so requires access to GitHub Secrets,
-      # which community contributors don't have access to.
-      #
-      # We keep PARADEDB_TELEMETRY=true to test the telemetry feature, even though this isn't real usage.
-      - name: Build the ParadeDB Docker Image (prod only)
-        if: steps.env.outputs.environment == 'prod'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          build-args: |
-            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
-            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
-            COMMIT_SHA=testcommitsha
-            PARADEDB_VERSION=0.0.0
-            PARADEDB_TELEMETRY=true
-          platforms: linux/amd64,linux/arm64
-          file: docker/Dockerfile
-          push: false # Don't push to Docker Hub
-          load: true # Load the image into the Docker daemon of the runner
-          tags: paradedb/paradedb:latest # Tag the local image as latest so it gets picked up by Docker Compose
-          outputs: "type=cacheonly" # Export results to the build cache
 
       # On any branch other than `main`, we build the ParadeDB Docker Image using Docker Compose so that community
       # contributors can trigger the workflow without needing access to GitHub Secrets.

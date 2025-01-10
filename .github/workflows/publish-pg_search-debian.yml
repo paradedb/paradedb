@@ -70,6 +70,7 @@ jobs:
             pg_version: 17
             arch: arm64
           # Debian 11 (Bullseye)
+          # We build for Debian 11 for compatibility with one of our integration partners
           - runner: ubicloud-standard-8
             image: debian:11-slim
             pg_version: 14

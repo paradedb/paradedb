@@ -15,9 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::fast_fields_helper::FFType;
+use crate::index::{setup_tokenizers, BlockDirectoryType};
+use crate::postgres::storage::block::CLEANUP_LOCK;
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
+use crate::schema::{SearchFieldName, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::{pg_sys, PgRelation};
+use rustc_hash::FxHashMap;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
@@ -28,18 +35,12 @@ use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::Index;
 use tantivy::query::QueryParser;
 use tantivy::schema::FieldType;
+use tantivy::termdict::TermOrdinal;
 use tantivy::{
-    query::Query, Ctid, DocAddress, DocId, IndexReader, Order, ReloadPolicy, Score, Searcher,
+    query::Query, DocAddress, DocId, IndexReader, Order, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, TantivyError,
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
-
-use crate::index::{setup_tokenizers, BlockDirectoryType};
-use crate::postgres::storage::block::CLEANUP_LOCK;
-use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
-use crate::postgres::utils::ctid_to_u64;
-use crate::query::SearchQueryInput;
-use crate::schema::{SearchFieldName, SearchIndexSchema};
 
 /// Represents a matching document from a tantivy search.  Typically it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -51,11 +52,8 @@ pub struct SearchIndexScore {
 
 impl SearchIndexScore {
     #[inline]
-    pub fn new(ctid: Ctid, score: Score) -> Self {
-        Self {
-            ctid: ctid_to_u64(ctid),
-            bm25: score,
-        }
+    pub fn new(ctid: u64, score: Score) -> Self {
+        Self { ctid, bm25: score }
     }
 }
 
@@ -78,9 +76,19 @@ pub enum SearchResults {
     #[default]
     None,
 
-    TopNByScore(usize, std::vec::IntoIter<(OrderedScore, DocAddress, Ctid)>),
+    TopNByScore(
+        usize,
+        Searcher,
+        FxHashMap<SegmentOrdinal, FFType>,
+        std::vec::IntoIter<(OrderedScore, DocAddress)>,
+    ),
 
-    TopNByField(usize, std::vec::IntoIter<(SearchIndexScore, DocAddress)>),
+    TopNByField(
+        usize,
+        Searcher,
+        FxHashMap<SegmentOrdinal, FFType>,
+        std::vec::IntoIter<(TermOrdinal, DocAddress)>,
+    ),
 
     #[allow(clippy::type_complexity)]
     BufferedChannel(
@@ -96,7 +104,7 @@ pub enum SearchResults {
 #[derive(PartialEq, Clone)]
 pub struct OrderedScore {
     dir: SortDirection,
-    score: SearchIndexScore,
+    score: Score,
 }
 
 impl PartialOrd for OrderedScore {
@@ -113,10 +121,10 @@ impl Debug for SearchResults {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SearchResults::None => write!(f, "SearchResults::None"),
-            SearchResults::TopNByScore(count, iter) => {
+            SearchResults::TopNByScore(count, _, _, iter) => {
                 write!(f, "SearchResults::TopNByScore({count}, {:?})", iter.len())
             }
-            SearchResults::TopNByField(count, iter) => {
+            SearchResults::TopNByField(count, _, _, iter) => {
                 write!(f, "SearchResults::TopNByField({count}, {:?})", iter.len())
             }
             SearchResults::BufferedChannel(iter) => {
@@ -142,10 +150,43 @@ impl Iterator for SearchResults {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             SearchResults::None => None,
-            SearchResults::TopNByScore(_, iter) => iter
-                .next()
-                .map(|(OrderedScore { score, .. }, doc_address, _ctid)| (score, doc_address)),
-            SearchResults::TopNByField(_, iter) => iter.next(),
+            SearchResults::TopNByScore(_, searcher, ff_lookup, iter) => {
+                let (scored, doc_address) = iter.next()?;
+
+                let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
+                    FFType::new(
+                        searcher
+                            .segment_reader(doc_address.segment_ord)
+                            .fast_fields(),
+                        "ctid",
+                    )
+                });
+                let scored = SearchIndexScore {
+                    ctid: ctid_ff
+                        .as_u64(doc_address.doc_id)
+                        .expect("ctid should be present"),
+                    bm25: scored.score,
+                };
+                Some((scored, doc_address))
+            }
+            SearchResults::TopNByField(_, searcher, ff_lookup, iter) => {
+                let (_, doc_address) = iter.next()?;
+                let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
+                    FFType::new(
+                        searcher
+                            .segment_reader(doc_address.segment_ord)
+                            .fast_fields(),
+                        "ctid",
+                    )
+                });
+                let scored = SearchIndexScore {
+                    ctid: ctid_ff
+                        .as_u64(doc_address.doc_id)
+                        .expect("ctid should be present"),
+                    bm25: 1.0,
+                };
+                Some((scored, doc_address))
+            }
             SearchResults::BufferedChannel(iter) => iter.next(),
             SearchResults::Channel(iter) => iter.next(),
             SearchResults::SingleSegment(iter) => iter.next(),
@@ -157,8 +198,8 @@ impl Iterator for SearchResults {
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
             SearchResults::None => (0, Some(0)),
-            SearchResults::TopNByScore(_, iter) => iter.size_hint(),
-            SearchResults::TopNByField(_, iter) => iter.size_hint(),
+            SearchResults::TopNByScore(_, _, _, iter) => iter.size_hint(),
+            SearchResults::TopNByField(_, _, _, iter) => iter.size_hint(),
             SearchResults::BufferedChannel(iter) => iter.size_hint(),
             SearchResults::Channel(iter) => iter.size_hint(),
             SearchResults::SingleSegment(iter) => iter.size_hint(),
@@ -171,8 +212,8 @@ impl SearchResults {
     pub fn len(&self) -> Option<usize> {
         match self {
             SearchResults::None => Some(0),
-            SearchResults::TopNByScore(count, _) => Some(*count),
-            SearchResults::TopNByField(count, _) => Some(*count),
+            SearchResults::TopNByScore(count, ..) => Some(*count),
+            SearchResults::TopNByField(count, ..) => Some(*count),
             SearchResults::BufferedChannel(_) => None,
             SearchResults::Channel(_) => None,
             SearchResults::SingleSegment(_) => None,
@@ -413,22 +454,13 @@ impl SearchIndexReader {
 
         let collector =
             TopDocs::with_limit(n).order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
-
         let top_docs = self.collect(query, collector, true);
-        let top_docs = top_docs
-            .into_iter()
-            .map(|(_, doc_address, ctid)| {
-                (
-                    SearchIndexScore {
-                        ctid: ((ctid.0 as u64) << 16) | (ctid.1 as u64),
-                        bm25: 1.0,
-                    },
-                    doc_address,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        SearchResults::TopNByField(top_docs.len(), top_docs.into_iter())
+        SearchResults::TopNByField(
+            top_docs.len(),
+            self.searcher.clone(),
+            Default::default(),
+            top_docs.into_iter(),
+        )
     }
 
     fn top_by_score(
@@ -439,17 +471,18 @@ impl SearchIndexReader {
     ) -> SearchResults {
         let collector =
             TopDocs::with_limit(n).tweak_score(move |_segment_reader: &tantivy::SegmentReader| {
-                move |_doc: DocId, original_score: Score, ctid: Ctid| OrderedScore {
+                move |_doc: DocId, original_score: Score| OrderedScore {
                     dir: sortdir,
-                    score: SearchIndexScore {
-                        ctid: ((ctid.0 as u64) << 16) | (ctid.1 as u64),
-                        bm25: original_score,
-                    },
+                    score: original_score,
                 }
             });
-
         let top_docs = self.collect(query, collector, true);
-        SearchResults::TopNByScore(top_docs.len(), top_docs.into_iter())
+        SearchResults::TopNByScore(
+            top_docs.len(),
+            self.searcher.clone(),
+            Default::default(),
+            top_docs.into_iter(),
+        )
     }
 
     pub fn estimate_docs(&self, search_query_input: &SearchQueryInput) -> Option<usize> {
@@ -526,9 +559,10 @@ impl SearchIndexReader {
 }
 
 mod vec_collector {
+    use crate::index::fast_fields_helper::FFType;
     use crate::index::reader::index::SearchIndexScore;
     use tantivy::collector::{Collector, SegmentCollector};
-    use tantivy::{Ctid, DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
+    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     #[derive(Default)]
     pub enum FruitStyle {
@@ -538,14 +572,14 @@ mod vec_collector {
             SegmentOrdinal,
             std::vec::IntoIter<DocId>,
             std::vec::IntoIter<Score>,
-            std::vec::IntoIter<Ctid>,
+            std::vec::IntoIter<u64>,
         ),
         Blocks(
             SegmentOrdinal,
             std::vec::IntoIter<std::vec::IntoIter<DocId>>,
-            std::vec::IntoIter<std::vec::IntoIter<Ctid>>,
+            std::vec::IntoIter<std::vec::IntoIter<u64>>,
             std::vec::IntoIter<DocId>,
-            std::vec::IntoIter<Ctid>, // ctids
+            std::vec::IntoIter<u64>, // ctids
         ),
     }
 
@@ -558,7 +592,6 @@ mod vec_collector {
                 FruitStyle::Scored(segment_ord, doc, score, ctid) => {
                     let doc = doc.next()?;
                     let ctid = ctid.next()?;
-                    let ctid = ((ctid.0 as u64) << 16) | (ctid.1 as u64);
                     assert!(ctid != 0);
                     let bm25 = score.next()?;
                     let doc_address = DocAddress::new(*segment_ord, doc);
@@ -575,7 +608,6 @@ mod vec_collector {
 
                         Some(doc) => {
                             let ctid = ctid.next()?;
-                            let ctid = ((ctid.0 as u64) << 16) | (ctid.1 as u64);
                             assert!(ctid != 0);
                             let doc_address = DocAddress::new(*segment_ord, doc);
                             let scored = SearchIndexScore { ctid, bm25: 0.0 };
@@ -605,13 +637,14 @@ mod vec_collector {
         fn for_segment(
             &self,
             segment_local_id: SegmentOrdinal,
-            _segment_reader: &SegmentReader,
+            segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,
                 scored: (vec![], vec![], vec![]),
                 doc_blocks: vec![],
                 ctid_blocks: vec![],
+                ctid_ff: FFType::new(segment_reader.fast_fields(), "ctid"),
             })
         }
 
@@ -630,24 +663,35 @@ mod vec_collector {
 
     pub struct VecSegmentCollector {
         segment_ord: SegmentOrdinal,
-        scored: (Vec<DocId>, Vec<Score>, Vec<Ctid>),
+        scored: (Vec<DocId>, Vec<Score>, Vec<u64>),
         doc_blocks: Vec<std::vec::IntoIter<DocId>>,
-        ctid_blocks: Vec<std::vec::IntoIter<Ctid>>,
+        ctid_blocks: Vec<std::vec::IntoIter<u64>>,
+        ctid_ff: FFType,
     }
 
     impl SegmentCollector for VecSegmentCollector {
         type Fruit = FruitStyle;
 
-        fn collect(&mut self, doc: DocId, score: Score, ctid: Ctid) {
+        fn collect(&mut self, doc: DocId, score: Score) {
             self.scored.0.push(doc);
             self.scored.1.push(score);
-            self.scored.2.push(ctid);
+            self.scored
+                .2
+                .push(self.ctid_ff.as_u64(doc).expect("ctid should be present"));
         }
 
         #[allow(clippy::unnecessary_to_owned)]
-        fn collect_block(&mut self, docs: &[DocId], ctids: &[Ctid]) {
+        fn collect_block(&mut self, docs: &[DocId]) {
+            let ctids = docs
+                .iter()
+                .map(|doc_id| {
+                    self.ctid_ff
+                        .as_u64(*doc_id)
+                        .expect("ctid should be present")
+                })
+                .collect::<Vec<_>>();
             self.doc_blocks.push(docs.to_vec().into_iter());
-            self.ctid_blocks.push(ctids.to_vec().into_iter()); // ctids.to_vec().into_iter());
+            self.ctid_blocks.push(ctids.into_iter());
         }
 
         fn harvest(mut self) -> Self::Fruit {

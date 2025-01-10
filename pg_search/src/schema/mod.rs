@@ -702,8 +702,6 @@ impl SearchIndexSchema {
         let mut builder = Schema::builder();
         let mut search_fields = vec![];
 
-        let key_field_name = fields[key_index].0 .0.clone();
-
         for (name, config, field_type) in fields {
             let id: SearchFieldId = match field_type {
                 SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
@@ -727,13 +725,11 @@ impl SearchIndexSchema {
 
         // hardcode the ctid field into the schema.  "ctid" is a reserved Postgres attribute name
         // so we don't need to worry about name conflicts
-        builder.add_u64_field("ctid", tantivy::schema::INDEXED);
-
-        let schema = builder.build_with_key_field(&key_field_name);
+        builder.add_u64_field("ctid", tantivy::schema::INDEXED | tantivy::schema::FAST);
 
         Ok(Self {
             key: key_index,
-            schema,
+            schema: builder.build(),
             lookup: Self::build_lookup(&search_fields).into(),
             fields: search_fields,
         })

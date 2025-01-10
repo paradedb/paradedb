@@ -17,9 +17,10 @@
 
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
-use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
+use crate::postgres::utils::{
+    categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
+};
 use crate::schema::SearchField;
-use pgrx::itemptr::item_pointer_get_both;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
@@ -169,7 +170,7 @@ unsafe fn aminsert_internal(
             );
         });
         writer
-            .insert(search_document, item_pointer_get_both(*ctid))
+            .insert(search_document, item_pointer_to_u64(*ctid))
             .expect("insertion into index should succeed");
 
         true

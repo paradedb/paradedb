@@ -16,11 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::{pg_sys::ItemPointerData, *};
-use tantivy::postings::Postings;
-use tantivy::schema::IndexRecordOption;
-use tantivy::{DocSet, Term};
+use tantivy::Term;
 
 use super::storage::block::CLEANUP_LOCK;
+use crate::index::fast_fields_helper::FFType;
 use crate::index::merge_policy::MergeLock;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
@@ -64,29 +63,16 @@ pub extern "C" fn ambulkdelete(
     let mut did_delete = false;
 
     for segment_reader in reader.searcher().segment_readers() {
-        let inverted_index = segment_reader
-            .inverted_index(ctid_field)
-            .expect("tantivy inverted index should contain the ctid field");
-        let termdict = inverted_index.terms();
-        let mut allterms = termdict
-            .stream()
-            .expect("should be able to stream all terms from the inverted index");
-        while let Some((term_bytes, term_info)) = allterms.next() {
-            let mut postings = inverted_index
-                .read_postings_from_terminfo(term_info, IndexRecordOption::Basic)
-                .expect("should be able to retrieve postings for TermInfo");
-            loop {
-                let ctid = postings.ctid_value();
-                let ctid = ((ctid.0 as u64) << 16) | ctid.1 as u64;
-                if callback(ctid) {
-                    did_delete = true;
-                    writer
-                        .delete_term(Term::from_field_bytes(ctid_field, term_bytes))
-                        .expect("ambulkdelete: deleting ctid Term should succeed");
-                }
-                if postings.advance() == tantivy::TERMINATED {
-                    break;
-                }
+        let ctid_ff = FFType::new(segment_reader.fast_fields(), "ctid");
+
+        for doc_id in 0..segment_reader.max_doc() {
+            check_for_interrupts!();
+            let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
+            if callback(ctid) {
+                did_delete = true;
+                writer
+                    .delete_term(Term::from_field_u64(ctid_field, ctid))
+                    .expect("ambulkdelete: deleting ctid Term should succeed");
             }
         }
     }

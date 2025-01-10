@@ -227,6 +227,18 @@ impl FFType {
             None
         }
     }
+
+    /// Given a [`DocId`], what is its u64 "fast field" value?
+    ///
+    /// If this [`FFType`] isn't [`FFType::U64`], this function returns [`None`].
+    #[inline(always)]
+    pub fn as_u64(&self, doc: DocId) -> Option<u64> {
+        if let FFType::U64(ff) = self {
+            ff.first(doc)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]

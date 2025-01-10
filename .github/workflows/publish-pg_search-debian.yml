@@ -9,6 +9,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - phil/debian11 # TODO: Remove this once done testing
   workflow_dispatch:
     inputs:
       version:
@@ -65,6 +67,39 @@ jobs:
             arch: amd64
           - runner: ubicloud-standard-4-arm
             image: debian:12-slim
+            pg_version: 17
+            arch: arm64
+          # Debian 11 (Bullseye)
+          - runner: ubicloud-standard-8
+            image: debian:11-slim
+            pg_version: 14
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            image: debian:11-slim
+            pg_version: 14
+            arch: arm64
+          - runner: ubicloud-standard-8
+            image: debian:11-slim
+            pg_version: 15
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            image: debian:11-slim
+            pg_version: 15
+            arch: arm64
+          - runner: ubicloud-standard-8
+            image: debian:11-slim
+            pg_version: 16
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            image: debian:11-slim
+            pg_version: 16
+            arch: arm64
+          - runner: ubicloud-standard-8
+            image: debian:11-slim
+            pg_version: 17
+            arch: amd64
+          - runner: ubicloud-standard-4-arm
+            image: debian:11-slim
             pg_version: 17
             arch: arm64
 

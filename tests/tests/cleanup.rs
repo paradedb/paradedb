@@ -52,14 +52,14 @@ fn create_and_drop_builtin_index(mut conn: PgConnection) {
     "DROP TABLE IF EXISTS test_table CASCADE".execute(&mut conn);
 }
 
-/// Tests that CREATE INDEX and REINDEX and VACUUM merge down to the proper number of segments, based on our
-/// [`NPlusOne`] merge policy
 #[rstest]
-fn segment_count_correct_after_merge(mut conn: PgConnection) {
+fn segment_count_matches_available_parallelism(mut conn: PgConnection) {
+    // CREATE INDEX should create as many segments as there are available CPUs
     r#"
+        SET maintenance_work_mem = '1GB';
         DROP TABLE IF EXISTS test_table;
         CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
-        INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 10000);
+        INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 100000);
 
         CREATE INDEX idxtest_table ON public.test_table
         USING bm25 (id, value)
@@ -71,26 +71,124 @@ fn segment_count_correct_after_merge(mut conn: PgConnection) {
         );
     "#
     .execute(&mut conn);
+
+    let expected_segments: usize = std::thread::available_parallelism().unwrap().into();
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
-    assert!(nsegments >= 7); // '8' is our default value for `paradedb.create_index_parallelism` GUC
+    assert_eq!(nsegments, expected_segments);
 
-    // we now want to target just 2 segments
-    "ALTER INDEX idxtest_table SET (target_segment_count = 2);".execute(&mut conn);
+    // nplusone merge policy should merge single documents down to 1 segment
+    for _ in 0..10 {
+        "INSERT INTO test_table (value) SELECT md5(random()::text)".execute(&mut conn);
+    }
 
-    // reindexing gets us 2 segments b/c that's our target *and* its less than the default parallelism
-    "REINDEX INDEX idxtest_table;".execute(&mut conn);
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
-    assert!(nsegments <= 3);
+    assert_eq!(nsegments, expected_segments + 1);
+}
 
-    // same thing here.  do full table update and then VACUUM should get us back to 2 segments
-    "UPDATE test_table SET value = value || ' ';".execute(&mut conn);
-    "VACUUM test_table;".execute(&mut conn);
+#[rstest]
+fn segment_count_exceeds_target(mut conn: PgConnection) {
+    r#"
+        SET maintenance_work_mem = '16MB';
+        DROP TABLE IF EXISTS test_table;
+        CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 100000);
+
+        CREATE INDEX idxtest_table ON public.test_table
+        USING bm25 (id, value)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "value": {}
+            }'
+        );
+    "#
+    .execute(&mut conn);
+
+    let nsegments_prev = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0 as usize;
+
+    "INSERT INTO test_table (value) SELECT md5(random()::text)".execute(&mut conn);
+
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
-    assert!(nsegments <= 3);
+    assert_eq!(nsegments_prev + 1, nsegments);
+}
+
+#[rstest]
+fn vacuum_restores_segment_count(mut conn: PgConnection) {
+    r#"
+        SET maintenance_work_mem = '1GB';
+        DROP TABLE IF EXISTS test_table;
+        CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 100000);
+
+        CREATE INDEX idxtest_table ON public.test_table
+        USING bm25 (id, value)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "value": {}
+            }'
+        );
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_table (value) SELECT md5(random()::text);
+        INSERT INTO test_table (value) SELECT md5(random()::text);
+        INSERT INTO test_table (value) SELECT md5(random()::text);
+        INSERT INTO test_table (value) SELECT md5(random()::text);
+        INSERT INTO test_table (value) SELECT md5(random()::text);
+        INSERT INTO test_table (value) SELECT md5(random()::text);
+    "#
+    .execute(&mut conn);
+
+    "VACUUM test_table".execute(&mut conn);
+
+    let expected_segments: usize = std::thread::available_parallelism().unwrap().into();
+    let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0 as usize;
+    assert_eq!(nsegments, expected_segments + 1);
+}
+
+#[rstest]
+fn bulk_insert_merge_behavior(mut conn: PgConnection) {
+    r#"
+        SET maintenance_work_mem = '1GB';
+        DROP TABLE IF EXISTS test_table;
+        CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT NOT NULL);
+
+        CREATE INDEX idxtest_table ON public.test_table
+        USING bm25 (id, value)
+        WITH (
+            key_field = 'id',
+            text_fields = '{
+                "value": {}
+            }'
+        );
+    "#
+    .execute(&mut conn);
+
+    "INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 100000)"
+        .execute(&mut conn);
+
+    let expected_segments: usize = std::thread::available_parallelism().unwrap().into();
+    let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0 as usize;
+    assert_eq!(nsegments, expected_segments);
+
+    "INSERT INTO test_table (value) SELECT md5(random()::text)".execute(&mut conn);
+
+    let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
+        .fetch_one::<(i64,)>(&mut conn)
+        .0 as usize;
+    assert_eq!(nsegments, expected_segments + 1);
 }

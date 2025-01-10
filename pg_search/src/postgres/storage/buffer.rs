@@ -3,6 +3,7 @@ use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
 use pgrx::pg_sys;
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct Buffer {
     pg_buffer: pg_sys::Buffer,
 }
@@ -57,6 +58,7 @@ impl Buffer {
     }
 }
 
+#[derive(Debug)]
 pub struct BufferMut {
     dirty: bool,
     inner: Buffer,

@@ -2,25 +2,12 @@ use crate::postgres::storage::block::{MergeLockData, MERGE_LOCK};
 use crate::postgres::storage::buffer::{BufferManager, BufferMut};
 use pgrx::pg_sys;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
-use tantivy::merge_policy::NoMergePolicy;
 use tantivy::SegmentMeta;
 
 #[derive(Debug, Clone)]
 pub enum AllowedMergePolicy {
     None,
     NPlusOne(usize),
-}
-
-impl From<AllowedMergePolicy> for Box<dyn MergePolicy> {
-    fn from(policy: AllowedMergePolicy) -> Self {
-        match policy {
-            AllowedMergePolicy::None => Box::new(NoMergePolicy),
-            AllowedMergePolicy::NPlusOne(n) => Box::new(NPlusOneMergePolicy {
-                n,
-                min_num_segments: 2,
-            }),
-        }
-    }
 }
 
 /// A tantivy [`MergePolicy`] that endeavours to keep a maximum number of segments "N", plus
@@ -66,6 +53,7 @@ impl MergePolicy for NPlusOneMergePolicy {
 }
 
 /// Only one merge can happen at a time, so we need to lock the merge process
+#[derive(Debug)]
 pub struct MergeLock(BufferMut);
 
 impl MergeLock {
@@ -103,6 +91,12 @@ impl MergeLock {
         let merge_lock = bman.get_buffer_mut(MERGE_LOCK);
         MergeLock(merge_lock)
     }
+
+    pub unsafe fn num_segments(&mut self) -> u32 {
+        let mut page = self.0.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+        metadata.num_segments
+    }
 }
 
 impl Drop for MergeLock {
@@ -115,4 +109,12 @@ impl Drop for MergeLock {
             }
         }
     }
+}
+
+pub unsafe fn set_num_segments(relation_oid: pg_sys::Oid, num_segments: u32) {
+    let mut bman = BufferManager::new(relation_oid);
+    let mut buffer = bman.get_buffer_mut(MERGE_LOCK);
+    let mut page = buffer.page_mut();
+    let metadata = page.contents_mut::<MergeLockData>();
+    metadata.num_segments = num_segments;
 }

@@ -251,10 +251,17 @@ impl Directory for MVCCDirectory {
             .collect::<FxHashSet<_>>()
             .len();
 
+        //
+        // if more than 1 segment was created, that means a bulk insert occurred
+        // we should not merge these new segments because that would be a very expensive operation
+        // instead, we should just increase the target segment count for the next merge
         if segments_created > 1 {
+            pgrx::log!("{} segments created, skipping merge", segments_created);
             unsafe { set_num_segments(self.relation_oid, new_ids.len() as u32 - 1) };
+            pgrx::log!("done setting num segments");
             Some(Box::new(NoMergePolicy))
         } else {
+            pgrx::log!("proceeding with merge");
             None
         }
     }

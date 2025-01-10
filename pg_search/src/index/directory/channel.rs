@@ -179,7 +179,10 @@ impl Directory for ChannelDirectory {
             ))
             .unwrap();
 
-        oneshot_receiver.recv().unwrap()
+        eprintln!("waiting for result...");
+        let result = oneshot_receiver.recv().unwrap();
+        eprintln!("reconsider_merge_policy result: {:?}", result);
+        result
     }
 }
 
@@ -316,6 +319,7 @@ impl ChannelRequestHandler {
                 let policy = self
                     .directory
                     .reconsider_merge_policy(&meta, &previous_meta);
+                pgrx::log!("handler got policy: {:?}", policy);
                 sender.send(policy)?;
             }
         }

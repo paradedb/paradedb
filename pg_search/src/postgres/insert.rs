@@ -35,6 +35,7 @@ pub struct InsertState {
     abort_on_drop: bool,
     #[cfg(not(feature = "pg17"))]
     committed: bool,
+    count: usize
 }
 
 #[cfg(not(feature = "pg17"))]
@@ -75,6 +76,7 @@ impl InsertState {
             abort_on_drop: false,
             #[cfg(not(feature = "pg17"))]
             committed: false,
+            count: 0,
         })
     }
 }
@@ -172,6 +174,14 @@ unsafe fn aminsert_internal(
             .insert(search_document, item_pointer_get_both(*ctid))
             .expect("insertion into index should succeed");
 
+        if crate::gucs::log_create_index_progress() && state.count % 100_000 == 0 {
+            pgrx::log!(
+                "inserted {} rows",
+                state.count,
+            );
+        }
+
+        state.count += 1;
         true
     });
 

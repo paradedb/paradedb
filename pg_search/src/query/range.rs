@@ -88,25 +88,21 @@ impl RangeField {
         comparison: Comparison,
     ) -> Result<RangeQuery, Box<dyn std::error::Error>> {
         let query = match comparison {
-            Comparison::LessThan => RangeQuery::with_path(
+            Comparison::LessThan => RangeQuery::new(
                 Bound::Excluded(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
                 Bound::Unbounded,
-                Some(LOWER_KEY.to_owned()),
             ),
-            Comparison::LessThanOrEqual => RangeQuery::with_path(
+            Comparison::LessThanOrEqual => RangeQuery::new(
                 Bound::Included(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
                 Bound::Unbounded,
-                Some(LOWER_KEY.to_owned()),
             ),
-            Comparison::GreaterThan => RangeQuery::with_path(
+            Comparison::GreaterThan => RangeQuery::new(
                 Bound::Unbounded,
                 Bound::Excluded(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
-                Some(LOWER_KEY.to_owned()),
             ),
-            Comparison::GreaterThanOrEqual => RangeQuery::with_path(
+            Comparison::GreaterThanOrEqual => RangeQuery::new(
                 Bound::Unbounded,
                 Bound::Included(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
-                Some(LOWER_KEY.to_owned()),
             ),
         };
 
@@ -119,25 +115,21 @@ impl RangeField {
         comparison: Comparison,
     ) -> Result<RangeQuery, Box<dyn std::error::Error>> {
         let query = match comparison {
-            Comparison::LessThan => RangeQuery::with_path(
+            Comparison::LessThan => RangeQuery::new(
                 Bound::Excluded(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
                 Bound::Unbounded,
-                Some(UPPER_KEY.to_owned()),
             ),
-            Comparison::LessThanOrEqual => RangeQuery::with_path(
+            Comparison::LessThanOrEqual => RangeQuery::new(
                 Bound::Included(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
                 Bound::Unbounded,
-                Some(UPPER_KEY.to_owned()),
             ),
-            Comparison::GreaterThan => RangeQuery::with_path(
+            Comparison::GreaterThan => RangeQuery::new(
                 Bound::Unbounded,
                 Bound::Excluded(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
-                Some(UPPER_KEY.to_owned()),
             ),
-            Comparison::GreaterThanOrEqual => RangeQuery::with_path(
+            Comparison::GreaterThanOrEqual => RangeQuery::new(
                 Bound::Unbounded,
                 Bound::Included(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
-                Some(UPPER_KEY.to_owned()),
             ),
         };
 

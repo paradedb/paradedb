@@ -22,9 +22,10 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
+use crate::postgres::utils::{
+    categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
+};
 use crate::schema::SearchField;
-use pgrx::itemptr::item_pointer_get_both;
 use pgrx::*;
 use std::ffi::CStr;
 use std::time::Instant;
@@ -167,7 +168,7 @@ unsafe extern "C" fn build_callback(
                 );
             });
             writer
-                .insert(search_document, item_pointer_get_both(*ctid))
+                .insert(search_document, item_pointer_to_u64(*ctid))
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });

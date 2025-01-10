@@ -353,8 +353,9 @@ mod term_ord_collector {
     use tantivy::collector::{Collector, SegmentCollector};
     use tantivy::columnar::StrColumn;
 
+    use crate::index::fast_fields_helper::FFType;
     use tantivy::termdict::TermOrdinal;
-    use tantivy::{Ctid, DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
+    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     pub struct TermOrdCollector {
         pub need_scores: bool,
@@ -378,6 +379,7 @@ mod term_ord_collector {
                 segment_ord: segment_local_id,
                 results: Default::default(),
                 ff: ff.str(&self.field)?.expect("ff should be a str field"),
+                ctid_ff: FFType::new(ff, "ctid"),
             })
         }
 
@@ -397,6 +399,7 @@ mod term_ord_collector {
         pub ff: StrColumn,
         pub results: BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
         pub segment_ord: SegmentOrdinal,
+        ctid_ff: FFType,
     }
 
     impl SegmentCollector for TermOrdSegmentCollector {
@@ -405,9 +408,10 @@ mod term_ord_collector {
             BTreeMap<TermOrdinal, Vec<(SearchIndexScore, DocAddress)>>,
         );
 
-        fn collect(&mut self, doc: DocId, score: Score, ctid: Ctid) {
+        fn collect(&mut self, doc: DocId, score: Score) {
             if let Some(term_ord) = self.ff.term_ords(doc).next() {
                 let doc_address = DocAddress::new(self.segment_ord, doc);
+                let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
                 let scored = SearchIndexScore::new(ctid, score);
 
                 self.results

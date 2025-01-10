@@ -11,8 +11,6 @@ on:
   push:
     tags:
       - "v*"
-    # branches:
-    #   - phil/test-remove-depot
   workflow_dispatch:
     inputs:
       version:
@@ -30,16 +28,12 @@ permissions:
   attestations: write
 
 jobs:
-  # Because cross-platform Docker builds are incredibly slow, we split the Docker image build and push per architecture. This
-  # job builds and pushes the ParadeDB Docker image for each PostgreSQL version and architecture. The following job then combines
-  # the single-architecture images into a multi-architecture manifest, which is the images used by end-users.
-  publish-paradedb-docker-images:
-    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
-    runs-on: ubicloud-standard-8
+  publish-paradedb-docker-image:
+    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         pg_version: [13, 14, 15, 16, 17]
-        arch: ["linux/amd64", "linux/arm64"]
     env:
       default_pg_version: 17
 
@@ -65,8 +59,29 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      # Cross-compilation is incredibly slow, so we use an external service called Depot to
+      # speed up container builds for universal images. We could eventually replace this with
+      # Docker Build Cloud once they add support for multiple concurrent builders.
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart
+      - name: Setup Docker Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: paradedb/paradedb
+          tags: |
+            type=raw,value=${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            type=raw,value=${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }}
+            type=raw,value=${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}
+            type=raw,value=latest-pg${{ matrix.pg_version }}
+            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -78,7 +93,7 @@ jobs:
       # the PostHog secrets are public-facing and don't need to be kept secret.
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
-        uses: docker/build-push-action@v6
+        uses: depot/build-push-action@v1
         with:
           context: .
           build-args: |
@@ -88,120 +103,20 @@ jobs:
             COMMIT_SHA=${{ steps.version.outputs.commit_sha }}
             PARADEDB_VERSION=${{ steps.version.outputs.version }}
             PARADEDB_TELEMETRY=true
-          platforms: ${{ matrix.arch }}
+          platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true
           sbom: true
           provenance: mode=max
-          tags: paradedb/paradedb-pg${{ matrix.pg_version }}-${{ matrix.arch }}
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}
+          tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: index.docker.io/paradedb/paradedb
           subject-digest: ${{ steps.build-push.outputs.digest }}
-          push-to-registry: true
-
-  # This job combines the single-architecture ParadeDB Docker images into a multi-architecture manifest, so that users
-  # can pull the correct image for their architecture without needing to know the specific image tag. We do this manually
-  # post-build since Docker Buildx is incredibly slow for multi-architecture builds.
-  publish-multiarch-manifests:
-    name: Combine ParadeDB Docker Images into Multi-Arch Manifests
-    needs: publish-paradedb-docker-images # This ensures that all the single-architecture images are built before we combine them
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        pg_version: [13, 14, 15, 16, 17]
-    env:
-      default_pg_version: 17
-
-    steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v4
-
-      - name: Retrieve GitHub Release Version
-        id: version
-        run: |
-          # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
-              if [[ $GITHUB_REF == refs/tags/v* ]]; then
-                VERSION=${GITHUB_REF#refs/tags/v}
-                TAG=${GITHUB_REF#refs/tags/}
-              else
-                # If there is no tag and no provided version, it's a test run and we set a default version
-                VERSION="0.0.0"
-                TAG="v0.0.0"
-              fi
-          else
-            VERSION=${{ github.event.inputs.version }}"
-            TAG=v${{ github.event.inputs.version }}"
-          fi
-          echo "GitHub Tag Version: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
-      - name: Create and Push Multiarch Manifests
-        run: |
-          # Create the multiarch manifest
-          docker manifest create \
-            paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }} \
-            paradedb/paradedb-pg${{ matrix.pg_version }}-linux/amd64 \
-            paradedb/paradedb-pg${{ matrix.pg_version }}-linux/arm64
-
-          docker manifest create \
-            paradedb/paradedb:${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }} \
-            paradedb/paradedb-pg${{ matrix.pg_version }}-linux/amd64 \
-            paradedb/paradedb-pg${{ matrix.pg_version }}-linux/arm64
-
-          docker manifest create \
-            paradedb/paradedb:${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }} \
-            paradedb/paradedb-pg${{ matrix.pg_version }}-linux/amd64 \
-            paradedb/paradedb-pg${{ matrix.pg_version }}-linux/arm64
-
-          docker manifest create \
-            paradedb/paradedb:latest-pg${{ matrix.pg_version }} \
-            paradedb/paradedb-pg${{ matrix.pg_version }}-linux/amd64 \
-            paradedb/paradedb-pg${{ matrix.pg_version }}-linux/arm64
-
-          # Push all manifest tags for this Postgres version
-          docker manifest push paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
-          docker manifest push paradedb/paradedb:${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }}
-          docker manifest push paradedb/paradedb:${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}
-          docker manifest push paradedb/paradedb:latest-pg${{ matrix.pg_version }}
-
-          # Apply "latest" tags only for the default Postgres version
-          if [ "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]; then
-            docker manifest create \
-              paradedb/paradedb:latest \
-              paradedb/paradedb-pg${{ matrix.pg_version }}-linux/amd64 \
-              paradedb/paradedb-pg${{ matrix.pg_version }}-linux/arm64
-
-            docker manifest create \
-              paradedb/paradedb:${{ steps.version.outputs.tag }} \
-              paradedb/paradedb-pg${{ matrix.pg_version }}-linux/amd64 \
-              paradedb/paradedb-pg${{ matrix.pg_version }}-linux/arm64
-
-            docker manifest create \
-              paradedb/paradedb:${{ steps.version.outputs.version }} \
-              paradedb/paradedb-pg${{ matrix.pg_version }}-linux/amd64 \
-              paradedb/paradedb-pg${{ matrix.pg_version }}-linux/arm64
-
-            docker manifest push paradedb/paradedb:latest
-            docker manifest push paradedb/paradedb:${{ steps.version.outputs.tag }}
-            docker manifest push paradedb/paradedb:${{ steps.version.outputs.version }}
-          fi
-
-      - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-name: index.docker.io/paradedb/paradedb
-          subject-digest: ${{ steps.push-manifests.outputs.digest }}
           push-to-registry: true
 
   publish-paradedb-helm-chart:

@@ -186,6 +186,9 @@ impl SearchIndexWriter {
 
         if let Some(mut merge_lock) = merge_lock {
             if let AllowedMergePolicy::NPlusOne(n) = self.merge_policy {
+                //
+                // because very large indexes or inserts may necessitate more segments than
+                // the index's target segment count, we set the target to the maximum of the two
                 let num_segments = unsafe { merge_lock.num_segments() };
                 let target_segments = std::cmp::max(n, num_segments as usize);
                 let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {

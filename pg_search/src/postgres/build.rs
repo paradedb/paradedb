@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::merge_policy::set_num_segments;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::BlockDirectoryType;
@@ -128,14 +129,13 @@ fn do_heap_scan<'a>(
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
         // store number of segments created in metadata
-        let mut bman = BufferManager::new(index_relation.oid());
-        let mut buffer = bman.get_buffer_mut(MERGE_LOCK);
-        let mut page = buffer.page_mut();
-        let metadata = page.contents_mut::<MergeLockData>();
         let search_reader =
             SearchIndexReader::open(index_relation, BlockDirectoryType::Mvcc, false)
                 .expect("do_heap_scan: should be able to open a SearchIndexReader");
-        metadata.num_segments = search_reader.segment_readers().len() as u32;
+        set_num_segments(
+            index_relation.oid(),
+            search_reader.segment_readers().len() as u32,
+        );
 
         state.count
     }

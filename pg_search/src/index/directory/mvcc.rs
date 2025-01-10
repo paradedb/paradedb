@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{list_managed_files, load_metas, save_new_metas, save_schema, save_settings};
+use crate::index::merge_policy::set_num_segments;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -24,7 +25,7 @@ use crate::postgres::storage::LinkedItemList;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashSet;
@@ -34,6 +35,7 @@ use std::sync::Arc;
 use std::{io, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
+use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -226,6 +228,34 @@ impl Directory for MVCCDirectory {
                 pg_sys::GetActiveSnapshot(),
                 self.mvcc_style,
             )
+        }
+    }
+
+    fn reconsider_merge_policy(
+        &self,
+        meta: &IndexMeta,
+        previous_meta: &IndexMeta,
+    ) -> Option<Box<dyn MergePolicy>> {
+        let new_ids = meta
+            .segments
+            .iter()
+            .map(|s| s.id())
+            .collect::<FxHashSet<_>>();
+        let previous_ids = previous_meta
+            .segments
+            .iter()
+            .map(|s| s.id())
+            .collect::<FxHashSet<_>>();
+        let segments_created = new_ids
+            .difference(&previous_ids)
+            .collect::<FxHashSet<_>>()
+            .len();
+
+        if segments_created > 1 {
+            unsafe { set_num_segments(self.relation_oid, new_ids.len() as u32 - 1) };
+            Some(Box::new(NoMergePolicy))
+        } else {
+            None
         }
     }
 }

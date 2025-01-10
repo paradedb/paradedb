@@ -109,3 +109,11 @@ impl Drop for MergeLock {
         }
     }
 }
+
+pub unsafe fn set_num_segments(relation_oid: pg_sys::Oid, num_segments: u32) {
+    let mut bman = BufferManager::new(relation_oid);
+    let mut buffer = bman.get_buffer_mut(MERGE_LOCK);
+    let mut page = buffer.page_mut();
+    let metadata = page.contents_mut::<MergeLockData>();
+    metadata.num_segments = num_segments;
+}

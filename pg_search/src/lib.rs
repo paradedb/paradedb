@@ -50,17 +50,6 @@ extension_sql!(
 
 static mut TRACE_HOOK: trace::TraceHook = trace::TraceHook;
 
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
-
-/// For debugging
-#[allow(dead_code)]
-pub static LOG_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
-pub fn log_message(message: &str) {
-    let _lock = LOG_MUTEX.lock().unwrap();
-    eprintln!("{}", message);
-}
-
 /// Convenience method for [`pgrx::pg_sys::MyDatabaseId`]
 #[allow(non_snake_case)]
 #[inline(always)]

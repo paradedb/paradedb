@@ -234,10 +234,10 @@ pub unsafe fn save_new_metas(
     //
 
     // delete old entries and their corresponding files
-    for (entry, blockno) in deleted_entries {
+    for (entry, blockno) in &deleted_entries {
         assert!(entry.xmax == current_xid);
 
-        let mut buffer = linked_list.bman_mut().get_buffer_mut(blockno);
+        let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
         let mut page = buffer.page_mut();
 
         let Some(offno) =
@@ -249,7 +249,7 @@ pub unsafe fn save_new_metas(
             );
         };
 
-        let PgItem(pg_item, size) = entry.into();
+        let PgItem(pg_item, size) = (*entry).into();
 
         let did_replace = page.replace_item(offno, pg_item, size);
         assert!(did_replace);
@@ -304,6 +304,13 @@ pub unsafe fn save_new_metas(
 
     // add the new entries
     linked_list.add_items(created_entries, None)?;
+
+    // if a merge happened, compact the linked list of segment metas
+    if deleted_entries.len() > 0 {
+        linked_list.garbage_collect(pg_sys::GetAccessStrategy(
+            pg_sys::BufferAccessStrategyType::BAS_VACUUM,
+        ))?;
+    }
 
     Ok(())
 }

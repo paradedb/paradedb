@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{list_managed_files, load_metas, save_new_metas, save_schema, save_settings};
-use crate::index::merge_policy::{AllowedMergePolicy, MergeLock, NPlusOneMergePolicy, set_num_segments};
+use crate::index::merge_policy::{
+    acquire_merge_lock, get_num_segments, set_num_segments, AllowedMergePolicy, NPlusOneMergePolicy,
+};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -55,7 +57,6 @@ pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
     mvcc_style: MvccSatisfies,
     merge_policy: AllowedMergePolicy,
-    merge_lock: Arc<Mutex<Option<MergeLock>>>,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
@@ -70,7 +71,6 @@ impl MVCCDirectory {
             merge_policy,
             mvcc_style: MvccSatisfies::Snapshot,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
-            merge_lock: Default::default(),
         }
     }
 
@@ -80,7 +80,6 @@ impl MVCCDirectory {
             merge_policy,
             mvcc_style: MvccSatisfies::Any,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
-            merge_lock: Default::default(),
         }
     }
 
@@ -269,24 +268,19 @@ impl Directory for MVCCDirectory {
         // we should not merge these new segments because that would be a very expensive operation
         // instead, we should just increase the target segment count for the next merge
         if segments_created > 1 {
-            pgrx::log!("{} segments created, skipping merge", segments_created);
             unsafe { set_num_segments(self.relation_oid, new_ids.len() as u32 - 1) };
-            pgrx::log!("done setting num segments");
             return Some(Box::new(NoMergePolicy));
-        } 
+        }
 
         // try to acquire merge lock and do merge
-        if let Some(mut merge_lock) = unsafe { MergeLock::acquire_for_merge(self.relation_oid) } {
+        if unsafe { acquire_merge_lock(self.relation_oid) } {
             if let AllowedMergePolicy::NPlusOne(n) = self.merge_policy {
-                let num_segments = unsafe { merge_lock.num_segments() };
+                let num_segments = unsafe { get_num_segments(self.relation_oid) };
                 let target_segments = std::cmp::max(n, num_segments as usize);
                 let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
                     n: target_segments,
                     min_num_segments: MIN_NUM_SEGMENTS,
                 });
-
-                let mut lock = self.merge_lock.lock();
-                *lock = Some(merge_lock);
 
                 return Some(merge_policy);
             }
@@ -299,8 +293,8 @@ impl Directory for MVCCDirectory {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use crate::index::merge_policy::AllowedMergePolicy;
     use super::*;
+    use crate::index::merge_policy::AllowedMergePolicy;
     use pgrx::prelude::*;
 
     #[pg_test]

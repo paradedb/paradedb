@@ -35,7 +35,7 @@ pub struct InsertState {
     abort_on_drop: bool,
     #[cfg(not(feature = "pg17"))]
     committed: bool,
-    count: usize
+    count: usize,
 }
 
 #[cfg(not(feature = "pg17"))]
@@ -47,7 +47,7 @@ impl Drop for InsertState {
             if pg_sys::IsTransactionState() && !self.abort_on_drop && !self.committed {
                 if let Some(writer) = self.writer.take() {
                     writer
-                        .commit_inserts()
+                        .commit()
                         .expect("tantivy index commit should succeed");
                 }
                 self.committed = true;
@@ -174,13 +174,6 @@ unsafe fn aminsert_internal(
             .insert(search_document, item_pointer_get_both(*ctid))
             .expect("insertion into index should succeed");
 
-        if crate::gucs::log_create_index_progress() && state.count % 100_000 == 0 {
-            pgrx::log!(
-                "inserted {} rows",
-                state.count,
-            );
-        }
-
         state.count += 1;
         true
     });
@@ -217,7 +210,7 @@ pub unsafe extern "C" fn aminsertcleanup(
 
     if let Some(writer) = (*state).writer.take() {
         writer
-            .commit_inserts()
+            .commit()
             .expect("must be able to commit inserts in aminsertcleanup");
     };
 }

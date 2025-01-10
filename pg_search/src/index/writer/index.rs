@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::Result;
-use pgrx::{pg_sys, PgRelation};
+use pgrx::PgRelation;
 use std::sync::Arc;
-use tantivy::indexer::{MergePolicy, NoMergePolicy, UserOperation};
+use tantivy::indexer::UserOperation;
 use tantivy::schema::Field;
 use tantivy::{
     Ctid, Index, IndexSettings, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term,
@@ -26,11 +26,7 @@ use tantivy::{
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
-use crate::index::merge_policy::{AllowedMergePolicy, MergeLock, NPlusOneMergePolicy};
-use crate::index::mvcc::MVCCDirectory;
 use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
-use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
-use crate::postgres::storage::LinkedItemList;
 use crate::{
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -50,9 +46,7 @@ pub struct SearchIndexWriter {
     // mis-use the IndexWriter in particular.
     writer: Arc<IndexWriter>,
     handler: ChannelRequestHandler,
-    wants_merge: bool,
     insert_queue: Vec<UserOperation>,
-    relation_oid: pg_sys::Oid,
 }
 
 impl SearchIndexWriter {
@@ -61,12 +55,12 @@ impl SearchIndexWriter {
         directory_type: BlockDirectoryType,
         resources: WriterResources,
     ) -> Result<Self> {
-        let (parallelism, memory_budget, wants_merge, merge_policy) =
-            resources.resources(index_relation);
+        let (parallelism, memory_budget, merge_policy) = resources.resources(index_relation);
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = directory_type.channel_request_handler(index_relation, req_receiver, merge_policy);
+        let mut handler =
+            directory_type.channel_request_handler(index_relation, req_receiver, merge_policy);
 
         let mut index = {
             handler
@@ -91,11 +85,9 @@ impl SearchIndexWriter {
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
-            relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
             schema,
             handler,
-            wants_merge,
             ctid_field,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
         })
@@ -103,12 +95,16 @@ impl SearchIndexWriter {
 
     pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
         let schema = get_index_schema(index_relation)?;
-        let (parallelism, memory_budget, wants_merge, merge_policy) =
+        let (parallelism, memory_budget, merge_policy) =
             WriterResources::CreateIndex.resources(index_relation);
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = BlockDirectoryType::Mvcc.channel_request_handler(index_relation, req_receiver, merge_policy);
+        let mut handler = BlockDirectoryType::Mvcc.channel_request_handler(
+            index_relation,
+            req_receiver,
+            merge_policy,
+        );
 
         let mut index = {
             let schema = schema.clone();
@@ -135,12 +131,10 @@ impl SearchIndexWriter {
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
-            relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
             schema,
             ctid_field,
             handler,
-            wants_merge,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
         })
     }
@@ -191,15 +185,6 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    // TODO: Remove redundant methods
-    pub fn commit_build(self) -> Result<()> {
-        self.commit()
-    }
-
-    pub fn commit_inserts(self) -> Result<()> {
-        self.commit()
-    }
-
     pub fn vacuum(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
         self.commit()
@@ -212,14 +197,6 @@ impl SearchIndexWriter {
             .wait_for(move || writer.run(insert_queue))
             .expect("spawned thread should not fail")
     }
-}
-
-unsafe fn garbage_collect_metas(index_oid: pg_sys::Oid) -> Result<()> {
-    let mut segment_metas =
-        LinkedItemList::<SegmentMetaEntry>::open(index_oid, SEGMENT_METAS_START);
-    segment_metas.garbage_collect(pg_sys::GetAccessStrategy(
-        pg_sys::BufferAccessStrategyType::BAS_VACUUM,
-    ))
 }
 
 #[derive(Error, Debug)]

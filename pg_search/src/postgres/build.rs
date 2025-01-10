@@ -20,7 +20,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::BlockDirectoryType;
 use crate::postgres::storage::block::{
-    MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START,
+    BM25Metadata, SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START,
     SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
@@ -125,7 +125,7 @@ fn do_heap_scan<'a>(
 
         state
             .writer
-            .commit_build()
+            .commit()
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
         // store number of segments created in metadata
@@ -214,10 +214,11 @@ unsafe fn create_metadata(index_relation: &PgRelation) {
 
     // Init merge lock buffer
     let mut merge_lock = bman.new_buffer();
-    assert_eq!(merge_lock.number(), MERGE_LOCK);
+    assert_eq!(merge_lock.number(), METADATA);
     let mut page = merge_lock.init_page();
-    let metadata = page.contents_mut::<MergeLockData>();
+    let metadata = page.contents_mut::<BM25Metadata>();
     metadata.last_merge = pg_sys::InvalidTransactionId;
+    metadata.last_vacuum = pg_sys::InvalidTransactionId;
     metadata.num_segments = 0;
 
     // Init cleanup lock buffer

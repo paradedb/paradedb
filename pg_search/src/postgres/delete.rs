@@ -21,7 +21,7 @@ use tantivy::schema::IndexRecordOption;
 use tantivy::{DocSet, Term};
 
 use super::storage::block::CLEANUP_LOCK;
-use crate::index::merge_policy::MergeLock;
+use crate::index::merge_policy::acquire_delete_lock;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
@@ -50,7 +50,7 @@ pub extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
+    unsafe { acquire_delete_lock(index_relation.oid()) };
     let mut writer = SearchIndexWriter::open(
         &index_relation,
         BlockDirectoryType::BulkDelete,

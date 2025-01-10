@@ -34,8 +34,8 @@ use tantivy::{
 };
 use tantivy::{snippet::SnippetGenerator, Executor};
 
-use crate::index::{setup_tokenizers, BlockDirectoryType};
 use crate::index::merge_policy::AllowedMergePolicy;
+use crate::index::{setup_tokenizers, BlockDirectoryType};
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::utils::ctid_to_u64;

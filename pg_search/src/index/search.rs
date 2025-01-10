@@ -37,8 +37,7 @@ pub enum WriterResources {
 }
 pub type Parallelism = NonZeroUsize;
 pub type MemoryBudget = usize;
-pub type DoMerging = bool;
-pub type IndexConfig = (Parallelism, MemoryBudget, DoMerging, AllowedMergePolicy);
+pub type IndexConfig = (Parallelism, MemoryBudget, AllowedMergePolicy);
 
 pub enum BlockDirectoryType {
     Mvcc,
@@ -46,10 +45,16 @@ pub enum BlockDirectoryType {
 }
 
 impl BlockDirectoryType {
-    pub fn directory(self, index_relation: &PgRelation, merge_policy: AllowedMergePolicy) -> MVCCDirectory {
+    pub fn directory(
+        self,
+        index_relation: &PgRelation,
+        merge_policy: AllowedMergePolicy,
+    ) -> MVCCDirectory {
         match self {
             BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid(), merge_policy),
-            BlockDirectoryType::BulkDelete => MVCCDirectory::any(index_relation.oid(), merge_policy),
+            BlockDirectoryType::BulkDelete => {
+                MVCCDirectory::any(index_relation.oid(), merge_policy)
+            }
         }
     }
 
@@ -57,7 +62,7 @@ impl BlockDirectoryType {
         self,
         index_relation: &PgRelation,
         receiver: Receiver<ChannelRequest>,
-        merge_policy: AllowedMergePolicy
+        merge_policy: AllowedMergePolicy,
     ) -> ChannelRequestHandler {
         ChannelRequestHandler::open(
             self.directory(index_relation, merge_policy),
@@ -78,14 +83,11 @@ impl WriterResources {
         let merge_on_insert = options.merge_on_insert();
 
         match self {
-            WriterResources::CreateIndex => {
-                (
-                    gucs::create_index_parallelism(),
-                    gucs::create_index_memory_budget(),
-                    true, // we always want a merge on CREATE INDEX
-                    AllowedMergePolicy::None,
-                )
-            }
+            WriterResources::CreateIndex => (
+                gucs::create_index_parallelism(),
+                gucs::create_index_memory_budget(),
+                AllowedMergePolicy::None,
+            ),
             WriterResources::Statement => {
                 let policy = if merge_on_insert {
                     AllowedMergePolicy::NPlusOne(target_segment_count)
@@ -95,18 +97,14 @@ impl WriterResources {
                 (
                     gucs::statement_parallelism(),
                     gucs::statement_memory_budget(),
-                    merge_on_insert, // user/index decides if we merge for INSERT/UPDATE statements
                     policy,
                 )
             }
-            WriterResources::Vacuum => {
-                (
-                    gucs::statement_parallelism(),
-                    gucs::statement_memory_budget(),
-                    true, // we always want a merge on (auto)VACUUM
-                    AllowedMergePolicy::NPlusOne(target_segment_count),
-                )
-            }
+            WriterResources::Vacuum => (
+                gucs::statement_parallelism(),
+                gucs::statement_memory_budget(),
+                AllowedMergePolicy::NPlusOne(target_segment_count),
+            ),
         }
     }
 }

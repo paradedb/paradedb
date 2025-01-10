@@ -26,7 +26,7 @@ use std::slice::from_raw_parts;
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
 
-pub const MERGE_LOCK: pg_sys::BlockNumber = 0;
+pub const METADATA: pg_sys::BlockNumber = 0;
 pub const CLEANUP_LOCK: pg_sys::BlockNumber = 1;
 pub const SCHEMA_START: pg_sys::BlockNumber = 2;
 pub const SETTINGS_START: pg_sys::BlockNumber = 4;
@@ -47,9 +47,10 @@ pub struct BM25PageSpecialData {
 // Merge lock
 // ---------------------------------------------------------
 
-#[derive(Debug)]
-pub struct MergeLockData {
+#[derive(Copy, Clone, Debug)]
+pub struct BM25Metadata {
     pub last_merge: pg_sys::TransactionId,
+    pub last_vacuum: pg_sys::TransactionId,
     pub num_segments: u32,
 }
 

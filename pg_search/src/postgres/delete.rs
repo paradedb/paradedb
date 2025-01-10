@@ -66,6 +66,7 @@ pub extern "C" fn ambulkdelete(
         let ctid_ff = FFType::new(segment_reader.fast_fields(), "ctid");
 
         for doc_id in 0..segment_reader.max_doc() {
+            check_for_interrupts!();
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;

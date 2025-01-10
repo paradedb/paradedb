@@ -47,7 +47,7 @@ impl Drop for InsertState {
             if pg_sys::IsTransactionState() && !self.abort_on_drop && !self.committed {
                 if let Some(writer) = self.writer.take() {
                     writer
-                        .commit_inserts()
+                        .commit()
                         .expect("tantivy index commit should succeed");
                 }
                 self.committed = true;
@@ -172,7 +172,6 @@ unsafe fn aminsert_internal(
         writer
             .insert(search_document, item_pointer_to_u64(*ctid))
             .expect("insertion into index should succeed");
-
         true
     });
 
@@ -208,7 +207,7 @@ pub unsafe extern "C" fn aminsertcleanup(
 
     if let Some(writer) = (*state).writer.take() {
         writer
-            .commit_inserts()
+            .commit()
             .expect("must be able to commit inserts in aminsertcleanup");
     };
 }

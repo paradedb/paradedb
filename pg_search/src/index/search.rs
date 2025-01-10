@@ -68,19 +68,12 @@ impl BlockDirectoryType {
 
 impl WriterResources {
     pub fn resources(&self, indexrel: &PgRelation) -> IndexConfig {
-        let default_parallelism: usize = std::thread::available_parallelism()
-            .expect("your computer should have at least one core")
-            .get()
-            .try_into()
-            .expect("your computer has too many cores");
-        pgrx::info!("default_parallelism: {}", default_parallelism);
         let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
         if options.is_null() {
             panic!("must specify key_field")
         }
         let options = unsafe { &*options };
         let target_segment_count = options.target_segment_count();
-        pgrx::info!("target_segment_count: {}", target_segment_count);
         let merge_on_insert = options.merge_on_insert();
 
         match self {
@@ -89,12 +82,12 @@ impl WriterResources {
                     gucs::create_index_parallelism(),
                     gucs::create_index_memory_budget(),
                     true, // we always want a merge on CREATE INDEX
-                    AllowedMergePolicy::Log,
+                    AllowedMergePolicy::None,
                 )
             }
             WriterResources::Statement => {
                 let policy = if merge_on_insert {
-                    AllowedMergePolicy::Log
+                    AllowedMergePolicy::NPlusOne(target_segment_count)
                 } else {
                     AllowedMergePolicy::None
                 };
@@ -110,7 +103,7 @@ impl WriterResources {
                     gucs::statement_parallelism(),
                     gucs::statement_memory_budget(),
                     true, // we always want a merge on (auto)VACUUM
-                    AllowedMergePolicy::Log,
+                    AllowedMergePolicy::NPlusOne(target_segment_count),
                 )
             }
         }

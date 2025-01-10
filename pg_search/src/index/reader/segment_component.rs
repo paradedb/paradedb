@@ -97,15 +97,11 @@ impl Deref for DeferredReader {
 
 impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
-        let range_data = self.read_bytes_raw(range)?;
-        let bytes =
-            unsafe { std::slice::from_raw_parts(range_data.as_ptr(), range_data.len()).to_vec() };
-        Ok(OwnedBytes::new(bytes))
-        // Ok(OwnedBytes::new(DeferredReader {
-        //     reader: self.clone(),
-        //     range,
-        //     bytes: Default::default(),
-        // }))
+        Ok(OwnedBytes::new(DeferredReader {
+            reader: self.clone(),
+            range,
+            bytes: Default::default(),
+        }))
     }
 }
 

@@ -50,6 +50,7 @@ pub struct BM25PageSpecialData {
 #[derive(Debug)]
 pub struct MergeLockData {
     pub last_merge: pg_sys::TransactionId,
+    pub num_segments: u32,
 }
 
 // ---------------------------------------------------------

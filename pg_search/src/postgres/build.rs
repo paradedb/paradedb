@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
+use crate::index::BlockDirectoryType;
 use crate::postgres::storage::block::{
     MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START,
     SETTINGS_START,
@@ -125,6 +127,16 @@ fn do_heap_scan<'a>(
             .commit_build()
             .unwrap_or_else(|e| panic!("failed to commit new tantivy index: {e}"));
 
+        // store number of segments created in metadata
+        let mut bman = BufferManager::new(index_relation.oid());
+        let mut buffer = bman.get_buffer_mut(MERGE_LOCK);
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+        let search_reader =
+            SearchIndexReader::open(index_relation, BlockDirectoryType::Mvcc, false)
+                .expect("do_heap_scan: should be able to open a SearchIndexReader");
+        metadata.num_segments = search_reader.segment_readers().len() as u32;
+
         state.count
     }
 }
@@ -206,6 +218,7 @@ unsafe fn create_metadata(index_relation: &PgRelation) {
     let mut page = merge_lock.init_page();
     let metadata = page.contents_mut::<MergeLockData>();
     metadata.last_merge = pg_sys::InvalidTransactionId;
+    metadata.num_segments = 0;
 
     // Init cleanup lock buffer
     let mut cleanup_lock = bman.new_buffer();

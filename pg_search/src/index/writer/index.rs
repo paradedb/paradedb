@@ -26,7 +26,7 @@ use tantivy::{
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
-use crate::index::merge_policy::MergeLock;
+use crate::index::merge_policy::{AllowedMergePolicy, MergeLock, NPlusOneMergePolicy};
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
@@ -49,6 +49,7 @@ pub struct SearchIndexWriter {
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
     writer: Arc<IndexWriter>,
+    merge_policy: AllowedMergePolicy,
     handler: ChannelRequestHandler,
     wants_merge: bool,
     insert_queue: Vec<UserOperation>,
@@ -83,7 +84,6 @@ impl SearchIndexWriter {
             .wait_for(move || {
                 let writer =
                     index_clone.writer_with_num_threads(parallelism.get(), memory_budget)?;
-                writer.set_merge_policy(merge_policy.into());
                 tantivy::Result::Ok(writer)
             })
             .expect("scoped thread should not fail")?;
@@ -94,6 +94,7 @@ impl SearchIndexWriter {
         Ok(Self {
             relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
+            merge_policy,
             schema,
             handler,
             wants_merge,
@@ -134,7 +135,6 @@ impl SearchIndexWriter {
         let writer = handler
             .wait_for(move || {
                 let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
-                writer.set_merge_policy(merge_policy.into());
                 tantivy::Result::Ok(writer)
             })
             .expect("scoped thread should not fail")?;
@@ -143,6 +143,7 @@ impl SearchIndexWriter {
         Ok(Self {
             relation_oid: index_relation.oid(),
             writer: Arc::new(writer),
+            merge_policy,
             schema,
             ctid_field,
             handler,
@@ -177,68 +178,72 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    pub fn commit(mut self, should_merge: bool) -> Result<()> {
+    pub fn commit(mut self, merge_lock: Option<MergeLock>) -> Result<()> {
         self.drain_insert_queue()?;
         let mut writer =
             Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
 
-        if should_merge {
-            let _opstamp = self
-                .handler
-                .wait_for(move || {
-                    let opstamp = writer.commit()?;
-                    writer.wait_merging_threads()?;
-                    tantivy::Result::Ok(opstamp)
-                })
-                .expect("spawned thread should not fail")?;
-        } else {
-            self.handler
-                .wait_for(move || {
-                    let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
-                    writer.set_merge_policy(policy);
-                    let opstamp = writer.commit()?;
-                    tantivy::Result::Ok(opstamp)
-                })
-                .expect("spawned thread should not fail")?;
-        };
+        if let Some(mut merge_lock) = merge_lock {
+            if let AllowedMergePolicy::NPlusOne(n) = self.merge_policy {
+                let num_segments = unsafe { merge_lock.num_segments() };
+                let target_segments = std::cmp::max(n, num_segments as usize);
+                let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                    n: target_segments,
+                    min_num_segments: 2,
+                });
+
+                let _opstamp = self
+                    .handler
+                    .wait_for(move || {
+                        writer.set_merge_policy(merge_policy);
+                        let opstamp = writer.commit()?;
+                        writer.wait_merging_threads()?;
+                        tantivy::Result::Ok(opstamp)
+                    })
+                    .expect("spawned thread should not fail")?;
+
+                unsafe {
+                    garbage_collect_metas(self.relation_oid)?;
+                }
+
+                return Ok(());
+            }
+        }
+
+        self.handler
+            .wait_for(move || {
+                let policy: Box<dyn MergePolicy> = Box::new(NoMergePolicy);
+                writer.set_merge_policy(policy);
+                let opstamp = writer.commit()?;
+                tantivy::Result::Ok(opstamp)
+            })
+            .expect("spawned thread should not fail")?;
+
         Ok(())
     }
 
     pub fn commit_build(self) -> Result<()> {
-        self.commit(true)?;
+        self.commit(None)?;
+
+        // TODO: Set num segments here
+
         Ok(())
     }
 
     pub fn commit_inserts(self) -> Result<()> {
-        let index_oid = self.relation_oid;
         let merge_lock = if self.wants_merge {
             unsafe { MergeLock::acquire_for_merge(self.relation_oid) }
         } else {
             None
         };
-        self.commit(merge_lock.is_some())?;
-
-        if merge_lock.is_some() {
-            unsafe {
-                garbage_collect_metas(index_oid)?;
-            }
-        }
-        Ok(())
+        self.commit(merge_lock)
     }
 
     pub fn vacuum(self) -> Result<()> {
         assert!(self.insert_queue.is_empty());
 
-        let index_oid = self.relation_oid;
         let merge_lock = unsafe { MergeLock::acquire_for_merge(self.relation_oid) };
-        self.commit(merge_lock.is_some())?;
-
-        if merge_lock.is_some() {
-            unsafe {
-                garbage_collect_metas(index_oid)?;
-            }
-        }
-        Ok(())
+        self.commit(merge_lock)
     }
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {

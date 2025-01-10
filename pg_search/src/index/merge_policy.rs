@@ -1,7 +1,7 @@
 use crate::postgres::storage::block::{MergeLockData, MERGE_LOCK};
 use crate::postgres::storage::buffer::{BufferManager, BufferMut};
 use pgrx::pg_sys;
-use tantivy::indexer::{LogMergePolicy, MergeCandidate, MergePolicy};
+use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::merge_policy::NoMergePolicy;
 use tantivy::SegmentMeta;
 
@@ -9,7 +9,6 @@ use tantivy::SegmentMeta;
 pub enum AllowedMergePolicy {
     None,
     NPlusOne(usize),
-    Log,
 }
 
 impl From<AllowedMergePolicy> for Box<dyn MergePolicy> {
@@ -20,7 +19,6 @@ impl From<AllowedMergePolicy> for Box<dyn MergePolicy> {
                 n,
                 min_num_segments: 2,
             }),
-            AllowedMergePolicy::Log => Box::new(LogMergePolicy::default()),
         }
     }
 }
@@ -104,6 +102,12 @@ impl MergeLock {
         let mut bman = BufferManager::new(relation_oid);
         let merge_lock = bman.get_buffer_mut(MERGE_LOCK);
         MergeLock(merge_lock)
+    }
+
+    pub unsafe fn num_segments(&mut self) -> u32 {
+        let mut page = self.0.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+        metadata.num_segments
     }
 }
 

@@ -54,9 +54,8 @@ impl Write for SegmentComponentWriter {
 
 impl TerminatingWrite for SegmentComponentWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
-        // this is a no-op -- the FileEntry for this segment component
-        // is handled through Directory::save_meta()
-        Ok(())
+        self.buffer.flush()?;
+        self.buffer.writer.flush()
     }
 }
 

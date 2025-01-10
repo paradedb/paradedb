@@ -321,15 +321,56 @@ impl PageMut<'_> {
         special
     }
 
-    pub fn free_space_slice_mut(&mut self, len: usize) -> &mut [u8] {
+    pub fn can_fit(&mut self, len: usize) -> bool {
+        let len: u16 = len.try_into().expect("bytes length too large for a page");
+        let start = self.header().pd_lower;
+        let end = self.header().pd_upper;
+        if start + len > end {
+            // bytes won't fit here
+            return false;
+        }
+        true
+    }
+
+    pub fn free_space_slice_mut(&mut self, len: usize) -> Option<&mut [u8]> {
+        let len: u16 = len.try_into().expect("bytes length too large for a page");
         let slice = unsafe {
+            let start = self.header().pd_lower;
+            let end = self.header().pd_upper;
+            if start + len > end {
+                // bytes won't fit here
+                return None;
+            }
             std::slice::from_raw_parts_mut(
-                (self.pg_page as *mut u8).add(self.header_mut().pd_lower as usize),
-                len,
+                (self.pg_page as *mut u8).add(start as usize),
+                len as usize,
             )
         };
         self.buffer.dirty = true;
-        slice
+        Some(slice)
+    }
+
+    pub fn append_bytes(&mut self, bytes: &[u8]) -> bool {
+        let len: u16 = bytes
+            .len()
+            .try_into()
+            .expect("bytes length too large for a page");
+        let slice = unsafe {
+            let start = self.header().pd_lower;
+            let end = self.header().pd_upper;
+            if start + len > end {
+                // bytes won't fit here
+                return false;
+            }
+            std::slice::from_raw_parts_mut(
+                (self.pg_page as *mut u8).add(start as usize),
+                len as usize,
+            )
+        };
+        slice.copy_from_slice(bytes);
+        self.header_mut().pd_lower += len;
+        self.buffer.dirty = true;
+        true
     }
 
     pub fn contents_mut<T>(&mut self) -> &mut T {

@@ -11,6 +11,7 @@ use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::Debug;
+use std::panic::{resume_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -30,6 +31,7 @@ pub enum ChannelRequest {
     RegisterFilesAsManaged(Vec<PathBuf>, Overwrite),
     SegmentRead(Range<usize>, FileEntry, oneshot::Sender<OwnedBytes>),
     SegmentWrite(PathBuf, Vec<u8>),
+    SegmentFlush(PathBuf),
     SegmentWriteTerminate(PathBuf),
     GetSegmentComponent(PathBuf, oneshot::Sender<FileEntry>),
     SaveMetas(IndexMeta, IndexMeta),
@@ -210,6 +212,19 @@ impl ChannelRequestHandler {
         &mut self,
         func: F,
     ) -> Result<T> {
+        match std::panic::catch_unwind(AssertUnwindSafe(move || self.wait_for_internal(func))) {
+            // no panic caught
+            Ok(result) => result,
+
+            // caught a panic so let it continue
+            Err(e) => resume_unwind(e),
+        }
+    }
+
+    fn wait_for_internal<T: Send + Sync + 'static, F: FnOnce() -> T + Send + Sync + 'static>(
+        &mut self,
+        func: F,
+    ) -> Result<T> {
         let func: Action = Box::new(move || Box::new(func()));
         self.action.0.send(func)?;
         loop {
@@ -275,6 +290,11 @@ impl ChannelRequestHandler {
                     SegmentComponentWriter::new(self.relation_oid, &path)
                 });
                 writer.write_all(&data)?;
+            }
+            ChannelRequest::SegmentFlush(path) => {
+                if let Some(writer) = self.writers.get_mut(&path) {
+                    writer.flush()?;
+                }
             }
             ChannelRequest::SegmentWriteTerminate(path) => {
                 let writer = self.writers.remove(&path).expect("writer should exist");

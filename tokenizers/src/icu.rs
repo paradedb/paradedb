@@ -12,7 +12,6 @@ use rust_icu_sys::UBreakIteratorType;
 use rust_icu_ubrk::UBreakIterator;
 use rust_icu_uloc;
 use rust_icu_ustring::UChar;
-use std::str::Chars;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -48,7 +47,7 @@ impl<'a> From<&'a str> for ICUBreakingWord<'a> {
         // Build mapping from UTF-16 code unit indices to byte offsets
         let utf16_units: Vec<u16> = text.encode_utf16().collect();
         let mut utf16_indices_to_byte_offsets = Vec::with_capacity(utf16_units.len() + 1);
-        let mut utf16_idx = 0;
+        //        let mut utf16_idx = 0;
         let mut byte_offset = 0;
         let bytes = text.as_bytes();
 
@@ -59,7 +58,7 @@ impl<'a> From<&'a str> for ICUBreakingWord<'a> {
 
             for _ in 0..ch_utf16_len {
                 utf16_indices_to_byte_offsets.push(byte_offset);
-                utf16_idx += 1;
+                //              utf16_idx += 1;
             }
             byte_offset += ch_utf8_len;
         }

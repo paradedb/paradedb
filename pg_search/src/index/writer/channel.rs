@@ -25,11 +25,19 @@ impl Write for ChannelWriter {
                 self.path.clone(),
                 data.to_vec(),
             ))
-            .unwrap_or_else(|e| panic!("got send error: {e}"));
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
         Ok(data.len())
     }
 
     fn flush(&mut self) -> Result<()> {
+        self.sender
+            .send(ChannelRequest::SegmentFlush(self.path.clone()))
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+        Ok(())
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+        let _ = self.write(buf)?;
         Ok(())
     }
 }
@@ -38,7 +46,6 @@ impl TerminatingWrite for ChannelWriter {
     fn terminate_ref(&mut self, _: AntiCallToken) -> Result<()> {
         self.sender
             .send(ChannelRequest::SegmentWriteTerminate(self.path.clone()))
-            .unwrap();
-        Ok(())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))
     }
 }

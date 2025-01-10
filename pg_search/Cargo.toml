@@ -20,6 +20,7 @@ icu = ["tokenizers/icu"]
 
 [dependencies]
 anyhow = { version = "1.0.87", features = ["backtrace"] }
+bitpacking = "0.9.2"
 chrono = "0.4.38"
 crossbeam = "0.8.4"
 derive_more = "0.99.18"

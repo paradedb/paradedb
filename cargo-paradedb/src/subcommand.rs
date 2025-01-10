@@ -46,7 +46,7 @@ pub fn install() -> Result<()> {
 
     // Using `exec` will replace the terminate the current process and replace it
     // with the command we've defined, as opposed to running it as a subprocess.
-    command.exec();
+    let _ = command.exec();
     Ok(())
 }
 

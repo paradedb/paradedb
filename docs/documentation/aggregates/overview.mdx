@@ -34,7 +34,7 @@ Remember to restart Postgres in order for `postgresql.conf` changes to take effe
 ### Run `VACUUM`
 
 `VACUUM` updates the table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html),
-which speeds up Postgres' visibility checks. Specifying `INDEX_CLEANUP = false` allows `VACUUM` to run much
+which speeds up Postgres' visibility checks. Specifying `INDEX_CLEANUP false` allows `VACUUM` to run much
 faster over large tables by skipping the cleanup of dead rows in the index.
 
 <Note>
@@ -42,7 +42,7 @@ Make sure to pass the table name, not the index name, to `VACUUM`.
 </Note>
 
 ```sql
-VACUUM (INDEX_CLEANUP = false) mock_items;
+VACUUM (INDEX_CLEANUP false) mock_items;
 ```
 
 If the table experiences frequent updates, we recommend configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).

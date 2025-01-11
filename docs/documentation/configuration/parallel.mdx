@@ -47,32 +47,3 @@ stored in the buffer cache.
 CREATE EXTENSION pg_prewarm;
 SELECT pg_prewarm('search_idx');
 ```
-
-## Target Segment Count
-
-Having too many or too few [segments](/documentation/concepts/index#segment) can negatively impact search performance.
-`target_segment_count` controls the number of segments that should exist and defaults to the number of available CPUs
-on the host machine.
-
-This option can be specified at index creation time or changed afterward:
-
-```sql
--- At index creation
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description)
-WITH (key_field='id', target_segment_count = 16);
-
--- Changed afterward
-ALTER INDEX search_idx SET (target_segment_count = 16);
-```
-
-While having the same number of segments as CPUs is a sane default, we recommend experimenting with different segment counts.
-
-<Note>
-  While ParadeDB attempts to create `target_segment_count` segments, the actual
-  number of segments may not always equal `target_segment_count`. For instance,
-  it could exceed this number if
-  [`merge_on_insert`](/documentation/configuration/write#merge-on-insert) is
-  disabled and `VACUUM` is not run, or fall below this number if the table
-  contains a small number of rows.
-</Note>

@@ -38,21 +38,17 @@ WITH (key_field='<key_field>');
   record. Usually, this is the same column that is the primary key of the table.
 </ParamField>
 
-## Optimizing Index Build Times
+Before creating an index, we strongly recommend increasing Postgres' `maintenance_work_mem` value. This setting can significantly improve the index's read and write times.
 
-By default, Postgres' `maintenance_work_mem` allows `64MB` of indexing memory. For large indexes, a higher `maintenance_work_mem`
-can speed up index build times significantly.
-
-```sql
--- Should not exceed the server's RAM
-SET maintenance_work_mem = '16GB';
+```bash postgresql.conf
+maintenance_work_mem = '16GB'
 ```
 
-You can read more about indexing settings [here](/documentation/configuration/index).
+You can read more [here](/documentation/configuration/index).
 
 ## Choosing a Key Field
 
-The `key_field` must be a **unique** column in the table. A non-unique key field is likely to lead to undefined behavior
+The `key_field` must have a `UNIQUE` constraint. A non-unique key field is likely to lead to undefined behavior
 or incorrect search results.
 
 While the key field can be any unique text, numeric, or datetime value, an integer key field will be the most

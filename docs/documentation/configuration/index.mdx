@@ -5,14 +5,22 @@ title: Create Index
 ### Indexing Memory
 
 The default Postgres `maintenance_work_mem` value of `64MB` is quite conservative and can significantly slow down index builds. For large indexes,
-we recommend increasing `maintenance_work_mem`.
+we strongly recommend increasing `maintenance_work_mem`. Generally speaking, this is the only setting that must be tuned to optimize index build times.
+The rest have sensible defaults.
 
-```sql
--- Should not exceed the server's available memory.
-SET maintenance_work_mem = '16GB';
+```bash postgresql.conf
+maintenance_work_mem = '16GB'
 ```
 
-Generally speaking, this is the only setting that must be tuned to optimize index build times. The rest have sensible defaults.
+`maintenance_work_mem` also affects the number of [segments](/documentation/concepts/index#segment) in the index. While ParadeDB tries to maintain as many segments as CPUs,
+a new segment will be created if a single segment cannot fit into memory. A low `maintenance_work_mem` may lead to significantly more segments
+than available CPUs, which impacts search performance.
+
+To verify if the chosen `maintenance_work_mem` value is high enough, we recommend [inspecting](/documentation/indexing/inspect_index#index-segments) the index's segment count.
+
+<Note>
+  `maintenance_work_mem` should not exceed the server's available memory.
+</Note>
 
 ### Indexing Memory per Thread
 

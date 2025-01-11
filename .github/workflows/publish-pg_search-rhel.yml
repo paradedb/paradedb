@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}

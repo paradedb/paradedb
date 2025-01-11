@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on Debian 12 (Bookworm) ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
@@ -35,36 +35,86 @@ jobs:
       matrix:
         include:
           # Debian 12 (Bookworm)
-          - runner: ubicloud-standard-8
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
             image: debian:12-slim
             pg_version: 14
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
             image: debian:12-slim
             pg_version: 14
             arch: arm64
-          - runner: ubicloud-standard-8
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
             image: debian:12-slim
             pg_version: 15
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
             image: debian:12-slim
             pg_version: 15
             arch: arm64
-          - runner: ubicloud-standard-8
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
             image: debian:12-slim
             pg_version: 16
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
             image: debian:12-slim
             pg_version: 16
             arch: arm64
-          - runner: ubicloud-standard-8
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
             image: debian:12-slim
             pg_version: 17
             arch: amd64
-          - runner: ubicloud-standard-4-arm
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
             image: debian:12-slim
+            pg_version: 17
+            arch: arm64
+          # Debian 11 (Bullseye)
+          # We build for Debian 11 for compatibility with one of our integration partners
+          - name: Debian 11 (Bullseye)
+            runner: ubicloud-standard-8
+            image: debian:11-slim
+            pg_version: 14
+            arch: amd64
+          - name: Debian 11 (Bullseye)
+            runner: ubicloud-standard-4-arm
+            image: debian:11-slim
+            pg_version: 14
+            arch: arm64
+          - name: Debian 11 (Bullseye)
+            runner: ubicloud-standard-8
+            image: debian:11-slim
+            pg_version: 15
+            arch: amd64
+          - name: Debian 11 (Bullseye)
+            runner: ubicloud-standard-4-arm
+            image: debian:11-slim
+            pg_version: 15
+            arch: arm64
+          - name: Debian 11 (Bullseye)
+            runner: ubicloud-standard-8
+            image: debian:11-slim
+            pg_version: 16
+            arch: amd64
+          - name: Debian 11 (Bullseye)
+            runner: ubicloud-standard-4-arm
+            image: debian:11-slim
+            pg_version: 16
+            arch: arm64
+          - name: Debian 11 (Bullseye)
+            runner: ubicloud-standard-8
+            image: debian:11-slim
+            pg_version: 17
+            arch: amd64
+          - name: Debian 11 (Bullseye)
+            runner: ubicloud-standard-4-arm
+            image: debian:11-slim
             pg_version: 17
             arch: arm64
 

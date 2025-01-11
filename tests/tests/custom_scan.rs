@@ -21,6 +21,7 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use serde_json::{Number, Value};
 use sqlx::PgConnection;
 
 #[rstest]
@@ -186,6 +187,48 @@ limit 1;
             4,
             12.982369422912598
         )
+    );
+}
+
+#[rstest]
+fn limit_without_order_by(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET enable_indexscan TO off;".execute(&mut conn);
+    let (plan, ) = r#"
+explain (analyze, format json) select * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;        
+        "#
+        .fetch_one::<(Value, )>(&mut conn);
+    let path = plan.pointer("/0/Plan/Plans/0").unwrap();
+    assert_eq!(
+        path.get("Node Type"),
+        Some(&Value::String(String::from("Custom Scan")))
+    );
+    assert_eq!(path.get("Scores"), Some(&Value::Bool(false)));
+    assert_eq!(
+        path.get("   Top N Limit"),
+        Some(&Value::Number(Number::from(1)))
+    );
+}
+
+#[rstest]
+fn score_and_limit_without_order_by(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET enable_indexscan TO off;".execute(&mut conn);
+    let (plan, ) = r#"
+explain (analyze, format json) select paradedb.score(id), * from paradedb.bm25_search where metadata @@@ 'color:white' limit 1;
+        "#
+        .fetch_one::<(Value, )>(&mut conn);
+    let path = plan.pointer("/0/Plan/Plans/0").unwrap();
+    assert_eq!(
+        path.get("Node Type"),
+        Some(&Value::String(String::from("Custom Scan")))
+    );
+    assert_eq!(path.get("Scores"), Some(&Value::Bool(true)));
+    assert_eq!(
+        path.get("   Top N Limit"),
+        Some(&Value::Number(Number::from(1)))
     );
 }
 

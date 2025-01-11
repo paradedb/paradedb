@@ -34,6 +34,7 @@ pub struct TopNScanExecState {
     heaprelid: pg_sys::Oid,
     limit: usize,
     sort_direction: SortDirection,
+    need_scores: bool,
 
     // set during init
     have_less: bool,
@@ -52,11 +53,17 @@ pub struct TopNScanExecState {
 }
 
 impl TopNScanExecState {
-    pub fn new(heaprelid: pg_sys::Oid, limit: usize, sort_direction: SortDirection) -> Self {
+    pub fn new(
+        heaprelid: pg_sys::Oid,
+        limit: usize,
+        sort_direction: SortDirection,
+        need_scores: bool,
+    ) -> Self {
         Self {
             heaprelid,
             limit,
             sort_direction,
+            need_scores,
             ..Default::default()
         }
     }
@@ -82,6 +89,7 @@ impl TopNScanExecState {
                     self.sort_field.clone(),
                     self.sort_direction.into(),
                     self.limit,
+                    self.need_scores,
                 )
             } else {
                 // no more segments to query
@@ -98,6 +106,7 @@ impl TopNScanExecState {
                 self.sort_field.clone(),
                 self.sort_direction.into(),
                 self.limit,
+                self.need_scores,
             )
         }
     }

@@ -34,7 +34,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::Index;
-use tantivy::query::QueryParser;
+use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::schema::FieldType;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{
@@ -68,6 +68,7 @@ impl PartialOrd for SearchIndexScore {
 pub enum SortDirection {
     Asc,
     Desc,
+    None,
 }
 
 impl From<SortDirection> for tantivy::Order {
@@ -75,6 +76,7 @@ impl From<SortDirection> for tantivy::Order {
         match value {
             SortDirection::Asc => Order::Asc,
             SortDirection::Desc => Order::Desc,
+            SortDirection::None => Order::Asc,
         }
     }
 }
@@ -103,8 +105,18 @@ pub enum SearchResults {
         FxHashMap<SegmentOrdinal, FFType>,
         std::vec::IntoIter<(TermOrdinal, DocAddress)>,
     ),
-    SingleSegment(vec_collector::FruitStyle),
-    AllSegments(Flatten<std::vec::IntoIter<vec_collector::FruitStyle>>),
+    SingleSegment(
+        usize,
+        Searcher,
+        FxHashMap<SegmentOrdinal, FFType>,
+        vec_collector::FruitStyle,
+    ),
+    AllSegments(
+        usize,
+        Searcher,
+        FxHashMap<SegmentOrdinal, FFType>,
+        Flatten<std::vec::IntoIter<vec_collector::FruitStyle>>,
+    ),
 }
 
 #[derive(PartialEq, Clone)]
@@ -119,33 +131,7 @@ impl PartialOrd for TweakedScore {
         match self.dir {
             SortDirection::Desc => cmp,
             SortDirection::Asc => cmp.map(|o| o.reverse()),
-        }
-    }
-}
-
-impl Debug for SearchResults {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SearchResults::None => write!(f, "SearchResults::None"),
-            SearchResults::TopNByScore(count, _, _, iter) => {
-                write!(f, "SearchResults::TopNByScore({count}, {:?})", iter.len())
-            }
-            SearchResults::TopNByTweakedScore(count, _, _, iter) => {
-                write!(
-                    f,
-                    "SearchResults::TopNByTweakedScore({count}, {:?})",
-                    iter.len()
-                )
-            }
-            SearchResults::TopNByField(count, _, _, iter) => {
-                write!(f, "SearchResults::TopNByField({count}, {:?})", iter.len())
-            }
-            SearchResults::SingleSegment(iter) => {
-                write!(f, "SearchResults::SingleSegment({:?})", iter.size_hint())
-            }
-            SearchResults::AllSegments(iter) => {
-                write!(f, "SearchResults::AllSegments({:?})", iter.size_hint())
-            }
+            SortDirection::None => Some(Ordering::Equal),
         }
     }
 }
@@ -213,8 +199,44 @@ impl Iterator for SearchResults {
                 };
                 Some((scored, doc_address))
             }
-            SearchResults::SingleSegment(iter) => iter.next(),
-            SearchResults::AllSegments(iter) => iter.next(),
+            SearchResults::SingleSegment(_, searcher, ff_lookup, iter) => {
+                let (score, doc_address) = iter.next()?;
+
+                let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
+                    FFType::new(
+                        searcher
+                            .segment_reader(doc_address.segment_ord)
+                            .fast_fields(),
+                        "ctid",
+                    )
+                });
+                let scored = SearchIndexScore {
+                    ctid: ctid_ff
+                        .as_u64(doc_address.doc_id)
+                        .expect("ctid should be present"),
+                    bm25: score,
+                };
+                Some((scored, doc_address))
+            }
+            SearchResults::AllSegments(_, searcher, ff_lookup, iter) => {
+                let (score, doc_address) = iter.next()?;
+
+                let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
+                    FFType::new(
+                        searcher
+                            .segment_reader(doc_address.segment_ord)
+                            .fast_fields(),
+                        "ctid",
+                    )
+                });
+                let scored = SearchIndexScore {
+                    ctid: ctid_ff
+                        .as_u64(doc_address.doc_id)
+                        .expect("ctid should be present"),
+                    bm25: score,
+                };
+                Some((scored, doc_address))
+            }
         }
     }
 
@@ -225,8 +247,8 @@ impl Iterator for SearchResults {
             SearchResults::TopNByScore(_, _, _, iter) => iter.size_hint(),
             SearchResults::TopNByTweakedScore(_, _, _, iter) => iter.size_hint(),
             SearchResults::TopNByField(_, _, _, iter) => iter.size_hint(),
-            SearchResults::SingleSegment(iter) => iter.size_hint(),
-            SearchResults::AllSegments(iter) => iter.size_hint(),
+            SearchResults::SingleSegment(_, _, _, iter) => iter.size_hint(),
+            SearchResults::AllSegments(_, _, _, iter) => iter.size_hint(),
         }
     }
 }
@@ -238,8 +260,8 @@ impl SearchResults {
             SearchResults::TopNByScore(count, ..) => Some(*count),
             SearchResults::TopNByTweakedScore(count, ..) => Some(*count),
             SearchResults::TopNByField(count, ..) => Some(*count),
-            SearchResults::SingleSegment(_) => None,
-            SearchResults::AllSegments(_) => None,
+            SearchResults::SingleSegment(count, ..) => Some(*count),
+            SearchResults::AllSegments(count, ..) => Some(*count),
         }
     }
 }
@@ -392,9 +414,15 @@ impl SearchIndexReader {
         query: &SearchQueryInput,
         _estimated_rows: Option<usize>,
     ) -> SearchResults {
-        let collector = vec_collector::VecCollector::new(need_scores);
+        let collector = vec_collector::VecCollector::new(None, need_scores);
         let results = self.collect(query, collector, need_scores);
-        SearchResults::AllSegments(results.into_iter().flatten())
+        let len = results.iter().map(|iter| iter.len()).sum();
+        SearchResults::AllSegments(
+            len,
+            self.searcher.clone(),
+            Default::default(),
+            results.into_iter().flatten(),
+        )
     }
 
     /// Search a specific index segment for matching documents.
@@ -409,7 +437,7 @@ impl SearchIndexReader {
         segment_ord: SegmentOrdinal,
         query: &SearchQueryInput,
     ) -> SearchResults {
-        let collector = vec_collector::VecCollector::new(need_scores);
+        let collector = vec_collector::VecCollector::new(None, need_scores);
         let weight = self
             .query(query)
             .weight(if need_scores {
@@ -428,7 +456,12 @@ impl SearchIndexReader {
         let results = collector
             .collect_segment(weight.as_ref(), segment_ord, segment_reader)
             .expect("single segment collection should succeed");
-        SearchResults::SingleSegment(results.into_iter())
+        SearchResults::SingleSegment(
+            results.len(),
+            self.searcher.clone(),
+            Default::default(),
+            results.into_iter(),
+        )
     }
 
     /// Search the Tantivy index for the "top N" matching documents.
@@ -444,11 +477,12 @@ impl SearchIndexReader {
         sort_field: Option<String>,
         sortdir: SortDirection,
         n: usize,
+        need_scores: bool,
     ) -> SearchResults {
         if let Some(sort_field) = sort_field {
             self.top_by_field(query, sort_field, sortdir, n)
         } else {
-            self.top_by_score(query, sortdir, n)
+            self.top_by_score(query, sortdir, n, need_scores)
         }
     }
 
@@ -466,11 +500,16 @@ impl SearchIndexReader {
         sort_field: Option<String>,
         sortdir: SortDirection,
         n: usize,
+        need_scores: bool,
     ) -> SearchResults {
         if let Some(sort_field) = sort_field {
+            assert!(
+                !need_scores,
+                "cannot sort by field and get scores in the same query"
+            );
             self.top_by_field_in_segment(segment_ord, query, sort_field, sortdir, n)
         } else {
-            self.top_by_score_in_segment(segment_ord, query, sortdir, n)
+            self.top_by_score_in_segment(segment_ord, query, sortdir, n, need_scores)
         }
     }
 
@@ -502,6 +541,7 @@ impl SearchIndexReader {
         query: &SearchQueryInput,
         sortdir: SortDirection,
         n: usize,
+        need_scores: bool,
     ) -> SearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
@@ -532,6 +572,74 @@ impl SearchIndexReader {
                     self.searcher.clone(),
                     Default::default(),
                     top_docs.into_iter(),
+                )
+            }
+
+            SortDirection::None => {
+                let enabled_scoring = if need_scores {
+                    tantivy::query::EnableScoring::Enabled {
+                        searcher: &self.searcher,
+                        statistics_provider: &self.searcher,
+                    }
+                } else {
+                    tantivy::query::EnableScoring::Disabled {
+                        schema: self.searcher.schema(),
+                        searcher_opt: Some(&self.searcher),
+                    }
+                };
+
+                struct WeightLimitQuery {
+                    query: Box<dyn Query>,
+                    weight: limit::WeightLimit,
+                }
+                impl Debug for WeightLimitQuery {
+                    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+                        Ok(())
+                    }
+                }
+
+                impl QueryClone for WeightLimitQuery {
+                    fn box_clone(&self) -> Box<dyn Query> {
+                        Box::new(WeightLimitQuery {
+                            query: self.query.box_clone(),
+                            weight: self.weight.clone(),
+                        })
+                    }
+                }
+
+                impl Query for WeightLimitQuery {
+                    fn weight(
+                        &self,
+                        _enable_scoring: EnableScoring<'_>,
+                    ) -> tantivy::Result<Box<dyn Weight>> {
+                        Ok(Box::new(self.weight.clone()))
+                    }
+                }
+
+                let query = self.query(query);
+                let weight = query
+                    .weight(enabled_scoring)
+                    .expect("creating a Weight from a Query should not fail");
+                let query: Box<dyn Query> = Box::new(WeightLimitQuery {
+                    query,
+                    weight: limit::WeightLimit::new(n, weight),
+                });
+                let collector = vec_collector::VecCollector::new(Some(n), need_scores);
+                let results = self
+                    .searcher
+                    .search_with_executor(
+                        &query,
+                        &collector,
+                        &Executor::SingleThread,
+                        enabled_scoring,
+                    )
+                    .expect("should be able to collect top-n");
+                let len = results.iter().map(|iter| iter.len()).sum();
+                SearchResults::AllSegments(
+                    len,
+                    self.searcher.clone(),
+                    Default::default(),
+                    results.into_iter().flatten(),
                 )
             }
         }
@@ -597,6 +705,7 @@ impl SearchIndexReader {
         query: &SearchQueryInput,
         sortdir: SortDirection,
         n: usize,
+        need_scores: bool,
     ) -> SearchResults {
         let query = self.query(query);
         let weight = query
@@ -657,6 +766,21 @@ impl SearchIndexReader {
                     self.searcher.clone(),
                     Default::default(),
                     top_docs.into_iter(),
+                )
+            }
+
+            SortDirection::None => {
+                let collector = vec_collector::VecCollector::new(Some(n), need_scores);
+                let weight = limit::WeightLimit::new(n, weight);
+                let segment_reader = self.searcher.segment_reader(segment_ord);
+                let results = collector
+                    .collect_segment(&weight, segment_ord, segment_reader)
+                    .expect("single segment collection should succeed");
+                SearchResults::SingleSegment(
+                    results.len(),
+                    self.searcher.clone(),
+                    Default::default(),
+                    results.into_iter(),
                 )
             }
         }
@@ -735,10 +859,78 @@ impl SearchIndexReader {
     }
 }
 
+mod limit {
+    use std::sync::Arc;
+    use tantivy::query::{Explanation, Scorer, Weight};
+    use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED};
+
+    struct LimitingScorer {
+        limit: u32,
+        inner: Box<dyn Scorer>,
+        cnt: u32,
+    }
+
+    impl DocSet for LimitingScorer {
+        fn advance(&mut self) -> DocId {
+            self.cnt += 1;
+            if self.cnt >= self.limit {
+                return TERMINATED;
+            }
+            self.inner.advance()
+        }
+
+        fn doc(&self) -> DocId {
+            self.inner.doc()
+        }
+
+        fn size_hint(&self) -> u32 {
+            self.limit
+        }
+    }
+
+    impl Scorer for LimitingScorer {
+        fn score(&mut self) -> Score {
+            self.inner.score()
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct WeightLimit {
+        limit: u32,
+        inner: Arc<Box<dyn Weight>>,
+    }
+
+    impl WeightLimit {
+        pub fn new(limit: usize, inner: Box<dyn Weight>) -> Self {
+            Self {
+                limit: limit.try_into().expect("limit should not exceed u32::MAX"),
+                inner: Arc::new(inner),
+            }
+        }
+    }
+
+    impl Weight for WeightLimit {
+        fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
+            let scorer = self.inner.scorer(reader, boost)?;
+            Ok(Box::new(LimitingScorer {
+                limit: self.limit,
+                inner: scorer,
+                cnt: 0,
+            }))
+        }
+
+        fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
+            self.inner.explain(reader, doc)
+        }
+    }
+}
+
 mod vec_collector {
-    use crate::index::fast_fields_helper::FFType;
-    use crate::index::reader::index::SearchIndexScore;
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::query::Weight;
     use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
 
     #[derive(Default)]
@@ -747,63 +939,60 @@ mod vec_collector {
         Empty,
         Scored(
             SegmentOrdinal,
-            std::vec::IntoIter<DocId>,
             std::vec::IntoIter<Score>,
-            std::vec::IntoIter<u64>,
+            std::vec::IntoIter<DocId>,
         ),
         Blocks(
+            usize,
             SegmentOrdinal,
-            std::vec::IntoIter<std::vec::IntoIter<DocId>>,
-            std::vec::IntoIter<std::vec::IntoIter<u64>>,
-            std::vec::IntoIter<DocId>,
-            std::vec::IntoIter<u64>, // ctids
+            std::iter::Flatten<std::vec::IntoIter<std::vec::IntoIter<DocId>>>,
         ),
     }
 
+    impl FruitStyle {
+        pub fn len(&self) -> usize {
+            match self {
+                FruitStyle::Empty => 0,
+                FruitStyle::Scored(_, iter, ..) => iter.len(),
+                FruitStyle::Blocks(count, ..) => *count,
+            }
+        }
+    }
+
     impl Iterator for FruitStyle {
-        type Item = (SearchIndexScore, DocAddress);
+        type Item = (Score, DocAddress);
 
         fn next(&mut self) -> Option<Self::Item> {
             match self {
                 FruitStyle::Empty => None,
-                FruitStyle::Scored(segment_ord, doc, score, ctid) => {
+                FruitStyle::Scored(segment_ord, score, doc) => {
                     let doc = doc.next()?;
-                    let ctid = ctid.next()?;
-                    assert!(ctid != 0);
-                    let bm25 = score.next()?;
+                    let score = score.next()?;
                     let doc_address = DocAddress::new(*segment_ord, doc);
-                    let scored = SearchIndexScore { ctid, bm25 };
-                    Some((scored, doc_address))
+                    Some((score, doc_address))
                 }
-                FruitStyle::Blocks(segment_ord, doc_blocks, ctid_blocks, doc, ctid) => loop {
-                    match doc.next() {
-                        None => {
-                            *doc = doc_blocks.next()?;
-                            *ctid = ctid_blocks.next()?;
-                            continue;
-                        }
-
-                        Some(doc) => {
-                            let ctid = ctid.next()?;
-                            assert!(ctid != 0);
-                            let doc_address = DocAddress::new(*segment_ord, doc);
-                            let scored = SearchIndexScore { ctid, bm25: 0.0 };
-                            return Some((scored, doc_address));
-                        }
-                    }
-                },
+                FruitStyle::Blocks(_, segment_ord, doc) => {
+                    let doc = doc.next()?;
+                    Some((0.0, DocAddress::new(*segment_ord, doc)))
+                }
             }
         }
     }
 
     /// A [`Collector`] that collects all matching documents into a [`Vec`].
     pub struct VecCollector {
+        limit: Option<usize>,
         need_scores: bool,
+        count: AtomicUsize,
     }
 
     impl VecCollector {
-        pub fn new(need_scores: bool) -> Self {
-            Self { need_scores }
+        pub fn new(limit: Option<usize>, need_scores: bool) -> Self {
+            Self {
+                limit,
+                need_scores,
+                count: Default::default(),
+            }
         }
     }
 
@@ -814,14 +1003,12 @@ mod vec_collector {
         fn for_segment(
             &self,
             segment_local_id: SegmentOrdinal,
-            segment_reader: &SegmentReader,
+            _segment_reader: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
             Ok(VecSegmentCollector {
                 segment_ord: segment_local_id,
-                scored: (vec![], vec![], vec![]),
+                scored: (vec![], vec![]),
                 doc_blocks: vec![],
-                ctid_blocks: vec![],
-                ctid_ff: FFType::new(segment_reader.fast_fields(), "ctid"),
             })
         }
 
@@ -836,14 +1023,59 @@ mod vec_collector {
             // NB:  we never call this function, but best to implement it anyways
             Ok(segment_fruits)
         }
+
+        fn collect_segment(
+            &self,
+            weight: &dyn Weight,
+            segment_ord: u32,
+            reader: &SegmentReader,
+        ) -> tantivy::Result<<Self::Child as SegmentCollector>::Fruit> {
+            let mut segment_collector = self.for_segment(segment_ord, reader)?;
+
+            if self.limit.is_none() || self.count.load(Ordering::Relaxed) < self.limit.unwrap_or(0)
+            {
+                match (reader.alive_bitset(), self.requires_scoring()) {
+                    (Some(alive_bitset), true) => {
+                        weight.for_each(reader, &mut |doc, score| {
+                            if alive_bitset.is_alive(doc) {
+                                self.count.fetch_add(1, Ordering::Relaxed);
+                                segment_collector.collect(doc, score);
+                            }
+                        })?;
+                    }
+                    (Some(alive_bitset), false) => {
+                        weight.for_each_no_score(reader, &mut |docs| {
+                            for doc in docs.iter().cloned() {
+                                if alive_bitset.is_alive(doc) {
+                                    self.count.fetch_add(1, Ordering::Relaxed);
+                                    segment_collector.collect(doc, 0.0);
+                                }
+                            }
+                        })?;
+                    }
+                    (None, true) => {
+                        weight.for_each(reader, &mut |doc, score| {
+                            self.count.fetch_add(1, Ordering::Relaxed);
+                            segment_collector.collect(doc, score);
+                        })?;
+                    }
+                    (None, false) => {
+                        weight.for_each_no_score(reader, &mut |docs| {
+                            self.count.fetch_add(docs.len(), Ordering::Relaxed);
+                            segment_collector.collect_block(docs);
+                        })?;
+                    }
+                }
+            }
+
+            Ok(segment_collector.harvest())
+        }
     }
 
     pub struct VecSegmentCollector {
         segment_ord: SegmentOrdinal,
-        scored: (Vec<DocId>, Vec<Score>, Vec<u64>),
+        scored: (Vec<DocId>, Vec<Score>),
         doc_blocks: Vec<std::vec::IntoIter<DocId>>,
-        ctid_blocks: Vec<std::vec::IntoIter<u64>>,
-        ctid_ff: FFType,
     }
 
     impl SegmentCollector for VecSegmentCollector {
@@ -852,44 +1084,28 @@ mod vec_collector {
         fn collect(&mut self, doc: DocId, score: Score) {
             self.scored.0.push(doc);
             self.scored.1.push(score);
-            self.scored
-                .2
-                .push(self.ctid_ff.as_u64(doc).expect("ctid should be present"));
         }
 
         #[allow(clippy::unnecessary_to_owned)]
         fn collect_block(&mut self, docs: &[DocId]) {
-            let ctids = docs
-                .iter()
-                .map(|doc_id| {
-                    self.ctid_ff
-                        .as_u64(*doc_id)
-                        .expect("ctid should be present")
-                })
-                .collect::<Vec<_>>();
             self.doc_blocks.push(docs.to_vec().into_iter());
-            self.ctid_blocks.push(ctids.into_iter());
         }
 
         fn harvest(mut self) -> Self::Fruit {
             if !self.doc_blocks.is_empty() {
                 if !self.scored.0.is_empty() {
                     self.doc_blocks.push(self.scored.0.into_iter());
-                    self.ctid_blocks.push(self.scored.2.into_iter());
                 }
                 FruitStyle::Blocks(
+                    self.doc_blocks.iter().map(|i| i.len()).sum(),
                     self.segment_ord,
-                    self.doc_blocks.into_iter(),
-                    self.ctid_blocks.into_iter(),
-                    vec![].into_iter(),
-                    vec![].into_iter(),
+                    self.doc_blocks.into_iter().flatten(),
                 )
             } else {
                 FruitStyle::Scored(
                     self.segment_ord,
-                    self.scored.0.into_iter(),
                     self.scored.1.into_iter(),
-                    self.scored.2.into_iter(),
+                    self.scored.0.into_iter(),
                 )
             }
         }

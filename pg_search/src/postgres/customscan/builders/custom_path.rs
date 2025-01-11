@@ -22,11 +22,12 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Debug, Default, Copy, Clone)]
-#[repr(u32)]
+#[repr(i32)]
 pub enum SortDirection {
     #[default]
-    Asc = pg_sys::BTLessStrategyNumber,
-    Desc = pg_sys::BTGreaterStrategyNumber,
+    Asc = pg_sys::BTLessStrategyNumber as i32,
+    Desc = pg_sys::BTGreaterStrategyNumber as i32,
+    None = pg_sys::BTEqualStrategyNumber as i32,
 }
 
 impl AsRef<str> for SortDirection {
@@ -34,6 +35,7 @@ impl AsRef<str> for SortDirection {
         match self {
             SortDirection::Asc => "asc",
             SortDirection::Desc => "desc",
+            SortDirection::None => "<none>",
         }
     }
 }
@@ -65,6 +67,7 @@ impl From<SortDirection> for crate::index::reader::index::SortDirection {
         match value {
             SortDirection::Asc => crate::index::reader::index::SortDirection::Asc,
             SortDirection::Desc => crate::index::reader::index::SortDirection::Desc,
+            SortDirection::None => crate::index::reader::index::SortDirection::None,
         }
     }
 }
@@ -285,12 +288,19 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         row_estimate: Cardinality,
         limit: Option<Cardinality>,
         segment_count: usize,
+        sorted: bool,
     ) -> Self {
         unsafe {
             let mut nworkers = segment_count.min(pg_sys::max_parallel_workers as usize);
 
-            if is_topn && limit.is_some() {
+            if limit.is_some() {
                 let limit = limit.unwrap();
+                if !sorted
+                    && limit <= (segment_count * segment_count * segment_count) as Cardinality
+                {
+                    // not worth it to do a parallel scan
+                    return self;
+                }
 
                 // if the limit is less than some arbitrarily large value
                 // use at most half the number of parallel workers as there are segments
@@ -299,7 +309,6 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
                     nworkers = (segment_count / 2).min(nworkers);
                 }
             }
-
             // we will try to parallelize based on the number of index segments
             if nworkers > 0 && (*self.args.rel).consider_parallel {
                 self.custom_path_node.path.parallel_aware = true;

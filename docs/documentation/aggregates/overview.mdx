@@ -13,10 +13,6 @@ WHERE description @@@ 'shoes';
 
 ## Fast Aggregates
 
-<Info>
-  Fast aggregates are an enterprise-only feature. [Contact us](mailto:sales@paradedb.com) for access.
-</Info>
-
 The performance of aggregates over very large result sets (millions of rows or more) is a well-known problem in Postgres.
 
 In ParadeDB Enterprise, aggregates over full text search results are drastically accelerated by [fast fields](/documentation/indexing/fast_fields).
@@ -51,18 +47,15 @@ VACUUM (INDEX_CLEANUP = false) mock_items;
 
 If the table experiences frequent updates, we recommend configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).
 
-### Run Cold Query
+### Run `pg_prewarm`
 
-The following query allows Postgres to cache the underlying index files. This is a one-time cold query that will
-**not** be fast, but allows subsequent queries to be fast.
+The `pg_prewarm` extension can be used to preload data from the index into the Postgres buffer cache, which
+improves the response times of "cold" queries (i.e. the first search query after Postgres has restarted).
 
 ```sql
-SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
+CREATE EXTENSION pg_prewarm;
+SELECT pg_prewarm('search_idx');
 ```
-
-<Note>
-Replace `mock_items` with your table name, and `id` with your key field.
-</Note>
 
 ### Index Fast Fields
 

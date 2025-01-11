@@ -4,6 +4,11 @@ title: Create an Index
 
 ## Basic Usage
 
+<Note>
+For large indexes, tuning Postgres' default memory and parallel worker settings prior to running `CREATE INDEX` is strongly recommended.
+Please see [index tuning](/documentation/configuration) for details.
+</Note>
+
 The following code block creates a [BM25 index](/documentation/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
 All columns that are relevant to the search query, including columns used for sorting and filtering, should be indexed for optimal performance.
 
@@ -38,24 +43,13 @@ WITH (key_field='<key_field>');
   record. Usually, this is the same column that is the primary key of the table.
 </ParamField>
 
-## Indexing Settings
-
-Several [settings](/documentation/configuration/index) exist to control the amount of resources to allocate during index creation.  While they have sensible
-defaults, overall indexing performance can be drastically improved if configured for the host system.
-
 ## Choosing a Key Field
+
+The `key_field` must have a `UNIQUE` constraint. A non-unique key field is likely to lead to undefined behavior
+or incorrect search results.
 
 While the key field can be any unique text, numeric, or datetime value, an integer key field will be the most
 performant. The Postgres `SERIAL` type is an easy way to create a unique integer column.
-
-The key field is not intended to be tokenized. For instance, the following configuration is not allowed:
-
-```sql
--- This will throw an error
-CREATE INDEX search_idx ON mock_items
-USING bm25 (description)
-WITH (key_field = 'description');
-```
 
 Finally, the key field must be the first column in the target list.
 
@@ -105,6 +99,14 @@ This is particularly useful when you need to:
 - Change the indexed columns
 
 `pg_search` can only use a single BM25 index per table - the most recently created one will automatically be used for queries. After creating a new index concurrently and verifying it works as expected, you can safely drop the old index:
+
+```sql
+DROP INDEX search_idx;
+```
+
+## Delete Index
+
+The following command deletes a BM25 index.
 
 ```sql
 DROP INDEX search_idx;

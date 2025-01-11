@@ -1,15 +1,23 @@
 ---
-title: Postgres Extensions
+title: Extensions
 ---
 
-ParadeDB is built from two Postgres extensions
+<Note>
+  If you are self-hosting, we do not recommend installing ParadeDB in your
+  primary Postgres. ParadeDB is designed to run as a [logical
+  replica](/deploy/self-hosted/logical-replication) of your primary, which
+  isolates search and analytical workloads from your primary.
+</Note>
 
-- The `pg_search` extension powers all of ParadeDB's [full text search API](/documentation).
+If you already self-manage Postgres, you may prefer to install ParadeDB directly within your self-managed
+Postgres instead of deploying the ParadeDB Helm chart.
+
+This can be done by installing the two extensions that ParadeDB uses:
+
+- The `pg_search` extension powers all of ParadeDB's [full text search and analytics](/documentation).
 - The `pg_analytics` extension powers ParadeDB's [integrations](/integrations).
 
-This guide explains how to install these extensions inside an existing, self-hosted Postgres database.
-
-# Prerequisites
+## Prerequisites
 
 Ensure that you have superuser access to the Postgres database.
 
@@ -27,7 +35,9 @@ sudo apt-get install -y libicu74
 
 </CodeGroup>
 
-# Install the ParadeDB Postgres Extensions
+## Install the ParadeDB Postgres Extensions
+
+### ParadeDB Community
 
 ParadeDB provides prebuilt binaries for our extensions on
 
@@ -38,7 +48,7 @@ ParadeDB provides prebuilt binaries for our extensions on
 
 Postgres 14, 15, 16, and 17 are available. If you are using a different version of Postgres or a different operating system, you will need to build the extensions from source.
 
-### pg_search
+#### pg_search
 
 The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest).
 
@@ -93,7 +103,7 @@ sudo installer -pkg ~/Downloads/pg_search.pkg -target /
 
 </CodeGroup>
 
-### pg_analytics
+#### pg_analytics
 
 The prebuilt releases can be found in [GitHub Releases](https://github.com/paradedb/pg_analytics/releases/latest).
 
@@ -136,7 +146,11 @@ sudo dnf install -y /tmp/*.rpm
 
 </CodeGroup>
 
-# Update `postgresql.conf`
+### ParadeDB Enterprise
+
+If you are a [ParadeDB Enterprise](/deploy/enterprise) user, you should have received a copy of the enterprise binaries. Please [contact sales](mailto:sales@paradedb.com) for access.
+
+## Update `postgresql.conf`
 
 Next, add the extension(s) to `shared_preload_libraries` in `postgresql.conf`.
 
@@ -146,7 +160,7 @@ shared_preload_libraries = 'pg_search,pg_analytics'
 
 Reload the Postgres server for these changes to take effect.
 
-# Load the Extensions
+## Load the Extensions
 
 Finally, connect to your Postgres database via your client of choice (e.g. `psql`) and run the following command:
 
@@ -154,8 +168,6 @@ Finally, connect to your Postgres database via your client of choice (e.g. `psql
 CREATE EXTENSION pg_search;
 CREATE EXTENSION pg_analytics;
 ```
-
-That's it! To get started, follow the [quickstart guide](/documentation/getting-started/quickstart).
 
 <Note>
   `pg_search` can be combined with `pgvector` for hybrid search. You can find

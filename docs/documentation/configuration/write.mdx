@@ -1,0 +1,67 @@
+---
+title: Throughput
+---
+
+Several settings can be used to tune the throughput of `INSERT`/`UPDATE`/`COPY` statements to the BM25 index.
+
+## Statement Memory
+
+Like [indexing memory](/documentation/configuration/index#indexing-memory), the amount of memory available to `INSERT`/`UPDATE`/`COPY` statements and number of segments
+created is affected by `maintenance_work_mem`.
+
+```bash postgresql.conf
+maintenance_work_mem = 16GB
+```
+
+Generally speaking, this is the only setting that must be tuned for optimizing these statements.
+
+## Merge on Insert
+
+The BM25 index is made up of a number of individual [segments](/documentation/concepts/index#segment). Every atomic `INSERT`/`UPDATE`/`COPY`
+creates at least one new segment.
+
+Because having significantly more segments than available CPU cores negatively impacts search performance, ParadeDB tries
+to merge smaller indexes into larger ones during an `INSERT`/`UPDATE`/`COPY`. This behavior can be disabled by explicitly setting `merge_on_insert` to `false`.
+Doing so can increase `INSERT`/`UPDATE`/`COPY` throughput at the expense of creating many more segments and slowing down subsequent search queries.
+
+This option can be specified at index creation time or changed afterward:
+
+```sql
+-- At index creation
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (key_field='id', merge_on_insert = false);
+
+-- Changed afterward
+ALTER INDEX search_idx SET (merge_on_insert = false);
+```
+
+In general, we do not recommend disabling `merge_on_insert`. If disabled, we recommend carefully configuring autovacuum to ensure that the index is merged at regular intervals.
+
+## Statement Parallelism
+
+<Note>This setting requires superuser privileges.</Note>
+
+`paradedb.statement_parallelism` controls the number of indexing threads used during `INSERT/UPDATE/COPY`. The default is `0`, which automatically detects the
+"available parallelism" of the host computer.
+
+If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `1` can prevent unnecessary threads from being spun up. For bulk inserts
+and updates, a larger value is better.
+
+```sql
+SET paradedb.statement_parallelism = 1;
+```
+
+## Statement Memory Budget
+
+<Note>This setting requires superuser privileges.</Note>
+
+`paradedb.statement_memory_budget`, like [indexing memory](/documentation/configuration/index#indexing-memory) defaults to `maintenance_work_mem` divided by the total parallelism. It sets the amount of memory to dedicate per indexing thread before the index segment needs to be
+written to disk. The setting is measured in megabytes.
+
+If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `15MB` can prevent unnecessary memory from being allocated. For bulk inserts
+and updates, a larger value is better.
+
+```sql
+SET paradedb.statement_memory_budget = 15;
+```

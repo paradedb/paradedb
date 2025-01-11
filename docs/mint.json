@@ -91,7 +91,22 @@
               "pages": [
                 "documentation/indexing/create_index",
                 "documentation/indexing/inspect_index",
-                "documentation/indexing/delete_index"
+                {
+                  "group": "Index Tuning",
+                  "pages": [
+                    "documentation/configuration/overview",
+                    "documentation/configuration/index",
+                    "documentation/configuration/write",
+                    "documentation/configuration/parallel"
+                  ]
+                },
+                {
+                  "group": "Index Settings",
+                  "pages": [
+                    "documentation/configuration/scan",
+                    "documentation/configuration/telemetry"
+                  ]
+                }
               ]
             },
             {
@@ -186,15 +201,6 @@
                 "documentation/similarity/index",
                 "documentation/similarity/search"
               ]
-            },
-            {
-              "group": "Configuration",
-              "pages": [
-                "documentation/configuration/index",
-                "documentation/configuration/parallel",
-                "documentation/configuration/scan",
-                "documentation/configuration/telemetry"
-              ]
             }
           ]
         },
@@ -262,21 +268,29 @@
         {
           "group": "Self-Hosted ParadeDB",
           "pages": [
-            "deploy/self-hosted/k8s",
-            "deploy/self-hosted/docker",
-            "deploy/self-hosted/extensions"
+            "deploy/self-hosted/kubernetes",
+            "deploy/self-hosted/extensions",
+            {
+              "group": "Logical Replication",
+              "pages": [
+                "deploy/self-hosted/logical-replication/getting-started",
+                "deploy/self-hosted/logical-replication/configuration"
+              ]
+            },
+            {
+              "group": "High Availability",
+              "pages": [
+                "deploy/self-hosted/high-availability/getting-started",
+                "deploy/self-hosted/high-availability/configuration"
+              ]
+            },
+            "deploy/self-hosted/docker"
           ]
         },
-        {
-          "group": "Logical Replication",
-          "pages": [
-            "deploy/replication/managed",
-            "deploy/replication/self-hosted"
-          ]
-        },
-        "deploy/high-availability",
+        "deploy/byoc",
+        "deploy/enterprise",
         "deploy/upgrading",
-        "deploy/extensions"
+        "deploy/third-party-extensions"
       ]
     },
     {

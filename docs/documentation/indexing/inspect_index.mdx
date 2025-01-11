@@ -18,24 +18,22 @@ SELECT name, field_type FROM paradedb.schema('search_idx');
 
 ## Index Size
 
-Because BM25 indexes rely on a custom storage implementation, the built-in Postgres `pg_relation_size` function does not work. Instead, the custom
-`paradedb.index_size` function returns the size of a BM25 index in bytes.
-
-The following code block returns the size of an index called `search_idx`. The argument should be the index name quoted in a string.
+`pg_relation_size` can be used to inspect the index size. `pg_size_pretty` turns the size from bytes
+into a human-readable format.
 
 ```sql
-SELECT index_size FROM paradedb.index_size('search_idx');
+SELECT pg_size_pretty(pg_relation_size('search_idx'));
 ```
-
-<ParamField body="index" required>
-  The index to inspect.
-</ParamField>
 
 ## Index Segments
 
-`paradedb.index_info` returns information about the index's underlying [segments](/documentation/concepts/index#segment). It is useful for verifying that the number
-of segments matches the index's [target segment count](/documentation/configuration/index#target-segment-count).
+`paradedb.index_info` returns information about the index's underlying [segments](/documentation/concepts/index#segment).
 
 ```sql
 SELECT * FROM paradedb.index_info('search_idx');
 ```
+
+Generally speaking, the segment count should match the server's CPU count. In practice, it may be lower if the table is very small, or higher if there are so many rows
+that a single segment is split into multiple segments.
+
+In order for the index to maintain an optimal segment count, the index must have enough memory and threads for [creating](/documentation/configuration/index) and [writing](/documentation/configuration/write) to the index.

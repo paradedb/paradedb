@@ -1,0 +1,61 @@
+---
+title: ParadeDB Enterprise
+---
+
+ParadeDB ships in two versions: ParadeDB Community and ParadeDB Enterprise.
+
+[ParadeDB Community](https://github.com/paradedb/paradedb) is our open source product, licensed under [AGPL-3.0](https://github.com/paradedb/paradedb/blob/dev/LICENSE).
+This license permits free use, modification, and distribution of the software, provided that distributed, derivative works of the software are released under the same license
+(copyleft provision).
+
+In addition to all of the features of ParadeDB Community, ParadeDB Enterprise:
+
+1. Waives the copyleft provision of AGPL-3.0
+2. Contains several close-source features that are recommended for ParadeDB to service enterprise, production workloads
+
+For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.com).
+
+## Feature Comparison
+
+|                                            | ParadeDB Community | ParadeDB Enterprise |
+| ------------------------------------------ | ------------------ | ------------------- |
+| **Index Configuration**                    |                    |
+| Support for most Postgres types            | ✅                 | ✅                  |
+| Custom tokenizers and filters              | ✅                 | ✅                  |
+| Multiple tokenizers per field              | ✅                 | ✅                  |
+| Indexing 32+ columns<sup>1</sup> per table | ❌                 | ✅                  |
+| **Full Text Search and Analytics**         |                    |
+| Query builder API                          | ✅                 | ✅                  |
+| Efficient "Top N" ordering                 | ✅                 | ✅                  |
+| BM25 scoring                               | ✅                 | ✅                  |
+| Highlighting                               | ✅                 | ✅                  |
+| Hybrid search                              | ✅                 | ✅                  |
+| Parallelized fast field aggregates         | ✅                 | ✅                  |
+| **Concurrency and Consistency**            |                    |
+| Postgres MVCC-safe<sup>2</sup>             | ✅                 | ✅                  |
+| Concurrent, non-blocking writes            | ✅                 | ✅                  |
+| Block storage integration                  | ✅                 | ✅                  |
+| Buffer cache integration<sup>3</sup>       | ✅                 | ✅                  |
+| **Deployment** <sup>4</sup>                |                    |
+| Physical (i.e. WAL) Replication            | ❌                 | ✅                  |
+| Crash Recovery                             | ❌                 | ✅                  |
+| Point in Time Recovery                     | ❌                 | ✅                  |
+| Logical Replication                        | ❌                 | ✅                  |
+| CloudNativePG Compatibility                | ❌                 | ✅                  |
+
+<Info>
+**Footnotes**
+
+<p className="text-sm">
+  1. By default, Postgres only allows 32 columns per index.
+    2. The BM25 index supports Postgres' multi-version concurrency control (MVCC)
+  rules. The index reflects the current state of the underlying table at all
+  times, changes to the index are atomic, and queries are transactionally
+  consistent with the table.
+    3. The BM25 index is built on block storage, Postgres' native storage API.
+  This means that it leverages the Postgres buffer cache, which minimizes disk
+  I/O.
+  4. All listed deployment features and limitations are specific to the BM25 index. For instance,
+   ParadeDB Community supports physical/logical replication, crash recovery, etc. for heap tables and other Postgres indexes like btree.
+</p>
+</Info>

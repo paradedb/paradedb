@@ -1,29 +1,48 @@
 ---
-title: Parallel Scans
+title: Search Performance
 ---
 
-The BM25 index supports parallel scans. You can check if the Postgres query planner chose a parallel scan by running `EXPLAIN` on a query.
-The following Postgres settings must be configured to increase the number of parallel workers.
+As a general rule of thumb, the performance of expensive search queries can be greatly improved
+if they are able to access more parallel Postgres workers and more shared buffer memory.
 
-## Max Parallel Workers
+## Parallel Workers
+
+The number of parallel workers depends on the server's CPU count and certain
+Postgres settings in `postgresql.conf`.
 
 `max_parallel_workers` and `max_worker_processes` control how many workers are available to parallel scans.
 `max_worker_processes` is a global limit for the number of available workers across all connections, and
 `max_parallel_workers` specifies how many of those workers can be used for parallel scans.
 
-These settings must be changed inside `postgresql.conf`, and Postgres needs to be restarted afterward.
-
 ```init postgresql.conf
-max_worker_processes = 16;
-max_parallel_workers = 16;
+max_worker_processes = 16
+max_parallel_workers = 16
 ```
 
-## Max Parallel Workers per Gather
-
-`max_parallel_workers_per_gather` is a limit for the number of parallel workers that a single parallel query can use. The default is `2`.
+Next, `max_parallel_workers_per_gather` must be set. This setting is a limit for the number of parallel workers that a single parallel query can use. The default is `2`.
 This setting can be set in `postgresql.conf` to apply to all connections, or within a connection to apply to a single
 session.
 
+```init postgresql.conf
+max_parallel_workers_per_gather = 16
+```
+
+The number of parallel workers should not exceed the server's CPU count. `max_worker_processes` and `max_parallel_workers` must be changed inside `postgresql.conf`,
+and Postgres must be restarted afterward.
+
+## Shared Buffers
+
+`shared_buffers` controls how much memory is available to the Postgres buffer cache. While a general rule of thumb is to allocate up to 40% of total system memory to `shared_buffers`,
+we recommend experimenting with higher values for larger indexes.
+
+```bash postgresql.conf
+shared_buffers = 8GB
+```
+
+The `pg_prewarm` extension can be used to load the BM25 index into the buffer cache after Postgres restarts. A higher `shared_buffers` value allows more of the index to be
+stored in the buffer cache.
+
 ```sql
-SET max_parallel_workers_per_gather = 16;
+CREATE EXTENSION pg_prewarm;
+SELECT pg_prewarm('search_idx');
 ```

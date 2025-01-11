@@ -1,5 +1,5 @@
 ---
-title: Create Index
+title: Create Index Time
 ---
 
 ### Indexing Memory
@@ -9,7 +9,7 @@ we strongly recommend increasing `maintenance_work_mem`. Generally speaking, thi
 The rest have sensible defaults.
 
 ```bash postgresql.conf
-maintenance_work_mem = '16GB'
+maintenance_work_mem = 16GB
 ```
 
 `maintenance_work_mem` also affects the number of [segments](/documentation/concepts/index#segment) in the index. While ParadeDB tries to maintain as many segments as CPUs,

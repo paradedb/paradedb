@@ -4,6 +4,11 @@ title: Create an Index
 
 ## Basic Usage
 
+<Note>
+For large indexes, tuning Postgres' default memory and parallel worker settings prior to running `CREATE INDEX` is strongly recommended.
+Please see [index tuning](/documentation/configuration) for details.
+</Note>
+
 The following code block creates a [BM25 index](/documentation/concepts/index) called `search_idx` over multiple columns of the `mock_items` table.
 All columns that are relevant to the search query, including columns used for sorting and filtering, should be indexed for optimal performance.
 
@@ -37,14 +42,6 @@ WITH (key_field='<key_field>');
   The name of a column in the table that represents a unique identifier for each
   record. Usually, this is the same column that is the primary key of the table.
 </ParamField>
-
-Before creating an index, we strongly recommend increasing Postgres' `maintenance_work_mem` value. This setting can significantly improve the index's read and write times.
-
-```bash postgresql.conf
-maintenance_work_mem = '16GB'
-```
-
-You can read more [here](/documentation/configuration/index).
 
 ## Choosing a Key Field
 
@@ -102,6 +99,14 @@ This is particularly useful when you need to:
 - Change the indexed columns
 
 `pg_search` can only use a single BM25 index per table - the most recently created one will automatically be used for queries. After creating a new index concurrently and verifying it works as expected, you can safely drop the old index:
+
+```sql
+DROP INDEX search_idx;
+```
+
+## Delete Index
+
+The following command deletes a BM25 index.
 
 ```sql
 DROP INDEX search_idx;

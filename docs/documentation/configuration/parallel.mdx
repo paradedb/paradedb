@@ -17,16 +17,16 @@ Postgres settings in `postgresql.conf`.
 These settings must be changed inside `postgresql.conf`, and Postgres needs to be restarted afterward.
 
 ```init postgresql.conf
-max_worker_processes = 16;
-max_parallel_workers = 16;
+max_worker_processes = 16
+max_parallel_workers = 16
 ```
 
 Next, `max_parallel_workers_per_gather` must be set. This setting is a limit for the number of parallel workers that a single parallel query can use. The default is `2`.
 This setting can be set in `postgresql.conf` to apply to all connections, or within a connection to apply to a single
 session.
 
-```sql
-SET max_parallel_workers_per_gather = 16;
+```init postgresql.conf
+max_parallel_workers_per_gather = 16
 ```
 
 The number of parallel workers should not exceed the server's CPU count.
@@ -36,8 +36,8 @@ The number of parallel workers should not exceed the server's CPU count.
 `shared_buffers` controls how much memory is available to the Postgres buffer cache. While a general rule of thumb is to allocate up to 40% of total system memory to `shared_buffers`,
 we recommend experimenting with higher values for larger indexes.
 
-```sql postgresql.conf
-shared_buffers = '8GB'
+```bash postgresql.conf
+shared_buffers = 8GB
 ```
 
 The `pg_prewarm` extension can be used to load the BM25 index into the buffer cache after Postgres restarts. A higher `shared_buffers` value allows more of the index to be

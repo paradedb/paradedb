@@ -448,7 +448,7 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
     );
 
     // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector".execute(&mut conn);
+    "DROP EXTENSION vector;".execute(&mut conn);
 }
 
 #[rstest]
@@ -809,7 +809,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
     )
 
     // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector".execute(&mut conn);
+    "DROP EXTENSION vector;".execute(&mut conn);
 }
 
 #[rstest]

@@ -212,7 +212,7 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[2].3, Vector::from(vec![1.0, 2.0, 3.0]));
 
     // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector".execute(&mut conn);
+    "DROP EXTENSION vector;".execute(&mut conn);
 }
 
 #[rstest]
@@ -1885,7 +1885,7 @@ fn hybrid_search(mut conn: PgConnection) {
     }
 
     // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector".execute(&mut conn);
+    "DROP EXTENSION vector;".execute(&mut conn);
 }
 
 #[rstest]

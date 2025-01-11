@@ -120,10 +120,10 @@ jobs:
             sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" /home/runner/.pgrx/data-${pg_version}/postgresql.conf
 
             # Compile & install pg_search extension
+            cd pg_search/
             cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${pg_version}/bin/pg_config"
 
             # Start Postgres via cargo-pgrx
-            cd pg_search/
             RUST_BACKTRACE=1 cargo pgrx start pg${pg_version}
             sudo chown -R $(whoami) /var/run/postgresql/  # Necessary for the ephemeral Postgres test to have proper permissions
 

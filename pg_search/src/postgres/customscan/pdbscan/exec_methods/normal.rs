@@ -46,7 +46,7 @@ impl Default for NormalScanExecState {
             slot: std::ptr::null_mut(),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
             search_results: SearchResults::None,
-            blockvis: (pg_sys::InvalidBuffer, false),
+            blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
         }
     }

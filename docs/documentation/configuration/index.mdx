@@ -12,44 +12,16 @@ The rest have sensible defaults.
 maintenance_work_mem = 16GB
 ```
 
-`maintenance_work_mem` also affects the number of [segments](/documentation/concepts/index#segment) in the index. While ParadeDB tries to maintain as many segments as CPUs,
-a new segment will be created if a single segment cannot fit into memory. A low `maintenance_work_mem` may lead to significantly more segments
-than available CPUs, which impacts search performance.
-
-To verify if the chosen `maintenance_work_mem` value is high enough, we recommend [inspecting](/documentation/indexing/inspect_index#index-segments) the index's segment count.
-
 <Note>
   `maintenance_work_mem` should not exceed the server's available memory.
 </Note>
 
-### Indexing Memory per Thread
+In addition to improving build times, `maintenance_work_mem` also affects the number of [segments](/documentation/concepts/index#segment) created in the index.
+This is because, while ParadeDB tries to maintain as many segments as CPUs, a segment that cannot fit into memory will be split into a new segment.
+As a result, an insufficient `maintenance_work_mem` can lead to significantly more segments than available CPUs, which degrades search performance.
 
-<Note>This setting requires superuser privileges.</Note>
-
-`paradedb.create_index_memory_budget` sets the amount of memory to dedicate **per indexing thread** before the index segment needs to be
-written to disk.
-
-If unset, Postgres' `maintenance_work_mem` value is used, but is first divided by the total parallelism (`paradedb.create_index_parallelism`).
-The value is measured in megabytes. A value of `1024` is the same as `1GB`.
-
-In terms of raw indexing performance, larger is generally better.
-
-```sql
-SET paradedb.create_index_memory_budget = 1024;
-```
-
-### Indexing Threads
-
-<Note>This setting requires superuser privileges.</Note>
-
-`paradedb.create_index_parallelism` sets the number of threads used during `CREATE INDEX`. The default is `0`, which
-automatically detects the "available parallelism" of the host computer.
-
-For best performance it is recommended to use one less than the total number of host computer cores.
-
-```sql
-SET paradedb.create_index_parallelism = 8;
-```
+To check if the chosen `maintenance_work_mem` value is high enough, you can [compare](/documentation/indexing/inspect_index#index-segments) the index's segment count
+with the server's CPU count.
 
 ### Indexing Progress
 
@@ -71,4 +43,28 @@ The logs will appear in the directory specified in `log_directory`.
 
 ```sql
 SHOW log_directory;
+```
+
+### Indexing Memory per Thread
+
+<Note>This setting requires superuser privileges.</Note>
+
+`paradedb.create_index_memory_budget` defaults to `maintenance_work_mem` divided by total [parallelism](#indexing-threads). It sets the amount of memory to dedicate per indexing thread before the index segment needs to be
+written to disk.
+
+The value is measured in megabytes. A value of `1024` is the same as `1GB`. In terms of raw indexing performance, larger is generally better.
+
+```sql
+SET paradedb.create_index_memory_budget = 1024;
+```
+
+### Indexing Threads
+
+<Note>This setting requires superuser privileges.</Note>
+
+`paradedb.create_index_parallelism` sets the number of threads used during `CREATE INDEX`. The default is `0`, which
+automatically detects the "available parallelism" of the host computer.
+
+```sql
+SET paradedb.create_index_parallelism = 8;
 ```

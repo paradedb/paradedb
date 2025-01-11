@@ -14,8 +14,6 @@ Postgres settings in `postgresql.conf`.
 `max_worker_processes` is a global limit for the number of available workers across all connections, and
 `max_parallel_workers` specifies how many of those workers can be used for parallel scans.
 
-These settings must be changed inside `postgresql.conf`, and Postgres needs to be restarted afterward.
-
 ```init postgresql.conf
 max_worker_processes = 16
 max_parallel_workers = 16
@@ -29,7 +27,8 @@ session.
 max_parallel_workers_per_gather = 16
 ```
 
-The number of parallel workers should not exceed the server's CPU count.
+The number of parallel workers should not exceed the server's CPU count. `max_worker_processes` and `max_parallel_workers` must be changed inside `postgresql.conf`,
+and Postgres must be restarted afterward.
 
 ## Shared Buffers
 

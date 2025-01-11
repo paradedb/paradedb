@@ -10,17 +10,20 @@ strongly recommended.
 
 The BM25 index settings fall into one of two categories: Postgres settings and ParadeDB-specific settings.
 
-### Postgres Setting
+### Postgres Settings
 
-A Postgres setting can be found in the `postgresql.conf` file. These settings can be changed in two ways:
+A Postgres setting can be found in the `postgresql.conf` file, which can be located with `SHOW`.
 
-1. By editing the `postgresql.conf` file and restarting the server. This makes the setting permanent for all sessions.
+```sql
+SHOW config_file;
+```
+
+These settings can be changed in two ways:
+
+1. By editing the `postgresql.conf` file and restarting Postgres. This makes the setting permanent for all sessions.
 2. By running `SET`. This temporarily changes the setting for the current session. Not all `postgresql.conf` settings can be changed with `SET` — some must be set in the file itself.
 
-When changing `postgresql.conf` settings, it's important to remember that other Postgres processes also rely on these settings. For example, adjusting the
-`shared_buffers` value to increase the buffer cache size applies to all tables and indexes.
-
-### ParadeDB Setting
+### ParadeDB Settings
 
 A ParadeDB setting begins with `paradedb.` and applies only to the current session. For instance:
 

@@ -89,7 +89,7 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      - name: Install & Configure Supported PostgreSQL Version
+      - name: Test pg_search on PostgreSQL 13-17
         run: |
           # PostgreSQL versions to test
           export pg_versions="13 14 15 16 17"
@@ -139,6 +139,7 @@ jobs:
 
             # Print the Postgres Logs
             cat ~/.pgrx/${pg_version}.log
+            cd ..
           done
 
   test-pg_search-pgrx-postgres:

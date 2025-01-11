@@ -553,7 +553,7 @@ impl SearchQueryInput {
                 }
             }
             Self::Empty => Ok(Box::new(EmptyQuery)),
-            Self::Exists { field } => Ok(Box::new(ExistsQuery::new_exists_query(field))),
+            Self::Exists { field } => Ok(Box::new(ExistsQuery::new(field, false))),
             Self::FastFieldRangeWeight {
                 field,
                 lower_bound,

@@ -79,7 +79,7 @@ fn hybrid_deprecated(mut conn: PgConnection) {
     );
 
     // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector;".execute(&mut conn);
+    "DROP EXTENSION vector CASCADE;".execute(&mut conn);
 }
 
 #[rstest]
@@ -158,5 +158,5 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
     );
 
     // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector;".execute(&mut conn);
+    "DROP EXTENSION vector CASCADE;".execute(&mut conn);
 }

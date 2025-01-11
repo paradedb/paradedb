@@ -85,15 +85,7 @@ fn generates_custom_scan_for_and(mut conn: PgConnection) {
     "SET enable_indexscan TO off;".execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
-    let plan = plan
-        .get(0)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plan")
-        .unwrap()
-        .as_object()
-        .unwrap();
+    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
     eprintln!("{plan:#?}");
     assert_eq!(
         plan.get("Custom Plan Provider"),

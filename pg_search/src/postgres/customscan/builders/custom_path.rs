@@ -287,20 +287,25 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         segment_count: usize,
     ) -> Self {
         unsafe {
-            // all non-topN/limit queries can do parallel
-            if !is_topn && limit.is_none() {
-                // we will try to parallelize based on the number of index segments
-                let nworkers = segment_count.min(pg_sys::max_parallel_workers as usize);
+            let mut nworkers = segment_count.min(pg_sys::max_parallel_workers as usize);
 
-                if nworkers > 0
-                    && row_estimate > (nworkers * nworkers) as f64
-                    && (*self.args.rel).consider_parallel
-                {
-                    self.custom_path_node.path.parallel_aware = true;
-                    self.custom_path_node.path.parallel_safe = true;
-                    self.custom_path_node.path.parallel_workers =
-                        nworkers.try_into().expect("nworkers should be a valid i32");
+            if is_topn && limit.is_some() {
+                let limit = limit.unwrap();
+
+                // if the limit is less than some arbitrarily large value
+                // use at most half the number of parallel workers as there are segments
+                // this generally seems to perform better than directly using `max_parallel_workers`
+                if limit < 1_000_000.0 {
+                    nworkers = (segment_count / 2).min(nworkers);
                 }
+            }
+
+            // we will try to parallelize based on the number of index segments
+            if nworkers > 0 && (*self.args.rel).consider_parallel {
+                self.custom_path_node.path.parallel_aware = true;
+                self.custom_path_node.path.parallel_safe = true;
+                self.custom_path_node.path.parallel_workers =
+                    nworkers.try_into().expect("nworkers should be a valid i32");
             }
 
             self

@@ -54,7 +54,7 @@ pub trait ExecMethod {
 
     fn next(&mut self, state: &mut PdbScanState) -> ExecState {
         loop {
-            match self.internal_next() {
+            match self.internal_next(state) {
                 ExecState::Eof => {
                     if !self.query(state) {
                         return ExecState::Eof;
@@ -65,7 +65,7 @@ pub trait ExecMethod {
         }
     }
 
-    fn internal_next(&mut self) -> ExecState;
+    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState;
 }
 
 struct UnknownScanStyle;
@@ -77,7 +77,7 @@ impl ExecMethod for UnknownScanStyle {
         )
     }
 
-    fn internal_next(&mut self) -> ExecState {
+    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::internal_next()` should never be called"
         )

@@ -70,6 +70,15 @@ pub enum SortDirection {
     Desc,
 }
 
+impl From<SortDirection> for tantivy::Order {
+    fn from(value: SortDirection) -> Self {
+        match value {
+            SortDirection::Asc => Order::Asc,
+            SortDirection::Desc => Order::Desc,
+        }
+    }
+}
+
 /// An iterator of the different styles of search results we can return
 #[allow(clippy::large_enum_variant)]
 #[derive(Default)]
@@ -431,7 +440,28 @@ impl SearchIndexReader {
         }
     }
 
-    #[allow(non_local_definitions)]
+    /// Search the Tantivy index for the "top N" matching documents in a specific segment.
+    ///
+    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
+    /// or least relevant first if it's [`SortDirection::Asc`].
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    pub fn search_top_n_in_segment(
+        &self,
+        segment_ord: SegmentOrdinal,
+        query: &SearchQueryInput,
+        sort_field: Option<String>,
+        sortdir: SortDirection,
+        n: usize,
+    ) -> SearchResults {
+        if let Some(sort_field) = sort_field {
+            self.top_by_field_in_segment(segment_ord, query, sort_field, sortdir, n)
+        } else {
+            self.top_by_score_in_segment(segment_ord, query, sortdir, n)
+        }
+    }
+
     fn top_by_field(
         &self,
         query: &SearchQueryInput,
@@ -439,15 +469,6 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
-        impl From<SortDirection> for tantivy::Order {
-            fn from(value: SortDirection) -> Self {
-                match value {
-                    SortDirection::Asc => Order::Asc,
-                    SortDirection::Desc => Order::Desc,
-                }
-            }
-        }
-
         let sort_field = self
             .schema
             .get_search_field(&SearchFieldName(sort_field.clone()))
@@ -478,6 +499,102 @@ impl SearchIndexReader {
                 }
             });
         let top_docs = self.collect(query, collector, true);
+        SearchResults::TopNByScore(
+            top_docs.len(),
+            self.searcher.clone(),
+            Default::default(),
+            top_docs.into_iter(),
+        )
+    }
+
+    /// Search the Tantivy index for the "top N" matching documents (ordered by a field) in a specific segment.
+    ///
+    /// The documents are returned in field order.  Largest first if `sortdir` is [`SortDirection::Desc`],
+    /// or smallest first if it's [`SortDirection::Asc`].
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    fn top_by_field_in_segment(
+        &self,
+        segment_ord: SegmentOrdinal,
+        query: &SearchQueryInput,
+        sort_field: String,
+        sortdir: SortDirection,
+        n: usize,
+    ) -> SearchResults {
+        let sort_field = self
+            .schema
+            .get_search_field(&SearchFieldName(sort_field.clone()))
+            .expect("sort field should exist in index schema");
+
+        let collector =
+            TopDocs::with_limit(n).order_by_u64_field(sort_field.name.0.clone(), sortdir.into());
+        let query = self.query(query);
+        let weight = query
+            .weight(tantivy::query::EnableScoring::Enabled {
+                searcher: &self.searcher,
+                statistics_provider: &self.searcher,
+            })
+            .expect("creating a Weight from a Query should not fail");
+        let top_docs = collector
+            .collect_segment(
+                weight.as_ref(),
+                segment_ord,
+                self.searcher.segment_reader(segment_ord),
+            )
+            .expect("should be able to collect top-n in segment");
+        let top_docs = collector
+            .merge_fruits(vec![top_docs])
+            .expect("should be able to merge top-n in segment");
+        SearchResults::TopNByField(
+            top_docs.len(),
+            self.searcher.clone(),
+            Default::default(),
+            top_docs.into_iter(),
+        )
+    }
+
+    /// Search the Tantivy index for the "top N" matching documents (ordered by score) in a specific segment.
+    ///
+    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
+    /// or least relevant first if it's [`SortDirection::Asc`].
+    ///
+    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
+    /// handle that, if it's necessary.
+    fn top_by_score_in_segment(
+        &self,
+        segment_ord: SegmentOrdinal,
+        query: &SearchQueryInput,
+        sortdir: SortDirection,
+        n: usize,
+    ) -> SearchResults {
+        let collector =
+            TopDocs::with_limit(n).tweak_score(move |_segment_reader: &tantivy::SegmentReader| {
+                move |_doc: DocId, original_score: Score| OrderedScore {
+                    dir: sortdir,
+                    score: original_score,
+                }
+            });
+        let query = self.query(query);
+        let weight = query
+            .weight(tantivy::query::EnableScoring::Enabled {
+                searcher: &self.searcher,
+                statistics_provider: &self.searcher,
+            })
+            .expect("creating a Weight from a Query should not fail");
+
+        let top_docs = collector
+            .collect_segment(
+                weight.as_ref(),
+                segment_ord,
+                self.searcher.segment_reader(segment_ord),
+            )
+            .expect("should be able to collect top-n in segment");
+
+        let top_docs = collector
+            .merge_fruits(vec![top_docs])
+            .expect("should be able to merge top-n in segment");
+
         SearchResults::TopNByScore(
             top_docs.len(),
             self.searcher.clone(),

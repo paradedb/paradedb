@@ -184,12 +184,13 @@ impl CustomScan for PdbScan {
 
                 if is_topn {
                     // sorting by a field only works if we're not doing const projections
+                    // the reason for this is that tantivy can't do both scoring and ordering by
+                    // a fast field at the same time.
                     //
                     // and sorting by score always works
                     if !(maybe_needs_const_projections
                         && matches!(&pathkey, Some(OrderByStyle::Field(..))))
                     {
-                        builder = builder.add_path_key(&pathkey);
                         builder.custom_private().set_sort_info(&pathkey);
                     }
                 }

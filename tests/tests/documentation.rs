@@ -210,9 +210,6 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[0].3, Vector::from(vec![1.0, 2.0, 3.0]));
     assert_eq!(rows[1].3, Vector::from(vec![1.0, 2.0, 3.0]));
     assert_eq!(rows[2].3, Vector::from(vec![1.0, 2.0, 3.0]));
-
-    // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector CASCADE;".execute(&mut conn);
 }
 
 #[rstest]
@@ -1883,9 +1880,6 @@ fn hybrid_search(mut conn: PgConnection) {
         assert_eq!(actual.2, expected.2); // Compare descriptions
         assert_eq!(actual.3, expected.3); // Compare embeddings
     }
-
-    // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector CASCADE;".execute(&mut conn);
 }
 
 #[rstest]

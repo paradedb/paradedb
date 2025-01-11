@@ -77,9 +77,6 @@ fn hybrid_deprecated(mut conn: PgConnection) {
         rows.into_iter().map(|t| t.0).collect::<Vec<_>>(),
         vec![2, 1, 19, 9, 29]
     );
-
-    // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector CASCADE;".execute(&mut conn);
 }
 
 #[rstest]
@@ -156,7 +153,4 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
             "Designer wall paintings".to_string()
         )
     );
-
-    // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector CASCADE;".execute(&mut conn);
 }

@@ -446,9 +446,6 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
             Vector::from(vec![3.0, 4.0, 5.0])
         ),]
     );
-
-    // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector CASCADE;".execute(&mut conn);
 }
 
 #[rstest]
@@ -807,9 +804,6 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
             .split(',')
             .collect::<Vec<_>>()
     );
-
-    // Drop the extension to avoid conflicts with other tests.
-    "DROP EXTENSION vector CASCADE;".execute(&mut conn);
 }
 
 #[rstest]

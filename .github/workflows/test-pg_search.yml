@@ -142,6 +142,12 @@ jobs:
 
             # Print the Postgres Logs
             cat ~/.pgrx/${pg_version}.log
+
+            # Reset the state
+            cd ../pgvector/
+            RUST_BACKTRACE=1 cargo pgrx stop pg${pg_version}
+            sudo PG_CONFIG=/usr/lib/postgresql/${pg_version}/bin/pg_config make clean -j
+            sudo PG_CONFIG=/usr/lib/postgresql/${pg_version}/bin/pg_config make uninstall -j
             cd ..
           done
 

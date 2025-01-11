@@ -99,7 +99,7 @@ impl ExecMethod for StringFastFieldExecState {
         }
     }
 
-    fn internal_next(&mut self) -> ExecState {
+    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
         if matches!(self.search_results, StringAggResults::None) {
             return ExecState::Eof;
         }

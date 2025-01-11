@@ -105,7 +105,7 @@ impl ExecMethod for NormalScanExecState {
         }
     }
 
-    fn internal_next(&mut self) -> ExecState {
+    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
         match self.search_results.next() {
             // no more rows
             None => ExecState::Eof,

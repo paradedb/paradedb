@@ -88,7 +88,7 @@ impl ExecMethod for NumericFastFieldExecState {
         }
     }
 
-    fn internal_next(&mut self) -> ExecState {
+    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
         unsafe {
             match self.inner.search_results.next() {
                 None => ExecState::Eof,

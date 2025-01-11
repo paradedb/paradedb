@@ -18,9 +18,11 @@
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
 use pgrx::{direct_function_call, pg_sys, IntoDatum};
+use tantivy::SegmentOrdinal;
 
 // TODO:  should these be GUCs?  I think yes, probably
 const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;
@@ -39,12 +41,14 @@ pub struct TopNScanExecState {
     search_reader: Option<SearchIndexReader>,
     sort_field: Option<String>,
     search_results: SearchResults,
+    did_query: bool,
 
     // state tracking
     last_ctid: u64,
     found: usize,
     chunk_size: usize,
     retry_count: usize,
+    current_segment: SegmentOrdinal,
 }
 
 impl TopNScanExecState {
@@ -56,36 +60,93 @@ impl TopNScanExecState {
             ..Default::default()
         }
     }
+
+    fn query_more_results(
+        &mut self,
+        state: &mut PdbScanState,
+        current_segment: Option<SegmentOrdinal>,
+    ) -> SearchResults {
+        if let Some(parallel_state) = state.parallel_state {
+            // we're parallel, so either query the provided segment or go get a segment from the parallel state
+            let segment_ord = current_segment
+                .map(Some)
+                .unwrap_or_else(|| unsafe { checkout_segment(parallel_state) });
+
+            if let Some(segment_ord) = segment_ord {
+                self.current_segment = segment_ord;
+
+                let search_reader = state.search_reader.as_ref().unwrap();
+                search_reader.search_top_n_in_segment(
+                    segment_ord,
+                    self.search_query_input.as_ref().unwrap(),
+                    self.sort_field.clone(),
+                    self.sort_direction.into(),
+                    self.limit,
+                )
+            } else {
+                // no more segments to query
+                SearchResults::None
+            }
+        } else if self.did_query {
+            // not parallel, so we're done
+            SearchResults::None
+        } else {
+            // not parallel, first time query
+            let search_reader = state.search_reader.as_ref().unwrap();
+            search_reader.search_top_n(
+                self.search_query_input.as_ref().unwrap(),
+                self.sort_field.clone(),
+                self.sort_direction.into(),
+                self.limit,
+            )
+        }
+    }
+
+    fn reset(&mut self) {
+        self.found = 0;
+        self.last_ctid = 0;
+        self.chunk_size = 0;
+        self.retry_count = 0;
+        self.have_less = false;
+    }
 }
 
 impl ExecMethod for TopNScanExecState {
     fn init(&mut self, state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
         let sort_field = state.sort_field.clone();
-        let search_reader = state.search_reader.as_ref().unwrap();
 
         self.search_query_input = Some(state.search_query_input.clone());
         self.sort_field = sort_field;
-        self.search_results = search_reader.search_top_n(
-            self.search_query_input.as_ref().unwrap(),
-            self.sort_field.clone(),
-            self.sort_direction.into(),
-            self.limit,
-        );
-
-        let len = self
-            .search_results
-            .len()
-            .expect("search_results should not be empty");
-
-        self.have_less = len < self.limit;
         self.search_reader = state.search_reader.clone();
     }
 
-    fn internal_next(&mut self) -> ExecState {
+    fn query(&mut self, state: &mut PdbScanState) -> bool {
+        let search_results = self.query_more_results(state, None);
+
+        self.did_query = true;
+
+        if matches!(search_results, SearchResults::None) {
+            false
+        } else {
+            let len = search_results
+                .len()
+                .expect("search_results should not be empty");
+            self.have_less = len < self.limit;
+            self.search_results = search_results;
+            self.reset();
+            true
+        }
+    }
+
+    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
         unsafe {
             let mut next = self.search_results.next();
             loop {
                 match next {
+                    None if !self.did_query => {
+                        // we haven't even done a query yet, so this is our very first time in
+                        return ExecState::Eof;
+                    }
                     None => {
                         if self.found == self.limit || self.have_less {
                             // we found all the matching rows
@@ -97,7 +158,7 @@ impl ExecMethod for TopNScanExecState {
                             ctid: scored.ctid,
                             score: scored.bm25,
                             doc_address,
-                        }
+                        };
                     }
                 }
 
@@ -132,12 +193,7 @@ impl ExecMethod for TopNScanExecState {
                     .max(self.limit * factor)
                     .min(MAX_CHUNK_SIZE);
 
-                let mut results = self.search_reader.as_ref().unwrap().search_top_n(
-                    self.search_query_input.as_ref().unwrap(),
-                    self.sort_field.clone(),
-                    self.sort_direction.into(),
-                    self.chunk_size,
-                );
+                let mut results = self.query_more_results(state, Some(self.current_segment));
 
                 // fast forward and stop on the ctid we last found
                 for (scored, doc_address) in &mut results {

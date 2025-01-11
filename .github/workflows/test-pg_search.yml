@@ -135,6 +135,7 @@ jobs:
             RUST_BACKTRACE=1 cargo test --features icu
 
             # Run pgrx tests
+            cd ../pg_search/
             RUST_BACKTRACE=1 cargo test --features pg${pg_version} --no-default-features
 
             # Print the Postgres Logs

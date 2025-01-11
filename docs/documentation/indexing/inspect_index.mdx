@@ -33,5 +33,7 @@ SELECT pg_size_pretty(pg_relation_size('search_idx'));
 SELECT * FROM paradedb.index_info('search_idx');
 ```
 
-Generally speaking, the segment count should match the server's CPU count. It can be lower if the table is very small, or higher if there are so many rows
+Generally speaking, the segment count should match the server's CPU count. In practice, it may be lower if the table is very small, or higher if there are so many rows
 that a single segment is split into multiple segments.
+
+In order for the index to maintain an optimal segment count, the index must have enough memory and threads for [creating](/documentation/configuration/index) and [writing](/documentation/configuration/write) to the index.

@@ -3,12 +3,12 @@ title: Overview
 ---
 
 To give database administrators fine-grained control over resource consumption, the BM25 index only uses as much memory and CPUs as allowed by the index's settings. Several of these settings
-are set to match Postgres' `postgresql.conf` settings, which are quite conservative by default. Adjusting these settings allows ParadeDB to take advantage of the server's hardware and is
+match Postgres' `postgresql.conf` settings, which are quite conservative by default. Adjusting these settings allows ParadeDB to take advantage of the server's hardware and is
 strongly recommended.
 
 ## Types of Settings
 
-The BM25 index settings fall into one of two categories: Postgres settings and ParadeDB-specific settings.
+The BM25 index's settings fall into one of two categories: Postgres settings and ParadeDB-specific settings.
 
 ### Postgres Settings
 
@@ -21,7 +21,7 @@ SHOW config_file;
 These settings can be changed in two ways:
 
 1. By editing the `postgresql.conf` file and restarting Postgres. This makes the setting permanent for all sessions.
-2. By running `SET`. This temporarily changes the setting for the current session. Not all `postgresql.conf` settings can be changed with `SET` — some must be set in the file itself.
+2. By running `SET`. This temporarily changes the setting for the current session. Note that Postgres does not allow all `postgresql.conf` settings to be changed with `SET`.
 
 ### ParadeDB Settings
 

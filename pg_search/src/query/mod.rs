@@ -1513,7 +1513,7 @@ impl SearchQueryInput {
                 let (field, _) = split_field_and_path(&field);
                 let (_, _, field) = field_lookup
                     .as_field_type(&field)
-                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                    .ok_or(QueryError::NonIndexedField(field))?;
 
                 let mut query = RegexPhraseQuery::new(field, regexes);
 

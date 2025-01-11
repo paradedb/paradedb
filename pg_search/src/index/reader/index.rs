@@ -85,39 +85,35 @@ impl From<SortDirection> for tantivy::Order {
 pub enum SearchResults {
     #[default]
     None,
-
     TopNByScore(
         usize,
         Searcher,
         FxHashMap<SegmentOrdinal, FFType>,
-        std::vec::IntoIter<(OrderedScore, DocAddress)>,
+        std::vec::IntoIter<(Score, DocAddress)>,
     ),
-
+    TopNByTweakedScore(
+        usize,
+        Searcher,
+        FxHashMap<SegmentOrdinal, FFType>,
+        std::vec::IntoIter<(TweakedScore, DocAddress)>,
+    ),
     TopNByField(
         usize,
         Searcher,
         FxHashMap<SegmentOrdinal, FFType>,
         std::vec::IntoIter<(TermOrdinal, DocAddress)>,
     ),
-
-    #[allow(clippy::type_complexity)]
-    BufferedChannel(
-        std::iter::Flatten<crossbeam::channel::IntoIter<Vec<(SearchIndexScore, DocAddress)>>>,
-    ),
-
-    Channel(crossbeam::channel::IntoIter<(SearchIndexScore, DocAddress)>),
-
     SingleSegment(vec_collector::FruitStyle),
     AllSegments(Flatten<std::vec::IntoIter<vec_collector::FruitStyle>>),
 }
 
 #[derive(PartialEq, Clone)]
-pub struct OrderedScore {
+pub struct TweakedScore {
     dir: SortDirection,
     score: Score,
 }
 
-impl PartialOrd for OrderedScore {
+impl PartialOrd for TweakedScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let cmp = self.score.partial_cmp(&other.score);
         match self.dir {
@@ -134,14 +130,15 @@ impl Debug for SearchResults {
             SearchResults::TopNByScore(count, _, _, iter) => {
                 write!(f, "SearchResults::TopNByScore({count}, {:?})", iter.len())
             }
+            SearchResults::TopNByTweakedScore(count, _, _, iter) => {
+                write!(
+                    f,
+                    "SearchResults::TopNByTweakedScore({count}, {:?})",
+                    iter.len()
+                )
+            }
             SearchResults::TopNByField(count, _, _, iter) => {
                 write!(f, "SearchResults::TopNByField({count}, {:?})", iter.len())
-            }
-            SearchResults::BufferedChannel(iter) => {
-                write!(f, "SearchResults::BufferedChannel(~{:?})", iter.size_hint())
-            }
-            SearchResults::Channel(iter) => {
-                write!(f, "SearchResults::Channel(~{:?})", iter.size_hint())
             }
             SearchResults::SingleSegment(iter) => {
                 write!(f, "SearchResults::SingleSegment({:?})", iter.size_hint())
@@ -161,6 +158,25 @@ impl Iterator for SearchResults {
         match self {
             SearchResults::None => None,
             SearchResults::TopNByScore(_, searcher, ff_lookup, iter) => {
+                let (score, doc_address) = iter.next()?;
+
+                let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
+                    FFType::new(
+                        searcher
+                            .segment_reader(doc_address.segment_ord)
+                            .fast_fields(),
+                        "ctid",
+                    )
+                });
+                let scored = SearchIndexScore {
+                    ctid: ctid_ff
+                        .as_u64(doc_address.doc_id)
+                        .expect("ctid should be present"),
+                    bm25: score,
+                };
+                Some((scored, doc_address))
+            }
+            SearchResults::TopNByTweakedScore(_, searcher, ff_lookup, iter) => {
                 let (scored, doc_address) = iter.next()?;
 
                 let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
@@ -197,8 +213,6 @@ impl Iterator for SearchResults {
                 };
                 Some((scored, doc_address))
             }
-            SearchResults::BufferedChannel(iter) => iter.next(),
-            SearchResults::Channel(iter) => iter.next(),
             SearchResults::SingleSegment(iter) => iter.next(),
             SearchResults::AllSegments(iter) => iter.next(),
         }
@@ -209,9 +223,8 @@ impl Iterator for SearchResults {
         match self {
             SearchResults::None => (0, Some(0)),
             SearchResults::TopNByScore(_, _, _, iter) => iter.size_hint(),
+            SearchResults::TopNByTweakedScore(_, _, _, iter) => iter.size_hint(),
             SearchResults::TopNByField(_, _, _, iter) => iter.size_hint(),
-            SearchResults::BufferedChannel(iter) => iter.size_hint(),
-            SearchResults::Channel(iter) => iter.size_hint(),
             SearchResults::SingleSegment(iter) => iter.size_hint(),
             SearchResults::AllSegments(iter) => iter.size_hint(),
         }
@@ -223,9 +236,8 @@ impl SearchResults {
         match self {
             SearchResults::None => Some(0),
             SearchResults::TopNByScore(count, ..) => Some(*count),
+            SearchResults::TopNByTweakedScore(count, ..) => Some(*count),
             SearchResults::TopNByField(count, ..) => Some(*count),
-            SearchResults::BufferedChannel(_) => None,
-            SearchResults::Channel(_) => None,
             SearchResults::SingleSegment(_) => None,
             SearchResults::AllSegments(_) => None,
         }
@@ -491,20 +503,38 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
-        let collector =
-            TopDocs::with_limit(n).tweak_score(move |_segment_reader: &tantivy::SegmentReader| {
-                move |_doc: DocId, original_score: Score| OrderedScore {
-                    dir: sortdir,
-                    score: original_score,
-                }
-            });
-        let top_docs = self.collect(query, collector, true);
-        SearchResults::TopNByScore(
-            top_docs.len(),
-            self.searcher.clone(),
-            Default::default(),
-            top_docs.into_iter(),
-        )
+        match sortdir {
+            // requires tweaking the score, which is a bit slower
+            SortDirection::Asc => {
+                let collector = TopDocs::with_limit(n).tweak_score(
+                    move |_segment_reader: &tantivy::SegmentReader| {
+                        move |_doc: DocId, original_score: Score| TweakedScore {
+                            dir: sortdir,
+                            score: original_score,
+                        }
+                    },
+                );
+                let top_docs = self.collect(query, collector, true);
+                SearchResults::TopNByTweakedScore(
+                    top_docs.len(),
+                    self.searcher.clone(),
+                    Default::default(),
+                    top_docs.into_iter(),
+                )
+            }
+
+            // can use tantivy's score directly
+            SortDirection::Desc => {
+                let collector = TopDocs::with_limit(n);
+                let top_docs = self.collect(query, collector, true);
+                SearchResults::TopNByScore(
+                    top_docs.len(),
+                    self.searcher.clone(),
+                    Default::default(),
+                    top_docs.into_iter(),
+                )
+            }
+        }
     }
 
     /// Search the Tantivy index for the "top N" matching documents (ordered by a field) in a specific segment.
@@ -568,13 +598,6 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
-        let collector =
-            TopDocs::with_limit(n).tweak_score(move |_segment_reader: &tantivy::SegmentReader| {
-                move |_doc: DocId, original_score: Score| OrderedScore {
-                    dir: sortdir,
-                    score: original_score,
-                }
-            });
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {
@@ -583,24 +606,60 @@ impl SearchIndexReader {
             })
             .expect("creating a Weight from a Query should not fail");
 
-        let top_docs = collector
-            .collect_segment(
-                weight.as_ref(),
-                segment_ord,
-                self.searcher.segment_reader(segment_ord),
-            )
-            .expect("should be able to collect top-n in segment");
+        match sortdir {
+            // requires tweaking the score, which is a bit slower
+            SortDirection::Asc => {
+                let collector = TopDocs::with_limit(n).tweak_score(
+                    move |_segment_reader: &tantivy::SegmentReader| {
+                        move |_doc: DocId, original_score: Score| TweakedScore {
+                            dir: sortdir,
+                            score: original_score,
+                        }
+                    },
+                );
+                let top_docs = collector
+                    .collect_segment(
+                        weight.as_ref(),
+                        segment_ord,
+                        self.searcher.segment_reader(segment_ord),
+                    )
+                    .expect("should be able to collect top-n in segment");
 
-        let top_docs = collector
-            .merge_fruits(vec![top_docs])
-            .expect("should be able to merge top-n in segment");
+                let top_docs = collector
+                    .merge_fruits(vec![top_docs])
+                    .expect("should be able to merge top-n in segment");
 
-        SearchResults::TopNByScore(
-            top_docs.len(),
-            self.searcher.clone(),
-            Default::default(),
-            top_docs.into_iter(),
-        )
+                SearchResults::TopNByTweakedScore(
+                    top_docs.len(),
+                    self.searcher.clone(),
+                    Default::default(),
+                    top_docs.into_iter(),
+                )
+            }
+
+            // can use tantivy's score directly
+            SortDirection::Desc => {
+                let collector = TopDocs::with_limit(n);
+                let top_docs = collector
+                    .collect_segment(
+                        weight.as_ref(),
+                        segment_ord,
+                        self.searcher.segment_reader(segment_ord),
+                    )
+                    .expect("should be able to collect top-n in segment");
+
+                let top_docs = collector
+                    .merge_fruits(vec![top_docs])
+                    .expect("should be able to merge top-n in segment");
+
+                SearchResults::TopNByScore(
+                    top_docs.len(),
+                    self.searcher.clone(),
+                    Default::default(),
+                    top_docs.into_iter(),
+                )
+            }
+        }
     }
 
     pub fn estimate_docs(&self, search_query_input: &SearchQueryInput) -> Option<usize> {

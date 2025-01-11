@@ -806,7 +806,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
         "Electronics,Electronics,Electronics,Electronics,Electronics,Electronics"
             .split(',')
             .collect::<Vec<_>>()
-    )
+    );
 
     // Drop the extension to avoid conflicts with other tests.
     "DROP EXTENSION vector;".execute(&mut conn);

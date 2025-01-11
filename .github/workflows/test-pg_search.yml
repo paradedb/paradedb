@@ -98,6 +98,9 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 
+          # Add pgvector GitHub repository
+          git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+
           for pg_version in ${pg_versions}; do
             echo "Running tests for PostgreSQL $pg_version..."
             echo ""
@@ -108,7 +111,6 @@ jobs:
             echo "/usr/lib/postgresql/${pg_version}/bin" >> $GITHUB_PATH
 
             # Install pgvector
-            git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
             cd pgvector/
             sudo PG_CONFIG=/usr/lib/postgresql/${pg_version}/bin/pg_config make -j
             sudo PG_CONFIG=/usr/lib/postgresql/${pg_version}/bin/pg_config make install -j

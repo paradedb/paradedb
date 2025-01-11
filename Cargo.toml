@@ -23,9 +23,9 @@ lto = "thin"
 codegen-units = 32
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "25b895b15c620ab7ed1869bc8994587b718cd57f", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "cc0f329a1df02c21085d520a07f92665cbe4ceee", features = [
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",
 ], default-features = false }
-tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "25b895b15c620ab7ed1869bc8994587b718cd57f" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "cc0f329a1df02c21085d520a07f92665cbe4ceee" }

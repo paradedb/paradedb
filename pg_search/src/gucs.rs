@@ -51,7 +51,7 @@ static CREATE_INDEX_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
 static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// How many threads should tantivy use during a regular INSERT/UPDATE/COPY statement?
-static STATEMENT_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(8);
+static STATEMENT_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// How much memory should tantivy use during a regular INSERT/UPDATE/COPY statement?  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
@@ -129,7 +129,7 @@ pub fn init() {
     GucRegistry::define_int_guc(
         "paradedb.statement_parallelism",
         "The number of threads to use when indexing during an INSERT/UPDATE/COPY statement",
-        "Default is 8.  Recommended value is roughly the number of cores in the machine.  Value of zero means a thread for as many cores in the machine",
+        "Default is 0.  Recommended value is roughly the number of cores in the machine.  Value of zero means a thread for as many cores in the machine",
         &STATEMENT_PARALLELISM,
         0,
         std::thread::available_parallelism().expect("your computer should have at least one core").get().try_into().expect("your computer has too many cores"),

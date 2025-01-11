@@ -120,7 +120,7 @@ jobs:
             sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" /home/runner/.pgrx/data-${pg_version}/postgresql.conf
 
             # Compile & install pg_search extension
-            cd pg_search/
+            cd ../pg_search/
             cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${pg_version}/bin/pg_config"
 
             # Start Postgres via cargo-pgrx

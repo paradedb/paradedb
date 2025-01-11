@@ -24,6 +24,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, PgTupleDesc};
 
@@ -98,12 +99,25 @@ impl ExecMethod for NumericFastFieldExecState {
                     crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut (*slot).tts_tid);
                     (*slot).tts_tableOid = (*self.inner.heaprel).rd_id;
 
-                    if is_block_all_visible(
-                        self.inner.heaprel,
-                        &mut self.inner.vmbuff,
-                        (*slot).tts_tid,
-                        (*slot).tts_tableOid,
-                    ) {
+                    let blockno = item_pointer_get_block_number(&(*slot).tts_tid);
+                    let is_visible = if blockno == self.inner.blockvis.0 {
+                        // we know the visibility of this block because we just checked it last time
+                        self.inner.blockvis.1
+                    } else {
+                        // new block so check its visibility
+                        self.inner.blockvis.0 = blockno;
+                        self.inner.blockvis.1 = is_block_all_visible(
+                            self.inner.heaprel,
+                            &mut self.inner.vmbuff,
+                            (*slot).tts_tid,
+                            (*slot).tts_tableOid,
+                        );
+                        self.inner.blockvis.1
+                    };
+
+                    if is_visible {
+                        self.inner.blockvis = (blockno, true);
+
                         (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
                         (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
                         (*slot).tts_nvalid = natts as _;

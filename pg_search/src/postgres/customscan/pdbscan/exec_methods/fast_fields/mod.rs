@@ -52,6 +52,9 @@ pub struct FastFieldExecState {
     which_fast_fields: Vec<WhichFastField>,
     search_results: SearchResults,
 
+    // tracks our previous block visibility so we can elide checking again
+    blockvis: (pg_sys::BlockNumber, bool),
+
     did_query: bool,
 }
 
@@ -79,6 +82,7 @@ impl FastFieldExecState {
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
             which_fast_fields,
             search_results: Default::default(),
+            blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
         }
     }

@@ -1,0 +1,108 @@
+---
+title: Open Telemetry
+---
+
+## ParadeDB (PostgreSQL) OpenTelemetry Exporter
+
+ParadeDB offers an unofficial OpenTelemetry-compatible exporter, enabling seamless storage of OpenTelemetry (OTEL) data within ParadeDB. 
+This integration allows users to leverage ParadeDB's advanced features for managing and analyzing their telemetry data.
+
+Supported OpenTelemetry Data Types:
+
+ - ✅ Logs
+ - ✅ Traces
+ - ❌ Metrics (not currently supported)
+
+
+## Usage with existing Open Telemetry Setup
+
+To integrate ParadeDB with your OpenTelemetry setup, add the `postgresexporter` to the list of exporters in your configuration file as shown below:
+
+```yaml
+exporters:
+  postgresexporter:
+    username: "postgres"
+    password: "postgres"
+    database: "postgres"
+    logs_table_name: "otellogs"
+    traces_table_name: "oteltraces"
+    metrics_table_name: "otelmetrics"
+    port: 5432
+    host: "localhost"
+```
+
+<b>Important Note:</b> Ensure the database specified in the configuration (database: "postgres") already exists before using the exporter.
+
+To specify which exporters to use, configure them in the service section of your OpenTelemetry configuration file as follows:
+
+```yaml
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters:
+        - debug
+        - postgresexporter
+    traces:
+      receivers: [otlp]
+      exporters:
+        - debug
+        - postgresexporter
+```
+
+This setup enables the export of logs and traces from OpenTelemetry to ParadeDB. 
+
+The exporter structures the tables as follows:
+
+*Logs*:
+
+```
+       Column       |              Type              | Collation | Nullable |                 Default                  
+--------------------+--------------------------------+-----------+----------+------------------------------------------
+ Timestamp          | timestamp(6) without time zone |           | not null | 
+ TimestampTime      | timestamp without time zone    |           | not null | generated always as ("Timestamp") stored
+ TraceId            | text                           |           |          | 
+ SpanId             | text                           |           |          | 
+ TraceFlags         | smallint                       |           |          | 
+ SeverityText       | text                           |           |          | 
+ SeverityNumber     | smallint                       |           |          | 
+ ServiceName        | text                           |           | not null | 
+ Body               | text                           |           |          | 
+ ResourceSchemaUrl  | text                           |           |          | 
+ ResourceAttributes | jsonb                          |           |          | 
+ ScopeSchemaUrl     | text                           |           |          | 
+ ScopeName          | text                           |           |          | 
+ ScopeVersion       | text                           |           |          | 
+ ScopeAttributes    | jsonb                          |           |          | 
+ LogAttributes      | jsonb                          |           |          | 
+Indexes:
+    "otellogs_pkey" PRIMARY KEY, btree ("ServiceName", "TimestampTime")
+```
+
+
+*Traces*:
+```
+       Column       |              Type              | Collation | Nullable | Default 
+--------------------+--------------------------------+-----------+----------+---------
+ Timestamp          | timestamp(6) without time zone |           | not null | 
+ TraceId            | text                           |           |          | 
+ SpanId             | text                           |           |          | 
+ ParentSpanId       | text                           |           |          | 
+ TraceState         | text                           |           |          | 
+ SpanName           | text                           |           | not null | 
+ SpanKind           | text                           |           |          | 
+ ServiceName        | text                           |           | not null | 
+ ResourceAttributes | jsonb                          |           |          | 
+ ScopeName          | text                           |           |          | 
+ ScopeVersion       | text                           |           |          | 
+ SpanAttributes     | jsonb                          |           |          | 
+ Duration           | bigint                         |           |          | 
+ StatusCode         | text                           |           |          | 
+ StatusMessage      | text                           |           |          | 
+ Events             | jsonb                          |           |          | 
+ Links              | jsonb                          |           |          | 
+Indexes:
+    "oteltraces_pkey" PRIMARY KEY, btree ("ServiceName", "SpanName", "Timestamp")
+```
+
+ParadeDB can be used accordingly with this table format.

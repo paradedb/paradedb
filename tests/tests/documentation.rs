@@ -1038,22 +1038,21 @@ fn phrase_level_queries(mut conn: PgConnection) {
     assert_eq!(rows.len(), 1);
 
     // Regex phrase
-    // TODO: Bring back regex_phrase
-    // let rows: Vec<(String, i32, String)> = r#"
-    // SELECT description, rating, category
-    // FROM mock_items
-    // WHERE id @@@ paradedb.regex_phrase('description', ARRAY['run.*', 'shoe.*'])
-    // "#
-    // .fetch(&mut conn);
-    // assert_eq!(rows.len(), 1);
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.regex_phrase('description', ARRAY['run.*', 'shoe.*'])
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
 
-    // let rows: Vec<(String, i32, String)> = r#"
-    // SELECT description, rating, category
-    // FROM mock_items
-    // WHERE id @@@ paradedb.regex_phrase('description', ARRAY['run.*', 'sh.*'])
-    // "#
-    // .fetch(&mut conn);
-    // assert_eq!(rows.len(), 1);
+    let rows: Vec<(String, i32, String)> = r#"
+    SELECT description, rating, category
+    FROM mock_items
+    WHERE id @@@ paradedb.regex_phrase('description', ARRAY['run.*', 'sh.*'])
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
 }
 
 #[rstest]

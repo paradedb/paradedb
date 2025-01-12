@@ -210,49 +210,69 @@ fn single_queries(mut conn: PgConnection) {
     assert_eq!(columns.len(), 5);
 
     // Test regex anchors
-    // TODO: Rebase Tantivy
-    // let columns: SimpleProductsTableVec = r#"
-    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
-    //     field => 'description',
-    //     pattern => '^running'
-    // ) ORDER BY id"#
-    //     .fetch_collect(&mut conn);
-    // assert_eq!(
-    //     columns.len(),
-    //     1,
-    //     "start anchor ^ should match exactly one item"
-    // );
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+        field => 'description',
+        pattern => '^running'
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(
+        columns.len(),
+        1,
+        "start anchor ^ should match exactly one item"
+    );
 
-    // let columns: SimpleProductsTableVec = r#"
-    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
-    //     field => 'description',
-    //     pattern => 'keyboard$'
-    // ) ORDER BY id"#
-    //     .fetch_collect(&mut conn);
-    // assert_eq!(columns.len(), 2, "end anchor $ should match two items");
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex(
+        field => 'description',
+        pattern => 'keyboard$'
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 2, "end anchor $ should match two items");
 
     // Regex Phrase
-    // TODO: Bring back regex_phrase
-    // let columns: SimpleProductsTableVec = r#"
-    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_phrase(
-    //     field => 'description',
-    //     regexes => ARRAY['.*bot', '.*ing', 'kit']
-    // ) ORDER BY id"#
-    //     .fetch_collect(&mut conn);
-    // assert_eq!(columns.len(), 1);
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_phrase(
+        field => 'description',
+        regexes => ARRAY['.*bot', '.*ing', 'kit']
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
 
-    // let columns: SimpleProductsTableVec = r#"
-    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
-    // '{
-    //     "regex_phrase": {
-    //         "field": "description",
-    //         "regexes": [".*eek", "shoes"],
-    //         "slop": 1,
-    //         "max_expansion": 10
-    //     }
-    // }'::jsonb;"#
-    //     .fetch_collect(&mut conn);
-    // assert_eq!(columns.len(), 1);
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
+    '{
+        "regex_phrase": {
+            "field": "description",
+            "regexes": [".*eek", "shoes"],
+            "slop": 1,
+            "max_expansion": 10
+        }
+    }'::jsonb;"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
+
+    // Regex Phrase
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ paradedb.regex_phrase(
+        field => 'description',
+        regexes => ARRAY['.*bot', '.*ing', 'kit']
+    ) ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
+    '{
+        "regex_phrase": {
+            "field": "description",
+            "regexes": [".*eek", "shoes"],
+            "slop": 1,
+            "max_expansion": 10
+        }
+    }'::jsonb;"#
+        .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 1);
 
     // Term
     let columns: SimpleProductsTableVec = r#"

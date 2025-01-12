@@ -55,6 +55,10 @@ pub trait CustomScanState: Default {
     fn is_top_n_capable(&self) -> Option<(usize, SortDirection)> {
         None
     }
+
+    fn is_unsorted_top_n_capable(&self) -> Option<usize> {
+        None
+    }
 }
 
 pub trait CustomScan: ExecMethod + Default + Sized {

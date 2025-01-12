@@ -31,7 +31,9 @@ use crate::index::merge_policy::AllowedMergePolicy;
 use crate::index::mvcc::MVCCDirectory;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::BlockDirectoryType;
-use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, OrderByStyle};
+use crate::postgres::customscan::builders::custom_path::{
+    CustomPathBuilder, Flags, OrderByStyle, SortDirection,
+};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
@@ -193,6 +195,16 @@ impl CustomScan for PdbScan {
                     {
                         builder.custom_private().set_sort_info(&pathkey);
                     }
+                } else if limit.is_some()
+                    && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
+                        .is_empty()
+                {
+                    // we have a limit but no order by, so record that.  this will let us go through
+                    // our "top n" machinery, but getting "limit" (essentially) random docs, which
+                    // is what the user asked for
+                    builder
+                        .custom_private()
+                        .set_sort_direction(Some(SortDirection::None));
                 }
 
                 let reltuples = table.reltuples().unwrap_or(1.0) as f64;
@@ -253,7 +265,7 @@ impl CustomScan for PdbScan {
                     if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
                         // if we only have 1 path key or if our estimated cardinality is over some
                         // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(false, rows, limit, segment_count);
+                        builder = builder.set_parallel(false, rows, limit, segment_count, true);
                     } else {
                         // otherwise we'll do a regular scan and indicate that we're emitting results
                         // sorted by the first pathkey
@@ -261,7 +273,14 @@ impl CustomScan for PdbScan {
                         builder.custom_private().set_sort_info(&pathkey);
                     }
                 } else {
-                    builder = builder.set_parallel(is_topn, rows, limit, segment_count);
+                    let sortdir = builder.custom_private().sort_direction();
+                    builder = builder.set_parallel(
+                        is_topn,
+                        rows,
+                        limit,
+                        segment_count,
+                        !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
+                    );
                 }
 
                 return Some(builder.build());
@@ -441,13 +460,29 @@ impl CustomScan for PdbScan {
                     .collect();
 
             let need_snippets = builder.custom_state().need_snippets();
+            let need_scores = builder.custom_state().need_scores();
             if let Some((limit, sort_direction)) = builder.custom_state().is_top_n_capable() {
                 // having a valid limit and sort direction means we can do a TopN query
                 // and TopN can do snippets
                 let heaprelid = builder.custom_state().heaprelid;
                 builder
                     .custom_state()
-                    .assign_exec_method(TopNScanExecState::new(heaprelid, limit, sort_direction));
+                    .assign_exec_method(TopNScanExecState::new(
+                        heaprelid,
+                        limit,
+                        sort_direction,
+                        need_scores,
+                    ));
+            } else if let Some(limit) = builder.custom_state().is_unsorted_top_n_capable() {
+                let heaprelid = builder.custom_state().heaprelid;
+                builder
+                    .custom_state()
+                    .assign_exec_method(TopNScanExecState::new(
+                        heaprelid,
+                        limit,
+                        SortDirection::None,
+                        need_scores,
+                    ));
             } else {
                 exec_methods::fast_fields::assign_exec_method(&mut builder);
             }
@@ -497,12 +532,14 @@ impl CustomScan for PdbScan {
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
         if let Some(sort_direction) = state.custom_state().sort_direction {
-            if let Some(sort_field) = &state.custom_state().sort_field {
-                explainer.add_text("   Sort Field", sort_field);
-            } else {
-                explainer.add_text("   Sort Field", "paradedb.score()");
+            if !matches!(sort_direction, SortDirection::None) {
+                if let Some(sort_field) = &state.custom_state().sort_field {
+                    explainer.add_text("   Sort Field", sort_field);
+                } else {
+                    explainer.add_text("   Sort Field", "paradedb.score()");
+                }
+                explainer.add_text("   Sort Direction", sort_direction);
             }
-            explainer.add_text("   Sort Direction", sort_direction);
 
             if let Some(limit) = state.custom_state().limit {
                 explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);

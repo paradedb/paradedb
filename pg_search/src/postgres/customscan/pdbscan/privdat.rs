@@ -72,6 +72,10 @@ impl PrivateData {
         self.limit = limit.map(|l| l.round() as usize);
     }
 
+    pub fn set_sort_direction(&mut self, sort_direction: Option<SortDirection>) {
+        self.sort_direction = sort_direction;
+    }
+
     pub fn set_sort_info(&mut self, pathkey: &Option<OrderByStyle>) {
         if let Some(style) = pathkey {
             match style {
@@ -193,21 +197,18 @@ pub mod serialize {
 
     impl AsValueNode for SortDirection {
         fn as_value_node(&self) -> *mut Node {
-            unsafe {
-                match self {
-                    SortDirection::Asc => makeInteger(Some(0)),
-                    SortDirection::Desc => makeInteger(Some(1)),
-                }
-            }
+            unsafe { makeInteger(Some(*self as i32)) }
         }
 
         fn from_value_node(node: *mut Node) -> Option<Self> {
             unsafe {
-                let integer = node.as_int()?;
-                if integer == 0 {
+                let integer = node.as_int()? as i32;
+                if integer == SortDirection::Asc as i32 {
                     Some(Self::Asc)
-                } else if integer == 1 {
+                } else if integer == SortDirection::Desc as i32 {
                     Some(Self::Desc)
+                } else if integer == SortDirection::None as i32 {
+                    Some(Self::None)
                 } else {
                     None
                 }

@@ -2,41 +2,36 @@
 title: Open Telemetry
 ---
 
-## ParadeDB (PostgreSQL) OpenTelemetry Exporter
+## Overview
 
-ParadeDB offers an unofficial OpenTelemetry-compatible exporter, enabling seamless storage of OpenTelemetry (OTEL) data within ParadeDB. 
-This integration allows users to leverage ParadeDB's advanced features for managing and analyzing their telemetry data.
+ParadeDB provides <a href="https://github.com/destrex271/postgresexporter">an unofficial OpenTelemetry (OTEL) exporter</a> that allows seamless storage of telemetry data in ParadeDB, leveraging its powerful features for data management and analysis.
 
-Supported OpenTelemetry Data Types:
+Supported OpenTelemetry Data:
 
  - ✅ Logs
  - ✅ Traces
- - ❌ Metrics (not currently supported)
+ - ❌ Metrics (WIP but currently unsupported)
 
 
-## Usage with existing Open Telemetry Setup
+## Integration Guide 
 
-To integrate ParadeDB with your OpenTelemetry setup, add the `postgresexporter` to the list of exporters in your configuration file as shown below:
+To integrate ParadeDB with your OpenTelemetry Collector, include the `postgresexporter` in your otel collector configuration file:
 
 ```yaml
 exporters:
   postgresexporter:
-    username: "postgres"
-    password: "postgres"
-    database: "postgres"
+    username: "myoteluser"
+    password: "myotelpassword"
+    database: "oteldata"
     logs_table_name: "otellogs"
     traces_table_name: "oteltraces"
-    metrics_table_name: "otelmetrics"
     port: 5432
     host: "localhost"
-```
 
-<b>Important Note:</b> Ensure the database specified in the configuration (database: "postgres") already exists before using the exporter.
+# -------------
 
-To specify which exporters to use, configure them in the service section of your OpenTelemetry configuration file as follows:
-
-```yaml
 service:
+# Add the postgresexporter as shown below in the service section of your collector config
   pipelines:
     logs:
       receivers: [otlp]
@@ -50,14 +45,18 @@ service:
         - postgresexporter
 ```
 
-This setup enables the export of logs and traces from OpenTelemetry to ParadeDB. 
+This setup enables the export of logs and traces to ParadeDB.
 
-The exporter organizes the tables in the following structure:
+<b>Note:</b> Ensure the specified database (e.g., otel_data) exists before using the exporter.
 
-<b>Logs</b>:
+## Structure of Logs & Traces Table
+
+After exporting data to ParadeDB, the following table structures will be used for storage:
+
+<b>1. OTEL Logs Table</b>
 
 ```
-       Column       |              Type              | Collation | Nullable |                 Default                  
+    Column          |              Type              | Collation | Nullable |                 Default                  
 --------------------+--------------------------------+-----------+----------+------------------------------------------
  Timestamp          | timestamp(6) without time zone |           | not null | 
  TimestampTime      | timestamp without time zone    |           | not null | generated always as ("Timestamp") stored
@@ -79,8 +78,8 @@ Indexes:
     "otellogs_pkey" PRIMARY KEY, btree ("ServiceName", "TimestampTime")
 ```
 
+<b>2. OTEL Traces Table<b>
 
-<b>Traces</b>:
 ```
        Column       |              Type              | Collation | Nullable | Default 
 --------------------+--------------------------------+-----------+----------+---------
@@ -104,5 +103,3 @@ Indexes:
 Indexes:
     "oteltraces_pkey" PRIMARY KEY, btree ("ServiceName", "SpanName", "Timestamp")
 ```
-
-ParadeDB can be used accordingly with this table format.

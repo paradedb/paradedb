@@ -304,7 +304,6 @@ pub unsafe fn save_new_metas(
     // add the new entries
     linked_list.add_items(created_entries, None)?;
 
-    // garbage collect the linked list, if no vacuum is going on
     if !deleted_entries.is_empty() {
         linked_list.garbage_collect(pg_sys::GetAccessStrategy(
             pg_sys::BufferAccessStrategyType::BAS_VACUUM,

@@ -57,21 +57,23 @@ service:
 </ParamField>
 
 <ParamField body="logs_table_name" required>
-  Name of the table where OpenTelemetry (OTel) logs will be stored. Can be any valid identifier for table name.
+  Name of the table where OpenTelemetry (OTel) logs will be stored. Can be any
+  valid identifier for table name.
 </ParamField>
 
 <ParamField body="traces_table_name" required>
-  Name of the table where OpenTelemetry (OTel) traces will be stored. Can be any valid identifier for table name.
+  Name of the table where OpenTelemetry (OTel) traces will be stored. Can be any
+  valid identifier for table name.
 </ParamField>
 
 <ParamField body="host" default="localhost" required>
-  TCP/IP address on which the server listens for connections from client applications
+  TCP/IP address on which the server listens for connections from client
+  applications
 </ParamField>
 
 <ParamField body="port" default="5432" required>
   The TCP port the server listens on.
 </ParamField>
-
 
 <b>Note:</b> Ensure the specified database (e.g., otel_data) exists before using
 the exporter.

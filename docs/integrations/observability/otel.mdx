@@ -8,12 +8,11 @@ ParadeDB provides <a href="https://github.com/destrex271/postgresexporter">an un
 
 Supported OpenTelemetry Data:
 
- - ✅ Logs
- - ✅ Traces
- - ❌ Metrics (WIP but currently unsupported)
+- ✅ Logs
+- ✅ Traces
+- ❌ Metrics (WIP but currently unsupported)
 
-
-## Integration Guide 
+## Integration Guide
 
 To integrate ParadeDB with your OpenTelemetry Collector, include the `postgresexporter` in your otel collector configuration file:
 
@@ -47,7 +46,8 @@ service:
 
 This setup enables the export of logs and traces to ParadeDB.
 
-<b>Note:</b> Ensure the specified database (e.g., otel_data) exists before using the exporter.
+<b>Note:</b> Ensure the specified database (e.g., otel_data) exists before using
+the exporter.
 
 ## Structure of Logs & Traces Table
 
@@ -56,54 +56,53 @@ After exporting data to ParadeDB, the following table structures will be used fo
 <b>1. OTEL Logs Table</b>
 
 ```
-    Column          |              Type              | Collation | Nullable |                 Default                  
+    Column          |              Type              | Collation | Nullable |                 Default
 --------------------+--------------------------------+-----------+----------+------------------------------------------
- Timestamp          | timestamp(6) without time zone |           | not null | 
+ Timestamp          | timestamp(6) without time zone |           | not null |
  TimestampTime      | timestamp without time zone    |           | not null | generated always as ("Timestamp") stored
- TraceId            | text                           |           |          | 
- SpanId             | text                           |           |          | 
- TraceFlags         | smallint                       |           |          | 
- SeverityText       | text                           |           |          | 
- SeverityNumber     | smallint                       |           |          | 
- ServiceName        | text                           |           | not null | 
- Body               | text                           |           |          | 
- ResourceSchemaUrl  | text                           |           |          | 
- ResourceAttributes | jsonb                          |           |          | 
- ScopeSchemaUrl     | text                           |           |          | 
- ScopeName          | text                           |           |          | 
- ScopeVersion       | text                           |           |          | 
- ScopeAttributes    | jsonb                          |           |          | 
- LogAttributes      | jsonb                          |           |          | 
+ TraceId            | text                           |           |          |
+ SpanId             | text                           |           |          |
+ TraceFlags         | smallint                       |           |          |
+ SeverityText       | text                           |           |          |
+ SeverityNumber     | smallint                       |           |          |
+ ServiceName        | text                           |           | not null |
+ Body               | text                           |           |          |
+ ResourceSchemaUrl  | text                           |           |          |
+ ResourceAttributes | jsonb                          |           |          |
+ ScopeSchemaUrl     | text                           |           |          |
+ ScopeName          | text                           |           |          |
+ ScopeVersion       | text                           |           |          |
+ ScopeAttributes    | jsonb                          |           |          |
+ LogAttributes      | jsonb                          |           |          |
 Indexes:
     "otellogs_pkey" PRIMARY KEY, btree ("ServiceName", "TimestampTime")
 ```
 
-<b>2. OTEL Traces Table<b>
+<b>2. OTEL Traces Table</b>
 
 ```
-       Column       |              Type              | Collation | Nullable | Default 
+       Column       |              Type              | Collation | Nullable | Default
 --------------------+--------------------------------+-----------+----------+---------
- Timestamp          | timestamp(6) without time zone |           | not null | 
- TraceId            | text                           |           |          | 
- SpanId             | text                           |           |          | 
- ParentSpanId       | text                           |           |          | 
- TraceState         | text                           |           |          | 
- SpanName           | text                           |           | not null | 
- SpanKind           | text                           |           |          | 
- ServiceName        | text                           |           | not null | 
- ResourceAttributes | jsonb                          |           |          | 
- ScopeName          | text                           |           |          | 
- ScopeVersion       | text                           |           |          | 
- SpanAttributes     | jsonb                          |           |          | 
- Duration           | bigint                         |           |          | 
- StatusCode         | text                           |           |          | 
- StatusMessage      | text                           |           |          | 
- Events             | jsonb                          |           |          | 
- Links              | jsonb                          |           |          | 
+ Timestamp          | timestamp(6) without time zone |           | not null |
+ TraceId            | text                           |           |          |
+ SpanId             | text                           |           |          |
+ ParentSpanId       | text                           |           |          |
+ TraceState         | text                           |           |          |
+ SpanName           | text                           |           | not null |
+ SpanKind           | text                           |           |          |
+ ServiceName        | text                           |           | not null |
+ ResourceAttributes | jsonb                          |           |          |
+ ScopeName          | text                           |           |          |
+ ScopeVersion       | text                           |           |          |
+ SpanAttributes     | jsonb                          |           |          |
+ Duration           | bigint                         |           |          |
+ StatusCode         | text                           |           |          |
+ StatusMessage      | text                           |           |          |
+ Events             | jsonb                          |           |          |
+ Links              | jsonb                          |           |          |
 Indexes:
     "oteltraces_pkey" PRIMARY KEY, btree ("ServiceName", "SpanName", "Timestamp")
 ```
-
 
 ## Examples
 
@@ -127,7 +126,7 @@ LIMIT 10;
 
 <Accordion title="Expected output">
 ```
-       TimestampTime        | ServiceName  | SeverityText |           Body            
+       TimestampTime        | ServiceName  | SeverityText |           Body
 ----------------------------+--------------+--------------+---------------------------
  2025-01-13 10:49:41.45282  | test-service | INFO         | Processing batch 1
  2025-01-13 10:49:41.453161 | test-service | INFO         | Starting order processing
@@ -142,5 +141,3 @@ LIMIT 10;
 (10 rows)
 ```
 </Accordian>
-
-

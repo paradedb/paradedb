@@ -253,18 +253,18 @@
           ]
         },
         {
+          "group": "Observability Pipelines",
+          "pages": [
+            "integrations/observability/otel",
+          ]
+        },
+        {
           "group": "Configuration",
           "pages": [
             "integrations/configuration/schema",
             "integrations/configuration/settings"
           ]
-        },
-        {
-          "group": "Telemetry Data Sources",
-          "pages": [
-            "integrations/telemetry_sources/otel_data",
-          ]
-        },
+        }
       ]
     },
     {

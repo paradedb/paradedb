@@ -259,11 +259,9 @@ impl Directory for MVCCDirectory {
             .collect::<FxHashSet<_>>()
             .len();
 
-        if matches!(self.merge_policy, AllowedMergePolicy::None) {
-            return Some(Box::new(NoMergePolicy));
-        }
-
-        if matches!(self.mvcc_style, MvccSatisfies::Any) {
+        if matches!(self.merge_policy, AllowedMergePolicy::None)
+            || matches!(self.mvcc_style, MvccSatisfies::Any)
+        {
             return Some(Box::new(NoMergePolicy));
         }
 

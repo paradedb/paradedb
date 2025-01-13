@@ -7,6 +7,7 @@ This guide will walk you through the following steps to get started with ParadeD
 1. Full text search over a single table
 2. Full text search over a JOIN
 3. Similarity (i.e. vector) search
+4. Faceted search and aggregations
 
 ## Single Table Search
 
@@ -241,5 +242,88 @@ LIMIT 3;
 (3 rows)
 ```
 </Accordion>
+
+## Faceted Search
+
+Faceted search enhances your search interface by providing dynamic filtering options based on document attributes. For example, an e-commerce site might show product counts by category, price range, or rating alongside search results. Let's explore how to implement this in ParadeDB.
+
+First, let's see how many products we have in each category that match our search:
+
+```sql
+SELECT category, COUNT(*) as count
+FROM mock_items
+WHERE description @@@ 'shoes'
+GROUP BY category
+ORDER BY count DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+  category  | count
+------------+-------
+ Footwear   |    12
+ Sports     |     5
+ Fashion    |     3
+(3 rows)
+```
+</Accordion>
+
+We can combine multiple facets to create a richer search experience. Let's get both category and rating distributions for our search results:
+
+```sql
+SELECT 
+    category,
+    rating,
+    COUNT(*) as count
+FROM mock_items
+WHERE description @@@ 'shoes'
+GROUP BY category, rating
+ORDER BY count DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+  category  | rating | count
+------------+--------+-------
+ Footwear   |      4 |     6
+ Footwear   |      5 |     4
+ Sports     |      4 |     3
+ Fashion    |      4 |     2
+ Sports     |      5 |     2
+(5 rows)
+```
+</Accordion>
+
+For optimal performance with large datasets, ParadeDB provides fast field optimizations. Here's the recommended way to structure a faceted search query:
+
+```sql
+SELECT rating, COUNT(*) 
+FROM mock_items
+WHERE id @@@ paradedb.boolean(
+  must => ARRAY[
+    paradedb.term('description', 'shoes'),
+    paradedb.term('category', 'footwear')
+  ]
+)
+GROUP BY rating 
+LIMIT 5;
+```
+
+<Note>
+  For best performance, ensure that fields used in faceted aggregations are indexed as fast fields. 
+  Numeric and boolean fields are automatically indexed as fast fields by default.
+</Note>
+
+You can verify which fields are indexed as fast fields using:
+
+```sql
+SELECT name, fast 
+FROM paradedb.schema('search_idx') 
+ORDER BY fast;
+```
+
+Faceted search can also be combined with our previous examples of full-text and similarity search to create powerful hybrid search experiences. The `@@@` operator ensures that all queries take advantage of ParadeDB's optimizations.
 
 That's it! Next, let's [load your data](/documentation/getting-started/load) to start running real queries.

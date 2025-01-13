@@ -272,7 +272,7 @@ LIMIT 5;
 We can combine multiple facets to create a richer search experience. Let's get both category and rating distributions for our search results:
 
 ```sql
-SELECT 
+SELECT
     category,
     rating,
     COUNT(*) as count
@@ -299,7 +299,7 @@ LIMIT 5;
 For optimal performance with large datasets, ParadeDB provides fast field optimizations. Here's the recommended way to structure a faceted search query:
 
 ```sql
-SELECT rating, COUNT(*) 
+SELECT rating, COUNT(*)
 FROM mock_items
 WHERE id @@@ paradedb.boolean(
   must => ARRAY[
@@ -307,20 +307,20 @@ WHERE id @@@ paradedb.boolean(
     paradedb.term('category', 'footwear')
   ]
 )
-GROUP BY rating 
+GROUP BY rating
 LIMIT 5;
 ```
 
 <Note>
-  For best performance, ensure that fields used in faceted aggregations are indexed as fast fields. 
+  For best performance, ensure that fields used in faceted aggregations are indexed as fast fields.
   Numeric and boolean fields are automatically indexed as fast fields by default.
 </Note>
 
 You can verify which fields are indexed as fast fields using:
 
 ```sql
-SELECT name, fast 
-FROM paradedb.schema('search_idx') 
+SELECT name, fast
+FROM paradedb.schema('search_idx')
 ORDER BY fast;
 ```
 

@@ -125,19 +125,17 @@ LIMIT 10;
 ```
 
 <Accordion title="Expected output">
-```
-       TimestampTime        | ServiceName  | SeverityText |           Body
-----------------------------+--------------+--------------+---------------------------
- 2025-01-13 10:49:41.45282  | test-service | INFO         | Processing batch 1
- 2025-01-13 10:49:41.453161 | test-service | INFO         | Starting order processing
- 2025-01-13 10:49:42.11059  | test-service | INFO         | Starting order processing
- 2025-01-13 10:49:43.105943 | test-service | INFO         | Starting order processing
- 2025-01-13 10:49:44.113809 | test-service | INFO         | Starting order processing
- 2025-01-13 10:49:45.777648 | test-service | INFO         | Processing batch 2
- 2025-01-13 10:49:45.778265 | test-service | INFO         | Starting order processing
- 2025-01-13 10:49:46.680701 | test-service | INFO         | Starting order processing
- 2025-01-13 10:49:47.757439 | test-service | INFO         | Starting order processing
- 2025-01-13 10:49:48.5583   | test-service | INFO         | Processing batch 3
-(10 rows)
-```
+  ``` TimestampTime | ServiceName | SeverityText | Body
+  ----------------------------+--------------+--------------+---------------------------
+  2025-01-13 10:49:41.45282 | test-service | INFO | Processing batch 1
+  2025-01-13 10:49:41.453161 | test-service | INFO | Starting order processing
+  2025-01-13 10:49:42.11059 | test-service | INFO | Starting order processing
+  2025-01-13 10:49:43.105943 | test-service | INFO | Starting order processing
+  2025-01-13 10:49:44.113809 | test-service | INFO | Starting order processing
+  2025-01-13 10:49:45.777648 | test-service | INFO | Processing batch 2
+  2025-01-13 10:49:45.778265 | test-service | INFO | Starting order processing
+  2025-01-13 10:49:46.680701 | test-service | INFO | Starting order processing
+  2025-01-13 10:49:47.757439 | test-service | INFO | Starting order processing
+  2025-01-13 10:49:48.5583 | test-service | INFO | Processing batch 3 (10 rows)
+  ```
 </Accordion>

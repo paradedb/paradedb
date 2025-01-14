@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFType;
-use crate::index::merge_policy::AllowedMergePolicy;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
 use crate::index::{setup_tokenizers, BlockDirectoryType};
 use crate::postgres::storage::block::CLEANUP_LOCK;
@@ -240,7 +239,7 @@ impl SearchIndexReader {
             None
         };
 
-        let directory = directory_type.directory(index_relation, AllowedMergePolicy::None);
+        let directory = directory_type.directory(index_relation, false);
         let mut index = Index::open(directory)?;
         let schema = SearchIndexSchema::open(index.schema(), index_relation);
 

@@ -17,10 +17,8 @@
 
 use crate::gucs;
 use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
-use crate::index::merge_policy::AllowedMergePolicy;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::index::get_fields;
-use crate::postgres::options::SearchIndexCreateOptions;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use anyhow::Result;
 use crossbeam::channel::Receiver;
@@ -37,7 +35,8 @@ pub enum WriterResources {
 }
 pub type Parallelism = NonZeroUsize;
 pub type MemoryBudget = usize;
-pub type IndexConfig = (Parallelism, MemoryBudget, AllowedMergePolicy);
+pub type WantsMerge = bool;
+pub type IndexConfig = (Parallelism, MemoryBudget, WantsMerge);
 
 pub enum BlockDirectoryType {
     Mvcc,
@@ -45,16 +44,10 @@ pub enum BlockDirectoryType {
 }
 
 impl BlockDirectoryType {
-    pub fn directory(
-        self,
-        index_relation: &PgRelation,
-        merge_policy: AllowedMergePolicy,
-    ) -> MVCCDirectory {
+    pub fn directory(self, index_relation: &PgRelation, wants_merge: bool) -> MVCCDirectory {
         match self {
-            BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid(), merge_policy),
-            BlockDirectoryType::BulkDelete => {
-                MVCCDirectory::any(index_relation.oid(), merge_policy)
-            }
+            BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid(), wants_merge),
+            BlockDirectoryType::BulkDelete => MVCCDirectory::any(index_relation.oid(), wants_merge),
         }
     }
 
@@ -62,10 +55,10 @@ impl BlockDirectoryType {
         self,
         index_relation: &PgRelation,
         receiver: Receiver<ChannelRequest>,
-        merge_policy: AllowedMergePolicy,
+        wants_merge: bool,
     ) -> ChannelRequestHandler {
         ChannelRequestHandler::open(
-            self.directory(index_relation, merge_policy),
+            self.directory(index_relation, wants_merge),
             index_relation.oid(),
             receiver,
         )
@@ -73,29 +66,22 @@ impl BlockDirectoryType {
 }
 
 impl WriterResources {
-    pub fn resources(&self, indexrel: &PgRelation) -> IndexConfig {
-        let options = indexrel.rd_options as *mut SearchIndexCreateOptions;
-        if options.is_null() {
-            panic!("must specify key_field")
-        }
-        let options = unsafe { &*options };
-        let target_segment_count = options.target_segment_count();
-
+    pub fn resources(&self) -> IndexConfig {
         match self {
             WriterResources::CreateIndex => (
                 gucs::create_index_parallelism(),
                 gucs::create_index_memory_budget(),
-                AllowedMergePolicy::None,
+                false,
             ),
             WriterResources::Statement => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
-                AllowedMergePolicy::NPlusOne(target_segment_count),
+                true,
             ),
             WriterResources::Vacuum => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
-                AllowedMergePolicy::None,
+                false,
             ),
         }
     }

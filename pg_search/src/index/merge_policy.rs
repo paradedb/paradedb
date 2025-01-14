@@ -4,12 +4,6 @@ use pgrx::pg_sys;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::SegmentMeta;
 
-#[derive(Debug, Clone)]
-pub enum AllowedMergePolicy {
-    None,
-    NPlusOne(usize),
-}
-
 /// A tantivy [`MergePolicy`] that endeavours to keep a maximum number of segments "N", plus
 /// one extra for leftovers.
 ///

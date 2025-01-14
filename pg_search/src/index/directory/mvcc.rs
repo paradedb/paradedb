@@ -16,9 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{list_managed_files, load_metas, save_new_metas, save_schema, save_settings};
-use crate::index::merge_policy::{
-    set_num_segments, AllowedMergePolicy, MergeLock, NPlusOneMergePolicy,
-};
+use crate::index::merge_policy::{set_num_segments, MergeLock, NPlusOneMergePolicy};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -56,7 +54,7 @@ pub enum MvccSatisfies {
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
     mvcc_style: MvccSatisfies,
-    merge_policy: AllowedMergePolicy,
+    wants_merge: bool,
     merge_lock: Arc<Mutex<Option<MergeLock>>>,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
@@ -66,20 +64,20 @@ pub struct MVCCDirectory {
 }
 
 impl MVCCDirectory {
-    pub fn snapshot(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
+    pub fn snapshot(relation_oid: pg_sys::Oid, wants_merge: bool) -> Self {
         Self {
             relation_oid,
-            merge_policy,
+            wants_merge,
             mvcc_style: MvccSatisfies::Snapshot,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             merge_lock: Default::default(),
         }
     }
 
-    pub fn any(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
+    pub fn any(relation_oid: pg_sys::Oid, wants_merge: bool) -> Self {
         Self {
             relation_oid,
-            merge_policy,
+            wants_merge,
             mvcc_style: MvccSatisfies::Any,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             merge_lock: Default::default(),
@@ -262,7 +260,7 @@ impl Directory for MVCCDirectory {
             .collect::<FxHashSet<_>>()
             .len();
 
-        if matches!(self.merge_policy, AllowedMergePolicy::None) {
+        if !self.wants_merge {
             return Some(Box::new(NoMergePolicy));
         }
 
@@ -277,19 +275,20 @@ impl Directory for MVCCDirectory {
 
         // try to acquire merge lock and do merge
         if let Some(mut merge_lock) = unsafe { MergeLock::acquire_for_merge(self.relation_oid) } {
-            if let AllowedMergePolicy::NPlusOne(n) = self.merge_policy {
-                let num_segments = unsafe { merge_lock.num_segments() };
-                let target_segments = std::cmp::max(n, num_segments as usize);
-                let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segments,
-                    min_num_segments: MIN_NUM_SEGMENTS,
-                });
+            let num_segments = unsafe { merge_lock.num_segments() };
+            let parallelism = std::thread::available_parallelism()
+                .expect("failed to get available_parallelism")
+                .get();
+            let target_segments = std::cmp::max(parallelism, num_segments as usize);
+            let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                n: target_segments,
+                min_num_segments: MIN_NUM_SEGMENTS,
+            });
 
-                let mut lock = self.merge_lock.lock();
-                *lock = Some(merge_lock);
+            let mut lock = self.merge_lock.lock();
+            *lock = Some(merge_lock);
 
-                return Some(merge_policy);
-            }
+            return Some(merge_policy);
         }
 
         Some(Box::new(NoMergePolicy))
@@ -300,7 +299,6 @@ impl Directory for MVCCDirectory {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::index::merge_policy::AllowedMergePolicy;
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -313,7 +311,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let directory = MVCCDirectory::snapshot(relation_oid, AllowedMergePolicy::None);
+        let directory = MVCCDirectory::snapshot(relation_oid, false);
         let listed_files = directory.list_managed_files().unwrap();
         assert_eq!(listed_files.len(), 6);
     }

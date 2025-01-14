@@ -53,12 +53,12 @@ impl SearchIndexWriter {
         directory_type: BlockDirectoryType,
         resources: WriterResources,
     ) -> Result<Self> {
-        let (parallelism, memory_budget, merge_policy) = resources.resources(index_relation);
+        let (parallelism, memory_budget, wants_merge) = resources.resources();
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);
         let mut handler =
-            directory_type.channel_request_handler(index_relation, req_receiver, merge_policy);
+            directory_type.channel_request_handler(index_relation, req_receiver, wants_merge);
 
         let mut index = {
             handler
@@ -93,8 +93,7 @@ impl SearchIndexWriter {
 
     pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
         let schema = get_index_schema(index_relation)?;
-        let (parallelism, memory_budget, merge_policy) =
-            WriterResources::CreateIndex.resources(index_relation);
+        let (parallelism, memory_budget, merge_policy) = WriterResources::CreateIndex.resources();
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
         let channel_dir = ChannelDirectory::new(req_sender);

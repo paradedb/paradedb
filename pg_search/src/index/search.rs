@@ -80,7 +80,6 @@ impl WriterResources {
         }
         let options = unsafe { &*options };
         let target_segment_count = options.target_segment_count();
-        let merge_on_insert = options.merge_on_insert();
 
         match self {
             WriterResources::CreateIndex => (
@@ -88,18 +87,11 @@ impl WriterResources {
                 gucs::create_index_memory_budget(),
                 AllowedMergePolicy::None,
             ),
-            WriterResources::Statement => {
-                let policy = if merge_on_insert {
-                    AllowedMergePolicy::NPlusOne(target_segment_count)
-                } else {
-                    AllowedMergePolicy::None
-                };
-                (
-                    gucs::statement_parallelism(),
-                    gucs::statement_memory_budget(),
-                    policy,
-                )
-            }
+            WriterResources::Statement => (
+                gucs::statement_parallelism(),
+                gucs::statement_memory_budget(),
+                AllowedMergePolicy::NPlusOne(target_segment_count),
+            ),
             WriterResources::Vacuum => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),

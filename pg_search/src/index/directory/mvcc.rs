@@ -275,20 +275,20 @@ impl Directory for MVCCDirectory {
         }
 
         // try to acquire merge lock and do merge
-        if unsafe { acquire_merge_lock(self.relation_oid) } {
-            if matches!(&self.merge_policy, &AllowedMergePolicy::NPlusOne) {
-                let num_segments = unsafe { merge_lock.num_segments() };
-                let parallelism = std::thread::available_parallelism()
-                    .expect("failed to get available_parallelism")
-                    .get();
-                let target_segments = std::cmp::max(parallelism, num_segments as usize);
-                let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
-                    n: target_segments,
-                    min_num_segments: MIN_NUM_SEGMENTS,
-                });
+        if unsafe { acquire_merge_lock(self.relation_oid) }
+            && matches!(&self.merge_policy, &AllowedMergePolicy::NPlusOne)
+        {
+            let num_segments = unsafe { get_num_segments(self.relation_oid) };
+            let parallelism = std::thread::available_parallelism()
+                .expect("failed to get available_parallelism")
+                .get();
+            let target_segments = std::cmp::max(parallelism, num_segments as usize);
+            let merge_policy: Box<dyn MergePolicy> = Box::new(NPlusOneMergePolicy {
+                n: target_segments,
+                min_num_segments: MIN_NUM_SEGMENTS,
+            });
 
-                return Some(merge_policy);
-            }
+            return Some(merge_policy);
         }
 
         Some(Box::new(NoMergePolicy))

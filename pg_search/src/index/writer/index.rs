@@ -178,11 +178,6 @@ impl SearchIndexWriter {
         Ok(())
     }
 
-    pub fn vacuum(self) -> Result<()> {
-        assert!(self.insert_queue.is_empty());
-        self.commit()
-    }
-
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
         let insert_queue = std::mem::take(&mut self.insert_queue);
         let writer = self.writer.clone();

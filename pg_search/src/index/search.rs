@@ -103,7 +103,7 @@ impl WriterResources {
             WriterResources::Vacuum => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
-                AllowedMergePolicy::NPlusOne(target_segment_count),
+                AllowedMergePolicy::None,
             ),
         }
     }

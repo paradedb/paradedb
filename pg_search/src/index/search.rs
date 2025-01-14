@@ -17,6 +17,7 @@
 
 use crate::gucs;
 use crate::index::channel::{ChannelRequest, ChannelRequestHandler};
+use crate::index::merge_policy::AllowedMergePolicy;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::index::get_fields;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
@@ -35,8 +36,7 @@ pub enum WriterResources {
 }
 pub type Parallelism = NonZeroUsize;
 pub type MemoryBudget = usize;
-pub type WantsMerge = bool;
-pub type IndexConfig = (Parallelism, MemoryBudget, WantsMerge);
+pub type IndexConfig = (Parallelism, MemoryBudget, AllowedMergePolicy);
 
 pub enum BlockDirectoryType {
     Mvcc,
@@ -44,10 +44,16 @@ pub enum BlockDirectoryType {
 }
 
 impl BlockDirectoryType {
-    pub fn directory(self, index_relation: &PgRelation, wants_merge: bool) -> MVCCDirectory {
+    pub fn directory(
+        self,
+        index_relation: &PgRelation,
+        merge_policy: AllowedMergePolicy,
+    ) -> MVCCDirectory {
         match self {
-            BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid(), wants_merge),
-            BlockDirectoryType::BulkDelete => MVCCDirectory::any(index_relation.oid(), wants_merge),
+            BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid(), merge_policy),
+            BlockDirectoryType::BulkDelete => {
+                MVCCDirectory::any(index_relation.oid(), merge_policy)
+            }
         }
     }
 
@@ -55,10 +61,10 @@ impl BlockDirectoryType {
         self,
         index_relation: &PgRelation,
         receiver: Receiver<ChannelRequest>,
-        wants_merge: bool,
+        merge_policy: AllowedMergePolicy,
     ) -> ChannelRequestHandler {
         ChannelRequestHandler::open(
-            self.directory(index_relation, wants_merge),
+            self.directory(index_relation, merge_policy),
             index_relation.oid(),
             receiver,
         )
@@ -71,17 +77,17 @@ impl WriterResources {
             WriterResources::CreateIndex => (
                 gucs::create_index_parallelism(),
                 gucs::create_index_memory_budget(),
-                false,
+                AllowedMergePolicy::None,
             ),
             WriterResources::Statement => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
-                true,
+                AllowedMergePolicy::NPlusOne,
             ),
             WriterResources::Vacuum => (
                 gucs::statement_parallelism(),
                 gucs::statement_memory_budget(),
-                false,
+                AllowedMergePolicy::None,
             ),
         }
     }

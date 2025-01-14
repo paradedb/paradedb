@@ -725,7 +725,7 @@ mod scorer_iter {
     pub struct DeferredScorer {
         weight: Box<dyn Weight>,
         segment_reader: SegmentReader,
-        scorer: Option<Box<dyn Scorer>>,
+        inner: Option<Box<dyn Scorer>>,
     }
 
     impl DeferredScorer {
@@ -733,7 +733,7 @@ mod scorer_iter {
             Self {
                 weight,
                 segment_reader,
-                scorer: None,
+                inner: None,
             }
         }
 
@@ -746,7 +746,7 @@ mod scorer_iter {
         #[track_caller]
         #[inline(always)]
         fn scorer_mut(&mut self) -> &mut Box<dyn Scorer> {
-            self.scorer.get_or_insert_with(|| {
+            self.inner.get_or_insert_with(|| {
                 self.weight
                     .scorer(&self.segment_reader, 1.0)
                     .expect("scorer should be constructable")
@@ -755,8 +755,8 @@ mod scorer_iter {
 
         #[track_caller]
         #[inline(always)]
-        fn scorer(&self) -> &Box<dyn Scorer> {
-            self.scorer
+        fn scorer(&self) -> &dyn Scorer {
+            self.inner
                 .as_ref()
                 .expect("scorer should have been initialized")
         }
@@ -783,7 +783,7 @@ mod scorer_iter {
     }
 
     pub struct ScorerIter {
-        scorer: DeferredScorer,
+        deferred: DeferredScorer,
         segment_ord: SegmentOrdinal,
         segment_reader: SegmentReader,
     }
@@ -795,7 +795,7 @@ mod scorer_iter {
             segment_reader: SegmentReader,
         ) -> Self {
             Self {
-                scorer,
+                deferred: scorer,
                 segment_ord,
                 segment_reader,
             }
@@ -806,40 +806,45 @@ mod scorer_iter {
         type Item = (Score, DocAddress);
 
         fn next(&mut self) -> Option<Self::Item> {
-            self.scorer.init();
+            self.deferred.init();
 
             loop {
-                let doc_id = self.scorer.doc();
+                let doc_id = self.deferred.doc();
 
                 if doc_id == tantivy::TERMINATED {
                     // we've read all the docs
                     return None;
-                } else if !self
+                } else if self
                     .segment_reader
                     .alive_bitset()
                     .map(|alive_bitset| alive_bitset.is_alive(doc_id))
                     // if there's no alive_bitset, the doc is alive
                     .unwrap_or(true)
                 {
-                    // this doc isn't alive, move to the next doc and loop around
-                    self.scorer.advance();
-                    continue;
+                    // this doc is alive
+                    let score = self.deferred.score();
+                    let this = (score, DocAddress::new(self.segment_ord, doc_id));
+
+                    // move to the next doc for the next iteration
+                    self.deferred.advance();
+
+                    // return the live doc
+                    return Some(this);
                 }
 
-                // this doc is alive
-                let score = self.scorer.score();
-                let next = Some((score, DocAddress::new(self.segment_ord, doc_id)));
-
-                // move to the next doc for the next iteration
-                self.scorer.advance();
-
-                // return the live doc
-                return next;
+                // this doc isn't alive, move to the next doc and loop around
+                self.deferred.advance();
+                continue;
             }
         }
 
         fn size_hint(&self) -> (usize, Option<usize>) {
-            (0, Some(self.scorer.size_hint() as usize))
+            if self.deferred.inner.is_none() {
+                // DeferredScorer hasn't been initialized yet, so there's nothing we can report
+                (0, None)
+            } else {
+                (0, Some(self.deferred.size_hint() as usize))
+            }
         }
     }
 }

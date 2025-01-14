@@ -112,7 +112,10 @@ pub unsafe fn acquire_delete_lock(relation_oid: pg_sys::Oid) {
         let metadata = page.contents::<MergeLockData>();
         let last_merge = metadata.last_merge;
 
-        if !pg_sys::TransactionIdIsInProgress(last_merge) {
+        if pg_sys::TransactionIdDidCommit(last_merge)
+            || pg_sys::TransactionIdDidAbort(last_merge)
+            || !pg_sys::TransactionIdIsNormal(last_merge)
+        {
             break;
         }
     }

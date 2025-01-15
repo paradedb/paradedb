@@ -29,6 +29,7 @@ use crate::index::{BlockDirectoryType, WriterResources};
 pub struct BulkDeleteData {
     stats: pg_sys::IndexBulkDeleteResult,
     pub cleanup_lock: pg_sys::Buffer,
+    pub merge_lock: Option<MergeLock>,
 }
 
 #[pg_guard]
@@ -49,7 +50,8 @@ pub extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
+    crate::log_message(&format!("DELETE STARTING {:?}", unsafe { pg_sys::GetCurrentTransactionId() }));
+    let merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
     let mut writer = SearchIndexWriter::open(
         &index_relation,
         BlockDirectoryType::BulkDelete,
@@ -82,6 +84,8 @@ pub extern "C" fn ambulkdelete(
         .commit()
         .expect("ambulkdelete: commit should succeed");
 
+    crate::log_message(&format!("DELETE ENDED {:?}", unsafe { pg_sys::GetCurrentTransactionId() }));
+
     if stats.is_null() {
         stats = unsafe {
             PgBox::from_pg(
@@ -112,6 +116,7 @@ pub extern "C" fn ambulkdelete(
             let mut opaque = PgBox::<BulkDeleteData>::alloc0();
             opaque.stats = *stats;
             opaque.cleanup_lock = cleanup_buffer;
+            opaque.merge_lock = Some(merge_lock);
             opaque.into_pg() as *mut pg_sys::IndexBulkDeleteResult
         }
     } else {

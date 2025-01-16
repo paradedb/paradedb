@@ -120,44 +120,13 @@ jobs:
             echo "Process timed out as expected."
           fi
 
-      - name: Create HTML from Base64
+      - name: Create HTML from Template
         shell: bash
         working-directory: stressgres/
         run: |
           BASE64_CONTENT=$(base64 -w 0 stressgres.cast)
-          cat > stressgres.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta charset="utf-8">
-              <title>Asciinema Player Demo</title>
-              <link href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.2/dist/bundle/asciinema-player.min.css" rel="stylesheet">
-              <style>
-                body {
-                  margin: 0;
-                  padding: 0;
-                  background: #1a1a1a;
-                  display: flex;
-                  justify-content: center;
-                  align-items: center;
-                  height: 100vh;
-                }
-                #player {
-                  width: 90%;
-                  height: 90%;
-                }
-              </style>
-            </head>
-            <body>
-              <div id="player"></div>
-              <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.2/dist/bundle/asciinema-player.min.js"></script>
-              <script>
-                const data = 'data:text/plain;base64,' + '${BASE64_CONTENT}';
-                AsciinemaPlayer.create(data, document.getElementById('player'), {fit: 'height'});
-              </script>
-            </body>
-          </html>
-          EOF
+          TEMPLATE_PATH="$GITHUB_WORKSPACE/.github/templates/stressgres.html"
+          sed "s|{{BASE64_CONTENT}}|$BASE64_CONTENT|" "$TEMPLATE_PATH" > stressgres.html
 
       - name: Upload stressgres.html
         uses: actions/upload-artifact@v4

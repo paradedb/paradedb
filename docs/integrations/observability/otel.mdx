@@ -44,33 +44,41 @@ service:
 ```
 
 <ParamField body="username" required>
-  Postgres username of the ParadeDB instance to which the OpenTelemetry data will be shipped.
+  Postgres username of the ParadeDB instance to which the OpenTelemetry data
+  will be shipped.
 </ParamField>
 
 <ParamField body="password" required>
-  Postgres password of the ParadeDB instance to which the OpenTelemetry data will be shipped.
+  Postgres password of the ParadeDB instance to which the OpenTelemetry data
+  will be shipped.
 </ParamField>
 
 <ParamField body="database" required>
-  Name of the Postgres database of the ParadeDB instance to which the OpenTelemetry data will be shipped.
+  Name of the Postgres database of the ParadeDB instance to which the
+  OpenTelemetry data will be shipped.
 </ParamField>
 
 <ParamField body="logs_table_name" required>
-  Name of the Postgres table within the provided database where the OpenTelemetry logs will be stored. It must be a valid, existing table.
+  Name of the Postgres table within the provided database where the
+  OpenTelemetry logs will be stored. It must be a valid table name which is then
+  created by the exporter.
 </ParamField>
 
 <ParamField body="traces_table_name" required>
-  Name of the Postgres table within the provided database where the OpenTelemetry traces will be stored. It must be a valid, existing table.
+  Name of the Postgres table within the provided database where the
+  OpenTelemetry traces will be stored. It must be a valid table name which is
+  then created by the exporter.
 </ParamField>
 
 <ParamField body="host" default="localhost" required>
-  TCP/IP address on which your ParadeDB instance listens for connections from client applications.
+  TCP/IP address on which your ParadeDB instance listens for connections from
+  client applications.
 </ParamField>
 
 <ParamField body="port" default="5432" required>
-  The PostgreSQL port that your ParadeDB instance is configured to listen for connections on.
+  The PostgreSQL port that your ParadeDB instance is configured to listen for
+  connections on.
 </ParamField>
-
 
 ## OpenTelemetry Tables
 

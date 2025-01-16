@@ -72,7 +72,7 @@ impl MergeLock {
 
         if let Some(mut merge_lock) = bman.get_buffer_for_cleanup_conditional(
             MERGE_LOCK,
-            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM),
+            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_NORMAL),
         ) {
             let mut page = merge_lock.page_mut();
             let metadata = page.contents_mut::<MergeLockData>();
@@ -101,7 +101,7 @@ impl MergeLock {
         let mut bman = BufferManager::new(relation_oid);
         let merge_lock = bman.get_buffer_for_cleanup(
             MERGE_LOCK,
-            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_VACUUM),
+            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_NORMAL),
         );
         let page = merge_lock.page();
         let metadata = page.contents::<MergeLockData>();

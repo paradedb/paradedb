@@ -82,6 +82,9 @@ pub unsafe extern "C" fn _PG_init() {
     postgres::options::init();
     gucs::init();
 
+    #[cfg(not(feature = "pg17"))]
+    postgres::fake_aminsertcleanup::register();
+
     setup_telemetry_background_worker(telemetry::ParadeExtension::PgSearch);
 
     // Register our tracing / logging hook, so that we can ensure that the logger

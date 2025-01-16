@@ -31,6 +31,9 @@ pub const SCHEMA_START: pg_sys::BlockNumber = 2;
 pub const SETTINGS_START: pg_sys::BlockNumber = 4;
 pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
+// Blocks before this cutoff are not considered for being returned to the FSM
+pub const VACUUM_START: pg_sys::BlockNumber = 2;
+
 // ---------------------------------------------------------
 // BM25 page special data
 // ---------------------------------------------------------

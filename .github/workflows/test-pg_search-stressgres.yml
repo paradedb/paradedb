@@ -108,11 +108,12 @@ jobs:
       - name: Run Stressgres with Timeout
         working-directory: stressgres/
         run: |
-          RUST_BACKTRACE=1 timeout 6s /usr/local/bin/asciinema rec \
+          # Make sure to cargo build first, or the timeout will including compilation time.
+          RUST_BACKTRACE=1 cargo build && timeout 6s /usr/local/bin/asciinema rec \
             --headless \
             --command 'cargo run suites/ci.toml "host=localhost port=28817 dbname=postgres"' \
             stressgres.cast || EXIT_CODE=$?
-          
+
           if [ "$EXIT_CODE" -eq 124 ]; then
             echo "Process timed out as expected."
           fi

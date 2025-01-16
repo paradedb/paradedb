@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::storage::block::VACUUM_START;
 use crate::postgres::storage::buffer::BufferManager;
 use pgrx::*;
 
@@ -48,7 +49,7 @@ pub extern "C" fn amvacuumcleanup(
         let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
-        for blockno in 2..nblocks {
+        for blockno in VACUUM_START..nblocks {
             check_for_interrupts!();
             let buffer = bman.get_buffer(blockno);
             let page = buffer.page();

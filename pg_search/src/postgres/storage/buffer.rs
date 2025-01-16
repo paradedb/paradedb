@@ -98,7 +98,9 @@ impl BufferMut {
             self.inner.pg_buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
 
             // unlock this buffer and convert to a PinnedBuffer
-            pg_sys::MarkBufferDirty(pg_buffer);
+            if self.dirty {
+                pg_sys::MarkBufferDirty(pg_buffer);
+            }
             pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
             PinnedBuffer::new(pg_buffer)
         }

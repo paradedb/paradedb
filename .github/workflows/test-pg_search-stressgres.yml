@@ -107,7 +107,7 @@ jobs:
 
       - name: Run Stressgres Test Suite
         working-directory: stressgres/
-        run: RUST_BACKTRACE=1 /usr/local/bin/asciinema rec --headless --command 'cargo run suites/ci.toml "host=localhost port=288${{ matrix.pg_version }} dbname=postgres" 6' stressgres.cast
+        run: RUST_BACKTRACE=1 /usr/local/bin/asciinema rec --command 'cargo run suites/ci.toml "host=localhost port=288${{ matrix.pg_version }} dbname=postgres" 6' stressgres.cast
 
       - name: Upload stressgres.cast
         uses: actions/upload-artifact@v4

@@ -7,7 +7,11 @@ name: Test pg_search Stressgres
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
     branches:
       - dev
       - main
@@ -16,15 +20,15 @@ on:
       - "pg_search/**"
       - "tokenizers/**"
   schedule:
-    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
+    - cron: "1 0 * * 1,2,3,4,5" # Weekdays at 00:01 UTC
   push:
-    branches: # Also run on `dev` and `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
+    branches:
       - dev
       - main
     paths:
       - "**/*.rs"
       - "**/*.toml"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   test-pg_search-stressgres:
@@ -55,8 +59,6 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         uses: ubicloud/rust-cache@v2
         with:
@@ -109,8 +111,6 @@ jobs:
       - name: Run Stressgres with Timeout
         working-directory: stressgres/
         run: |
-          # Make sure to cargo build first, or the timeout will including compilation time.
-          # Pass 'false' as last argument to start unpaused.
           RUST_BACKTRACE=1 cargo build && timeout 6s /usr/local/bin/asciinema rec \
             --headless \
             --command 'cargo run suites/ci.toml "host=localhost port=28817 dbname=postgres" false' \
@@ -120,11 +120,50 @@ jobs:
             echo "Process timed out as expected."
           fi
 
-      - name: Upload stressgres.cast
+      - name: Create HTML from Base64
+        shell: bash
+        working-directory: stressgres/
+        run: |
+          BASE64_CONTENT=$(base64 -w 0 stressgres.cast)
+          cat > stressgres.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <title>Asciinema Player Demo</title>
+              <link href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.2/dist/bundle/asciinema-player.min.css" rel="stylesheet">
+              <style>
+                body {
+                  margin: 0;
+                  padding: 0;
+                  background: #1a1a1a;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                  height: 100vh;
+                }
+                #player {
+                  width: 90%;
+                  height: 90%;
+                }
+              </style>
+            </head>
+            <body>
+              <div id="player"></div>
+              <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.2/dist/bundle/asciinema-player.min.js"></script>
+              <script>
+                const data = 'data:text/plain;base64,' + '${BASE64_CONTENT}';
+                AsciinemaPlayer.create(data, document.getElementById('player'), {fit: 'height'});
+              </script>
+            </body>
+          </html>
+          EOF
+
+      - name: Upload stressgres.html
         uses: actions/upload-artifact@v4
         with:
           name: stressgres-session
-          path: stressgres/stressgres.cast
+          path: stressgres/stressgres.html
 
       - name: Print Postgres Logs
         run: cat ~/.pgrx/${{ matrix.pg_version }}.log
@@ -132,4 +171,6 @@ jobs:
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"Stressgres pg_search Workflow failed in `paradedb/paradedb` -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+          curl -X POST -H 'Content-type: application/json' \
+          --data '{"text":"Stressgres pg_search Workflow failed in `paradedb/paradedb` -- investigate immediately!"}' \
+          ${{ secrets.SLACK_WEBHOOK_URL }}

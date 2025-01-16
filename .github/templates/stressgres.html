@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>Asciinema Player Demo</title>
+  <link href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.2/dist/bundle/asciinema-player.min.css"
+    rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #1a1a1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    #player {
+      width: 90%;
+      height: 90%;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="player"></div>
+  <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.2/dist/bundle/asciinema-player.min.js"></script>
+  <script>
+    const data = 'data:text/plain;base64,{{BASE64_CONTENT}}';
+    AsciinemaPlayer.create(data, document.getElementById('player'), {fit: 'height'});
+  </script>
+</body>
+
+</html>

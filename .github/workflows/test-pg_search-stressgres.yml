@@ -106,6 +106,7 @@ jobs:
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
       - name: Run Stressgres with Timeout
+        working-directory: stressgres/
         run: |
           RUST_BACKTRACE=1 timeout 6s /usr/local/bin/asciinema rec \
             --headless \

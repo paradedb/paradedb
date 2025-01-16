@@ -56,8 +56,7 @@ service:
 </ParamField>
 
 <ParamField body="logs_table_name" required>
-  Name of the table where OpenTelemetry (OTel) logs will be stored. Can be any
-  valid identifier for table name.
+  Name of the Postgres table within the provided database where the OpenTelemetry logs will be stored. It must be a valid, existing table.
 </ParamField>
 
 <ParamField body="traces_table_name" required>

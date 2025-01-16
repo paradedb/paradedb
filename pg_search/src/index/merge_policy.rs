@@ -1,5 +1,5 @@
 use crate::postgres::storage::block::{MergeLockData, MERGE_LOCK};
-use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use pgrx::pg_sys;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::SegmentMeta;
@@ -56,7 +56,7 @@ impl MergePolicy for NPlusOneMergePolicy {
 #[derive(Debug)]
 pub struct MergeLock {
     num_segments: u32,
-    buffer: PinnedBuffer,
+    _buffer: PinnedBuffer,
 }
 
 impl MergeLock {
@@ -81,14 +81,14 @@ impl MergeLock {
             let last_merge_visible = pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
                 || !pg_sys::XidInMVCCSnapshot(last_merge, snapshot);
 
-            if pg_sys::XidInMVCCSnapshot(last_merge, snapshot) {
-                None
-            } else {
+            if last_merge_visible {
                 metadata.last_merge = pg_sys::GetCurrentTransactionId();
                 Some(MergeLock {
                     num_segments: metadata.num_segments,
-                    buffer: merge_lock.unlock(),
+                    _buffer: merge_lock.unlock(),
                 })
+            } else {
+                None
             }
         } else {
             None
@@ -108,7 +108,7 @@ impl MergeLock {
 
         MergeLock {
             num_segments: metadata.num_segments,
-            buffer: merge_lock.unlock(),
+            _buffer: merge_lock.unlock(),
         }
     }
 

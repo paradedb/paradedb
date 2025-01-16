@@ -35,9 +35,6 @@ pub extern "C" fn amvacuumcleanup(
         if !delete_stats.is_null() {
             let cleanup_lock = (*delete_stats).cleanup_lock;
             pg_sys::UnlockReleaseBuffer(cleanup_lock);
-
-            crate::log_message(&format!("VACUUM CLEANUP {}", pg_sys::GetCurrentTransactionId()));
-            let _ = (*delete_stats).merge_lock.take();
         }
     }
 
@@ -51,7 +48,7 @@ pub extern "C" fn amvacuumcleanup(
         let heap_oid = pg_sys::IndexGetRelation(index_oid, false);
         let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
 
-        for blockno in 0..nblocks {
+        for blockno in 2..nblocks {
             check_for_interrupts!();
             let buffer = bman.get_buffer(blockno);
             let page = buffer.page();

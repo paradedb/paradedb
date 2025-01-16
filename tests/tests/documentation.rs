@@ -86,7 +86,7 @@ fn quickstart(mut conn: PgConnection) {
     assert!(
         rows[4].0 == "Sturdy hiking boots".to_string()
             || rows[4].0 == "Winter woolen socks".to_string()
-    );    
+    );
     assert_eq!(rows[0].3, 5.8135376);
     assert_eq!(rows[1].3, 5.4211845);
     assert_eq!(rows[2].3, 5.4211845);

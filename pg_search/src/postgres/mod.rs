@@ -29,6 +29,8 @@ mod validate;
 
 pub mod customscan;
 pub mod datetime;
+#[cfg(not(feature = "pg17"))]
+pub mod fake_aminsertcleanup;
 pub mod index;
 mod parallel;
 pub mod storage;

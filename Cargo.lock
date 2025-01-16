@@ -3262,8 +3262,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.11",
  "tokenizers",
- "tracing",
- "tracing-subscriber",
  "url",
  "uuid",
  "walkdir",

@@ -123,12 +123,13 @@ jobs:
             echo "Process timed out as expected."
           fi
 
-      - name: Create HTML from Template
+      - name: Create HTML from Template using envsubst
         shell: bash
         working-directory: stressgres/
         run: |
           TEMPLATE_PATH="$GITHUB_WORKSPACE/paradedb/.github/templates/stressgres.html"
-          cat "$TEMPLATE_PATH" | sed "s|{{BASE64_CONTENT}}|$(cat stressgres.cast | base64 -w 0)|" > stressgres.html
+          export BASE64_CONTENT=$(cat stressgres.cast | base64 -w 0)
+          envsubst < "$TEMPLATE_PATH" > stressgres.html
 
       - name: Upload stressgres.html
         uses: actions/upload-artifact@v4

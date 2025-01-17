@@ -127,9 +127,8 @@ jobs:
         shell: bash
         working-directory: stressgres/
         run: |
-          BASE64_CONTENT=$(base64 -w 0 stressgres.cast)
           TEMPLATE_PATH="$GITHUB_WORKSPACE/paradedb/.github/templates/stressgres.html"
-          sed "s|{{BASE64_CONTENT}}|$BASE64_CONTENT|" "$TEMPLATE_PATH" > stressgres.html
+          cat "$TEMPLATE_PATH" | sed "s|{{BASE64_CONTENT}}|$(cat stressgres.cast | base64 -w 0)|" > stressgres.html
 
       - name: Upload stressgres.html
         uses: actions/upload-artifact@v4

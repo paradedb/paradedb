@@ -77,12 +77,6 @@ jobs:
       - name: Install cargo-pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Download Asciinema v3.0.0-rc.3
-        run: |
-          curl -L https://github.com/asciinema/asciinema/releases/download/v3.0.0-rc.3/asciinema-x86_64-unknown-linux-gnu -o asciinema
-          chmod +x asciinema
-          mv asciinema /usr/local/bin/
-
       - name: Initialize cargo-pgrx environment
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
 
@@ -91,7 +85,6 @@ jobs:
         with:
           repository: paradedb/stressgres
           path: stressgres
-          ref: neil/unpaused
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
       - name: Add pg_search to shared_preload_libraries
@@ -110,39 +103,42 @@ jobs:
 
       - name: Run Stressgres with Timeout
         working-directory: stressgres/
-        # Must run cargo build before recording, or the build time will take up much of our recording before the timeout.
-        # Asciinema must run in --headless for Github Actions, which is only available in 3.0.
-        # Timeout will always exit with 124, which we should catch or the action step will fail.
         run: |
-          RUST_BACKTRACE=1 cargo build && timeout 6s /usr/local/bin/asciinema rec \
-            --headless \
-            --cols 180 \
-            --rows 60 \
-            --command 'cargo run suites/ci.toml "host=localhost port=28817 dbname=postgres" false' \
-            stressgres.cast || EXIT_CODE=$?
+          RUST_BACKTRACE=1 cargo build && timeout 6s \
+          cargo run -- \
+            headless suites/ci.toml "host=localhost port=28817 dbname=postgres" false \
+            --log-interval-ms 300 \
+            --log-file stressgres.log
 
           if [ "$EXIT_CODE" -eq 124 ]; then
             echo "Process timed out as expected."
           fi
 
-      - name: Create HTML from Template using sed
-        shell: bash
+      - name: Create Stressgres Graph
         working-directory: stressgres/
-        run: |
-          TEMPLATE_PATH="$GITHUB_WORKSPACE/paradedb/.github/templates/stressgres.html"
-          sed '/{{CAST_FILE_CONTENT}}/ {
-            s|{{CAST_FILE_CONTENT}}||
-            r stressgres.cast
-          }' "$TEMPLATE_PATH" > stressgres.html
+        run: cargo run -- graph --output stressgres.png stressgres.log
 
-      - name: Upload stressgres.html
+      - name: Upload Stressgres Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: stressgres-session
-          path: stressgres/stressgres.html
+          name: stressgres-artifacts
+          path: |
+            stressgres/stressgres.png
+            stressgres/stressgres.log
 
       - name: Print Postgres Logs
         run: cat ~/.pgrx/${{ matrix.pg_version }}.log
+
+      - name: Share Stressgres Results to Slack
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          method: files.uploadV2
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel_id: ${{ secrets.SLACK_CHANNEL_ID }}
+            initial_comment: "Stressgres stress test complete! The graph is attached. Logs are available at: https://your-host.example.com/path/to/stressgres.log"
+            file: "./stressgres/stressgres.png"
+            filename: "stressgres-${{ github.sha }}.png"
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

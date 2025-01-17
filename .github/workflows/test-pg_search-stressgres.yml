@@ -153,13 +153,7 @@ jobs:
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-          MESSAGE=$(cat <<EOF
-Stressgres pg_search Workflow failed in \`paradedb/paradedb\` -- investigate immediately!
-• GitHub Action Logs: ${GITHUB_RUN_URL}
-• Stressgres Log: ${ARTIFACT_URL}
-EOF
-          )
-          echo "Sending failure notification to Slack..."
+          MESSAGE="Stressgres pg_search Workflow failed in \`paradedb/paradedb\` -- investigate immediately! • GitHub Action Logs: ${GITHUB_RUN_URL} • Stressgres Log: ${ARTIFACT_URL}" echo "Sending failure notification to Slack..."
           curl -X POST -H 'Content-type: application/json' \
-            --data "{\"text\": \"${MESSAGE}\"}" \
-            ${SLACK_WEBHOOK_URL}
+          --data "{\"text\": \"${MESSAGE}\"}" \
+          ${SLACK_WEBHOOK_URL}

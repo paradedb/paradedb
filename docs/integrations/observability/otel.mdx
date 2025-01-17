@@ -59,11 +59,15 @@ service:
 </ParamField>
 
 <ParamField body="logs_table_name" required>
-Name of the Postgres table within the provided database where the OpenTelemetry logs will be stored. It must be a valid, unused table name in the provided database. The exporter will create the table.
+  Name of the Postgres table within the provided database where the
+  OpenTelemetry logs will be stored. It must be a valid, unused table name in
+  the provided database. The exporter will create the table.
 </ParamField>
 
 <ParamField body="traces_table_name" required>
-Name of the Postgres table within the provided database where the OpenTelemetry traces will be stored. It must be a valid, unused table name in the provided database. The exporter will create the table.
+  Name of the Postgres table within the provided database where the
+  OpenTelemetry traces will be stored. It must be a valid, unused table name in
+  the provided database. The exporter will create the table.
 </ParamField>
 
 <ParamField body="host" default="localhost" required>
@@ -140,9 +144,11 @@ Indexes:
 CREATE INDEX otellogs_search_idx ON otellogs
 USING bm25 (TimestampTime, ServiceName, SeverityText, Body)
 WITH (key_field='TimestampTime');
+
 ```
 
 ```
+
 -- Full text search for logs containing the keyword 'Processing'
 
 SELECT "TimestampTime", "ServiceName", "SeverityText", "Body"
@@ -150,7 +156,8 @@ FROM otellogs
 WHERE "Body" @@@ 'processing'
 ORDER BY paradedb.score("TimestampTime") DESC
 LIMIT 10;
-```
+
+````
 
 ### Output
   ``` TimestampTime | ServiceName | SeverityText | Body
@@ -165,5 +172,6 @@ LIMIT 10;
   2025-01-13 10:49:46.680701 | test-service | INFO | Starting order processing
   2025-01-13 10:49:47.757439 | test-service | INFO | Starting order processing
   2025-01-13 10:49:48.5583 | test-service | INFO | Processing batch 3 (10 rows)
-  ```
+````
+
 </Accordion>

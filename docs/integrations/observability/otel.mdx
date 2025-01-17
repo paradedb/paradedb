@@ -133,6 +133,7 @@ Indexes:
 
 ## Examples
 
+<Accordion title="Example">
 ```sql
 -- Creating BM25 index
 
@@ -151,7 +152,7 @@ ORDER BY paradedb.score("TimestampTime") DESC
 LIMIT 10;
 ```
 
-<Accordion title="Expected output">
+### Output
   ``` TimestampTime | ServiceName | SeverityText | Body
   ----------------------------+--------------+--------------+---------------------------
   2025-01-13 10:49:41.45282 | test-service | INFO | Processing batch 1

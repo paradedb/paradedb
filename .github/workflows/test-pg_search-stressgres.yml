@@ -123,13 +123,21 @@ jobs:
             echo "Process timed out as expected."
           fi
 
-      - name: Create HTML from Template using envsubst
+      - name: Create HTML from Template using sed file read
         shell: bash
         working-directory: stressgres/
         run: |
           TEMPLATE_PATH="$GITHUB_WORKSPACE/paradedb/.github/templates/stressgres.html"
-          export BASE64_CONTENT=$(cat stressgres.cast | base64 -w 0)
-          envsubst < "$TEMPLATE_PATH" > stressgres.html
+          # Write the base64 encoded content to a temporary file
+          base64 -w 0 stressgres.cast > temp_b64.txt
+          
+          # Use sed to replace the placeholder by:
+          # 1. Removing the placeholder text on the matching line
+          # 2. Inserting the contents of the temporary file
+          sed '/{{BASE64_CONTENT}}/ {
+            s/{{BASE64_CONTENT}}//
+            r temp_b64.txt
+          }' "$TEMPLATE_PATH" > stressgres.html
 
       - name: Upload stressgres.html
         uses: actions/upload-artifact@v4

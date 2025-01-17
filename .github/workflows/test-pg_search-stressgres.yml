@@ -85,7 +85,6 @@ jobs:
         with:
           repository: paradedb/stressgres
           path: stressgres
-          ref: neil/unpaused
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
       - name: Add pg_search to shared_preload_libraries

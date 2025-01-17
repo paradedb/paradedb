@@ -63,9 +63,7 @@ Name of the Postgres table within the provided database where the OpenTelemetry 
 </ParamField>
 
 <ParamField body="traces_table_name" required>
-  Name of the Postgres table within the provided database where the
-  OpenTelemetry traces will be stored. It must be a valid table name which is
-  then created by the exporter.
+Name of the Postgres table within the provided database where the OpenTelemetry traces will be stored. It must be a valid, unused table name in the provided database. The exporter will create the table.
 </ParamField>
 
 <ParamField body="host" default="localhost" required>

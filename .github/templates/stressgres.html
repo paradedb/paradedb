@@ -28,7 +28,7 @@
   <div id="player"></div>
   <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.2/dist/bundle/asciinema-player.min.js"></script>
   <script>
-    const data = 'data:text/plain;base64,{{BASE64_CONTENT}}';
+    const data = 'data:text/plain;base64,${BASE64_CONTENT}';
     AsciinemaPlayer.create(data, document.getElementById('player'), {fit: 'height'});
   </script>
 </body>

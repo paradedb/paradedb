@@ -107,7 +107,7 @@ jobs:
         run: |
           RUST_BACKTRACE=1 cargo build && timeout 6s \
           cargo run -- \
-            headless suites/ci.toml "host=localhost port=28817 dbname=postgres" false \
+            headless suites/ci.toml "host=localhost port=28817 dbname=postgres" \
             --log-interval-ms 300 \
             --log-file stressgres.log
 

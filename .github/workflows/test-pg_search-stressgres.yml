@@ -114,8 +114,6 @@ jobs:
         # Asciinema must run in --headless for Github Actions, which is only available in 3.0.
         # Timeout will always exit with 124, which we should catch or the action step will fail.
         run: |
-          # Set terminal size
-          stty cols 170 rows 40
           RUST_BACKTRACE=1 cargo build && timeout 10m /usr/local/bin/asciinema rec \
             --headless \
             --command 'cargo run suites/ci.toml "host=localhost port=28817 dbname=postgres" false' \

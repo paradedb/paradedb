@@ -26,10 +26,23 @@
 
 <body>
   <div id="player"></div>
+  <!-- The cast file content will be inlined here -->
+  <template id="asciicast-template">
+    {{CAST_FILE_CONTENT}}
+  </template>
   <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.2/dist/bundle/asciinema-player.min.js"></script>
   <script>
-    const data = 'data:text/plain;base64,{{BASE64_CONTENT}}';
-    AsciinemaPlayer.create(data, document.getElementById('player'), {fit: 'height'});
+    // Retrieve the multiline cast data from the template element.
+    // Using textContent avoids any HTML parsing issues.
+    const castData = document.getElementById('asciicast-template').content.textContent.trim();
+    console.log('Asciicast content:', castData);
+
+    // Initialize the player with the cast data at runtime.
+    AsciinemaPlayer.create(
+      {data: castData},
+      document.getElementById('player'),
+      {fit: 'height'}
+    );
   </script>
 </body>
 

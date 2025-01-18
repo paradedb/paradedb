@@ -146,7 +146,7 @@ jobs:
           payload: |
             text: "*Stressgres stress test complete!*\n
             - <${{ steps.artifact-graph.outputs.artifact-url }}|Graph>\n
-            - <${{ steps.artifact-logs.outputs.artifact-url }}"|Logs>
+            - <${{ steps.artifact-logs.outputs.artifact-url }}"|Logs>"
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

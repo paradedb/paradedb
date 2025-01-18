@@ -138,13 +138,12 @@ jobs:
       - name: Share Stressgres Results to Slack
         uses: slackapi/slack-github-action@v2.0.0
         with:
-          method: files.uploadV2
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
-            channel_id: ${{ secrets.SLACK_CHANNEL_ID }}
-            initial_comment: "Stressgres stress test complete! Graph attached. Logs: ${{ steps.artifact-logs.outputs.artifact-url }}"
-            file: "./stressgres/stressgres.png"
-            filename: "stressgres-${{ github.sha }}.png"
+            text: "Stressgres stress test complete! 
+            • Graph: ${{ steps.artifact-graph.outputs.artifact-url }}
+            • Logs: ${{ steps.artifact-logs.outputs.artifact-url }}"
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

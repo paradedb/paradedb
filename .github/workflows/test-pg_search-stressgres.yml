@@ -120,6 +120,7 @@ jobs:
         run: cargo run -- graph --output stressgres.png stressgres.log
 
       - name: Upload Stressgres Graph
+        id: artifact-graph
         uses: actions/upload-artifact@v4
         with:
           name: stressgres-graph

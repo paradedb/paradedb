@@ -6,19 +6,6 @@
 name: Test pg_search Stressgres
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-    branches:
-      - dev
-      - main
-    paths:
-      - ".github/workflows/test-pg_search-stressgres.yml"
-      - "pg_search/**"
-      - "tokenizers/**"
   schedule:
     - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
   push:

@@ -59,7 +59,7 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branc
+      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         uses: ubicloud/rust-cache@v2
@@ -103,7 +103,7 @@ jobs:
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
-      - name: Run Stressgres with Timeout
+      - name: Run Stressgres Test Suite
         working-directory: stressgres/
         run: |
           RUST_BACKTRACE=1 cargo build && timeout 10m \

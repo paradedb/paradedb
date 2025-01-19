@@ -46,7 +46,7 @@ const MIN_NUM_SEGMENTS: usize = 2;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
     Snapshot,
-    Any,
+    Vacuum,
 }
 
 /// Tantivy Directory trait implementation over block storage
@@ -80,7 +80,7 @@ impl MVCCDirectory {
         Self {
             relation_oid,
             merge_policy,
-            mvcc_style: MvccSatisfies::Any,
+            mvcc_style: MvccSatisfies::Vacuum,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             merge_lock: Default::default(),
         }

@@ -19,6 +19,8 @@ use pgrx::{pg_sys::ItemPointerData, *};
 use tantivy::Term;
 
 use super::storage::block::CLEANUP_LOCK;
+use super::storage::buffer::BufferManager;
+
 use crate::index::fast_fields_helper::FFType;
 use crate::index::merge_policy::MergeLock;
 use crate::index::reader::index::SearchIndexReader;
@@ -98,15 +100,8 @@ pub extern "C" fn ambulkdelete(
     // are safe to resume.
     if did_delete {
         unsafe {
-            let cleanup_buffer = pg_sys::ReadBufferExtended(
-                info.index,
-                pg_sys::ForkNumber::MAIN_FORKNUM,
-                CLEANUP_LOCK,
-                pg_sys::ReadBufferMode::RBM_NORMAL,
-                info.strategy,
-            );
-            pg_sys::LockBufferForCleanup(cleanup_buffer);
-            pg_sys::UnlockReleaseBuffer(cleanup_buffer);
+            let mut bman = BufferManager::new(index_relation.oid());
+            let _ = bman.get_buffer_for_cleanup(CLEANUP_LOCK, info.strategy);
 
             let mut opaque = PgBox::<BulkDeleteData>::alloc0();
             opaque.stats = *stats;

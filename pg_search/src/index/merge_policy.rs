@@ -78,8 +78,13 @@ impl MergeLock {
             let metadata = page.contents_mut::<MergeLockData>();
             let last_merge = metadata.last_merge;
             let snapshot = pg_sys::GetActiveSnapshot();
-            let last_merge_visible = pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
-                || !pg_sys::XidInMVCCSnapshot(last_merge, snapshot);
+            let heap_oid = pg_sys::IndexGetRelation(relation_oid, false);
+            let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
+            let last_merge_visible = !pg_sys::TransactionIdIsNormal(last_merge)
+                || pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
+                || (!pg_sys::XidInMVCCSnapshot(last_merge, snapshot)
+                    && pg_sys::GlobalVisCheckRemovableXid(heap_relation, last_merge));
+            pg_sys::RelationClose(heap_relation);
 
             if last_merge_visible {
                 metadata.last_merge = pg_sys::GetCurrentTransactionId();
@@ -99,13 +104,12 @@ impl MergeLock {
     // We ask for an exclusive lock because ambulkdelete must delete all dead ctids
     pub unsafe fn acquire_for_delete(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
-        let mut merge_lock = bman.get_buffer_for_cleanup(
+        let merge_lock = bman.get_buffer_for_cleanup(
             MERGE_LOCK,
             pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_NORMAL),
         );
-        let mut page = merge_lock.page_mut();
-        let metadata = page.contents_mut::<MergeLockData>();
-        metadata.last_merge = pg_sys::ReadNextFullTransactionId().value as u32;
+        let page = merge_lock.page();
+        let metadata = page.contents::<MergeLockData>();
 
         MergeLock {
             num_segments: metadata.num_segments,

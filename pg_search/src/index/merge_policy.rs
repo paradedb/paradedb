@@ -78,13 +78,14 @@ impl MergeLock {
             let metadata = page.contents_mut::<MergeLockData>();
             let last_merge = metadata.last_merge;
             let snapshot = pg_sys::GetActiveSnapshot();
-            let heap_oid = pg_sys::IndexGetRelation(relation_oid, false);
-            let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
-            let last_merge_visible = !pg_sys::TransactionIdIsNormal(last_merge)
+            let last_merge_visible = {
+                // this is the first merge that's ever happened
+                !pg_sys::TransactionIdIsNormal(last_merge)
+                // the last merge was committed by the current transaction, so it's visible
                 || pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
-                || (!pg_sys::XidInMVCCSnapshot(last_merge, snapshot)
-                    && pg_sys::GlobalVisCheckRemovableXid(heap_relation, last_merge));
-            pg_sys::RelationClose(heap_relation);
+                // the last merge is visible to the current transaction
+                || !pg_sys::XidInMVCCSnapshot(last_merge, snapshot)
+            };
 
             if last_merge_visible {
                 metadata.last_merge = pg_sys::GetCurrentTransactionId();

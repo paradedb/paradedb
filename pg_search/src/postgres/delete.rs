@@ -28,7 +28,7 @@ use crate::index::{BlockDirectoryType, WriterResources};
 #[repr(C)]
 pub struct BulkDeleteData {
     stats: pg_sys::IndexBulkDeleteResult,
-    pub cleanup_lock: pg_sys::Buffer,
+    pub merge_lock: Option<MergeLock>,
 }
 
 #[pg_guard]
@@ -49,7 +49,7 @@ pub extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
+    let merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
     let mut writer = SearchIndexWriter::open(
         &index_relation,
         BlockDirectoryType::BulkDelete,
@@ -76,8 +76,6 @@ pub extern "C" fn ambulkdelete(
             }
         }
     }
-
-    // Don't merge here, amvacuumcleanup will merge
     writer
         .commit()
         .expect("ambulkdelete: commit should succeed");
@@ -108,10 +106,15 @@ pub extern "C" fn ambulkdelete(
                 info.strategy,
             );
             pg_sys::LockBufferForCleanup(cleanup_buffer);
+            pg_sys::UnlockReleaseBuffer(cleanup_buffer);
 
             let mut opaque = PgBox::<BulkDeleteData>::alloc0();
             opaque.stats = *stats;
-            opaque.cleanup_lock = cleanup_buffer;
+            // opaque.cleanup_lock = cleanup_buffer;
+            // A merge cannot kick off while vacuum is running
+            // To prevent this, we keep the merge lock in the IndexBulkDeleteResult state
+            // Its Drop impl will be invoked when Postgres cleans up after vacuum
+            opaque.merge_lock = Some(merge_lock);
             opaque.into_pg() as *mut pg_sys::IndexBulkDeleteResult
         }
     } else {

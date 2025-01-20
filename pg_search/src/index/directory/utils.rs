@@ -336,9 +336,18 @@ pub unsafe fn load_metas(
 
         while offsetno <= max_offset {
             if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if (solve_mvcc == MvccSatisfies::Any && !entry.recyclable(snapshot, heap_relation))
-                    || (solve_mvcc == MvccSatisfies::Snapshot && entry.visible(snapshot))
-                {
+                let visible = match solve_mvcc {
+                    MvccSatisfies::Vacuum => {
+                        !entry.recyclable(snapshot, heap_relation)
+                            && pg_sys::TransactionIdPrecedes(
+                                entry.get_xmin(),
+                                pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId,
+                            )
+                    }
+                    MvccSatisfies::Snapshot => entry.visible(snapshot),
+                };
+
+                if visible {
                     let inner_segment_meta = InnerSegmentMeta {
                         max_doc: entry.max_doc,
                         segment_id: entry.segment_id,

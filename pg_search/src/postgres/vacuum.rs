@@ -19,8 +19,6 @@ use crate::postgres::storage::block::VACUUM_START;
 use crate::postgres::storage::buffer::BufferManager;
 use pgrx::*;
 
-use super::delete::BulkDeleteData;
-
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
     info: *mut pg_sys::IndexVacuumInfo,
@@ -29,14 +27,6 @@ pub extern "C" fn amvacuumcleanup(
     let info = unsafe { PgBox::from_pg(info) };
     if info.analyze_only {
         return stats;
-    }
-
-    unsafe {
-        let delete_stats = stats as *mut BulkDeleteData;
-        if !delete_stats.is_null() {
-            let cleanup_lock = (*delete_stats).cleanup_lock;
-            pg_sys::UnlockReleaseBuffer(cleanup_lock);
-        }
     }
 
     // return all recyclable pages to the free space map

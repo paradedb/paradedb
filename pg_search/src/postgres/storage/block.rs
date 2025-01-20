@@ -142,6 +142,7 @@ pub struct DeleteEntry {
 /// Metadata for tracking alive segments
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SegmentMetaEntry {
+    pub merge_happened: bool,
     pub segment_id: SegmentId,
     pub max_doc: u32,
     pub xmin: pg_sys::TransactionId,

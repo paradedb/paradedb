@@ -15,15 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::delete::BulkDeleteData;
 use crate::postgres::storage::block::VACUUM_START;
 use crate::postgres::storage::buffer::BufferManager;
 use pgrx::*;
 
 #[pg_guard]
-pub extern "C" fn amvacuumcleanup(
+pub unsafe extern "C" fn amvacuumcleanup(
     info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
+    let bulk_delete_data = stats.cast::<BulkDeleteData>();
+
     let info = unsafe { PgBox::from_pg(info) };
     if info.analyze_only {
         return stats;
@@ -50,6 +53,11 @@ pub extern "C" fn amvacuumcleanup(
         }
         pg_sys::RelationClose(heap_relation);
         pg_sys::IndexFreeSpaceMapVacuum(info.index);
+    }
+
+    if !bulk_delete_data.is_null() {
+        let merge_lock = (*bulk_delete_data).merge_lock.take();
+        drop(merge_lock);
     }
 
     // TODO: Update stats

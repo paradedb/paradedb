@@ -33,7 +33,7 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
-use tantivy::index::Index;
+use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryParser, Weight};
 use tantivy::schema::FieldType;
 use tantivy::termdict::TermOrdinal;
@@ -177,6 +177,7 @@ impl Iterator for SearchResults {
                                 .expect("ctid should be present"),
                             bm25: score,
                         };
+
                         return Some((scored, doc_address));
                     }
                     None => {
@@ -421,17 +422,28 @@ impl SearchIndexReader {
     pub fn search_segment(
         &self,
         need_scores: bool,
-        segment_ord: SegmentOrdinal,
+        segment_id: SegmentId,
         query: &SearchQueryInput,
     ) -> SearchResults {
         let weight = self.weight(need_scores, query);
-        let segment_reader = self.searcher.segment_reader(segment_ord);
+        let (segment_ord, segment_reader) = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .enumerate()
+            .find(|(_, reader)| reader.segment_id() == segment_id)
+            .expect("segment {segment_id} should exist");
         let iter = scorer_iter::ScorerIter::new(
             DeferredScorer::new(weight, segment_reader.clone()),
-            segment_ord,
+            segment_ord as SegmentOrdinal,
             segment_reader.clone(),
         );
-        SearchResults::SingleSegment(self.searcher.clone(), segment_ord, None, iter)
+        SearchResults::SingleSegment(
+            self.searcher.clone(),
+            segment_ord as SegmentOrdinal,
+            None,
+            iter,
+        )
     }
 
     /// Search the Tantivy index for the "top N" matching documents.
@@ -465,7 +477,7 @@ impl SearchIndexReader {
     /// handle that, if it's necessary.
     pub fn search_top_n_in_segment(
         &self,
-        segment_ord: SegmentOrdinal,
+        segment_id: SegmentId,
         query: &SearchQueryInput,
         sort_field: Option<String>,
         sortdir: SortDirection,
@@ -477,9 +489,9 @@ impl SearchIndexReader {
                 !need_scores,
                 "cannot sort by field and get scores in the same query"
             );
-            self.top_by_field_in_segment(segment_ord, query, sort_field, sortdir, n)
+            self.top_by_field_in_segment(segment_id, query, sort_field, sortdir, n)
         } else {
-            self.top_by_score_in_segment(segment_ord, query, sortdir, n, need_scores)
+            self.top_by_score_in_segment(segment_id, query, sortdir, n, need_scores)
         }
     }
 
@@ -573,12 +585,19 @@ impl SearchIndexReader {
     /// handle that, if it's necessary.
     fn top_by_field_in_segment(
         &self,
-        segment_ord: SegmentOrdinal,
+        segment_id: SegmentId,
         query: &SearchQueryInput,
         sort_field: String,
         sortdir: SortDirection,
         n: usize,
     ) -> SearchResults {
+        let (segment_ord, segment_reader) = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .enumerate()
+            .find(|(_, reader)| reader.segment_id() == segment_id)
+            .expect("segment {segment_id} should exist");
         let sort_field = self
             .schema
             .get_search_field(&SearchFieldName(sort_field.clone()))
@@ -596,8 +615,8 @@ impl SearchIndexReader {
         let top_docs = collector
             .collect_segment(
                 weight.as_ref(),
-                segment_ord,
-                self.searcher.segment_reader(segment_ord),
+                segment_ord as SegmentOrdinal,
+                segment_reader,
             )
             .expect("should be able to collect top-n in segment");
         let top_docs = collector
@@ -619,12 +638,20 @@ impl SearchIndexReader {
     /// handle that, if it's necessary.
     fn top_by_score_in_segment(
         &self,
-        segment_ord: SegmentOrdinal,
+        segment_id: SegmentId,
         query: &SearchQueryInput,
         sortdir: SortDirection,
         n: usize,
         _need_scores: bool,
     ) -> SearchResults {
+        let (segment_ord, segment_reader) = self
+            .searcher
+            .segment_readers()
+            .iter()
+            .enumerate()
+            .find(|(_, reader)| reader.segment_id() == segment_id)
+            .expect("segment {segment_id} should exist");
+
         let query = self.query(query);
         let weight = query
             .weight(tantivy::query::EnableScoring::Enabled {
@@ -647,8 +674,8 @@ impl SearchIndexReader {
                 let top_docs = collector
                     .collect_segment(
                         weight.as_ref(),
-                        segment_ord,
-                        self.searcher.segment_reader(segment_ord),
+                        segment_ord as SegmentOrdinal,
+                        segment_reader,
                     )
                     .expect("should be able to collect top-n in segment");
 
@@ -669,8 +696,8 @@ impl SearchIndexReader {
                 let top_docs = collector
                     .collect_segment(
                         weight.as_ref(),
-                        segment_ord,
-                        self.searcher.segment_reader(segment_ord),
+                        segment_ord as SegmentOrdinal,
+                        segment_reader,
                     )
                     .expect("should be able to collect top-n in segment");
 
@@ -686,13 +713,17 @@ impl SearchIndexReader {
             }
 
             SortDirection::None => {
-                let segment_reader = self.searcher.segment_reader(segment_ord);
                 let iter = scorer_iter::ScorerIter::new(
                     DeferredScorer::new(weight, segment_reader.clone()),
-                    segment_ord,
+                    segment_ord as SegmentOrdinal,
                     segment_reader.clone(),
                 );
-                SearchResults::SingleSegment(self.searcher.clone(), segment_ord, None, iter)
+                SearchResults::SingleSegment(
+                    self.searcher.clone(),
+                    segment_ord as SegmentOrdinal,
+                    None,
+                    iter,
+                )
             }
         }
     }

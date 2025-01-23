@@ -109,7 +109,7 @@ pub extern "C" fn amrescan(
     })
     .expect("amrescan: should be able to open a SearchIndexReader");
     unsafe {
-        parallel::maybe_init_parallel_scan(scan, search_reader.searcher());
+        parallel::maybe_init_parallel_scan(scan, &search_reader);
 
         let options = (*(*scan).indexRelation).rd_options as *mut SearchIndexCreateOptions;
         let key_field = (*options)
@@ -178,11 +178,11 @@ pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {
 }
 
 #[pg_guard]
-pub extern "C" fn amgettuple(
+pub unsafe extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection::Type,
 ) -> bool {
-    let state = unsafe {
+    let state = {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
         (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
@@ -190,13 +190,11 @@ pub extern "C" fn amgettuple(
             .expect("opaque should be a Bm25ScanState")
     };
 
-    unsafe {
-        (*scan).xs_recheck = false;
-    }
+    (*scan).xs_recheck = false;
 
     loop {
         match state.results.next() {
-            Some((scored, doc_address)) => unsafe {
+            Some((scored, doc_address)) => {
                 let ipd = &mut (*scan).xs_heaptid;
                 crate::postgres::utils::u64_to_item_pointer(scored.ctid, ipd);
 
@@ -265,7 +263,7 @@ pub extern "C" fn amgettuple(
                 }
 
                 return true;
-            },
+            }
             None => {
                 if search_next_segment(scan, state) {
                     // loop back around to start returning results from this segment
@@ -280,11 +278,14 @@ pub extern "C" fn amgettuple(
 }
 
 #[pg_guard]
-pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
+pub unsafe extern "C" fn amgetbitmap(
+    scan: pg_sys::IndexScanDesc,
+    tbm: *mut pg_sys::TIDBitmap,
+) -> i64 {
     assert!(!tbm.is_null());
     assert!(!scan.is_null());
 
-    let state = unsafe {
+    let state = {
         // SAFETY:  We set `scan.opaque` to a leaked pointer of type `PgSearchScanState` above in
         // amrescan, which is always called prior to this function
         (*(*scan).opaque.cast::<Option<Bm25ScanState>>())
@@ -298,11 +299,9 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
             let mut ipd = pg_sys::ItemPointerData::default();
             crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut ipd);
 
-            unsafe {
-                // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
-                // initialized as a stack-allocated ItemPointerData
-                pg_sys::tbm_add_tuples(tbm, &mut ipd, 1, false);
-            }
+            // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
+            // initialized as a stack-allocated ItemPointerData
+            pg_sys::tbm_add_tuples(tbm, &mut ipd, 1, false);
 
             cnt += 1;
         }
@@ -319,7 +318,7 @@ pub extern "C" fn amgetbitmap(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TID
 }
 
 // if there's a segment to be claimed for parallel query execution, do that now
-fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
+unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
     if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
         state.results = state.reader.search_segment(
             state.need_scores,

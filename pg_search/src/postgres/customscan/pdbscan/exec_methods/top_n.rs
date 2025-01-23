@@ -22,7 +22,7 @@ use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::query::SearchQueryInput;
 use pgrx::{direct_function_call, pg_sys, IntoDatum};
-use tantivy::SegmentOrdinal;
+use tantivy::index::SegmentId;
 
 // TODO:  should these be GUCs?  I think yes, probably
 const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;
@@ -48,7 +48,7 @@ pub struct TopNScanExecState {
     found: usize,
     chunk_size: usize,
     retry_count: usize,
-    current_segment: SegmentOrdinal,
+    current_segment: SegmentId,
 }
 
 impl TopNScanExecState {
@@ -70,20 +70,20 @@ impl TopNScanExecState {
     fn query_more_results(
         &mut self,
         state: &mut PdbScanState,
-        current_segment: Option<SegmentOrdinal>,
+        current_segment: Option<SegmentId>,
     ) -> SearchResults {
         if let Some(parallel_state) = state.parallel_state {
             // we're parallel, so either query the provided segment or go get a segment from the parallel state
-            let segment_ord = current_segment
+            let segment_id = current_segment
                 .map(Some)
                 .unwrap_or_else(|| unsafe { checkout_segment(parallel_state) });
 
-            if let Some(segment_ord) = segment_ord {
-                self.current_segment = segment_ord;
+            if let Some(segment_id) = segment_id {
+                self.current_segment = segment_id;
 
                 let search_reader = state.search_reader.as_ref().unwrap();
                 search_reader.search_top_n_in_segment(
-                    segment_ord,
+                    segment_id,
                     self.search_query_input.as_ref().unwrap(),
                     self.sort_field.clone(),
                     self.sort_direction.into(),

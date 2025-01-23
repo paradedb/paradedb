@@ -264,7 +264,7 @@ dependencies = [
  "futures-lite 2.6.0",
  "parking",
  "polling 3.7.4",
- "rustix 0.38.43",
+ "rustix 0.38.44",
  "slab",
  "tracing",
  "windows-sys 0.59.0",
@@ -625,7 +625,7 @@ dependencies = [
  "anyhow",
  "async-std",
  "chrono",
- "clap 4.5.26",
+ "clap 4.5.27",
  "cmd_lib",
  "criterion",
  "dotenvy",
@@ -660,7 +660,7 @@ checksum = "2d886547e41f740c616ae73108f6eb70afe6d940c7bc697cb30f13daec073037"
 dependencies = [
  "camino",
  "cargo-platform",
- "semver 1.0.24",
+ "semver 1.0.25",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -684,9 +684,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.2.9"
+version = "1.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8293772165d9345bdaaa39b45b2109591e63fe5e6fbc23c6ff930a048aa310b"
+checksum = "13208fcbb66eaeffe09b99fffbe1af420f00a7b35aa99ad683dfc1aa76145229"
 dependencies = [
  "jobserver",
  "libc",
@@ -804,9 +804,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.26"
+version = "4.5.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8eb5e908ef3a6efbe1ed62520fb7287959888c88485abe072543190ecc66783"
+checksum = "769b0145982b4b48713e01ec42d61614425f27b7058bda7180a3a41f30104796"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -820,14 +820,14 @@ checksum = "23b2ea69cefa96b848b73ad516ad1d59a195cdf9263087d977f648a818c8b43e"
 dependencies = [
  "anstyle",
  "cargo_metadata",
- "clap 4.5.26",
+ "clap 4.5.27",
 ]
 
 [[package]]
 name = "clap_builder"
-version = "4.5.26"
+version = "4.5.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96b01801b5fc6a0a232407abc821660c9c6d25a1cafc0d4f85f29fb8d9afc121"
+checksum = "1b26884eb4b57140e4d2d93652abfa49498b938b3c9179f9fc487b0acc3edad7"
 dependencies = [
  "anstream",
  "anstyle",
@@ -980,7 +980,7 @@ dependencies = [
  "async-std",
  "cast",
  "ciborium",
- "clap 4.5.26",
+ "clap 4.5.27",
  "criterion-plot",
  "futures",
  "is-terminal",
@@ -1066,9 +1066,9 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
 name = "crunchy"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
+checksum = "43da5946c66ffcc7745f48db692ffbb10a83bfe0afd96235c5c2a4fb23994929"
 
 [[package]]
 name = "crypto-common"
@@ -2271,9 +2271,9 @@ checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
 name = "indexmap"
-version = "2.7.0"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62f822373a4fe84d4bb149bf54e584a7f4abec90e072ed49cda0edea5b95471f"
+checksum = "8c9c992b02b5b4c94ea26e32fe5bccb7aa7d9f390ab5c1221ff895bc7ea8b652"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.2",
@@ -2310,19 +2310,19 @@ dependencies = [
 
 [[package]]
 name = "ipnet"
-version = "2.10.1"
+version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddc24109865250148c2e0f3d25d4f0f479571723792d3802153c60922a4fb708"
+checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
 
 [[package]]
 name = "is-terminal"
-version = "0.4.13"
+version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "261f68e344040fbd0edea105bef17c66edf46f984ddb1115b775ce31be948f4b"
+checksum = "e19b23d53f35ce9f56aebc7d1bb4e6ac1e9c0db7ac85c8d1760c04379edced37"
 dependencies = [
  "hermit-abi 0.4.0",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3061,7 +3061,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -3518,7 +3518,7 @@ dependencies = [
  "concurrent-queue",
  "hermit-abi 0.4.0",
  "pin-project-lite",
- "rustix 0.38.43",
+ "rustix 0.38.44",
  "tracing",
  "windows-sys 0.59.0",
 ]
@@ -4117,7 +4117,7 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
 dependencies = [
- "semver 1.0.24",
+ "semver 1.0.25",
 ]
 
 [[package]]
@@ -4136,9 +4136,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.43"
+version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a78891ee6bf2340288408954ac787aa063d8e8817e9f53abb37c695c6d834ef6"
+checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
 dependencies = [
  "bitflags 2.8.0",
  "errno",
@@ -4283,9 +4283,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.24"
+version = "1.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cb6eb87a131f756572d7fb904f6e7b68633f09cca868c5df1c4b8d1a694bbba"
+checksum = "f79dfe2d285b0488816f30e700a7438c5a73d816b5b7d3ac72fbc48b0d185e03"
 dependencies = [
  "serde",
 ]
@@ -4331,9 +4331,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.135"
+version = "1.0.137"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b0d7ba2887406110130a978386c4e1befb98c674b4fba677954e4db976630d9"
+checksum = "930cfb6e6abf99298aaad7d29abbef7a9999a9a8806a40088f55f0dcec03146b"
 dependencies = [
  "indexmap",
  "itoa",
@@ -4921,7 +4921,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -4972,7 +4972,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "bitpacking",
 ]
@@ -4980,7 +4980,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -4995,7 +4995,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -5017,7 +5017,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "nom",
 ]
@@ -5025,7 +5025,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -5038,7 +5038,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "murmurhash32",
  "rand_distr",
@@ -5048,7 +5048,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=25dbb0027102ff71c72a84ff3e0be0234a059007#25dbb0027102ff71c72a84ff3e0be0234a059007"
+source = "git+https://github.com/paradedb/tantivy.git?rev=75dec2cf9596eea24dd912a81b1dfdf190064d1a#75dec2cf9596eea24dd912a81b1dfdf190064d1a"
 dependencies = [
  "serde",
 ]
@@ -5080,7 +5080,7 @@ dependencies = [
  "fastrand 2.3.0",
  "getrandom",
  "once_cell",
- "rustix 0.38.43",
+ "rustix 0.38.44",
  "windows-sys 0.59.0",
 ]
 
@@ -5521,9 +5521,9 @@ checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.14"
+version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb9e6ca4f869e1180728b7950e35922a7fc6397f7b641499e8f3ef06e50dc83"
+checksum = "11cd88e12b17c6494200a9c1b683a04fcac9573ed74cd1b62aeb2727c5592243"
 
 [[package]]
 name = "unicode-normalization"
@@ -5607,9 +5607,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.12.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "744018581f9a3454a9e15beb8a33b017183f1e7c0cd170232a2d1453b23a51c4"
+checksum = "b3758f5e68192bb96cc8f9b7e2c2cfdabb435499a28499a42f8f984092adad4b"
 dependencies = [
  "getrandom",
  "serde",
@@ -5617,9 +5617,9 @@ dependencies = [
 
 [[package]]
 name = "valuable"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "value-bag"
@@ -5781,7 +5781,7 @@ dependencies = [
  "either",
  "home",
  "once_cell",
- "rustix 0.38.43",
+ "rustix 0.38.44",
 ]
 
 [[package]]
@@ -6071,7 +6071,7 @@ checksum = "e105d177a3871454f754b33bb0ee637ecaaac997446375fd3e5d43a2ed00c909"
 dependencies = [
  "libc",
  "linux-raw-sys 0.4.15",
- "rustix 0.38.43",
+ "rustix 0.38.44",
 ]
 
 [[package]]

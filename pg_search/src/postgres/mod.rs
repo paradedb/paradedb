@@ -15,7 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::parallel::Spinlock;
 use pgrx::*;
+use std::ptr::{addr_of, addr_of_mut};
+use tantivy::index::SegmentId;
 
 mod build;
 mod cost;
@@ -111,5 +115,63 @@ pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)
             }
         }
         None
+    }
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct ParallelScanState {
+    pub mutex: Spinlock,
+    pub segment_count: usize,
+    pub remaining_segments: usize,
+    pub segment_uuids: [u8; 0], // dynamically sized, allocated after end
+}
+
+impl ParallelScanState {
+    #[inline]
+    const fn size_of_with_segments(nsegments: usize) -> usize {
+        // a SegmentId, in byte form, is 16 bytes
+        size_of::<Self>() + (nsegments * 16)
+    }
+
+    unsafe fn get_segment_id(&self, i: usize) -> SegmentId {
+        unsafe {
+            if i >= self.segment_count {
+                panic!(
+                    "index {i} out of bounds.  segment_count={}",
+                    self.segment_count
+                );
+            }
+            let ptr = addr_of!(self.segment_uuids) as *mut [u8; 16];
+            SegmentId::from_bytes(ptr.add(i).read())
+        }
+    }
+
+    unsafe fn assign_segment_ids(&mut self, search_index_reader: &SearchIndexReader) {
+        self.segment_count = search_index_reader.segment_readers().len();
+        self.remaining_segments = self.segment_count;
+
+        for (i, segment_reader) in search_index_reader.segment_readers().iter().enumerate() {
+            self.set_segment_id(i, segment_reader.segment_id());
+        }
+    }
+
+    unsafe fn set_segment_id(&mut self, i: usize, segment_id: SegmentId) {
+        unsafe {
+            if i >= self.segment_count {
+                panic!(
+                    "segment ordinal is out of bounds.  i={i}, segment_count={}",
+                    self.segment_count
+                );
+            } else if i >= u16::MAX as usize {
+                panic!(
+                    "index has more than {} segments, which is not supported by parallel scans",
+                    u16::MAX
+                );
+            }
+
+            let ptr = addr_of_mut!(self.segment_uuids) as *mut [u8; 16];
+            ptr.add(i).write(*segment_id.uuid_bytes())
+        }
     }
 }

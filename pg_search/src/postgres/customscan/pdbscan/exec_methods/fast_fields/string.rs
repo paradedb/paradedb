@@ -33,6 +33,7 @@ use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use tantivy::collector::Collector;
+use tantivy::index::SegmentId;
 use tantivy::query::Query;
 use tantivy::{DocAddress, Executor, SegmentOrdinal};
 
@@ -72,13 +73,13 @@ impl ExecMethod for StringFastFieldExecState {
 
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
-            if let Some(segment_ord) = unsafe { checkout_segment(parallel_state) } {
+            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
                 let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap().clone());
                 self.search_results = searcher.string_agg_by_segment(
                     state.need_scores(),
                     &state.search_query_input,
                     &self.field,
-                    segment_ord,
+                    segment_id,
                 );
                 return true;
             }
@@ -300,11 +301,15 @@ impl StringAggSearcher {
         need_scores: bool,
         query: &SearchQueryInput,
         field: &str,
-        segment_ord: SegmentOrdinal,
+        segment_id: SegmentId,
     ) -> StringAggResults {
-        let (sender, receiver) = crossbeam::channel::unbounded();
-
-        let segment_reader = self.0.searcher().segment_reader(segment_ord);
+        let (segment_ord, segment_reader) = self
+            .0
+            .segment_readers()
+            .iter()
+            .enumerate()
+            .find(|(_, reader)| reader.segment_id() == segment_id)
+            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
         let collector = term_ord_collector::TermOrdCollector {
             need_scores,
             field: field.into(),
@@ -327,7 +332,11 @@ impl StringAggSearcher {
             .expect("weight should be constructable");
 
         let (str_ff, results) = collector
-            .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+            .collect_segment(
+                weight.as_ref(),
+                segment_ord as SegmentOrdinal,
+                segment_reader,
+            )
             .expect("single segment collection should succeed");
 
         let field = field.to_string();
@@ -335,6 +344,7 @@ impl StringAggSearcher {
         let dictionary = str_ff.dictionary();
         let term_ords = results.keys().cloned().collect::<Vec<_>>();
         let mut results = results.into_iter();
+        let (sender, receiver) = crossbeam::channel::unbounded();
         dictionary
             .sorted_ords_to_term_cb(term_ords.into_iter(), |bytes| {
                 let term = std::str::from_utf8(bytes)

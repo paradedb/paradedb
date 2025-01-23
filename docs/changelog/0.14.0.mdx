@@ -22,8 +22,12 @@ To ParadeDB Enterprise it brings:
 Because this is a breaking change, upgrade scripts to `0.14.0` are not provided. To upgrade:
 
 1. Drop all existing `pg_search` indexes
-2. Drop and recreate the `pg_search` extension
-3. Rebuild all indexes
+2. Drop the `pg_search` extension
+3. Stop Postgres
+4. Pull the latest Docker image or download and install the latest `pg_search` extension binary
+5. Start Postgres
+6. Create the `pg_search` extension
+7. Rebuild all indexes
 
 ## Full Changelog
 

@@ -1118,6 +1118,86 @@ fn json_queries(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn json_arrays(mut conn: PgConnection) {
+    //
+    // 1) Create the mock_items test table with ParadeDB helper
+    //
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+    "#
+    .execute(&mut conn);
+
+    //
+    // 2) Insert some JSON arrays so we can test array-flattening
+    //
+    r#"
+    UPDATE mock_items
+    SET metadata = '{"colors": ["red", "green", "blue"]}'::jsonb
+    WHERE id = 1;
+    UPDATE mock_items
+    SET metadata = '{"colors": ["red", "yellow"]}'::jsonb
+    WHERE id = 2;
+    UPDATE mock_items
+    SET metadata = '{"colors": ["blue", "purple"]}'::jsonb
+    WHERE id = 3;
+    "#
+    .execute(&mut conn);
+
+    //
+    // 3) Create an index that includes metadata
+    //
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, metadata)
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    //
+    // 4) Query via function syntax
+    //
+    let rows: Vec<(String, serde_json::Value)> = r#"
+    SELECT description, metadata
+    FROM mock_items
+    WHERE id @@@ paradedb.term('metadata.colors', 'blue')
+       OR id @@@ paradedb.term('metadata.colors', 'red');
+    "#
+    .fetch(&mut conn);
+
+    // We expect these three rows to match IDs 1, 2, and/or 3
+    assert_eq!(rows.len(), 3);
+
+    //
+    // 5) Query via JSON syntax
+    //
+    let rows2: Vec<(String, serde_json::Value)> = r#"
+    SELECT description, metadata
+    FROM mock_items
+    WHERE id @@@
+    '{
+        "term": {
+            "field": "metadata.colors",
+            "value": "blue"
+        }
+    }'::jsonb
+    OR id @@@
+    '{
+        "term": {
+            "field": "metadata.colors",
+            "value": "red"
+        }
+    }'::jsonb;
+    "#
+    .fetch(&mut conn);
+
+    // Same three rows should appear
+    assert_eq!(rows2.len(), 3);
+}
+
+#[rstest]
 fn custom_enum(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(

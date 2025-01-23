@@ -185,8 +185,6 @@ COPY --from=builder-pg_search /tmp/target/release/pg_search-pg${PG_VERSION_MAJOR
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
-# Switch to root for configuring runtime dependencies
-USER root
 
 # Required for pg_analytics and pg_cron
 #

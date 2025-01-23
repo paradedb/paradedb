@@ -173,21 +173,33 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             if new_max_offset == pg_sys::InvalidOffsetNumber && current_blockno != start_blockno {
                 page.mark_deleted();
 
+                // drop the buffer were holding onto as we might acquire an exclusive lock on another
+                // one below and we don't want concurrent backends that are otherwise racing through
+                // this linked list to end up causing a lock inversion where they've locked the page
+                // we want while we have this page locked
+                drop(buffer);
+
                 // We've reached the end of the list, which means the last filled block is now the
                 // last entry in the list
                 if blockno == pg_sys::InvalidBlockNumber {
                     let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
-                    let mut page = last_filled_buffer.page_mut();
-                    let special = page.special_mut::<BM25PageSpecialData>();
+                    let mut last_filled_page = last_filled_buffer.page_mut();
+                    let special = last_filled_page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = pg_sys::InvalidBlockNumber;
                 }
             } else if new_max_offset != pg_sys::InvalidOffsetNumber
                 && current_blockno != start_blockno
             {
+                // drop the buffer were holding onto as we might acquire an exclusive lock on another
+                // one below and we don't want concurrent backends that are otherwise racing through
+                // this linked list to end up causing a lock inversion where they've locked the page
+                // we want while we have this page locked
+                drop(buffer);
+
                 let mut last_filled_buffer = self.bman.get_buffer_mut(last_filled_blockno);
-                let mut page = last_filled_buffer.page_mut();
-                if page.next_blockno() != current_blockno {
-                    let special = page.special_mut::<BM25PageSpecialData>();
+                let mut last_filled_page = last_filled_buffer.page_mut();
+                if last_filled_page.next_blockno() != current_blockno {
+                    let special = last_filled_page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = current_blockno;
                 }
                 last_filled_blockno = current_blockno;

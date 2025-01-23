@@ -25,6 +25,7 @@ impl Buffer {
         Self { pg_buffer }
     }
 
+    #[allow(dead_code)]
     pub fn unlock(mut self) -> PinnedBuffer {
         unsafe {
             let pg_buffer = self.pg_buffer;
@@ -434,6 +435,10 @@ impl BufferManager {
                 },
             }
         }
+    }
+
+    pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
+        unsafe { PinnedBuffer::new(self.bcache.get_buffer(blockno, None)) }
     }
 
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {

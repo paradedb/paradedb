@@ -25,12 +25,6 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
 
-#[repr(C)]
-pub struct BulkDeleteData {
-    stats: pg_sys::IndexBulkDeleteResult,
-    pub cleanup_lock: pg_sys::Buffer,
-}
-
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
@@ -49,7 +43,7 @@ pub extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let _merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
+    let merge_lock = unsafe { MergeLock::acquire_for_delete(index_relation.oid()) };
     let mut writer = SearchIndexWriter::open(
         &index_relation,
         BlockDirectoryType::BulkDelete,
@@ -76,11 +70,16 @@ pub extern "C" fn ambulkdelete(
             }
         }
     }
-
     // Don't merge here, amvacuumcleanup will merge
     writer
         .commit()
         .expect("ambulkdelete: commit should succeed");
+
+    // we're done evaluating docs and no longer need to hold the merge_lock.
+    //
+    // In fact, holding it while we potentially acquire the CLEANUP_LOCK below can cause deadlocks
+    // across backends due to lock inversion issues
+    drop(merge_lock);
 
     if stats.is_null() {
         stats = unsafe {
@@ -95,9 +94,10 @@ pub extern "C" fn ambulkdelete(
     // This can cause concurrent scans that have just read ctids, which are dead but
     // are about to be marked visible, to return wrong results. To guard against this,
     // we acquire a cleanup lock that guarantees that there are no pins on the index,
-    // which means that all concurrent scans have completed. This lock is then released in
-    // amvacuumcleanup, at which point the visibility map is updated and concurrent scans
-    // are safe to resume.
+    // which means that all concurrent scans have completed.
+    //
+    // This lock is then immediately released, allowing any queued scans to continue, seeing
+    // the new deleted state of the docs we just marked as deleted
     if did_delete {
         unsafe {
             let cleanup_buffer = pg_sys::ReadBufferExtended(
@@ -108,13 +108,9 @@ pub extern "C" fn ambulkdelete(
                 info.strategy,
             );
             pg_sys::LockBufferForCleanup(cleanup_buffer);
-
-            let mut opaque = PgBox::<BulkDeleteData>::alloc0();
-            opaque.stats = *stats;
-            opaque.cleanup_lock = cleanup_buffer;
-            opaque.into_pg() as *mut pg_sys::IndexBulkDeleteResult
+            pg_sys::UnlockReleaseBuffer(cleanup_buffer);
         }
-    } else {
-        stats.into_pg()
     }
+
+    stats.into_pg()
 }

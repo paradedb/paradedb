@@ -125,15 +125,29 @@ jobs:
       - name: Print Postgres Logs
         run: cat ~/.pgrx/${{ matrix.pg_version }}.log
 
-      - name: Share Stressgres Results to Slack
+      - name: Derive Short Commit
+        id: commit_info
+        run: |
+          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
+
+      - name: Upload Stressgres Graph to Slack
         uses: slackapi/slack-github-action@v2.0.0
+        id: upload_stressgres_image
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
+          method: files.uploadV2
+          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           payload: |
-            text: "*Stressgres stress test complete!*\n
-            - <${{ steps.artifact-graph.outputs.artifact-url }}|Graph>\n
-            - <${{ steps.artifact-logs.outputs.artifact-url }}|Logs>"
+            channel_id: ${{ secrets.SLACK_GITHUB_CHANNEL_ID }}
+            initial_comment: |
+              *Stressgres Results*
+              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
+            file: "stressgres/stressgres.png"
+            filename: "stressgres.png"
+            request_file_info: true
+          errors: true
+          payload-templated: false
+          retries: 5
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

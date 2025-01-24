@@ -33,6 +33,7 @@ pub extern "C" fn ambulkdelete(
     callback: pg_sys::IndexBulkDeleteCallback,
     callback_state: *mut ::std::os::raw::c_void,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
+    pgrx::warning!("ambulkdelete: called");
     let info = unsafe { PgBox::from_pg(info) };
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_relation = unsafe { PgRelation::from_pg(info.index) };
@@ -61,7 +62,18 @@ pub extern "C" fn ambulkdelete(
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
 
         for doc_id in 0..segment_reader.max_doc() {
-            check_for_interrupts!();
+            if unsafe { pg_sys::InterruptPending != 0 } {
+                // there's a pending interrupt.  an administrator likely issued a cancel on this
+                // (auto)VACUUM process.  We need to drop our merge_lock and then we're free to have
+                // the interrupt properly handled
+                drop(merge_lock);
+                check_for_interrupts!();
+
+                // this would indicate that pg_sys::InterruptPending somehow lied to us
+                // or that there's some other lock being held open by this process that we don't know about
+                // which caused `check_for_interrupts!()` to do not do anything
+                unreachable!("ambulkdelete detected a pending interrupt but did not handle it")
+            }
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
@@ -71,7 +83,8 @@ pub extern "C" fn ambulkdelete(
             }
         }
     }
-    // Don't merge here, amvacuumcleanup will merge
+
+    // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`
     writer
         .commit()
         .expect("ambulkdelete: commit should succeed");

@@ -24,6 +24,7 @@ use crate::index::merge_policy::MergeLock;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
+use crate::postgres::storage::buffer::BufferManager;
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -100,15 +101,10 @@ pub extern "C" fn ambulkdelete(
     // the new deleted state of the docs we just marked as deleted
     if did_delete {
         unsafe {
-            let cleanup_buffer = pg_sys::ReadBufferExtended(
-                info.index,
-                pg_sys::ForkNumber::MAIN_FORKNUM,
-                CLEANUP_LOCK,
-                pg_sys::ReadBufferMode::RBM_NORMAL,
-                info.strategy,
-            );
-            pg_sys::LockBufferForCleanup(cleanup_buffer);
-            pg_sys::UnlockReleaseBuffer(cleanup_buffer);
+            let mut bman = BufferManager::new((*(*info).index).rd_id);
+            let cleanup_lock =
+                bman.get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _);
+            drop(cleanup_lock);
         }
     }
 

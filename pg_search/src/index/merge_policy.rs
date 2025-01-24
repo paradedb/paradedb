@@ -110,7 +110,15 @@ impl Drop for MergeLock {
                 // if we don't have a transaction id (typically from a parallel vacuum)...
                 if current_xid == pg_sys::InvalidTransactionId {
                     // ... then use the next transaction id as ours
-                    current_xid = pg_sys::ReadNextTransactionId();
+                    #[cfg(feature = "pg13")]
+                    {
+                        current_xid = pg_sys::ReadNewTransactionId()
+                    }
+
+                    #[cfg(not(feature = "pg13"))]
+                    {
+                        current_xid = pg_sys::ReadNextTransactionId()
+                    }
                 }
 
                 let mut page = self.0.page_mut();

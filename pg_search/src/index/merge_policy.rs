@@ -105,9 +105,17 @@ impl Drop for MergeLock {
     fn drop(&mut self) {
         unsafe {
             if crate::postgres::utils::IsTransactionState() {
+                let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
+
+                // if we don't have a transaction id (typically from a parallel vacuum)...
+                if current_xid == pg_sys::InvalidTransactionId {
+                    // ... then use the next transaction id as ours
+                    current_xid = pg_sys::ReadNextTransactionId();
+                }
+
                 let mut page = self.0.page_mut();
                 let metadata = page.contents_mut::<MergeLockData>();
-                metadata.last_merge = pg_sys::GetCurrentTransactionId();
+                metadata.last_merge = current_xid;
             }
         }
     }

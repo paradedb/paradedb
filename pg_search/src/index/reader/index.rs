@@ -275,7 +275,7 @@ impl SearchIndexReader {
         // a pinned but unlocked buffer.
         let cleanup_lock = if needs_cleanup_lock {
             let bman = BufferManager::new(index_relation.oid());
-            Some(bman.get_buffer(CLEANUP_LOCK).unlock())
+            Some(bman.pinned_buffer(CLEANUP_LOCK))
         } else {
             None
         };

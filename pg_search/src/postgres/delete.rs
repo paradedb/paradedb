@@ -100,12 +100,10 @@ pub extern "C" fn ambulkdelete(
     // This lock is then immediately released, allowing any queued scans to continue, seeing
     // the new deleted state of the docs we just marked as deleted
     if did_delete {
-        unsafe {
-            let mut bman = BufferManager::new((*(*info).index).rd_id);
-            let cleanup_lock =
-                bman.get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _);
-            drop(cleanup_lock);
-        }
+        let mut bman = BufferManager::new(index_relation.oid());
+        let cleanup_lock =
+            bman.get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _);
+        drop(cleanup_lock);
     }
 
     stats.into_pg()

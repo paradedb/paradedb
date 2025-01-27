@@ -128,8 +128,7 @@
                 "documentation/full-text/scoring",
                 "documentation/full-text/highlighting",
                 "documentation/full-text/sorting",
-                "documentation/full-text/boosting",
-                "documentation/full-text/deprecated"
+                "documentation/full-text/boosting"
               ]
             },
             {

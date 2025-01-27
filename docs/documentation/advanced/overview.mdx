@@ -2,34 +2,54 @@
 title: Overview
 ---
 
+In addition to query strings, [`JSONB` query objects](#query-objects) and [query builder functions](#query-builder-functions)
+can be used to compose various types of more complex queries.
+
+If you are familiar with Elasticsearch's API, you may notice that the available query types are similar to those found in
+Elastic's query DSL. This is intentional — ParadeDB uses the same terminology as Elasticsearch for its query types.
+
 ## Basic Usage
 
-The right-hand side of the `@@@` operator accepts `JSONB` query objects. For instance, the following code block performs a fuzzy term search.
+The left-hand side of `@@@` must be the [key field](/documentation/indexing/create_index#choosing-a-key-field)
+and the right-hand side should be either a JSON object or query builder function. For instance, the following code block
+executes a [match query](/documentation/advanced/full-text/match).
 
-```sql
+<CodeGroup>
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ '{"fuzzy_term": {"field": "description", "value": "shoez"}}'::jsonb;
+WHERE id @@@ paradedb.match('description', 'running shoes');
 ```
 
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ '{"match": {"field": "description", "value": "running shoes"}}'::jsonb;
+```
+
+</CodeGroup>
+
+The JSON object and query builder function syntaxes are interchangeable, giving you the freedom to decide what's easier for your application to write.
+
 <Note>
-  The query object must be explicitly cast to `JSONB` using `::jsonb`.
+  The JSON query object must be explicitly cast to `JSONB` using `::jsonb`.
 </Note>
 
 <Note>
-  JSON syntax queries can accept datetime values as strings. To disambiguate
-  these from string values, you should set `"is_datetime": true` in the query
-  parameters.
-</Note>
-
-## Query Builder Functions
-
-In addition to `JSONB`, the right-hand side of the `@@@` operator also accepts query builder functions. The following query is equivalent to the query written above:
+JSON syntax queries can accept datetime values as strings. To disambiguate
+these from string values, you should set `"is_datetime": true` in the query
+parameters.
 
 ```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE id @@@ paradedb.fuzzy_term('description', 'shoez');
+SELECT id, description, created_at FROM mock_items WHERE mock_items @@@ '{
+    "range": {
+        "field": "created_at",
+        "lower_bound": {"included": "2023-05-01T08:12:34Z"},
+        "upper_bound": null,
+        "is_datetime": true
+    }
+}'::jsonb
+ORDER BY id;
 ```
 
-All code blocks in this section provide both function and JSON syntax. These two syntaxes are interchangeable, giving you the freedom to decide what's easier for your application to write.
+</Note>

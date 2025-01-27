@@ -4,11 +4,7 @@ title: Overview
 
 ## Basic Usage
 
-In addition to query strings, the `@@@` operator also accepts `JSONB` query objects. These objects express nearly all of the query types available in [Tantivy](/documentation/concepts/tantivy).
-
-To use query objects, pass the [key field](/documentation/indexing/create_index#choosing-a-key-field) to the left-hand side of the `@@@` operator and Postgres `JSONB` to the right-hand side.
-
-For instance, the following code block performs a fuzzy term search.
+The right-hand side of the `@@@` operator accepts `JSONB` query objects. For instance, the following code block performs a fuzzy term search.
 
 ```sql
 SELECT description, rating, category
@@ -26,14 +22,9 @@ WHERE id @@@ '{"fuzzy_term": {"field": "description", "value": "shoez"}}'::jsonb
   parameters.
 </Note>
 
-<Note>
-  Unlike the query string syntax, the left-hand side takes a key field instead
-  of column name because some query objects can span multiple columns.
-</Note>
-
 ## Query Builder Functions
 
-ParadeDB comes with query builder functions that make it easy to construct query objects without writing raw JSON. The following query is equivalent to the query written above:
+In addition to `JSONB`, the right-hand side of the `@@@` operator also accepts query builder functions. The following query is equivalent to the query written above:
 
 ```sql
 SELECT description, rating, category

@@ -3,25 +3,42 @@ title: Overview
 ---
 
 <Note>
-  **Prerequisite** Before performing full text search over a table, it must
-  first be [indexed](/documentation/indexing/create_index).
+  **Prerequisite** Before performing full text search over a table, ensure that
+  it has been [indexed](/documentation/indexing/create_index) and properly
+  [tuned](/documentation/configuration).
 </Note>
 
 ## Basic Usage
 
-`@@@` is ParadeDB's full text search operator that means "find all rows matching a full text query." The left-hand side of `@@@` accepts the field to search against, and the right-hand side accepts the query string.
+`@@@` is ParadeDB's full text search operator that means "find all rows matching a full text query." The left-hand side of `@@@` accepts the [key field](/documentation/indexing/create_index#choosing-a-key-field), and the right-hand side accepts
+either a [query builder function](/documentation/advanced/overview#query-builder-functions) or a [JSON object](documentation/advanced/overview#basic-usage).
 
-```sql
+For example, the following query returns all rows where the `description` field matches the query `shoes`.
+
+<CodeGroup>
+
+```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes'
-LIMIT 5;
+WHERE id @@@ paradedb.match('description', 'shoes');
 ```
 
-`@@@` itself **does not** perform any ordering, offsets, limits, or scoring. These operations need to be added to the overall query with `ORDER BY`, `OFFSET`, `LIMIT`, and [`paradedb.score`](/documentation/full-text/scoring).
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "match": {
+        "field": "description",
+        "value": "shoes"
+    }
+}'::jsonb;
+```
 
-## Query Language
+</CodeGroup>
 
-The query string on the right-hand side of `@@@` uses a mini query language that supports [term](/documentation/full-text/term),
-[phrase](/documentation/full-text/phrase), [filtered](/documentation/full-text/filtering), and [boosted](/documentation/full-text/boosting) queries.
-It also accepts [query builder functions](/documentation/advanced) for advanced, "Elastic DSL" style queries.
+If you are familiar with Elasticsearch's API, you may notice that ParadeDB's query functions are similar to
+Elastic's query DSL. This is intentional — ParadeDB uses the same terminology as Elasticsearch for its query types.
+For example, [`paradedb.match`]() is analogous to Elastic's match query.
+
+In addition to `paradedb.match`, there are over a dozen other [query types](/documentation/advanced).

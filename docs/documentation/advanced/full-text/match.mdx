@@ -1,0 +1,150 @@
+---
+title: Match
+---
+
+## Basic Usage
+
+`paradedb.match` is ParadeDB's standard full text query. It tokenizes a query string and searches for matches against a specified field,
+allowing for custom tokenizers and fuzzy matching.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.match('description', 'running shoes');
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "match": {
+        "field": "description",
+        "value": "running shoes"
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8" />
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="value" required>
+  Defines the phrase you are searching for within the specified field. This
+  phrase is automatically tokenized in the same way as `field`.
+</ParamField>
+<ParamField body="tokenizer">
+  By default, the query string is tokenized in the same way as the field was at
+  index time. This can be configured by setting a [custom
+  tokenizer](#custom-tokenizer).
+</ParamField>
+<ParamField body="distance" default={0}>
+  If greater than zero, fuzzy matching is applied. Configures the maximum
+  Levenshtein distance (i.e. single character edits) allowed to consider a term
+  in the index as a match for the query term. Maximum value is `2`.
+</ParamField>
+<ParamField body="transpose_cost_one" default={true}>
+  When set to `true` and fuzzy matching is enabled, transpositions (swapping two
+  adjacent characters) as a single edit in the Levenshtein distance calculation,
+  while `false` considers it two separate edits (a deletion and an insertion).
+</ParamField>
+<ParamField body="prefix" default={false}>
+  When set to `true` and fuzzy matching is enabled, the initial substring
+  (prefix) of the query term is exempted from the fuzzy edit distance
+  calculation, while false includes the entire string in the calculation.
+</ParamField>
+<ParamField body="match_all_terms" default={false}>
+  When set to `true`, **all** tokens of the query have to match in order for a
+  document to be considered a match. For instance, the query `running shoes` is
+  by default executed as `running OR shoes`, but setting `match_all_terms` to
+  `true` executes it as `running AND shoes`.
+</ParamField>
+
+## Custom Tokenizer
+
+`paradedb.tokenizer` can be passed to `tokenizer` to control how the query string is tokenized.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.match(
+    'description',
+    'running shoes',
+    tokenizer => paradedb.tokenizer('whitespace')
+);
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "match": {
+        "field": "description",
+        "value": "running shoes",
+        "tokenizer": {"type": "whitespace", "lowercase": true, "remove_long": 255}
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<Note>
+For JSON syntax, use `paradedb.tokenizer` to retrieve the equivalent tokenizer configuration.
+
+```sql
+SELECT paradedb.tokenizer('whitespace');
+```
+
+</Note>
+
+## Fuzzy Matching
+
+When `distance` is set to a positive integer, fuzzy matching is applied. This allows `match` to tolerate typos in the query string.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.match('description', 'ruining shoez', distance => 2);
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "match": {
+        "field": "description",
+        "value": "ruining shoez",
+        "distance": 2
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+## Match All Terms
+
+By default, `match` constructs an `OR` boolean query from the query string's tokens. For instance, the query `running shoes` is executed as `running OR shoes`.
+
+When set to `true`, `match_all_terms` constructs an `AND` boolean query instead.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.match('description', 'running shoes', match_all_terms => true);
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "match": {
+        "field": "description",
+        "value": "running shoes",
+        "match_all_terms": true
+    }
+}'::jsonb;
+```
+</CodeGroup>

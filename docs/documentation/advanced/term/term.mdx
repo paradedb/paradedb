@@ -2,6 +2,12 @@
 title: Term
 ---
 
+A term query treats the query as a single token. Because it does not apply any additional tokenization or processing
+to the query, it is useful when looking for **exact** matches.
+
+The term query should not be confused with the [match](/documentation/advanced/full-text/match) query, which auto-tokenizes
+the query string.
+
 ## Basic Usage
 
 Matches documents containing a specified [term](/documentation/concepts/term).

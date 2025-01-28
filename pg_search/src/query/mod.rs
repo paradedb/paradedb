@@ -104,7 +104,7 @@ pub enum SearchQueryInput {
         distance: Option<u8>,
         transposition_cost_one: Option<bool>,
         prefix: Option<bool>,
-        match_all_terms: Option<bool>,
+        conjunction_mode: Option<bool>,
     },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
@@ -624,12 +624,12 @@ impl SearchQueryInput {
                 distance,
                 transposition_cost_one,
                 prefix,
-                match_all_terms,
+                conjunction_mode,
             } => {
                 let (field, path) = split_field_and_path(&field);
                 let distance = distance.unwrap_or(0);
                 let transposition_cost_one = transposition_cost_one.unwrap_or(true);
-                let match_all_terms = match_all_terms.unwrap_or(false);
+                let conjunction_mode = conjunction_mode.unwrap_or(false);
                 let prefix = prefix.unwrap_or(false);
 
                 let (field_type, _, field) = field_lookup
@@ -673,7 +673,7 @@ impl SearchQueryInput {
                         }
                     };
 
-                    let occur = if match_all_terms {
+                    let occur = if conjunction_mode {
                         Occur::Must
                     } else {
                         Occur::Should

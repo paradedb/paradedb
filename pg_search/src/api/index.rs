@@ -255,7 +255,7 @@ pub fn match_query(
     distance: default!(Option<i32>, "NULL"),
     transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
-    match_all_terms: default!(Option<bool>, "NULL"),
+    conjunction_mode: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::Match {
         field: field.into_inner(),
@@ -264,7 +264,7 @@ pub fn match_query(
         distance: distance.map(|n| n as u8),
         transposition_cost_one,
         prefix,
-        match_all_terms,
+        conjunction_mode,
     }
 }
 

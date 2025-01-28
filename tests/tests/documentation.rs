@@ -957,15 +957,6 @@ fn phrase_level_queries(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Fuzzy phrase
-    let rows: Vec<(String, i32, String)> = r#"
-    SELECT description, rating, category
-    FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_phrase('description', 'ruining shoez')
-    "#
-    .fetch(&mut conn);
-    assert_eq!(rows.len(), 3);
-
     // Phrase
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
@@ -1791,12 +1782,13 @@ fn autocomplete(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows, expected);
 
-    // Fuzzy phrase
+    // Match
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_phrase(
+    WHERE id @@@ paradedb.match(
         field => 'description',
-        value => 'ruining shoez'
+        value => 'ruining shoez',
+        distance => 2
     ) ORDER BY rating DESC
     "#
     .fetch(&mut conn);
@@ -1804,10 +1796,11 @@ fn autocomplete(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_phrase(
+    WHERE id @@@ paradedb.match(
         field => 'description',
         value => 'ruining shoez',
-        match_all_terms => true
+        distance => 2,
+        conjunction_mode => true
     )
     "#
     .fetch(&mut conn);
@@ -1818,8 +1811,8 @@ fn autocomplete(mut conn: PgConnection) {
     SELECT description, rating, category FROM mock_items
     WHERE id @@@ paradedb.boolean(
         should => ARRAY[
-            paradedb.fuzzy_phrase(field => 'description', value => 'ruining shoez'),
-            paradedb.fuzzy_phrase(field => 'category', value => 'ruining shoez')
+            paradedb.match(field => 'description', value => 'ruining shoez', distance => 2),
+            paradedb.match(field => 'category', value => 'ruining shoez', distance => 2)
         ]
     ) ORDER BY rating DESC
     "#
@@ -1849,7 +1842,7 @@ fn autocomplete(mut conn: PgConnection) {
     // Ngram term set
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category FROM mock_items
-    WHERE id @@@ paradedb.fuzzy_phrase(
+    WHERE id @@@ paradedb.match(
         field => 'description',
         value => 'hsoes',
         distance => 0

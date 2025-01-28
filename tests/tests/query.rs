@@ -1012,29 +1012,30 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn fuzzy_phrase(mut conn: PgConnection) {
+fn match_query(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez')
+    WHERE bm25_search @@@ paradedb.match(field => 'description', value => 'ruling shoeez', distance => 2)
     ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3, 4, 5]);
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.fuzzy_phrase(
+    WHERE bm25_search @@@ paradedb.match(
         field => 'description',
         value => 'ruling shoeez',
-        match_all_terms => true
+        distance => 2,
+        conjunction_mode => true
     ) ORDER BY id"#
         .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![3]);
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.fuzzy_phrase(field => 'description', value => 'ruling shoeez', distance => 1)
+    WHERE bm25_search @@@ paradedb.match(field => 'description', value => 'ruling shoeez', distance => 1)
     ORDER BY id"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.id.len(), 0);

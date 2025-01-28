@@ -55,16 +55,16 @@ WHERE id @@@
   (prefix) of the query term is exempted from the fuzzy edit distance
   calculation, while false includes the entire string in the calculation.
 </ParamField>
-<ParamField body="match_all_terms" default={false}>
+<ParamField body="conjunction_mode" default={false}>
   When set to `true`, **all** tokens of the query have to match in order for a
   document to be considered a match. For instance, the query `running shoes` is
-  by default executed as `running OR shoes`, but setting `match_all_terms` to
+  by default executed as `running OR shoes`, but setting `conjunction_mode` to
   `true` executes it as `running AND shoes`.
 </ParamField>
 
 ## Custom Tokenizer
 
-`paradedb.tokenizer` can be passed to `tokenizer` to control how the query string is tokenized.
+[`paradedb.tokenizer`](/documentation/indexing/tokenizers#tokenizing-a-query) can be passed to `tokenizer` to control how the query string is tokenized.
 
 <CodeGroup>
 ```sql Function Syntax
@@ -123,17 +123,17 @@ WHERE id @@@
 ```
 </CodeGroup>
 
-## Match All Terms
+## Conjunction Mode
 
 By default, `match` constructs an `OR` boolean query from the query string's tokens. For instance, the query `running shoes` is executed as `running OR shoes`.
 
-When set to `true`, `match_all_terms` constructs an `AND` boolean query instead.
+When set to `true`, `conjunction_mode` constructs an `AND` boolean query instead.
 
 <CodeGroup>
 ```sql Function Syntax
 SELECT description, rating, category
 FROM mock_items
-WHERE id @@@ paradedb.match('description', 'running shoes', match_all_terms => true);
+WHERE id @@@ paradedb.match('description', 'running shoes', conjunction_mode => true);
 ```
 ```sql JSON Syntax
 SELECT description, rating, category
@@ -143,7 +143,7 @@ WHERE id @@@
     "match": {
         "field": "description",
         "value": "running shoes",
-        "match_all_terms": true
+        "conjunction_mode": true
     }
 }'::jsonb;
 ```

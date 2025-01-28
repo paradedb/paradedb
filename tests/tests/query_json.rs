@@ -1143,15 +1143,16 @@ fn more_like_this_timetz_key(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn fuzzy_phrase(mut conn: PgConnection) {
+fn match_query(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
     WHERE bm25_search @@@ '{
-        "fuzzy_phrase": {
+        "match": {
             "field": "description",
-            "value": "ruling shoeez"
+            "value": "ruling shoeez",
+            "distance": 2
         }
     }'::jsonb
     ORDER BY id"#
@@ -1161,10 +1162,11 @@ fn fuzzy_phrase(mut conn: PgConnection) {
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
     WHERE bm25_search @@@ '{
-        "fuzzy_phrase": {
+        "match": {
             "field": "description",
             "value": "ruling shoeez",
-            "match_all_terms": true
+            "distance": 2,
+            "conjunction_mode": true
         }
     }'::jsonb ORDER BY id"#
         .fetch_collect(&mut conn);
@@ -1173,7 +1175,7 @@ fn fuzzy_phrase(mut conn: PgConnection) {
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search
     WHERE bm25_search @@@ '{
-        "fuzzy_phrase": {
+        "match": {
             "field": "description",
             "value": "ruling shoeez",
             "distance": 1

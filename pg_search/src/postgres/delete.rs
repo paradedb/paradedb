@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::{pg_sys::ItemPointerData, *};
-use tantivy::Term;
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
@@ -54,7 +53,6 @@ pub unsafe extern "C" fn ambulkdelete(
     let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete, false)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
-    let ctid_field = writer.get_ctid_field();
     let mut did_delete = false;
 
     for segment_reader in reader.searcher().segment_readers() {
@@ -83,7 +81,7 @@ pub unsafe extern "C" fn ambulkdelete(
             if callback(ctid) {
                 did_delete = true;
                 writer
-                    .delete_term(Term::from_field_u64(ctid_field, ctid))
+                    .delete_document(segment_reader.segment_id(), doc_id)
                     .expect("ambulkdelete: deleting ctid Term should succeed");
             }
         }

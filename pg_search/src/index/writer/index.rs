@@ -18,9 +18,10 @@
 use anyhow::Result;
 use pgrx::PgRelation;
 use std::sync::Arc;
+use tantivy::index::SegmentId;
 use tantivy::indexer::UserOperation;
 use tantivy::schema::Field;
-use tantivy::{Index, IndexSettings, IndexWriter, Opstamp, TantivyDocument, TantivyError, Term};
+use tantivy::{DocId, Index, IndexSettings, IndexWriter, Opstamp, TantivyDocument, TantivyError};
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
@@ -136,12 +137,9 @@ impl SearchIndexWriter {
         })
     }
 
-    pub fn get_ctid_field(&self) -> Field {
-        self.ctid_field
-    }
-
-    pub fn delete_term(&mut self, term: Term) -> Result<()> {
-        self.insert_queue.push(UserOperation::Delete(term));
+    pub fn delete_document(&mut self, segment_id: SegmentId, doc_id: DocId) -> Result<()> {
+        self.insert_queue
+            .push(UserOperation::DeleteByAddress(segment_id, doc_id));
         if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
             self.drain_insert_queue()?;
         }

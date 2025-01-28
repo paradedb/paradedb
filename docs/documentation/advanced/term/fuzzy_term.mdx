@@ -8,8 +8,9 @@ title: Fuzzy Term
 allowing for minor typos in the input.
 
 <Note>
-  `value` is treated as a token. Use `fuzzy_phrase` to perform fuzzy search over
-  a phrase containing multiple tokens.
+  `value` is treated as a raw token and is not processed further. Use
+  [`match`](/documentation/advanced/full-text/match) to process and fuzzy match
+  a query string.
 </Note>
 
 <CodeGroup>

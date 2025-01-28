@@ -123,6 +123,8 @@
               "group": "Full Text Search",
               "pages": [
                 "documentation/full-text/overview",
+                "documentation/full-text/boolean",
+                "documentation/full-text/phrase",
                 "documentation/full-text/filtering",
                 "documentation/full-text/pagination",
                 "documentation/full-text/scoring",

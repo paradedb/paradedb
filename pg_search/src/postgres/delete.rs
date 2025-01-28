@@ -82,7 +82,7 @@ pub unsafe extern "C" fn ambulkdelete(
                 did_delete = true;
                 writer
                     .delete_document(segment_reader.segment_id(), doc_id)
-                    .expect("ambulkdelete: deleting ctid Term should succeed");
+                    .expect("ambulkdelete: deleting document by segment and id should succeed");
             }
         }
     }

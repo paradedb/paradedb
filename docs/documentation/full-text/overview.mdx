@@ -16,7 +16,7 @@ title: Overview
 The left-hand side of `@@@` is the **field to search against**, and the right-hand side is a **query string**.
 For example, the following query returns all rows where the `description` field matches the query `shoes`.
 
-```sql Function Syntax
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes';
@@ -34,5 +34,27 @@ be escaped by a `\` inside the query term.
 ## Query Builder Syntax
 
 The left-hand side of `@@@` is the **[key field](/documentation/indexing/create_index#choosing-a-key-field)** and the right-hand side is
-a **[query builder function or JSON object](documentation/advanced/overview#basic-usage)**. This syntax is necessary for capturing more complex query types
+a **[query builder function or JSON object](/documentation/advanced/overview)**. This syntax is necessary for capturing more complex query types
 like fuzzy matching or term-level search that cannot be expressed by query strings.
+
+<CodeGroup>
+
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.match('description', 'shoes');
+```
+
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "match": {
+        "field": "description",
+        "value": "shoes"
+    }
+}'::jsonb;
+```
+
+</CodeGroup>

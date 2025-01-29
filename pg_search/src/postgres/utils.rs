@@ -224,12 +224,12 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
             let t = pgrx::datum::Timestamp::from_str(date_string)
                 .expect("must be a valid postgres timestamp");
             let twtz: datum::TimestampWithTimeZone = t.into();
-            let (seconds, _micros, _nanos) = convert_pgrx_seconds_to_chrono(twtz.second())
+            let (seconds, micros, _nanos) = convert_pgrx_seconds_to_chrono(twtz.second())
                 .expect("must not overflow converting pgrx seconds");
             let micros =
                 NaiveDate::from_ymd_opt(twtz.year(), twtz.month().into(), twtz.day().into())
                     .expect("must be able to convert date timestamp")
-                    .and_hms_opt(twtz.hour().into(), twtz.minute().into(), seconds)
+                    .and_hms_micro_opt(twtz.hour().into(), twtz.minute().into(), seconds, micros)
                     .expect("must be able to parse timestamp format")
                     .and_utc()
                     .timestamp_micros();
@@ -239,12 +239,12 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
             let twtz = pgrx::datum::TimestampWithTimeZone::from_str(date_string)
                 .expect("must be a valid postgres timestamp with time zone")
                 .to_utc();
-            let (seconds, _micros, _nanos) = convert_pgrx_seconds_to_chrono(twtz.second())
+            let (seconds, micros, _nanos) = convert_pgrx_seconds_to_chrono(twtz.second())
                 .expect("must not overflow converting pgrx seconds");
             let micros =
                 NaiveDate::from_ymd_opt(twtz.year(), twtz.month().into(), twtz.day().into())
                     .expect("must be able to convert timestamp with timezone")
-                    .and_hms_opt(twtz.hour().into(), twtz.minute().into(), seconds)
+                    .and_hms_micro_opt(twtz.hour().into(), twtz.minute().into(), seconds, micros)
                     .expect("must be able to parse timestamp with timezone")
                     .and_utc()
                     .timestamp_micros();

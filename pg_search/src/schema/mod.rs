@@ -28,7 +28,8 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
-    DateOptions, Field, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing, TextOptions,
+    DateOptions, DateTimePrecision, Field, JsonObjectOptions, NumericOptions, Schema,
+    TextFieldIndexing, TextOptions,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -648,7 +649,10 @@ impl From<SearchFieldConfig> for DateOptions {
                     date_options = date_options.set_stored();
                 }
                 if fast {
-                    date_options = date_options.set_fast();
+                    date_options = date_options
+                        .set_fast()
+                        // Match Postgres' maximum allowed precision of microseconds
+                        .set_precision(DateTimePrecision::Microseconds);
                 }
                 if indexed {
                     date_options = date_options.set_indexed();

@@ -245,7 +245,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                 NaiveDate::from_ymd_opt(twtz.year(), twtz.month().into(), twtz.day().into())
                     .expect("must be able to convert timestamp with timezone")
                     .and_hms_micro_opt(twtz.hour().into(), twtz.minute().into(), seconds, micros)
-                    .expect("must be able to parse timestamp format")
+                    .expect("must be able to parse timestamp with timezone")
                     .and_utc()
                     .timestamp_micros();
             tantivy::DateTime::from_timestamp_micros(micros)

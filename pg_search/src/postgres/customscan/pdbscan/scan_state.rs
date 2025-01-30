@@ -232,7 +232,7 @@ impl PdbScanState {
             let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
             PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple)
                 .get_by_name(&snippet_info.field)
-                .expect("{snippet_info.field} should exist in the heap tuple")
+                .expect(&format!("{} should exist in the heap tuple", snippet_info.field))
                 .unwrap_or_default()
         };
 

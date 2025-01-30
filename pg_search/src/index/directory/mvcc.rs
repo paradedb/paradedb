@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::{list_managed_files, load_metas, save_new_metas, save_schema, save_settings};
+use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::index::merge_policy::{
     set_num_segments, AllowedMergePolicy, MergeLock, NPlusOneMergePolicy,
 };
@@ -191,7 +191,8 @@ impl Directory for MVCCDirectory {
     /// Returns a list of all segment components to Tantivy,
     /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
-        unsafe { list_managed_files(self.relation_oid) }
+        // because we don't support garbage collection
+        unimplemented!("list_managed_files should not be called");
     }
 
     // This is intentionally a no-op
@@ -305,6 +306,10 @@ impl Directory for MVCCDirectory {
         }
 
         Some(Box::new(NoMergePolicy))
+    }
+
+    fn supports_garbage_collection(&self) -> bool {
+        false
     }
 }
 

@@ -2,6 +2,10 @@
 title: Match
 ---
 
+<Note>
+Highlighting is not supported for `paradedb.match` if `distance` is greater than zero.
+</Note>
+
 ## Basic Usage
 
 `paradedb.match` is ParadeDB's standard full text query. It tokenizes a query string and searches for matches against a specified field,
@@ -91,11 +95,20 @@ WHERE id @@@
 </CodeGroup>
 
 <Note>
-For JSON syntax, use `paradedb.tokenizer` to retrieve the equivalent tokenizer configuration.
+For JSON syntax, `paradedb.tokenizer` prints the configuration object to pass into `tokenizer`.
 
 ```sql
 SELECT paradedb.tokenizer('whitespace');
 ```
+
+<Accordion title="Expected Response">
+```csv
+                           tokenizer
+---------------------------------------------------------------
+ {"type": "whitespace", "lowercase": true, "remove_long": 255}
+(1 row)
+```
+</Accordion>
 
 </Note>
 

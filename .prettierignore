@@ -11,6 +11,7 @@
 /docs/documentation/aggregates/overview.mdx
 /docs/documentation/aggregates/common.mdx
 /docs/documentation/getting-started/quickstart.mdx
+/docs/documentation/advanced/full-text/match.mdx
 /docs/documentation/full-text/fuzzy.mdx
 /docs/documentation/full-text/scoring.mdx
 /docs/documentation/full-text/highlighting.mdx

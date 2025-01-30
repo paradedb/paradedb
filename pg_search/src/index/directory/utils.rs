@@ -240,7 +240,7 @@ pub unsafe fn save_new_metas(
         .into_iter()
         .flatten()
         {
-            let mut file = LinkedBytesList::open(relation_oid, file_entry.staring_block);
+            let mut file = LinkedBytesList::open(relation_oid, file_entry.starting_block);
             file.mark_deleted();
         }
     }
@@ -270,7 +270,7 @@ pub unsafe fn save_new_metas(
     }
     // chase down the linked lists for any existing deleted entries and mark them as deleted
     for deleted_entry in replaced_delete_entries {
-        let mut file = LinkedBytesList::open(relation_oid, deleted_entry.file_entry.staring_block);
+        let mut file = LinkedBytesList::open(relation_oid, deleted_entry.file_entry.starting_block);
         file.mark_deleted();
     }
 

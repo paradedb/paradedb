@@ -87,6 +87,7 @@ jobs:
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Add pg_search to shared_preload_libraries
+        if: matrix.pg_version < 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 

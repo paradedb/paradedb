@@ -152,7 +152,7 @@ If you are a [ParadeDB Enterprise](/deploy/enterprise) user, you should have rec
 
 ## Update `postgresql.conf`
 
-Next, add the extension(s) to `shared_preload_libraries` in `postgresql.conf`.
+Next, add the extension(s) to `shared_preload_libraries` in `postgresql.conf`. Adding `pg_search` to `shared_preload_libraries` is unnecessary if your Postgres version 17 or higher.
 
 ```ini
 shared_preload_libraries = 'pg_search,pg_analytics'

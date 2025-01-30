@@ -77,6 +77,7 @@ jobs:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
       - name: Add pg_search to shared_preload_libraries
+        if: matrix.pg_version < 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 

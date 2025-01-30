@@ -7,7 +7,6 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
 use pgrx::pg_sys;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -17,17 +16,6 @@ use tantivy::{
     schema::Schema,
     IndexMeta,
 };
-
-pub unsafe fn list_managed_files(relation_oid: pg_sys::Oid) -> tantivy::Result<HashSet<PathBuf>> {
-    let segment_components =
-        LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
-
-    Ok(segment_components
-        .list()
-        .into_iter()
-        .flat_map(|entry| entry.get_component_paths())
-        .collect())
-}
 
 pub fn save_schema(relation_oid: pg_sys::Oid, tantivy_schema: &Schema) -> Result<()> {
     let mut schema = LinkedBytesList::open(relation_oid, SCHEMA_START);

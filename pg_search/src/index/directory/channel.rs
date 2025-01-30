@@ -28,7 +28,6 @@ use tantivy::{Directory, IndexMeta};
 pub type Overwrite = bool;
 
 pub enum ChannelRequest {
-    ListManagedFiles(oneshot::Sender<HashSet<PathBuf>>),
     RegisterFilesAsManaged(Vec<PathBuf>, Overwrite),
     SegmentRead(Range<usize>, FileEntry, oneshot::Sender<OwnedBytes>),
     SegmentWrite(PathBuf, Vec<u8>),
@@ -119,15 +118,8 @@ impl Directory for ChannelDirectory {
     }
 
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
-        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
-        self.sender
-            .send(ChannelRequest::ListManagedFiles(oneshot_sender))
-            .unwrap();
-
-        match oneshot_receiver.recv() {
-            Ok(result) => Ok(result),
-            Err(e) => Err(tantivy::TantivyError::InternalError(e.to_string())),
-        }
+        // because we don't support garbage collection
+        unimplemented!("list_managed_files should not be called");
     }
 
     fn register_files_as_managed(
@@ -182,6 +174,10 @@ impl Directory for ChannelDirectory {
             .unwrap();
 
         oneshot_receiver.recv().unwrap()
+    }
+
+    fn supports_garbage_collection(&self) -> bool {
+        false
     }
 }
 
@@ -299,10 +295,6 @@ impl ChannelRequestHandler {
 
     fn process_message(&mut self, message: ChannelRequest) -> Result<ShouldTerminate> {
         match message {
-            ChannelRequest::ListManagedFiles(sender) => {
-                let managed_files = self.directory.list_managed_files()?;
-                sender.send(managed_files)?;
-            }
             ChannelRequest::RegisterFilesAsManaged(files, overwrite) => {
                 self.directory.register_files_as_managed(files, overwrite)?;
             }

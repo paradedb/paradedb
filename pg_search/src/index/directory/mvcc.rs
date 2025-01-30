@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::utils::{list_managed_files, load_metas, save_new_metas, save_schema, save_settings};
+use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::index::merge_policy::{
     set_num_segments, AllowedMergePolicy, MergeLock, NPlusOneMergePolicy,
 };
@@ -191,7 +191,8 @@ impl Directory for MVCCDirectory {
     /// Returns a list of all segment components to Tantivy,
     /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
-        unsafe { list_managed_files(self.relation_oid) }
+        // because we don't support garbage collection
+        unimplemented!("list_managed_files should not be called");
     }
 
     // This is intentionally a no-op
@@ -306,17 +307,20 @@ impl Directory for MVCCDirectory {
 
         Some(Box::new(NoMergePolicy))
     }
+
+    fn supports_garbage_collection(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::index::merge_policy::AllowedMergePolicy;
     use pgrx::prelude::*;
 
     #[pg_test]
-    fn test_list_managed_files() {
+    fn test_list_meta_entries() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();
@@ -325,8 +329,17 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
 
-        let directory = MVCCDirectory::snapshot(relation_oid, AllowedMergePolicy::None);
-        let listed_files = directory.list_managed_files().unwrap();
-        assert_eq!(listed_files.len(), 6);
+        let linked_list =
+            LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+        let mut listed_files = unsafe { linked_list.list() };
+        assert_eq!(listed_files.len(), 1);
+        let entry = listed_files.pop().unwrap();
+        assert!(entry.store.is_some());
+        assert!(entry.field_norms.is_some());
+        assert!(entry.fast_fields.is_some());
+        assert!(entry.postings.is_some());
+        assert!(entry.positions.is_some());
+        assert!(entry.terms.is_some());
+        assert!(entry.delete.is_none());
     }
 }

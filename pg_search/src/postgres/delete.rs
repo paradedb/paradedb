@@ -70,20 +70,7 @@ pub unsafe extern "C" fn ambulkdelete(
 
         for doc_id in 0..segment_reader.max_doc() {
             if doc_id % 100 == 0 {
-                // NB:  when `IsInParallelMode()` is true, it seems there's always a pending interrupt
-                // so we just don't bother checking for pending interrupts in that situation.  This
-                // is in the case of a parallel vacuum
-                if pg_sys::InterruptPending != 0 && !pg_sys::IsInParallelMode() {
-                    drop(merge_lock);
-
-                    // we think there's a pending interrupt, so this should raise a cancel query ERROR
-                    pg_sys::vacuum_delay_point();
-
-                    // if we got here then, ultimately, CHECK_FOR_INTERRUPTS() (which is called via
-                    // vacuum_delay_point()) didn't actually interrupt us, and we're just DOA now
-                    // because we've already dropped our merge_lock
-                    unreachable!("ambulkdelete: detected interrupt but wasn't cancelled");
-                }
+                // we think there's a pending interrupt, so this should raise a cancel query ERROR
                 pg_sys::vacuum_delay_point();
             }
 

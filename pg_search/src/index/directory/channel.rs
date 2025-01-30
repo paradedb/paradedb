@@ -235,12 +235,26 @@ impl ChannelRequestHandler {
         &mut self,
         func: F,
     ) -> Result<T> {
+        unsafe {
+            pg_sys::InterruptHoldoffCount += 1;
+        }
         match std::panic::catch_unwind(AssertUnwindSafe(move || self.wait_for_internal(func))) {
             // no panic caught
-            Ok(result) => result,
+            Ok(result) => {
+                unsafe {
+                    pg_sys::InterruptHoldoffCount -= 1;
+                }
+                result
+            }
 
             // caught a panic so let it continue
-            Err(e) => resume_unwind(e),
+            Err(e) => {
+                unsafe {
+                    assert!(pg_sys::InterruptHoldoffCount > 0);
+                    pg_sys::InterruptHoldoffCount -= 1;
+                }
+                resume_unwind(e)
+            }
         }
     }
 

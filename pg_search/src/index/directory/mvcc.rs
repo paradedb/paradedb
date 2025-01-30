@@ -33,7 +33,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::{io, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
@@ -63,6 +63,11 @@ pub struct MVCCDirectory {
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
     // it's cloned a lot!
     readers: Arc<Mutex<FxHashMap<PathBuf, Arc<dyn FileHandle>>>>,
+
+    // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
+    // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
+    // answer
+    loaded_metas: OnceLock<tantivy::Result<IndexMeta>>,
 }
 
 impl MVCCDirectory {
@@ -73,6 +78,7 @@ impl MVCCDirectory {
             mvcc_style: MvccSatisfies::Snapshot,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             merge_lock: Default::default(),
+            loaded_metas: Default::default(),
         }
     }
 
@@ -83,6 +89,7 @@ impl MVCCDirectory {
             mvcc_style: MvccSatisfies::Any,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             merge_lock: Default::default(),
+            loaded_metas: Default::default(),
         }
     }
 
@@ -232,14 +239,16 @@ impl Directory for MVCCDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        unsafe {
-            load_metas(
-                self.relation_oid,
-                inventory,
-                pg_sys::GetActiveSnapshot(),
-                self.mvcc_style,
-            )
-        }
+        self.loaded_metas
+            .get_or_init(|| unsafe {
+                load_metas(
+                    self.relation_oid,
+                    inventory,
+                    pg_sys::GetActiveSnapshot(),
+                    self.mvcc_style,
+                )
+            })
+            .clone()
     }
 
     fn reconsider_merge_policy(

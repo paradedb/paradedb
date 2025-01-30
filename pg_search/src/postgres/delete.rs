@@ -53,9 +53,19 @@ pub unsafe extern "C" fn ambulkdelete(
     let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete, false)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
+    let writer_ids = writer.segment_ids();
+
     let mut did_delete = false;
 
     for segment_reader in reader.searcher().segment_readers() {
+        if !writer_ids.contains(&segment_reader.segment_id()) {
+            // the writer doesn't have this segment reader, and that's fine
+            // we open the writer and reader in separate calls so it's possible
+            // for the reader, which is opened second, to see a different view of
+            // the segment entries on disk, but we only need to concern ourselves with
+            // the ones the writer is aware of
+            continue;
+        }
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
 
         for doc_id in 0..segment_reader.max_doc() {

@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 use pgrx::PgRelation;
-use std::sync::Arc;
+use std::collections::HashSet;
 use tantivy::index::SegmentId;
 use tantivy::indexer::UserOperation;
 use tantivy::schema::Field;
@@ -43,7 +43,7 @@ pub struct SearchIndexWriter {
 
     // keep all these private -- leaking them to the public API would allow callers to
     // mis-use the IndexWriter in particular.
-    writer: Arc<IndexWriter>,
+    writer: Option<IndexWriter>,
     handler: ChannelRequestHandler,
     insert_queue: Vec<UserOperation>,
 }
@@ -84,7 +84,7 @@ impl SearchIndexWriter {
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
-            writer: Arc::new(writer),
+            writer: Some(writer),
             schema,
             handler,
             ctid_field,
@@ -129,12 +129,21 @@ impl SearchIndexWriter {
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
-            writer: Arc::new(writer),
+            writer: Some(writer),
             schema,
             ctid_field,
             handler,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
         })
+    }
+
+    pub fn segment_ids(&mut self) -> HashSet<SegmentId> {
+        let index = self.writer.as_ref().unwrap().index().clone();
+        self.handler
+            .wait_for(move || index.searchable_segment_ids().unwrap())
+            .unwrap()
+            .into_iter()
+            .collect()
     }
 
     pub fn delete_document(&mut self, segment_id: SegmentId, doc_id: DocId) -> Result<()> {
@@ -161,8 +170,7 @@ impl SearchIndexWriter {
 
     pub fn commit(mut self) -> Result<()> {
         self.drain_insert_queue()?;
-        let mut writer =
-            Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
+        let mut writer = self.writer.take().expect("IndexWriter should be set");
 
         self.handler
             .wait_for(move || {
@@ -177,10 +185,13 @@ impl SearchIndexWriter {
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {
         let insert_queue = std::mem::take(&mut self.insert_queue);
-        let writer = self.writer.clone();
-        self.handler
-            .wait_for(move || writer.run(insert_queue))
-            .expect("spawned thread should not fail")
+
+        // this doesn't need to go through `self.handler.wait_for(|| ...)` because
+        // the `.run()` function doesn't do anything involving the Directory
+        self.writer
+            .as_ref()
+            .expect("IndexWriter should be set")
+            .run(insert_queue)
     }
 }
 

@@ -301,6 +301,14 @@ impl SearchIndexReader {
         })
     }
 
+    pub fn segment_ids(&self) -> HashSet<SegmentId> {
+        self.searcher
+            .segment_readers()
+            .iter()
+            .map(|r| r.segment_id())
+            .collect()
+    }
+
     pub fn key_field(&self) -> SearchField {
         self.schema.key_field()
     }

@@ -123,6 +123,28 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
+    /// Return a Vec of all the items in this linked list
+    pub unsafe fn list(&self) -> Vec<T> {
+        let mut items = vec![];
+        let mut blockno = self.get_start_blockno();
+
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
+            let mut offsetno = pg_sys::FirstOffsetNumber;
+            let max_offset = page.max_offset_number();
+            while offsetno <= max_offset {
+                if let Some((deserialized, _)) = page.read_item::<T>(offsetno) {
+                    items.push(deserialized);
+                }
+                offsetno += 1;
+            }
+            blockno = page.next_blockno();
+        }
+
+        items
+    }
+
     pub unsafe fn garbage_collect(&mut self, strategy: pg_sys::BufferAccessStrategy) -> Result<()> {
         // Delete all items that are definitely dead
         let snapshot = pg_sys::GetActiveSnapshot();

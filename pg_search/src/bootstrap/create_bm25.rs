@@ -24,6 +24,8 @@ use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
 };
 use crate::postgres::storage::LinkedItemList;
+use crate::postgres::utils::item_pointer_to_u64;
+use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
 use crate::schema::SearchFieldConfig;
 use crate::schema::SearchFieldName;
@@ -283,21 +285,26 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
 #[pg_extern]
 fn index_info(
     index: PgRelation,
+    show_invisible: default!(bool, false),
 ) -> anyhow::Result<
     TableIterator<
         'static,
         (
+            name!(visible, bool),
+            name!(recyclable, bool),
+            name!(xmin, AnyNumeric),
+            name!(xmax, AnyNumeric),
             name!(segno, String),
-            name!(byte_size, AnyNumeric),
-            name!(num_docs, AnyNumeric),
-            name!(num_deleted, AnyNumeric),
-            name!(termdict_bytes, AnyNumeric),
-            name!(postings_bytes, AnyNumeric),
-            name!(positions_bytes, AnyNumeric),
-            name!(fast_fields_bytes, AnyNumeric),
-            name!(fieldnorms_bytes, AnyNumeric),
-            name!(store_bytes, AnyNumeric),
-            name!(deletes_bytes, AnyNumeric),
+            name!(byte_size, Option<AnyNumeric>),
+            name!(num_docs, Option<AnyNumeric>),
+            name!(num_deleted, Option<AnyNumeric>),
+            name!(termdict_bytes, Option<AnyNumeric>),
+            name!(postings_bytes, Option<AnyNumeric>),
+            name!(positions_bytes, Option<AnyNumeric>),
+            name!(fast_fields_bytes, Option<AnyNumeric>),
+            name!(fieldnorms_bytes, Option<AnyNumeric>),
+            name!(store_bytes, Option<AnyNumeric>),
+            name!(deletes_bytes, Option<AnyNumeric>),
         ),
     >,
 > {
@@ -310,33 +317,125 @@ fn index_info(
     // validated the existence of the relation. We are safe calling the function below as
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+    let heap = index
+        .heap_relation()
+        .expect("index must have a heap relation");
 
     // open the specified index
-    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)?;
-    let data = search_reader
+    let search_index = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)?;
+    let mut search_readers = search_index
         .segment_readers()
         .iter()
-        .map(|segment_reader| {
-            let segno = segment_reader.segment_id().short_uuid_string();
-            let space_usage = segment_reader.space_usage()?;
+        .map(|segment_reader| (segment_reader.segment_id(), segment_reader))
+        .collect::<HashMap<_, _>>();
+    let all_entries = unsafe {
+        LinkedItemList::<SegmentMetaEntry>::open(index.oid(), SEGMENT_METAS_START)
+            .list()
+            .into_iter()
+            .map(|entry| (entry.segment_id, entry))
+            .collect::<HashMap<_, _>>()
+    };
 
-            Ok((
-                segno,
-                space_usage.total().get_bytes().into(),
-                segment_reader.num_docs().into(),
-                segment_reader.num_deleted_docs().into(),
-                space_usage.termdict().total().get_bytes().into(),
-                space_usage.postings().total().get_bytes().into(),
-                space_usage.positions().total().get_bytes().into(),
-                space_usage.fast_fields().total().get_bytes().into(),
-                space_usage.fieldnorms().total().get_bytes().into(),
-                space_usage.store().total().get_bytes().into(),
-                space_usage.deletes().get_bytes().into(),
-            ))
+    let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+    let mut results = Vec::new();
+    for (segment_id, entry) in all_entries {
+        if !show_invisible && unsafe { !entry.visible(snapshot) } {
+            continue;
+        }
+        let segment_reader = search_readers.remove(&segment_id);
+        let space_usage = segment_reader.map(|reader| {
+            reader
+                .space_usage()
+                .expect("should be able to get space usage")
+        });
+        let space_usage = space_usage.as_ref();
+        results.push((
+            unsafe { entry.visible(snapshot) },
+            unsafe { entry.recyclable(snapshot, heap.as_ptr()) },
+            entry.xmin.into(),
+            entry.xmax.into(),
+            segment_id.short_uuid_string(),
+            space_usage
+                .map(|usage| usage.total().get_bytes().into())
+                .or_else(|| Some(entry.byte_size().into())),
+            segment_reader
+                .map(|reader| reader.num_docs().into())
+                .or_else(|| Some(entry.num_docs().into())),
+            segment_reader
+                .map(|reader| reader.num_deleted_docs().into())
+                .or_else(|| Some(entry.num_deleted_docs().into())),
+            space_usage
+                .map(|usage| usage.termdict().total().get_bytes().into())
+                .or_else(|| entry.terms.map(|file| file.total_bytes.into())),
+            space_usage
+                .map(|usage| usage.postings().total().get_bytes().into())
+                .or_else(|| entry.postings.map(|file| file.total_bytes.into())),
+            space_usage
+                .map(|usage| usage.positions().total().get_bytes().into())
+                .or_else(|| entry.positions.map(|file| file.total_bytes.into())),
+            space_usage
+                .map(|usage| usage.fast_fields().total().get_bytes().into())
+                .or_else(|| entry.fast_fields.map(|file| file.total_bytes.into())),
+            space_usage
+                .map(|usage| usage.fieldnorms().total().get_bytes().into())
+                .or_else(|| entry.field_norms.map(|file| file.total_bytes.into())),
+            space_usage
+                .map(|usage| usage.store().total().get_bytes().into())
+                .or_else(|| entry.store.map(|file| file.total_bytes.into())),
+            space_usage
+                .map(|usage| usage.deletes().get_bytes().into())
+                .or_else(|| entry.delete.map(|file| file.file_entry.total_bytes.into())),
+        ));
+    }
+
+    assert!(search_readers.is_empty());
+
+    Ok(TableIterator::new(results))
+}
+
+/// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple
+/// identifier.
+///
+/// If the specified `ctid` is the result of a HOT chain update, then it's likely this function will
+/// return NULL -- HOT chains cannot be "reverse searched".
+///
+/// Otherwise, if this function returns NULL that is likely indicative of a pg_search bug.  We wish
+/// you luck in determining which is which.
+#[pg_extern]
+fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<Vec<String>>> {
+    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
+
+    let search_index = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, true)?;
+    let ctid_u64 = item_pointer_to_u64(ctid);
+    let results = search_index.search(
+        false,
+        false,
+        &SearchQueryInput::Term {
+            field: Some("ctid".into()),
+            value: ctid_u64.into(),
+            is_datetime: false,
+        },
+        None,
+    );
+
+    let results = results
+        .map(|(_, doc_address)| {
+            search_index.segment_readers()[doc_address.segment_ord as usize]
+                .segment_id()
+                .short_uuid_string()
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Vec<_>>();
 
-    Ok(TableIterator::new(data))
+    if results.is_empty() {
+        pgrx::warning!(
+            "find_ctid: didn't find segment for: {:?}.  segments={:#?}",
+            pgrx::itemptr::item_pointer_get_both(ctid),
+            search_index.segment_ids()
+        );
+        Ok(None)
+    } else {
+        Ok(Some(results))
+    }
 }
 
 #[pg_extern]

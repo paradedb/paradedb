@@ -1572,7 +1572,6 @@ impl SearchQueryInput {
                         .ok_or(QueryError::NonIndexedField(field))?;
 
                     let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
-
                     terms.push(value_to_term(
                         field,
                         &value,

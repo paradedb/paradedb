@@ -21,27 +21,12 @@ use tantivy::{
 pub unsafe fn list_managed_files(relation_oid: pg_sys::Oid) -> tantivy::Result<HashSet<PathBuf>> {
     let segment_components =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
-    let bman = segment_components.bman();
-    let mut blockno = segment_components.get_start_blockno();
-    let mut files = HashSet::new();
 
-    while blockno != pg_sys::InvalidBlockNumber {
-        let buffer = bman.get_buffer(blockno);
-        let page = buffer.page();
-        let max_offset = page.max_offset_number();
-        let mut offsetno = pg_sys::FirstOffsetNumber;
-
-        while offsetno <= max_offset {
-            if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                files.extend(entry.get_component_paths());
-            }
-            offsetno += 1;
-        }
-
-        blockno = page.next_blockno();
-    }
-
-    Ok(files)
+    Ok(segment_components
+        .list()
+        .into_iter()
+        .flat_map(|entry| entry.get_component_paths())
+        .collect())
 }
 
 pub fn save_schema(relation_oid: pg_sys::Oid, tantivy_schema: &Schema) -> Result<()> {

@@ -173,6 +173,64 @@ impl Default for SegmentMetaEntry {
     }
 }
 
+impl SegmentMetaEntry {
+    pub fn num_docs(&self) -> usize {
+        self.max_doc as usize - self.num_deleted_docs()
+    }
+
+    pub fn num_deleted_docs(&self) -> usize {
+        self.delete
+            .map(|entry| entry.num_deleted_docs as usize)
+            .unwrap_or(0)
+    }
+
+    pub fn byte_size(&self) -> u64 {
+        let mut size = 0;
+
+        size += self
+            .postings
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += self
+            .positions
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += self
+            .fast_fields
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += self
+            .field_norms
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += self
+            .terms
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += self
+            .store
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += self
+            .temp_store
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += self
+            .delete
+            .as_ref()
+            .map(|entry| entry.file_entry.total_bytes as u64)
+            .unwrap_or(0);
+        size
+    }
+}
+
 // ---------------------------------------------------------
 // Linked list entry <-> PgItem
 // ---------------------------------------------------------

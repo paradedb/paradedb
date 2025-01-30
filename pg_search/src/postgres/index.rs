@@ -166,6 +166,20 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
             key_config,
             *key_field_type,
         )))
+        .chain(std::iter::once(
+            // hardcode the ctid field into the schema.  "ctid" is a reserved Postgres attribute name
+            // so we don't need to worry about name conflicts
+            (
+                SearchFieldName("ctid".into()),
+                SearchFieldConfig::Numeric {
+                    indexed: true,
+                    fast: true,
+                    stored: false,
+                    column: None,
+                },
+                SearchFieldType::U64,
+            ),
+        ))
         .collect();
 
     let key_field_index = fields
@@ -173,9 +187,9 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
         .position(|(name, _, _)| name == &key_field)
         .expect("key field not found in columns"); // key field is already validated by now.
 
-    // If there's only one field in the vector, then it's just the key field
+    // If there's only two fields in the vector, then it's just the key field and the ctid field,
     // which we added above, and the user has not specified any fields to index.
-    if fields.len() == 1 {
+    if fields.len() == 2 {
         panic!("no fields specified")
     }
 

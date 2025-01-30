@@ -971,6 +971,19 @@ fn json_term(mut conn: PgConnection) {
     "
     .fetch(&mut conn);
     assert_eq!(rows, vec![(1,)]);
+
+    // Term set
+    let rows: Vec<(i32,)> = "
+        SELECT id FROM paradedb.bm25_search 
+        WHERE paradedb.bm25_search.id @@@ paradedb.term_set(
+            ARRAY[
+                paradedb.term('metadata.color', 'white'),
+                paradedb.term('metadata.attributes.score', 4)
+            ]
+        ) ORDER BY id
+    "
+    .fetch(&mut conn);
+    assert_eq!(rows, vec![(1,), (4,), (15,), (25,)]);
 }
 
 #[rstest]

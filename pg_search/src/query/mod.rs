@@ -1566,12 +1566,13 @@ impl SearchQueryInput {
                     is_datetime,
                 } in fields
                 {
-                    let (_, path) = split_field_and_path(&field);
+                    let (field, path) = split_field_and_path(&field);
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or(QueryError::NonIndexedField(field))?;
 
                     let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+
                     terms.push(value_to_term(
                         field,
                         &value,

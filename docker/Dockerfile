@@ -185,16 +185,6 @@ COPY --from=builder-pg_search /tmp/target/release/pg_search-pg${PG_VERSION_MAJOR
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
-
-# Required for pg_analytics and pg_cron
-#
-# If a user connects to ParadeDB with the superuser, the DuckDB folder will be created in the user's home directory. If
-# the user connects with the postgres user, the DuckDB folder will be created in the /var/lib/postgresql directory. We
-# chmod both directories to ensure that DuckDB can write to them no matter which user is used to connect to the database.
-RUN mkdir .duckdb/ && chmod -R a+rwX .duckdb/ && \
-    mkdir /var/lib/postgresql/.duckdb/ && \
-    chmod -R a+rwX /var/lib/postgresql/.duckdb/
-
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
 RUN apt-get update && \

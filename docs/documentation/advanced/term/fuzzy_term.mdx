@@ -2,14 +2,17 @@
 title: Fuzzy Term
 ---
 
+<Note>Highlighting is not supported for `paradedb.fuzzy_term`.</Note>
+
 ## Basic Usage
 
 `fuzzy_term` finds results that approximately match the query [term](/documentation/concepts/term),
 allowing for minor typos in the input.
 
 <Note>
-  `value` is treated as a token. Use `fuzzy_phrase` to perform fuzzy search over
-  a phrase containing multiple tokens.
+  `value` is treated as a raw token and is not processed further. Use
+  [`match`](/documentation/advanced/full-text/match) to process and fuzzy match
+  a query string.
 </Note>
 
 <CodeGroup>

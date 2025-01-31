@@ -1,19 +1,9 @@
 ---
-title: Term Search
+title: Boolean
 ---
 
-## Basic Usage
-
-Searches for the presence of a specific [term](/documentation/concepts/term).
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ 'shoes';
-```
-
-If the provided term can be tokenized further, the tokenization is automatically applied at search time using the same tokenizer
-as the prefixed field.
+Query strings can be combined using SQL `AND` and `OR` operators. To combine query builder functions, see the
+[boolean query](/documentation/advanced/compound/boolean).
 
 ## Multiple Terms
 
@@ -43,8 +33,3 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ '(shoes running -white)';
 ```
-
-## Special Characters
-
-The special characters `+` , `^`, `` ` ``, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `<`, `>`,`~`, `!`, `\\`, `\*`, and `SPACE` must
-be escaped by a `\` inside the query term.

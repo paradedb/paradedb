@@ -1046,7 +1046,7 @@ fn json_phrase_prefix(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn json_fuzzy_phrase(mut conn: PgConnection) {
+fn json_match(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     r#"
     UPDATE paradedb.bm25_search 
@@ -1057,7 +1057,7 @@ fn json_fuzzy_phrase(mut conn: PgConnection) {
 
     let rows: Vec<(i32,)> = "
     SELECT id FROM paradedb.bm25_search 
-    WHERE paradedb.bm25_search.id @@@ paradedb.fuzzy_phrase('metadata.attributes.review', 'realy godo') 
+    WHERE paradedb.bm25_search.id @@@ paradedb.match('metadata.attributes.review', 'realy godo', distance => 2) 
     ORDER BY id
     "
     .fetch(&mut conn);

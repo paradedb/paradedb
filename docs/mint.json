@@ -123,7 +123,7 @@
               "group": "Full Text Search",
               "pages": [
                 "documentation/full-text/overview",
-                "documentation/full-text/term",
+                "documentation/full-text/boolean",
                 "documentation/full-text/phrase",
                 "documentation/full-text/filtering",
                 "documentation/full-text/pagination",
@@ -137,6 +137,12 @@
               "group": "Query Builder",
               "pages": [
                 "documentation/advanced/overview",
+                {
+                  "group": "Full Text Queries",
+                  "pages": [
+                    "documentation/advanced/full-text/match"
+                  ]
+                },
                 {
                   "group": "Term-Level Queries",
                   "pages": [
@@ -152,7 +158,6 @@
                 {
                   "group": "Phrase-Level Queries",
                   "pages": [
-                    "documentation/advanced/phrase/fuzzy_phrase",
                     "documentation/advanced/phrase/phrase",
                     "documentation/advanced/phrase/phrase_prefix"
                   ]

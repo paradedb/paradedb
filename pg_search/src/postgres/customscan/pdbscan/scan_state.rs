@@ -26,8 +26,9 @@ use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+use pgrx::datum::Datum;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
+use pgrx::{name_data_to_str, pg_sys, FromDatum, PgRelation, PgTupleDesc};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use tantivy::schema::OwnedValue;
@@ -230,10 +231,35 @@ impl PdbScanState {
             pg_sys::ReleaseBuffer(buffer);
 
             let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
-            PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple)
-                .get_by_name(&snippet_info.field)
-                .expect(&format!("{} should exist in the heap tuple", snippet_info.field))
-                .unwrap_or_default()
+            let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple);
+            let attribute = heap_tuple
+                .get_attribute_by_name(&snippet_info.field)
+                .unwrap();
+            let is_array =
+                pg_sys::get_element_type(attribute.1.type_oid().value()) != pg_sys::InvalidOid;
+
+            if is_array {
+                heap_tuple
+                    .get_by_name::<pgrx::Array<&str>>(&snippet_info.field)
+                    .expect(&format!(
+                        "{} should exist in the heap tuple",
+                        snippet_info.field
+                    ))
+                    .unwrap()
+                    .iter()
+                    .flatten()
+                    // .map(|x| String::from_datum(x, false).unwrap())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                heap_tuple
+                    .get_by_name(&snippet_info.field)
+                    .expect(&format!(
+                        "{} should exist in the heap tuple",
+                        snippet_info.field
+                    ))
+                    .unwrap_or_default()
+            }
         };
 
         let (field, generator) = self.snippet_generators.get(snippet_info)?.as_ref()?;

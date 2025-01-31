@@ -124,7 +124,7 @@ pub trait LinkedList {
 /// Metadata for tracking where to find a file
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct FileEntry {
-    pub staring_block: pg_sys::BlockNumber,
+    pub starting_block: pg_sys::BlockNumber,
     pub total_bytes: usize,
 }
 

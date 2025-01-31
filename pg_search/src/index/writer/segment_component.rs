@@ -34,7 +34,7 @@ impl SegmentComponentWriter {
 
     pub fn file_entry(&self) -> FileEntry {
         FileEntry {
-            staring_block: self.header_blockno,
+            starting_block: self.header_blockno,
             total_bytes: self.total_bytes,
         }
     }

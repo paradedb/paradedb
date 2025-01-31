@@ -134,20 +134,21 @@ jobs:
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 
-      - name: Alter pg_search extension to the latest version
-        working-directory: pg_search/
-        run: |
-          VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+      # TODO: Reactivate this test once we release v0.15.1, which will once again be upgradable
+      # - name: Alter pg_search extension to the latest version
+      #   working-directory: pg_search/
+      #   run: |
+      #     VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
+      #     psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
 
-      # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
-      - name: Run pg_search Integration Tests
-        working-directory: tests/
-        run: |
-          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test --features icu
+      # # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
+      # - name: Run pg_search Integration Tests
+      #   working-directory: tests/
+      #   run: |
+      #     export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+      #     export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+      #     export PARADEDB_TELEMETRY=false
+      #     RUST_BACKTRACE=1 cargo test --features icu
 
       - name: Print the Postgres Logs
         if: always()

@@ -1566,7 +1566,7 @@ impl SearchQueryInput {
                     is_datetime,
                 } in fields
                 {
-                    let (_, path) = split_field_and_path(&field);
+                    let (field, path) = split_field_and_path(&field);
                     let (field_type, typeoid, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or(QueryError::NonIndexedField(field))?;

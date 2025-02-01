@@ -26,9 +26,8 @@ use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use pgrx::datum::Datum;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{name_data_to_str, pg_sys, FromDatum, PgRelation, PgTupleDesc};
+use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use tantivy::schema::OwnedValue;
@@ -197,7 +196,7 @@ impl PdbScanState {
         u64_to_item_pointer(ctid, &mut ipd);
 
         let text = unsafe {
-            let mut heap_tuple = pg_sys::HeapTupleData {
+            let mut htup = pg_sys::HeapTupleData {
                 t_self: ipd,
                 ..Default::default()
             };
@@ -205,12 +204,8 @@ impl PdbScanState {
 
             #[cfg(any(feature = "pg13", feature = "pg14"))]
             {
-                if !pg_sys::heap_fetch(
-                    heaprel,
-                    pg_sys::GetActiveSnapshot(),
-                    &mut heap_tuple,
-                    &mut buffer,
-                ) {
+                if !pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer)
+                {
                     return None;
                 }
             }
@@ -220,7 +215,7 @@ impl PdbScanState {
                 if !pg_sys::heap_fetch(
                     heaprel,
                     pg_sys::GetActiveSnapshot(),
-                    &mut heap_tuple,
+                    &mut htup,
                     &mut buffer,
                     false,
                 ) {
@@ -231,27 +226,30 @@ impl PdbScanState {
             pg_sys::ReleaseBuffer(buffer);
 
             let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
-            let pg_heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple);
-            let (index, attribute) = pg_heap_tuple
+            let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+            let (index, attribute) = heap_tuple
                 .get_attribute_by_name(&snippet_info.field)
                 .unwrap();
-            let is_array =
-                pg_sys::get_element_type(attribute.type_oid().value()) != pg_sys::InvalidOid;
-    
-            if is_array {
-                let attr: Vec<Option<String>> = pgrx::htup::heap_getattr(
-                    (*heaprel).rd_att,
+
+            if pg_sys::type_is_array(attribute.type_oid().value()) {
+                // varchar[] and text[] are flattened into a single string
+                // to emulate Tantivy's default behavior for highlighting text arrays
+                pgrx::htup::heap_getattr::<Vec<Option<String>>, _>(
+                    &pgrx::pgbox::PgBox::from_pg(&mut htup),
                     index,
-                    tuple_desc
-                ).unwrap();
-                attr.into_iter().flatten().collect::<Vec<String>>().join(" ")
+                    &tuple_desc,
+                )
+                .unwrap_or_default()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" ")
             } else {
-                pg_heap_tuple
+                heap_tuple
                     .get_by_name(&snippet_info.field)
-                    .expect(&format!(
-                        "{} should exist in the heap tuple",
-                        snippet_info.field
-                    ))
+                    .unwrap_or_else(|_| {
+                        panic!("{} should exist in the heap tuple", snippet_info.field)
+                    })
                     .unwrap_or_default()
             }
         };

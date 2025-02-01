@@ -231,28 +231,22 @@ impl PdbScanState {
             pg_sys::ReleaseBuffer(buffer);
 
             let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
-            let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple);
-            let attribute = heap_tuple
+            let pg_heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple);
+            let (index, attribute) = pg_heap_tuple
                 .get_attribute_by_name(&snippet_info.field)
                 .unwrap();
             let is_array =
-                pg_sys::get_element_type(attribute.1.type_oid().value()) != pg_sys::InvalidOid;
-
+                pg_sys::get_element_type(attribute.type_oid().value()) != pg_sys::InvalidOid;
+    
             if is_array {
-                heap_tuple
-                    .get_by_name::<pgrx::Array<&str>>(&snippet_info.field)
-                    .expect(&format!(
-                        "{} should exist in the heap tuple",
-                        snippet_info.field
-                    ))
-                    .unwrap()
-                    .iter()
-                    .flatten()
-                    // .map(|x| String::from_datum(x, false).unwrap())
-                    .collect::<Vec<_>>()
-                    .join(" ")
+                let attr: Vec<Option<String>> = pgrx::htup::heap_getattr(
+                    (*heaprel).rd_att,
+                    index,
+                    tuple_desc
+                ).unwrap();
+                attr.into_iter().flatten().collect::<Vec<String>>().join(" ")
             } else {
-                heap_tuple
+                pg_heap_tuple
                     .get_by_name(&snippet_info.field)
                     .expect(&format!(
                         "{} should exist in the heap tuple",

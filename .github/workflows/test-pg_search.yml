@@ -142,7 +142,7 @@ jobs:
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Add pg_search to shared_preload_libraries
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version < 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
@@ -258,7 +258,7 @@ jobs:
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
       - name: Add pg_search to shared_preload_libraries
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version < 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 

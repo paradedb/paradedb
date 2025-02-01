@@ -75,7 +75,7 @@ pub fn MyDatabaseId() -> u32 {
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
-    if !pg_sys::process_shared_preload_libraries_in_progress {
+    if cfg!(not(feature = "pg17")) && !pg_sys::process_shared_preload_libraries_in_progress {
         error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
     }
 
@@ -104,6 +104,13 @@ pub mod pg_test {
 
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // return any postgresql.conf settings that are required for your tests
-        vec!["shared_preload_libraries='pg_search'"]
+
+        let mut options: Vec<&'static str> = Vec::new();
+
+        if cfg!(not(feature = "pg17")) {
+            options.push("shared_preload_libraries='pg_search'");
+        }
+
+        options
     }
 }

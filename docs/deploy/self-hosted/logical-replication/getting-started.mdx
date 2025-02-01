@@ -75,7 +75,7 @@ max_wal_senders = 10
 - `listen_addresses` specifies the IP addresses on which PostgreSQL listens for connections. By default, PostgreSQL only listens on `localhost`. To allow other servers (like your standby servers) to connect for replication, you need to include their IP addresses.
 - `max_wal_senders` determines the maximum number of concurrent connections that can send WAL (Write-Ahead Log) data.
 
-If you are running `pg_search` on the primary server, make sure to add it to `shared_preload_libraries`. If you are installing it only on the standby server as a search replica,
+If you are running `pg_search` on the primary server, make sure to add it to `shared_preload_libraries` if your Postgres version is less than 17. If you are installing it only on the standby server as a search replica,
 you should skip this step.
 
 ```ini

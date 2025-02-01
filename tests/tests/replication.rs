@@ -178,6 +178,8 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
         wal_level = logical
         max_replication_slots = 4
         max_wal_senders = 4
+        # Adding pg_search to shared_preload_libraries in 17 doesn't do anything
+        # but simplifies testing
         shared_preload_libraries = 'pg_search'
     ";
 
@@ -274,6 +276,8 @@ async fn test_replication_with_pg_search_only_on_replica() -> Result<()> {
         wal_level = logical
         max_replication_slots = 4
         max_wal_senders = 4
+        # Adding pg_search to shared_preload_libraries in 17 doesn't do anything
+        # but simplifies testing
         shared_preload_libraries = 'pg_search'
     ";
 
@@ -358,6 +362,8 @@ async fn test_physical_streaming_replication() -> Result<()> {
         archive_command = 'cp %p {}/%f'
         max_wal_senders = 3
         wal_keep_size = '160MB'
+        # Adding pg_search to shared_preload_libraries in 17 doesn't do anything
+        # but simplifies testing
         shared_preload_libraries = 'pg_search'
         ",
         archive_dir.path().display()
@@ -404,6 +410,8 @@ async fn test_physical_streaming_replication() -> Result<()> {
     .expect("Failed to run pg_basebackup for standby setup");
 
     let standby_config = "
+        # Adding pg_search to shared_preload_libraries in 17 doesn't do anything
+        # but simplifies testing
         shared_preload_libraries = 'pg_search'
         hot_standby = on
     ";

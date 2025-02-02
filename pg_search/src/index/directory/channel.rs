@@ -11,15 +11,15 @@ use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::panic::{resume_unwind, AssertUnwindSafe};
+use std::panic::{panic_any, resume_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::{io, io::Write, ops::Range, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
-    DirectoryLock, FileHandle, Lock, OwnedBytes, TerminatingWrite, WatchCallback, WatchHandle,
-    WritePtr,
+    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, OwnedBytes, TerminatingWrite,
+    WatchCallback, WatchHandle, WritePtr,
 };
 use tantivy::index::SegmentMetaInventory;
 use tantivy::merge_policy::MergePolicy;
@@ -41,6 +41,7 @@ pub enum ChannelRequest {
         IndexMeta,
         oneshot::Sender<Option<Box<dyn MergePolicy>>>,
     ),
+    Panic(Box<dyn Any + Send>),
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +180,14 @@ impl Directory for ChannelDirectory {
     fn supports_garbage_collection(&self) -> bool {
         false
     }
+
+    fn panic_handler(&self) -> Option<DirectoryPanicHandler> {
+        let sender = self.sender.clone();
+        let panic_handler = move |any| {
+            sender.send(ChannelRequest::Panic(any)).unwrap();
+        };
+        Some(Arc::new(panic_handler))
+    }
 }
 
 type Action = Box<dyn FnOnce() -> Reply + Send + Sync>;
@@ -238,6 +247,7 @@ impl ChannelRequestHandler {
             // no panic caught
             Ok(result) => {
                 unsafe {
+                    assert!(pg_sys::InterruptHoldoffCount > 0);
                     pg_sys::InterruptHoldoffCount -= 1;
                 }
                 result
@@ -343,6 +353,13 @@ impl ChannelRequestHandler {
                     .directory
                     .reconsider_merge_policy(&meta, &previous_meta);
                 sender.send(policy)?;
+            }
+            ChannelRequest::Panic(any) => {
+                if let Some(panic_handler) = self.directory.panic_handler() {
+                    panic_handler(any);
+                } else {
+                    panic_any(any)
+                }
             }
         }
         Ok(false)

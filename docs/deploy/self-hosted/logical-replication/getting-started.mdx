@@ -8,6 +8,11 @@ title: Getting Started
   ParadeDB Enterprise build.
 </Info>
 
+<Note>
+  In order for ParadeDB to run as a logical replica, ParadeDB must be using
+  Postgres 17+.
+</Note>
+
 In production, ParadeDB is designed to be deployed as a logical replica of your primary Postgres. This
 allows ParadeDB to stay in sync with managed Postgres providers like AWS RDS, Google CloudSQL, and Azure Postgres with zero additional
 infrastructure overhead. It also isolates search and analytical workloads from your primary Postgres, which can prevent downtime caused by long-running queries.

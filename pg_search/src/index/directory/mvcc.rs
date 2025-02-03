@@ -31,12 +31,17 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashSet;
+use std::error::Error;
+use std::fmt::{Debug, Display};
+use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::{io, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
-use tantivy::directory::{DirectoryLock, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr};
+use tantivy::directory::{
+    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
+};
 use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
@@ -310,6 +315,46 @@ impl Directory for MVCCDirectory {
 
     fn supports_garbage_collection(&self) -> bool {
         false
+    }
+
+    fn panic_handler(&self) -> Option<DirectoryPanicHandler> {
+        let panic_handler = move |any: Box<dyn Any + Send>| {
+            fn downcast_to_panic(any: Box<dyn Any + Send>, depth: usize) -> ! {
+                // NB:  the `any` error could be other types too, but lord knows what they might be
+
+                if let Some(message) = any.downcast_ref::<String>() {
+                    panic!("{message}");
+                } else if let Some(message) = any.downcast_ref::<&str>() {
+                    panic!("{message}");
+                } else if let Some(message) = any.downcast_ref::<tantivy::TantivyError>() {
+                    panic!("{message:?}");
+                } else if let Some(message) = any.downcast_ref::<&dyn Display>() {
+                    panic!("{message}");
+                } else if let Some(message) = any.downcast_ref::<&dyn Debug>() {
+                    panic!("{message:?}")
+                } else if let Some(message) = any.downcast_ref::<&dyn Error>() {
+                    panic!("{message}");
+                } else {
+                    if depth >= 10 {
+                        // just to avoid recursing forever if we always end up downcasting to another
+                        // `[Box<dyn Any + Send>]`
+                        panic_any(any);
+                    }
+                    match any.downcast::<Box<dyn Any + Send>>() {
+                        // The actual error might be hidden behind another Box<dyn Any + Send>
+                        // so recurse with this boxed version
+                        Ok(any) => downcast_to_panic(*any, depth + 1),
+
+                        // this will likely just panic with a message that says:  Any { .. }
+                        // completely unhelpful, but it is better than also having Postgres crash
+                        Err(unknown) => panic_any(unknown),
+                    }
+                }
+            }
+
+            downcast_to_panic(any, 0);
+        };
+        Some(Arc::new(panic_handler))
     }
 }
 

@@ -79,23 +79,23 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      # This is the pgrx version compatible with ParadeDB v0.14.0
-      - name: Install cargo-pgrx for ParadeDB v0.14.0
+      # This is the pgrx version compatible with ParadeDB v0.15.0
+      - name: Install cargo-pgrx for ParadeDB v0.15.0
         run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.12.7 --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB v0.14.0
+      - name: Initialize cargo-pgrx environment for ParadeDB v0.15.0
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
+      # This is no longer necessary from pg_search 0.15.1 onwards, but we test upgrading from 0.15.0
       - name: Add pg_search to shared_preload_libraries
-        if: matrix.pg_version < 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       # This is the first version at which we started supporting upgrading via ALTER EXTENSION
-      - name: Checkout ParadeDB v0.14.0
-        run: git checkout v0.14.0
+      - name: Checkout ParadeDB v0.15.0
+        run: git checkout v0.15.0
 
-      - name: Compile & install pg_search v0.14.0
+      - name: Compile & install pg_search v0.15.0
         working-directory: pg_search/
         run: cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
@@ -135,21 +135,20 @@ jobs:
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 
-      # TODO: Reactivate this test once we release v0.15.1, which will once again be upgradable
-      # - name: Alter pg_search extension to the latest version
-      #   working-directory: pg_search/
-      #   run: |
-      #     VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
-      #     psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+      - name: Alter pg_search extension to the latest version
+        working-directory: pg_search/
+        run: |
+          VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
 
-      # # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
-      # - name: Run pg_search Integration Tests
-      #   working-directory: tests/
-      #   run: |
-      #     export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-      #     export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-      #     export PARADEDB_TELEMETRY=false
-      #     RUST_BACKTRACE=1 cargo test --features icu
+      # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
+      - name: Run pg_search Integration Tests
+        working-directory: tests/
+        run: |
+          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          export PARADEDB_TELEMETRY=false
+          RUST_BACKTRACE=1 cargo test --features icu
 
       - name: Print the Postgres Logs
         if: always()

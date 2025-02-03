@@ -34,7 +34,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::{Index, SegmentId};
-use tantivy::query::{EnableScoring, QueryParser, Weight};
+use tantivy::query::{EnableScoring, QueryClone, QueryParser};
 use tantivy::schema::FieldType;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{
@@ -335,12 +335,6 @@ impl SearchIndexReader {
             .expect("must be able to parse query")
     }
 
-    fn weight(&self, need_scores: bool, search_query_input: &SearchQueryInput) -> Box<dyn Weight> {
-        self.query(search_query_input)
-            .weight(self.enable_scoring(need_scores))
-            .expect("weight should be constructable")
-    }
-
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {
         self.searcher.doc(doc_address)
     }
@@ -404,14 +398,20 @@ impl SearchIndexReader {
         query: &SearchQueryInput,
         _estimated_rows: Option<usize>,
     ) -> SearchResults {
+        let query = self.query(query);
         let iters = self
             .searcher()
             .segment_readers()
             .iter()
             .enumerate()
-            .map(|(segment_ord, segment_reader)| {
+            .map(move |(segment_ord, segment_reader)| {
                 scorer_iter::ScorerIter::new(
-                    DeferredScorer::new(self.weight(need_scores, query), segment_reader.clone()),
+                    DeferredScorer::new(
+                        query.box_clone(),
+                        need_scores,
+                        segment_reader.clone(),
+                        self.searcher.clone(),
+                    ),
                     segment_ord as SegmentOrdinal,
                     segment_reader.clone(),
                 )
@@ -433,7 +433,7 @@ impl SearchIndexReader {
         segment_id: SegmentId,
         query: &SearchQueryInput,
     ) -> SearchResults {
-        let weight = self.weight(need_scores, query);
+        let query = self.query(query);
         let (segment_ord, segment_reader) = self
             .searcher
             .segment_readers()
@@ -442,7 +442,12 @@ impl SearchIndexReader {
             .find(|(_, reader)| reader.segment_id() == segment_id)
             .expect("segment {segment_id} should exist");
         let iter = scorer_iter::ScorerIter::new(
-            DeferredScorer::new(weight, segment_reader.clone()),
+            DeferredScorer::new(
+                query,
+                need_scores,
+                segment_reader.clone(),
+                self.searcher.clone(),
+            ),
             segment_ord as SegmentOrdinal,
             segment_reader.clone(),
         );
@@ -562,25 +567,7 @@ impl SearchIndexReader {
                 )
             }
 
-            SortDirection::None => {
-                let iters = self
-                    .searcher()
-                    .segment_readers()
-                    .iter()
-                    .enumerate()
-                    .map(|(segment_ord, segment_reader)| {
-                        scorer_iter::ScorerIter::new(
-                            DeferredScorer::new(
-                                self.weight(need_scores, query),
-                                segment_reader.clone(),
-                            ),
-                            segment_ord as SegmentOrdinal,
-                            segment_reader.clone(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                SearchResults::AllSegments(self.searcher.clone(), Default::default(), iters)
-            }
+            SortDirection::None => self.search(need_scores, false, query, Some(n)),
         }
     }
 
@@ -722,7 +709,12 @@ impl SearchIndexReader {
 
             SortDirection::None => {
                 let iter = scorer_iter::ScorerIter::new(
-                    DeferredScorer::new(weight, segment_reader.clone()),
+                    DeferredScorer::new(
+                        query,
+                        false,
+                        segment_reader.clone(),
+                        self.searcher.clone(),
+                    ),
                     segment_ord as SegmentOrdinal,
                     segment_reader.clone(),
                 );
@@ -742,10 +734,13 @@ impl SearchIndexReader {
             .segment_readers()
             .iter()
             .max_by_key(|reader| reader.num_docs())?;
-        let weight = self.weight(
-            search_query_input.contains_more_like_this(),
-            search_query_input,
-        );
+        let query = self.query(search_query_input);
+        let weight = query
+            .weight(enable_scoring(
+                search_query_input.contains_more_like_this(),
+                &self.searcher,
+            ))
+            .expect("weight should be constructable");
         let count = weight
             .scorer(largest_reader, 1.0)
             .expect("counting docs in the largest segment should not fail")
@@ -768,67 +763,72 @@ impl SearchIndexReader {
                 &owned_query,
                 &collector,
                 &Executor::SingleThread,
-                self.enable_scoring(need_scores),
+                enable_scoring(need_scores, &self.searcher),
             )
             .expect("search should not fail")
     }
+}
 
-    fn enable_scoring(&self, need_scores: bool) -> EnableScoring {
-        if need_scores {
-            tantivy::query::EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            }
-        } else {
-            tantivy::query::EnableScoring::Disabled {
-                schema: &self.schema.schema,
-                searcher_opt: Some(&self.searcher),
-            }
-        }
+fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring {
+    if need_scores {
+        EnableScoring::enabled_from_searcher(searcher)
+    } else {
+        EnableScoring::disabled_from_searcher(searcher)
     }
 }
 
 mod scorer_iter {
-    use tantivy::query::{Scorer, Weight};
-    use tantivy::{DocAddress, DocId, DocSet, Score, SegmentOrdinal, SegmentReader};
+    use crate::index::reader::index::enable_scoring;
+    use std::sync::OnceLock;
+    use tantivy::query::{Query, Scorer};
+    use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
     pub struct DeferredScorer {
-        weight: Box<dyn Weight>,
+        query: Box<dyn Query>,
+        need_scores: bool,
         segment_reader: SegmentReader,
-        inner: Option<Box<dyn Scorer>>,
+        searcher: Searcher,
+        scorer: OnceLock<Box<dyn Scorer>>,
     }
 
     impl DeferredScorer {
-        pub fn new(weight: Box<dyn Weight>, segment_reader: SegmentReader) -> Self {
+        pub fn new(
+            query: Box<dyn Query>,
+            need_scores: bool,
+            segment_reader: SegmentReader,
+            searcher: Searcher,
+        ) -> Self {
             Self {
-                weight,
+                query,
+                need_scores,
                 segment_reader,
-                inner: None,
+                searcher,
+                scorer: Default::default(),
             }
-        }
-
-        #[track_caller]
-        #[inline(always)]
-        fn init(&mut self) {
-            let _ = self.scorer_mut();
         }
 
         #[track_caller]
         #[inline(always)]
         fn scorer_mut(&mut self) -> &mut Box<dyn Scorer> {
-            self.inner.get_or_insert_with(|| {
-                self.weight
-                    .scorer(&self.segment_reader, 1.0)
-                    .expect("scorer should be constructable")
-            })
+            self.scorer();
+            self.scorer
+                .get_mut()
+                .expect("deferred scorer should have been initialized")
         }
 
         #[track_caller]
         #[inline(always)]
         fn scorer(&self) -> &dyn Scorer {
-            self.inner
-                .as_ref()
-                .expect("scorer should have been initialized")
+            self.scorer.get_or_init(|| {
+                let weight = self
+                    .query
+                    .weight(enable_scoring(self.need_scores, &self.searcher))
+                    .expect("weight should be constructable");
+
+                weight
+                    .scorer(&self.segment_reader, 1.0)
+                    .expect("scorer should be constructable")
+            })
         }
     }
 
@@ -879,8 +879,6 @@ mod scorer_iter {
         type Item = (Score, DocAddress);
 
         fn next(&mut self) -> Option<Self::Item> {
-            self.deferred.init();
-
             loop {
                 let doc_id = self.deferred.doc();
 
@@ -911,12 +909,7 @@ mod scorer_iter {
         }
 
         fn size_hint(&self) -> (usize, Option<usize>) {
-            if self.deferred.inner.is_none() {
-                // DeferredScorer hasn't been initialized yet, so there's nothing we can report
-                (0, None)
-            } else {
-                (0, Some(self.deferred.size_hint() as usize))
-            }
+            (0, Some(self.deferred.size_hint() as usize))
         }
     }
 }

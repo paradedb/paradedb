@@ -380,6 +380,36 @@ fn snippet(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn snippet_text_array(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE people (
+        id SERIAL PRIMARY KEY,
+        names TEXT[],
+        locations VARCHAR[]
+    );
+    INSERT INTO people (names, locations) VALUES 
+    ('{"Alice", "Bob", "Charlie"}', '{"New York", "Los Angeles"}'),
+    ('{"Diana", "Eve", "Fiona"}', '{"Chicago", "Houston"}'),
+    ('{"George", "Hannah", "Ivan"}', '{"Miami", "Seattle"}');
+    CREATE INDEX people_idx ON people USING bm25 (id, names, locations) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    let results: Vec<(i32, String, String)> = "
+        SELECT id, paradedb.snippet(names), paradedb.snippet(locations)
+        FROM people WHERE names @@@ 'alice' AND locations @@@ 'new'"
+        .fetch(&mut conn);
+    assert_eq!(
+        results,
+        vec![(
+            1,
+            "<b>Alice</b> Bob Charlie".into(),
+            "<b>New</b> York Los Angeles".into()
+        )]
+    );
+}
+
+#[rstest]
 fn hybrid_with_single_result(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(

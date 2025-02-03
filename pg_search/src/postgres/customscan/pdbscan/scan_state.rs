@@ -196,7 +196,7 @@ impl PdbScanState {
         u64_to_item_pointer(ctid, &mut ipd);
 
         let text = unsafe {
-            let mut heap_tuple = pg_sys::HeapTupleData {
+            let mut htup = pg_sys::HeapTupleData {
                 t_self: ipd,
                 ..Default::default()
             };
@@ -204,12 +204,8 @@ impl PdbScanState {
 
             #[cfg(any(feature = "pg13", feature = "pg14"))]
             {
-                if !pg_sys::heap_fetch(
-                    heaprel,
-                    pg_sys::GetActiveSnapshot(),
-                    &mut heap_tuple,
-                    &mut buffer,
-                ) {
+                if !pg_sys::heap_fetch(heaprel, pg_sys::GetActiveSnapshot(), &mut htup, &mut buffer)
+                {
                     return None;
                 }
             }
@@ -219,7 +215,7 @@ impl PdbScanState {
                 if !pg_sys::heap_fetch(
                     heaprel,
                     pg_sys::GetActiveSnapshot(),
-                    &mut heap_tuple,
+                    &mut htup,
                     &mut buffer,
                     false,
                 ) {
@@ -230,10 +226,32 @@ impl PdbScanState {
             pg_sys::ReleaseBuffer(buffer);
 
             let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
-            PgHeapTuple::from_heap_tuple(tuple_desc, &mut heap_tuple)
-                .get_by_name(&snippet_info.field)
-                .expect("{snippet_info.field} should exist in the heap tuple")
+            let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+            let (index, attribute) = heap_tuple
+                .get_attribute_by_name(&snippet_info.field)
+                .unwrap();
+
+            if pg_sys::type_is_array(attribute.type_oid().value()) {
+                // varchar[] and text[] are flattened into a single string
+                // to emulate Tantivy's default behavior for highlighting text arrays
+                pgrx::htup::heap_getattr::<Vec<Option<String>>, _>(
+                    &pgrx::pgbox::PgBox::from_pg(&mut htup),
+                    index,
+                    &tuple_desc,
+                )
                 .unwrap_or_default()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" ")
+            } else {
+                heap_tuple
+                    .get_by_name(&snippet_info.field)
+                    .unwrap_or_else(|_| {
+                        panic!("{} should exist in the heap tuple", snippet_info.field)
+                    })
+                    .unwrap_or_default()
+            }
         };
 
         let (field, generator) = self.snippet_generators.get(snippet_info)?.as_ref()?;

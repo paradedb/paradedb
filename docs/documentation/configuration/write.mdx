@@ -4,17 +4,6 @@ title: Throughput
 
 Several settings can be used to tune the throughput of `INSERT`/`UPDATE`/`COPY` statements to the BM25 index.
 
-## Statement Memory
-
-Like [indexing memory](/documentation/configuration/index#indexing-memory), the amount of memory available to `INSERT`/`UPDATE`/`COPY` statements and number of segments
-created is affected by `maintenance_work_mem`.
-
-```bash postgresql.conf
-maintenance_work_mem = 16GB
-```
-
-Generally speaking, this is the only setting that must be tuned for optimizing these statements.
-
 ## Statement Parallelism
 
 <Note>This setting requires superuser privileges.</Note>
@@ -33,8 +22,10 @@ SET paradedb.statement_parallelism = 1;
 
 <Note>This setting requires superuser privileges.</Note>
 
-`paradedb.statement_memory_budget`, like [indexing memory](/documentation/configuration/index#indexing-memory) defaults to `maintenance_work_mem` divided by the total parallelism. It sets the amount of memory to dedicate per indexing thread before the index segment needs to be
-written to disk. The setting is measured in megabytes.
+`paradedb.statement_memory_budget` defaults to `1024MB`. It sets the amount of memory to dedicate per indexing thread before the index segment needs to be
+written to disk. The value is measured in megabytes. In terms of raw indexing performance, larger is generally better.
+
+If set to `0`, `maintenance_work_mem` divided by [statement parallelism](#statement-parallelism) will be used.
 
 If your typical update patterns are single-row atomic `INSERT`s or `UPDATE`s, then a value of `15MB` can prevent unnecessary memory from being allocated. For bulk inserts
 and updates, a larger value is better.
@@ -42,3 +33,5 @@ and updates, a larger value is better.
 ```sql
 SET paradedb.statement_memory_budget = 15;
 ```
+
+Like [`paradedb.create_index_memory_budget`](/documentation/configuration/index#indexing-memory-per-thread), this setting can affect the number of segments in the index.

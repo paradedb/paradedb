@@ -48,14 +48,14 @@ static CREATE_INDEX_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// How much memory should tantivy use during CREATE INDEX.  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
-static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(0);
+static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 
 /// How many threads should tantivy use during a regular INSERT/UPDATE/COPY statement?
 static STATEMENT_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// How much memory should tantivy use during a regular INSERT/UPDATE/COPY statement?  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
-static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(0);
+static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.

@@ -62,7 +62,7 @@ tempfile = "3.13.0"
 
 [build-dependencies]
 vergen = { version = "9.0.0", features = ["build", "cargo", "rustc", "si"] }
-vergen-git2 = "1.0.5" 
+vergen-git2 = "1.0.5"
 
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]

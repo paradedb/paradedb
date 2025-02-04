@@ -20,7 +20,7 @@ use pgrx::{pg_sys, GucContext, GucFlags, GucRegistry, GucSetting};
 use std::num::NonZeroUsize;
 
 /// Is our telemetry tracking enabled?  Default is `true`.
-static TELEMETRY: GucSetting<bool> = GucSetting::<bool>::new(true);
+static TELEMETRY: GucSetting<bool> = GucSetting::<bool>::new(cfg!(feature = "telemetry"));
 
 /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -48,27 +48,33 @@ static CREATE_INDEX_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// How much memory should tantivy use during CREATE INDEX.  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
-static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(0);
+static CREATE_INDEX_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 
 /// How many threads should tantivy use during a regular INSERT/UPDATE/COPY statement?
 static STATEMENT_PARALLELISM: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// How much memory should tantivy use during a regular INSERT/UPDATE/COPY statement?  This value is decided to each indexing
 /// thread.  So if there's 10 threads and this value is 100MB, then a total of 1GB will be allocated.
-static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(0);
+static STATEMENT_MEMORY_BUDGET: GucSetting<i32> = GucSetting::<i32>::new(1024);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
     // They cannot have more than one '.' - paradedb.pg_search.telemetry will not work.
 
+    let (telemetry_context, telemetry_flags) = if cfg!(feature = "telemetry") {
+        (GucContext::Userset, GucFlags::default())
+    } else {
+        (GucContext::Internal, GucFlags::DISALLOW_IN_FILE)
+    };
+
     GucRegistry::define_bool_guc(
         "paradedb.pg_search_telemetry",
         "Enable telemetry on the ParadeDB pg_search extension.",
         "Enable telemetry on the ParadeDB pg_search extension.",
         &TELEMETRY,
-        GucContext::Userset,
-        GucFlags::default(),
+        telemetry_context,
+        telemetry_flags,
     );
 
     GucRegistry::define_bool_guc(

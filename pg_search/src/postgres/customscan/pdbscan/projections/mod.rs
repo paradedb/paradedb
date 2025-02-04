@@ -199,17 +199,21 @@ pub unsafe fn inject_placeholders(
                 if let Some(attname) = data.attname_lookup.get(&key) {
                     for snippet_info in data.snippet_infos.keys() {
                         if &snippet_info.field == attname {
-                            let const_ = pg_sys::makeConst(
-                                pg_sys::TEXTOID,
-                                -1,
-                                pg_sys::DEFAULT_COLLATION_OID,
-                                -1,
-                                pg_sys::Datum::null(),
-                                true,
-                                false,
-                            );
-                            data.const_snippet_nodes
-                                .insert(snippet_info.clone(), const_);
+                            let const_ = data
+                                .const_snippet_nodes
+                                .entry(snippet_info.clone())
+                                .or_insert_with(|| {
+                                    pg_sys::makeConst(
+                                        pg_sys::TEXTOID,
+                                        -1,
+                                        pg_sys::DEFAULT_COLLATION_OID,
+                                        -1,
+                                        pg_sys::Datum::null(),
+                                        true,
+                                        false,
+                                    )
+                                });
+
                             return Some(const_.cast());
                         }
                     }

@@ -22,6 +22,15 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
+fn validate_checksum(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let (count,) =
+        "select count(*) from paradedb.validate_checksum('paradedb.bm25_search_bm25_index')"
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 0);
+}
+
+#[rstest]
 fn vacuum_full(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id IN (1, 2, 3, 4, 5)".execute(&mut conn);

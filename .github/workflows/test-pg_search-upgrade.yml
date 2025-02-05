@@ -154,8 +154,8 @@ jobs:
       - name: Test BM25 Index
         working-directory: pg_search/
         run: |
-          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'SELECT description, rating, category FROM mock_items LIMIT 3;'
-          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;'
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS \$\$ BEGIN IF a <> b THEN RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b; END IF; RETURN true; END; \$\$;"
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "SELECT assert(paradedb.validate_checksum('search_idx'), 0);"
 
       # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
       - name: Run pg_search Integration Tests

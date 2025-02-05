@@ -24,8 +24,9 @@ use sqlx::PgConnection;
 #[rstest]
 fn validate_checksum(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
-    let (count,) = "select count(*) from paradedb.validate_checksum('bm25_search_bm25_index')"
-        .fetch_one::<(i64,)>(&mut conn);
+    let (count,) =
+        "select count(*) from paradedb.validate_checksum('paradedb.bm25_search_bm25_index')"
+            .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 0);
 }
 

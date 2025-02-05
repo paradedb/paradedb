@@ -33,5 +33,5 @@ jobs:
           ignore_words_file: .codespellignore
           skip: "Cargo.lock,./tests"
         env:
-          DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}

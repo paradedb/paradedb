@@ -106,9 +106,18 @@ jobs:
           # Necessary for the ephemeral Postgres test to have proper permissions
           sudo chown -R $(whoami) /var/run/postgresql/
 
-      - name: Create pg_search extension
+      - name: Create pg_search Extension
         working-directory: pg_search/
         run: psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
+
+      # We create and test the BM25 index before and after the upgrade to test for version compatibility
+      - name: Create and Test BM25 Index
+        working-directory: pg_search/
+        run: |
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');'
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'SELECT description, rating, category FROM mock_items LIMIT 3;'
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'CREATE INDEX search_idx ON mock_items USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) WITH (key_field='id');'
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;'
 
       - name: Stop Postgres via cargo-pgrx
         working-directory: pg_search/
@@ -140,6 +149,13 @@ jobs:
         run: |
           VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
           psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+
+      # We test the BM25 index before and after the upgrade to test for version compatibility
+      - name: Test BM25 Index
+        working-directory: pg_search/
+        run: |
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'SELECT description, rating, category FROM mock_items LIMIT 3;'
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c 'SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;'
 
       # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
       - name: Run pg_search Integration Tests

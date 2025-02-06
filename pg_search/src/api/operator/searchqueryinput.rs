@@ -31,7 +31,7 @@ use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
     PgList, PgOid, PgRelation,
 };
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::ptr::NonNull;
 
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
@@ -40,19 +40,18 @@ pub fn search_with_query_input(
     query: SearchQueryInput,
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> bool {
-    let default_hash_set = || {
-        let index_oid = {
-            // We don't have access to the index oid here, so we don't know what index to use.
-            // That means we're going to need to rely on the query being correctly wrapped
-            // with the WithIndex when it is rewritten with our custom operator.
-            match query {
-                SearchQueryInput::WithIndex { oid, .. } => oid,
-                _ => panic!("the SearchQueryInput must be wrapped in a WithIndex variant"),
-            }
-        };
+    let index_oid = query
+        .index_oid()
+        .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  query={query:#?}"));
+    let mut cache = unsafe { pg_func_extra(fcinfo, FxHashMap::default) };
+    // NB:  ideally, `SearchQueryInput` would `#[derive(Hash)]`, but it can't (easily)
+    let key = (index_oid, format!("{query:?}"));
+
+    let (key_field_name, matches) = cache.entry(key).or_insert_with(|| {
         let index_relation = unsafe {
             PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         };
+
         let search_reader =
             SearchIndexReader::open(&index_relation, BlockDirectoryType::Mvcc, false)
                 .expect("search_with_query_input: should be able to open a SearchIndexReader");
@@ -65,34 +64,25 @@ pub fn search_with_query_input(
             &[(key_field_name.clone(), key_field_type).into()],
         );
         let top_docs = search_reader.search(query.contains_more_like_this(), false, &query, None);
-        let mut hs = FxHashSet::default();
+        let mut matches = FxHashSet::default();
         for (_, doc_address) in top_docs {
             check_for_interrupts!();
-            hs.insert(
+            matches.insert(
                 fast_fields
                     .value(0, doc_address)
                     .expect("key_field value should not be null"),
             );
         }
 
-        (key_field_name, hs)
-    };
+        (key_field_name, matches)
+    });
 
-    let cached = unsafe { pg_func_extra(fcinfo, default_hash_set) };
-    let key_field = &cached.0;
-    let hash_set = &cached.1;
-
-    let key_field_value = match unsafe {
+    match unsafe {
         TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
     } {
-        Err(err) => panic!(
-            "no value present in key_field {} in tuple: {err}",
-            key_field
-        ),
-        Ok(value) => value,
-    };
-
-    hash_set.contains(&key_field_value)
+        Err(err) => panic!("no value present in key_field {key_field_name} in tuple: {err}",),
+        Ok(value) => matches.contains(&value),
+    }
 }
 
 #[pg_extern(immutable, parallel_safe)]

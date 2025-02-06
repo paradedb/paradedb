@@ -262,7 +262,7 @@ where a.description @@@ 'bear' AND b.description @@@ 'teddy bear';"#
 }
 
 #[rstest]
-fn simple_join_with_scores_or_both_sides(mut conn: PgConnection) {
+fn simple_join_with_scores_on_both_sides(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let result = r#"
@@ -274,7 +274,7 @@ from (select paradedb.score(id), * from paradedb.bm25_search) a
 inner join (select paradedb.score(id), * from paradedb.bm25_search) b on a.id = b.id
 where a.description @@@ 'bear' OR b.description @@@ 'teddy bear';"#
         .fetch_one::<(i32, f32, i32, f32)>(&mut conn);
-    assert_eq!(result, (40, 4.332205, 40, 7.664409));
+    assert_eq!(result, (40, 3.3322046, 40, 6.664409));
 }
 
 #[rstest]
@@ -383,9 +383,9 @@ fn join_issue_1776(mut conn: PgConnection) {
         LIMIT 5;
     "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
 
-    assert_eq!(results[0], (3, "Sleek running shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
-    assert_eq!(results[1], (6, "White jogging shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
-    assert_eq!(results[2], (36,"White jogging shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
+    assert_eq!(results[0], (3, "Sleek running shoes".into(), "Alice Johnson".into(), 2.9216242, 2.4849067));
+    assert_eq!(results[1], (6, "White jogging shoes".into(), "Alice Johnson".into(), 2.9216242, 2.4849067));
+    assert_eq!(results[2], (36,"White jogging shoes".into(), "Alice Johnson".into(), 2.9216242, 2.4849067));
 }
 
 #[rustfmt::skip]
@@ -427,7 +427,7 @@ fn join_issue_1826(mut conn: PgConnection) {
         LIMIT 1;
     "#.fetch_result::<(i32, String, String, f32, f32)>(&mut conn).expect("query failed");
 
-    assert_eq!(results[0], (3, "Sleek running shoes".into(), "Alice Johnson".into(), 4.921624, 2.4849067));
+    assert_eq!(results[0], (3, "Sleek running shoes".into(), "Alice Johnson".into(), 2.9216242, 2.4849067));
 }
 
 #[rstest]

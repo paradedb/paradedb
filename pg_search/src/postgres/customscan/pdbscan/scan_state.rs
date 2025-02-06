@@ -20,6 +20,7 @@ use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::SortDirection;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetInfo;
+use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::utils::u64_to_item_pointer;
@@ -30,7 +31,6 @@ use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{name_data_to_str, pg_sys, PgRelation, PgTupleDesc};
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
-use tantivy::schema::OwnedValue;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -65,12 +65,13 @@ pub struct PdbScanState {
 
     pub visibility_checker: Option<VisibilityChecker>,
     pub segment_count: usize,
+    pub quals: Option<Qual>,
 
     pub need_scores: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
 
-    pub const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
+    pub const_snippet_nodes: HashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
     pub snippet_funcoid: pg_sys::Oid,
     pub snippet_generators:
         HashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
@@ -255,10 +256,14 @@ impl PdbScanState {
         };
 
         let (field, generator) = self.snippet_generators.get(snippet_info)?.as_ref()?;
-        let doc = HashMap::from([(*field, OwnedValue::Str(text))]);
-        let mut snippet = generator.snippet_from_doc(&doc);
+        let mut snippet = generator.snippet(&text);
 
         snippet.set_snippet_prefix_postfix(&snippet_info.start_tag, &snippet_info.end_tag);
-        Some(snippet.to_html())
+        let html = snippet.to_html();
+        if html.trim().is_empty() {
+            None
+        } else {
+            Some(html)
+        }
     }
 }

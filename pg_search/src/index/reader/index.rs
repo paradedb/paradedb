@@ -741,10 +741,16 @@ impl SearchIndexReader {
                 &self.searcher,
             ))
             .expect("weight should be constructable");
-        let count = weight
+        let mut scorer = weight
             .scorer(largest_reader, 1.0)
-            .expect("counting docs in the largest segment should not fail")
-            .size_hint() as usize;
+            .expect("counting docs in the largest segment should not fail");
+
+        // investigate the size_hint.  it will often give us a good enough value
+        let mut count = scorer.size_hint() as usize;
+        if count == 0 {
+            // but when it doesn't, we need to do a full count
+            count = scorer.count_including_deleted() as usize;
+        }
         let segment_doc_proportion =
             largest_reader.num_docs() as f64 / self.searcher.num_docs() as f64;
 

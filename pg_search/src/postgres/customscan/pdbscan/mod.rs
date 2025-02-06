@@ -32,7 +32,7 @@ use crate::index::mvcc::MVCCDirectory;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::BlockDirectoryType;
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, Flags, OrderByStyle, SortDirection,
+    CustomPathBuilder, Flags, OrderByStyle, RestrictInfoType, SortDirection,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -58,7 +58,7 @@ use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::query::SearchQueryInput;
+use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use exec_methods::top_n::TopNScanExecState;
@@ -88,19 +88,25 @@ impl CustomScan for PdbScan {
 
     fn callback(mut builder: CustomPathBuilder<Self::PrivateData>) -> Option<pg_sys::CustomPath> {
         unsafe {
-            if builder.restrict_info().is_empty() {
+            let (restrict_info, ri_type) = builder.restrict_info();
+            if matches!(ri_type, RestrictInfoType::None) {
+                // this relation has no restrictions (WHERE clause predicates), so there's no need
+                // for us to do anything
                 return None;
             }
+
             let rti = builder.args().rti;
             let (table, bm25_index, is_join) = {
                 let rte = builder.args().rte();
 
-                // first, we only work on plain relations
+                // we only support plain relation and join rte's
                 if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
                     && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
                 {
                     return None;
                 }
+
+                // and we only work on plain relations
                 let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
                 if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
                     return None;
@@ -152,12 +158,13 @@ impl CustomScan for PdbScan {
             //
             // look for quals we can support
             //
-            let restrict_info = builder.restrict_info();
             if let Some(quals) = extract_quals(
                 rti,
                 restrict_info.as_ptr().cast(),
                 anyelement_query_input_opoid(),
+                ri_type,
             ) {
+                let is_paramaterized = quals.contains_param();
                 let selectivity = if let Some(limit) = limit {
                     // use the limit
                     limit
@@ -170,18 +177,27 @@ impl CustomScan for PdbScan {
                     (*restrict_info.get_ptr(0).unwrap()).norm_selec
                 } else {
                     // ask the index
-                    let search_config = SearchQueryInput::from(&quals);
-                    estimate_selectivity(&bm25_index, &search_config).unwrap_or(UNKNOWN_SELECTIVITY)
+                    if is_paramaterized {
+                        // TODO:  address this when we support parameterized plans
+                        // we have no idea, so assume it'll be the entire index
+                        1.0
+                    } else {
+                        let query = SearchQueryInput::from(&quals);
+                        estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
+                    }
                 };
+
+                // we must use this path if we need to do const projections for scores or snippets
+                builder = builder.set_force_path(
+                    !quals.contains_param()
+                        && (maybe_needs_const_projections || is_topn || quals.contains_all()),
+                );
 
                 builder.custom_private().set_heaprelid(table.oid());
                 builder.custom_private().set_indexrelid(bm25_index.oid());
                 builder.custom_private().set_range_table_index(rti);
                 builder.custom_private().set_quals(quals);
                 builder.custom_private().set_limit(limit);
-
-                // we must use this path if we need to do const projections for scores or snippets
-                builder = builder.set_force_path(maybe_needs_const_projections || is_topn);
 
                 if is_topn {
                     // sorting by a field only works if we're not doing const projections
@@ -229,7 +245,12 @@ impl CustomScan for PdbScan {
                     DEFAULT_STARTUP_COST
                 };
 
-                let total_cost = startup_cost + (rows * per_tuple_cost);
+                let total_cost = if is_paramaterized {
+                    // TODO:  address this when we support parameterized plans
+                    0.0
+                } else {
+                    startup_cost + (rows * per_tuple_cost)
+                };
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
 
                 builder.custom_private().set_segment_count(
@@ -394,12 +415,12 @@ impl CustomScan for PdbScan {
             builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
             // store our query quals into our custom state too
-            let quals = builder
-                .custom_private()
-                .quals()
-                .expect("should have a Qual structure");
-            builder.custom_state().search_query_input = SearchQueryInput::from(&quals);
-
+            builder.custom_state().quals = Some(
+                builder
+                    .custom_private()
+                    .quals()
+                    .expect("should have a Qual structure"),
+            );
             builder.custom_state().segment_count = builder.custom_private().segment_count();
 
             // now build up the var attribute name lookup map
@@ -565,14 +586,27 @@ impl CustomScan for PdbScan {
             }
         }
 
-        let query = &state.custom_state().search_query_input;
-        let pretty_json = if explainer.is_verbose() {
-            serde_json::to_string_pretty(&query)
+        if state
+            .custom_state()
+            .quals
+            .as_ref()
+            .map(|quals| quals.contains_param())
+            .unwrap_or(false)
+        {
+            // TODO:  address this when we support parameterized plans
+            explainer.add_text(
+                "   Query",
+                "<parameterized>, currently unsupported by pg_search",
+            );
         } else {
-            serde_json::to_string(&query)
+            let query = &state.custom_state().search_query_input;
+            let json_query = serde_json::to_string(&query).expect("query should serialize to json");
+            explainer.add_text("Tantivy Query", &json_query);
+
+            if explainer.is_verbose() {
+                explainer.add_text("Human Readable Query", query.as_human_readable());
+            }
         }
-        .expect("query should serialize to json");
-        explainer.add_text("Tantivy Query", &pretty_json);
     }
 
     fn begin_custom_scan(
@@ -607,6 +641,27 @@ impl CustomScan for PdbScan {
             state.custom_state_mut().heaprel_relname =
                 PgRelation::from_pg(heaprel).name().to_string();
 
+            let is_explain_only = eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0;
+
+            // build the query
+            let quals = state
+                .custom_state()
+                .quals
+                .as_ref()
+                .expect("Quals should have been assigned");
+            let search_query_input = if quals.contains_param() && is_explain_only {
+                SearchQueryInput::default()
+            } else {
+                SearchQueryInput::from(quals)
+            };
+
+            state.custom_state_mut().search_query_input = search_query_input;
+
+            if is_explain_only {
+                // don't do anything else if we're only explaining the query
+                return;
+            }
+
             // setup the structures we need to do mvcc checking
             state.custom_state_mut().visibility_checker = Some(
                 VisibilityChecker::with_rel_and_snap(heaprel, pg_sys::GetActiveSnapshot()),
@@ -625,11 +680,6 @@ impl CustomScan for PdbScan {
                 state.planstate(),
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
-        }
-
-        if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
-            // don't do anything else if we're only explaining the query
-            return;
         }
 
         PdbScan::rescan_custom_scan(state)
@@ -760,19 +810,24 @@ impl CustomScan for PdbScan {
 
                             if state.custom_state().need_snippets() {
                                 per_tuple_context.switch_to(|_| {
-                                    for (snippet_info, const_snippet_node) in
+                                    for (snippet_info, const_snippet_nodes) in
                                         &state.custom_state().const_snippet_nodes
                                     {
-                                        if let Some(snippet) =
-                                            state.custom_state().make_snippet(ctid, snippet_info)
-                                        {
-                                            (**const_snippet_node).constvalue =
-                                                snippet.into_datum().unwrap();
-                                            (**const_snippet_node).constisnull = false;
-                                        } else {
-                                            (**const_snippet_node).constvalue =
-                                                pg_sys::Datum::null();
-                                            (**const_snippet_node).constisnull = true;
+                                        let snippet =
+                                            state.custom_state().make_snippet(ctid, snippet_info);
+
+                                        for const_ in const_snippet_nodes {
+                                            match &snippet {
+                                                Some(text) => {
+                                                    (**const_).constvalue =
+                                                        text.into_datum().unwrap();
+                                                    (**const_).constisnull = false;
+                                                }
+                                                None => {
+                                                    (**const_).constvalue = pg_sys::Datum::null();
+                                                    (**const_).constisnull = true;
+                                                }
+                                            }
                                         }
                                     }
                                 });

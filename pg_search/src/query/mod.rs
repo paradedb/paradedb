@@ -43,6 +43,34 @@ use tantivy::{
 use thiserror::Error;
 use tokenizers::SearchTokenizer;
 
+pub trait AsHumanReadable {
+    fn as_human_readable(&self) -> String;
+}
+
+impl AsHumanReadable for OwnedValue {
+    fn as_human_readable(&self) -> String {
+        match self {
+            OwnedValue::Null => "<NULL>".to_string(),
+            OwnedValue::Str(s) => s.clone(),
+            OwnedValue::PreTokStr(s) => s.text.to_string(),
+            OwnedValue::U64(v) => v.to_string(),
+            OwnedValue::I64(v) => v.to_string(),
+            OwnedValue::F64(v) => v.to_string(),
+            OwnedValue::Bool(v) => v.to_string(),
+            OwnedValue::Date(v) => format!("{v:?}"),
+            OwnedValue::Facet(v) => v.to_string(),
+            OwnedValue::Bytes(_) => "<BYTES>".to_string(),
+            OwnedValue::Array(a) => a
+                .iter()
+                .map(|v| v.as_human_readable())
+                .collect::<Vec<_>>()
+                .join(", "),
+            OwnedValue::Object(o) => format!("{o:?}"),
+            OwnedValue::IpAddr(v) => v.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
@@ -251,6 +279,142 @@ impl SearchQueryInput {
             SearchQueryInput::MoreLikeThis { .. } => true,
             _ => false,
         }
+    }
+
+    pub fn index_oid(&self) -> Option<pg_sys::Oid> {
+        match self {
+            SearchQueryInput::WithIndex { oid, .. } => Some(*oid),
+            _ => None,
+        }
+    }
+}
+
+impl AsHumanReadable for SearchQueryInput {
+    fn as_human_readable(&self) -> String {
+        let mut s = String::new();
+        match self {
+            SearchQueryInput::All => s.push_str("<ALL>"),
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                if !must.is_empty() {
+                    s.push('(');
+                    for (i, input) in must.iter().enumerate() {
+                        (i > 0).then(|| s.push_str(" AND "));
+                        s.push_str(&input.as_human_readable());
+                    }
+                    s.push(')');
+                }
+
+                if !should.is_empty() {
+                    if !s.is_empty() {
+                        s.push_str(" AND ");
+                    }
+                    s.push('(');
+                    for (i, input) in should.iter().enumerate() {
+                        (i > 0).then(|| s.push_str(" OR "));
+                        s.push_str(&input.as_human_readable());
+                    }
+                    s.push(')');
+                }
+
+                if !must_not.is_empty() {
+                    s.push_str(" NOT (");
+                    for input in must_not {
+                        s.push_str(&input.as_human_readable());
+                    }
+                    s.push(')');
+                }
+            }
+            SearchQueryInput::Boost { query, factor } => {
+                s.push_str(&query.as_human_readable());
+                s.push_str(&format!("^{factor}"));
+            }
+            SearchQueryInput::ConstScore { query, score } => {
+                s.push_str(&query.as_human_readable());
+                s.push_str(&format!("^{score}"));
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                s.push('(');
+                for (i, input) in disjuncts.iter().enumerate() {
+                    (i > 0).then(|| s.push_str(" OR "));
+                    s.push_str(&input.as_human_readable());
+                }
+                s.push(')');
+            }
+            SearchQueryInput::Empty => s.push_str("<EMPTY>"),
+            SearchQueryInput::Exists { field } => s.push_str(&format!("<EXISTS:{field}>")),
+            SearchQueryInput::FastFieldRangeWeight { .. } => {}
+            SearchQueryInput::FuzzyTerm {
+                field,
+                value,
+                distance,
+                ..
+            } => match distance {
+                Some(distance) => s.push_str(&format!("{field}:{value}~{distance}")),
+                None => s.push_str(&format!("{field}:{value}~")),
+            },
+            SearchQueryInput::Match { field, value, .. } => {
+                s.push_str(&format!("{field}:\"{value}\""))
+            }
+            SearchQueryInput::MoreLikeThis { .. } => s.push_str("<MLT>"),
+            SearchQueryInput::Parse { query_string, .. } => {
+                s.push('(');
+                s.push_str(query_string);
+                s.push(')');
+            }
+            SearchQueryInput::ParseWithField {
+                field,
+                query_string,
+                ..
+            } => s.push_str(&format!("{field}:({query_string})")),
+            SearchQueryInput::Phrase { field, phrases, .. } => {
+                s.push_str(&format!("{field}:("));
+                for phrase in phrases {
+                    s.push_str(&format!("\"{phrase}\""));
+                }
+                s.push(')');
+            }
+            SearchQueryInput::PhrasePrefix { field, phrases, .. } => {
+                s.push_str(&format!("{field}:("));
+                for (i, phrase) in phrases.iter().enumerate() {
+                    (i > 0).then(|| s.push_str(", "));
+                    s.push_str(&format!("\"{phrase}\"*"));
+                }
+                s.push(')');
+            }
+            SearchQueryInput::Regex { field, pattern } => {
+                s.push_str(&format!("{field}:/{pattern}/"));
+            }
+            SearchQueryInput::RegexPhrase { field, regexes, .. } => {
+                s.push_str(&format!("{field}:("));
+                for (i, regex) in regexes.iter().enumerate() {
+                    (i > 0).then(|| s.push_str(", "));
+                    s.push_str(&format!("/{regex}/"));
+                }
+                s.push(')');
+            }
+            SearchQueryInput::Term { field, value, .. } => match field {
+                Some(field) => s.push_str(&format!("{field}:{}", value.as_human_readable())),
+                None => s.push_str(&value.as_human_readable()),
+            },
+            SearchQueryInput::TermSet { terms } => {
+                if !terms.is_empty() {
+                    s.push('(');
+                    for (i, term) in terms.iter().enumerate() {
+                        (i > 0).then(|| s.push_str(", "));
+                        s.push_str(&format!("{}:{:?}", term.field, term.value))
+                    }
+                    s.push(')');
+                }
+            }
+            SearchQueryInput::WithIndex { query, .. } => s.push_str(&query.as_human_readable()),
+
+            other => s.push_str(&format!("{:?}", other)),
+        }
+        s
     }
 }
 

@@ -188,22 +188,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry + BlockEntry> Li
                 offsetno += 1;
             }
 
-            let mut vacuum_fsm = false;
-            for blockno in pages_to_recycle {
-                let buffer = self.bman.get_buffer(blockno);
-                let page = buffer.page();
-                if page.is_recyclable(std::ptr::null_mut()) {
-                    self.bman.record_free_index_page(buffer);
-                    vacuum_fsm = true;
-                }
-            }
-
-            if vacuum_fsm {
-                let index = pg_sys::RelationIdGetRelation(self.relation_oid);
-                pg_sys::IndexFreeSpaceMapVacuum(index);
-                pg_sys::RelationClose(index);
-            }
-
             if !delete_offsets.is_empty() {
                 page.delete_items(&mut delete_offsets);
             }
@@ -247,6 +231,22 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry + BlockEntry> Li
                     special.next_blockno = current_blockno;
                 }
                 last_filled_blockno = current_blockno;
+            }
+
+            let mut vacuum_fsm = false;
+            for blockno in pages_to_recycle {
+                let buffer = self.bman.get_buffer(blockno);
+                let page = buffer.page();
+                if page.is_recyclable(std::ptr::null_mut()) {
+                    self.bman.record_free_index_page(buffer);
+                    vacuum_fsm = true;
+                }
+            }
+
+            if vacuum_fsm {
+                let index = pg_sys::RelationIdGetRelation(self.relation_oid);
+                pg_sys::IndexFreeSpaceMapVacuum(index);
+                pg_sys::RelationClose(index);
             }
         }
 

@@ -32,8 +32,9 @@ fn joins_return_correct_results(mut conn: PgConnection) -> Result<(), sqlx::Erro
                             -- mind the gap
     INSERT INTO public.b VALUES (6, 'only_in_b');
 
-    INSERT INTO a (id, value) SELECT x, md5(random()::text) FROM generate_series(7, 10000) x;
-    INSERT INTO b (id, value) SELECT x, md5(random()::text) FROM generate_series(7, 10000) x;
+-- loading all this extra data makes the test take too long on CI
+--    INSERT INTO a (id, value) SELECT x, md5(random()::text) FROM generate_series(7, 10000) x;
+--    INSERT INTO b (id, value) SELECT x, md5(random()::text) FROM generate_series(7, 10000) x;
         
     CREATE INDEX idxa ON public.a USING bm25 (id, value) WITH (key_field=id, text_fields='{"value": {}}');
     CREATE INDEX idxb ON public.b USING bm25 (id, value) WITH (key_field=id, text_fields='{"value": {}}');

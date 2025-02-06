@@ -34,7 +34,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::{Index, SegmentId};
-use tantivy::query::{BooleanQuery, EnableScoring, Occur, QueryParser, TermQuery, Weight};
+use tantivy::query::{BooleanQuery, EnableScoring, Occur, QueryParser, TermQuery};
 use tantivy::schema::{FieldType, IndexRecordOption};
 use tantivy::termdict::TermOrdinal;
 use tantivy::Term;

@@ -196,8 +196,15 @@ impl Directory for MVCCDirectory {
     /// Returns a list of all segment components to Tantivy,
     /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<HashSet<PathBuf>> {
-        // because we don't support garbage collection
-        unimplemented!("list_managed_files should not be called");
+        unsafe {
+            let segment_metas =
+                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
+            Ok(segment_metas
+                .list()
+                .into_iter()
+                .flat_map(|entry| entry.get_component_paths())
+                .collect())
+        }
     }
 
     // This is intentionally a no-op

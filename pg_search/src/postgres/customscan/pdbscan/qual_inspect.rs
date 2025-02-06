@@ -46,16 +46,23 @@ impl From<&Qual> for SearchQueryInput {
             },
 
             Qual::And(quals) => {
-                let must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
+                let mut must = Vec::new();
+                let mut should = Vec::new();
+                let mut must_not = Vec::new();
 
-                match must.len() {
-                    0 => panic!("Qual::And should have at least one item"),
-                    1 => must.into_iter().next().unwrap(),
-                    _ => SearchQueryInput::Boolean {
-                        must,
-                        should: Default::default(),
-                        must_not: Default::default(),
-                    },
+                for qual in quals {
+                    match qual {
+                        Qual::And(ands) => must.extend(ands.iter().map(SearchQueryInput::from)),
+                        Qual::Or(ors) => should.extend(ors.iter().map(SearchQueryInput::from)),
+                        Qual::Not(not) => must_not.push(SearchQueryInput::from(not.as_ref())),
+                        other => must.push(SearchQueryInput::from(other)),
+                    }
+                }
+
+                SearchQueryInput::Boolean {
+                    must,
+                    should,
+                    must_not,
                 }
             }
             Qual::Or(quals) => {
@@ -75,7 +82,7 @@ impl From<&Qual> for SearchQueryInput {
                 let must_not = vec![SearchQueryInput::from(qual.as_ref())];
 
                 SearchQueryInput::Boolean {
-                    must: Default::default(),
+                    must: vec![SearchQueryInput::All],
                     should: Default::default(),
                     must_not,
                 }

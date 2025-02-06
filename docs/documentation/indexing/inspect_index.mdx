@@ -2,6 +2,15 @@
 title: Inspect an Index
 ---
 
+## Version Info
+
+`paradedb.version_info` returns the current ParadeDB extension version, the full
+Git commit hash, and the build mode (`release` or `debug`).
+
+```sql
+SELECT * FROM paradedb.version_info();
+```
+
 ## Index Schema
 
 `paradedb.schema` returns information about the index schema. This is useful for inspecting how an index was configured.

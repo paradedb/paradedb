@@ -536,3 +536,29 @@ fn page_info(
     unsafe { pg_sys::RelationClose(heap_relation) };
     Ok(TableIterator::new(data))
 }
+
+#[pg_extern]
+fn version_info() -> TableIterator<
+    'static,
+    (
+        name!(version, String),
+        name!(githash, String),
+        name!(build_mode, String),
+    ),
+> {
+    let version = option_env!("CARGO_PKG_VERSION")
+        .unwrap_or("unknown")
+        .to_string();
+
+    let git_sha = option_env!("VERGEN_GIT_SHA")
+        .unwrap_or("unknown")
+        .to_string();
+
+    let build_mode = if cfg!(debug_assertions) {
+        "debug".to_string()
+    } else {
+        "release".to_string()
+    };
+
+    TableIterator::once((version, git_sha, build_mode))
+}

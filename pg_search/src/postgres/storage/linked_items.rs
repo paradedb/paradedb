@@ -152,9 +152,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry + BlockEntry> Li
     pub unsafe fn garbage_collect(&mut self, strategy: pg_sys::BufferAccessStrategy) -> Result<()> {
         // Delete all items that are definitely dead
         let snapshot = pg_sys::GetActiveSnapshot();
-        let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
-        let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
-        let freeze_limit = vacuum_get_freeze_limit(heap_relation);
+        // let heap_oid = pg_sys::IndexGetRelation(self.relation_oid, false);
+        // let heap_relation = pg_sys::RelationIdGetRelation(heap_oid);
+        let freeze_limit = vacuum_get_freeze_limit(std::ptr::null_mut());
         let start_blockno = self.get_start_blockno();
         let mut blockno = start_blockno;
         let mut last_filled_blockno = start_blockno;
@@ -169,7 +169,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry + BlockEntry> Li
 
             while offsetno <= max_offset {
                 if let Some((entry, _)) = page.read_item::<T>(offsetno) {
-                    if entry.recyclable(snapshot, heap_relation) {
+                    if entry.recyclable(snapshot, std::ptr::null_mut()) {
                         delete_offsets.push(offsetno);
                         pages_to_recycle.extend(entry.get_associated_blocks(self.relation_oid));
                     } else {
@@ -250,7 +250,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry + BlockEntry> Li
             }
         }
 
-        pg_sys::RelationClose(heap_relation);
+        // pg_sys::RelationClose(heap_relation);
         Ok(())
     }
 

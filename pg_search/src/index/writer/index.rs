@@ -178,6 +178,10 @@ impl SearchIndexWriter {
         let mut tantivy_docs: Vec<TantivyDocument> =
             child_documents.into_iter().map(|doc| doc.into()).collect();
 
+        for doc in &mut tantivy_docs {
+            doc.add_u64(self.ctid_field, ctid);
+        }
+
         let mut parent_doc: TantivyDocument = parent_document.into();
         parent_doc.add_u64(self.ctid_field, ctid);
 

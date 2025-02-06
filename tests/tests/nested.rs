@@ -105,7 +105,13 @@ async fn nested_single_level_score_modes(mut conn: PgConnection) -> Result<(), s
     USING bm25 (id, nested_data)
     WITH (
         key_field = 'id',
-        json_fields = '{"nested_data": {"nested": ["nested_data.obj1"]}}'
+        json_fields = '{
+            "nested_data": {
+                "nested": {
+                    "obj1": {}
+                }
+            }
+        }'
     );
     "#
     .execute(&mut conn);
@@ -113,8 +119,11 @@ async fn nested_single_level_score_modes(mut conn: PgConnection) -> Result<(), s
     let rows_avg: Vec<(i32,)> = r#"
         SELECT id FROM nested_table_score
         WHERE nested_table_score @@@ paradedb.nested(
-            path => 'nested_data.obj1',
-            query => paradedb.term(field => 'nested_data.obj1.name', value => 'powell')
+            path => 'nested_data',
+            query => paradedb.nested(
+                path => 'nested_data.obj1',
+                query => paradedb.term(field => 'nested_data.obj1.name', value => 'powell')
+            )
         )
         ORDER BY id
         "#
@@ -173,7 +182,17 @@ async fn nested_multi_level(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     USING bm25 (id, nested_data)
     WITH (
         key_field = 'id',
-        nested_fields = '["nested_data.driver", "nested_data.driver.vehicle"]'
+        json_fields = '{
+            "nested_data": {
+                "nested": {
+                    "driver": {
+                        "nested": {
+                            "vehicle": {}
+                        }
+                    }
+                }
+            }
+        }'
     );
     "#
     .execute(&mut conn);
@@ -187,8 +206,8 @@ async fn nested_multi_level(mut conn: PgConnection) -> Result<(), sqlx::Error> {
                 path => 'nested_data.driver.vehicle',
                 query => paradedb.boolean(
                     must => ARRAY[
-                        paradedb.term(field => 'nested_data.driver.vehicle.make', value => 'Powell Motors'),
-                        paradedb.term(field => 'nested_data.driver.vehicle.model', value => 'Canyonero')
+                        paradedb.term(field => 'nested_data.driver.vehicle.make', value => 'powell'),
+                        paradedb.term(field => 'nested_data.driver.vehicle.model', value => 'canyonero')
                     ]
                 )
             )

@@ -34,9 +34,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::{Index, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser};
-use tantivy::schema::FieldType;
+use tantivy::query::{BooleanQuery, EnableScoring, Occur, QueryParser, TermQuery, Weight};
+use tantivy::schema::{FieldType, IndexRecordOption};
 use tantivy::termdict::TermOrdinal;
+use tantivy::Term;
 use tantivy::{
     query::Query, DocAddress, DocId, DocSet, IndexReader, Order, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -322,8 +323,10 @@ impl SearchIndexReader {
                 .map(|search_field| search_field.id.0)
                 .collect::<Vec<_>>(),
         );
-        search_query_input
-            .clone()
+
+        // 1) Build the "base query" from the user's input
+        let base_query = search_query_input
+            .clone() // because `into_tantivy_query` currently takes ownership
             .into_tantivy_query(
                 &(
                     unsafe { &PgRelation::with_lock(self.index_oid, pg_sys::AccessShareLock as _) },
@@ -332,7 +335,26 @@ impl SearchIndexReader {
                 &mut parser,
                 &self.searcher,
             )
-            .expect("must be able to parse query")
+            .expect("must be able to parse query");
+
+        // 2) Construct a filter that matches only the parent docs
+        //    We assume `_is_parent: true` is set on the root (parent) doc and not on child docs.
+        //    Replace "_is_parent" with the actual field name in your schema if different.
+        let parent_field = self
+            .schema
+            .get_search_field(&SearchFieldName("_is_parent".into()))
+            .expect("missing `_is_parent` field in schema");
+        let parent_term = Term::from_field_bool(parent_field.into(), true);
+        let parent_filter_query = Box::new(TermQuery::new(parent_term, IndexRecordOption::Basic));
+
+        // 3) Combine base query AND parent-only filter in a BooleanQuery
+        let final_query = Box::new(BooleanQuery::new(vec![
+            (Occur::Must, base_query),
+            (Occur::Must, parent_filter_query),
+        ]));
+
+        // 4) Return that combined query
+        final_query
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {

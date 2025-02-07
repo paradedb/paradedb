@@ -99,7 +99,7 @@ jobs:
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: ubicloud/rust-cache@v2
+        uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
@@ -224,7 +224,7 @@ jobs:
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: ubicloud/rust-cache@v2
+        uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}

@@ -15,7 +15,13 @@ ParadeDB's integrations that make it easy to ingest this data without data proce
 In this example, we will query and copy a Parquet file stored in S3 to Postgres. The Parquet file
 contains 3 million NYC taxi trips from January 2024, hosted in a public S3 bucket provided by ParadeDB.
 
-To begin, let's create a [Postgres foreign data wrapper](https://wiki.postgresql.org/wiki/Foreign_data_wrappers), which is how ParadeDB connects to S3.
+To begin, enable the ParadeDB integrations with:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_analytics;
+```
+
+Now, let's create a [Postgres foreign data wrapper](https://wiki.postgresql.org/wiki/Foreign_data_wrappers), which is how ParadeDB connects to S3.
 
 ```sql
 CREATE FOREIGN DATA WRAPPER parquet_wrapper

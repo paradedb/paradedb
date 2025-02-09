@@ -1,0 +1,398 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "ParadeDB",
+  "colors": {
+    "primary": "#4f46e5",
+    "light": "#4f46e5",
+    "dark": "#818cf8"
+  },
+  "favicon": "/favicon.png",
+  "navigation": {
+    "versions": [
+      {
+        "version": "v0.15.1",
+        "anchors": [
+          {
+            "anchor": "Documentation",
+            "icon": "book-open",
+            "groups": [
+              {
+                "group": "Documentation",
+                "pages": [
+                  "welcome/introduction",
+                  {
+                    "group": "Getting Started",
+                    "pages": [
+                      "documentation/getting-started/install",
+                      "documentation/getting-started/quickstart",
+                      "documentation/getting-started/load"
+                    ]
+                  },
+                  {
+                    "group": "Reference",
+                    "pages": [
+                      "documentation/overview",
+                      {
+                        "group": "Indexing",
+                        "pages": [
+                          "documentation/indexing/create_index",
+                          "documentation/indexing/inspect_index",
+                          {
+                            "group": "Index Tuning",
+                            "pages": [
+                              "documentation/configuration/overview",
+                              "documentation/configuration/index",
+                              "documentation/configuration/write",
+                              "documentation/configuration/parallel"
+                            ]
+                          },
+                          {
+                            "group": "Index Settings",
+                            "pages": [
+                              "documentation/configuration/scan",
+                              "documentation/configuration/telemetry"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "group": "Field Configuration",
+                        "pages": [
+                          "documentation/indexing/field_options",
+                          "documentation/indexing/tokenizers",
+                          "documentation/indexing/token_filters",
+                          "documentation/indexing/fast_fields",
+                          "documentation/indexing/record"
+                        ]
+                      },
+                      {
+                        "group": "Full Text Search",
+                        "pages": [
+                          "documentation/full-text/overview",
+                          "documentation/full-text/boolean",
+                          "documentation/full-text/phrase",
+                          "documentation/full-text/filtering",
+                          "documentation/full-text/pagination",
+                          "documentation/full-text/scoring",
+                          "documentation/full-text/highlighting",
+                          "documentation/full-text/sorting",
+                          "documentation/full-text/boosting"
+                        ]
+                      },
+                      {
+                        "group": "Query Builder",
+                        "pages": [
+                          "documentation/advanced/overview",
+                          {
+                            "group": "Full Text Queries",
+                            "pages": [
+                              "documentation/advanced/full-text/match"
+                            ]
+                          },
+                          {
+                            "group": "Term-Level Queries",
+                            "pages": [
+                              "documentation/advanced/term/exists",
+                              "documentation/advanced/term/fuzzy_term",
+                              "documentation/advanced/term/range",
+                              "documentation/advanced/term/range_term",
+                              "documentation/advanced/term/regex",
+                              "documentation/advanced/term/term",
+                              "documentation/advanced/term/term_set"
+                            ]
+                          },
+                          {
+                            "group": "Phrase-Level Queries",
+                            "pages": [
+                              "documentation/advanced/phrase/phrase",
+                              "documentation/advanced/phrase/phrase_prefix"
+                            ]
+                          },
+                          {
+                            "group": "JSON Queries",
+                            "pages": [
+                              "documentation/advanced/json/overview",
+                              "documentation/advanced/json/arrays",
+                              "documentation/advanced/json/range"
+                            ]
+                          },
+                          {
+                            "group": "Compound Queries",
+                            "pages": [
+                              "documentation/advanced/compound/overview",
+                              "documentation/advanced/compound/all",
+                              "documentation/advanced/compound/boolean",
+                              "documentation/advanced/compound/boost",
+                              "documentation/advanced/compound/const",
+                              "documentation/advanced/compound/disjunction_max",
+                              "documentation/advanced/compound/empty",
+                              "documentation/advanced/compound/parse"
+                            ]
+                          },
+                          {
+                            "group": "Specialized Queries",
+                            "pages": [
+                              "documentation/advanced/specialized/more_like_this"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "group": "Aggregates",
+                        "pages": [
+                          "documentation/aggregates/overview",
+                          "documentation/aggregates/common",
+                          "documentation/aggregates/limitations"
+                        ]
+                      },
+                      {
+                        "group": "Similarity Search",
+                        "pages": [
+                          "documentation/similarity/overview",
+                          "documentation/similarity/index",
+                          "documentation/similarity/search"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Tutorials",
+                    "pages": [
+                      "documentation/guides/overview",
+                      "documentation/guides/autocomplete",
+                      "documentation/guides/hybrid"
+                    ]
+                  },
+                  {
+                    "group": "Concepts",
+                    "pages": [
+                      "documentation/concepts/bm25",
+                      "documentation/concepts/index",
+                      "documentation/concepts/matching",
+                      "documentation/concepts/phrase",
+                      "documentation/concepts/search",
+                      "documentation/concepts/stemming",
+                      "documentation/concepts/tantivy",
+                      "documentation/concepts/term"
+                    ]
+                  },
+                  "welcome/support"
+                ]
+              }
+            ]
+          },
+          {
+            "anchor": "Integrations",
+            "icon": "merge",
+            "groups": [
+              {
+                "group": "Integrations",
+                "pages": [
+                  "integrations/overview",
+                  {
+                    "group": "File/Table Formats",
+                    "pages": [
+                      "integrations/formats/csv",
+                      "integrations/formats/json",
+                      "integrations/formats/parquet",
+                      "integrations/formats/spatial",
+                      "integrations/formats/iceberg",
+                      "integrations/formats/delta"
+                    ]
+                  },
+                  {
+                    "group": "Object Stores",
+                    "pages": [
+                      "integrations/object_stores/s3",
+                      "integrations/object_stores/gcs",
+                      "integrations/object_stores/azure",
+                      "integrations/object_stores/huggingface"
+                    ]
+                  },
+                  {
+                    "group": "Configuration",
+                    "pages": [
+                      "integrations/configuration/schema",
+                      "integrations/configuration/settings"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "anchor": "Deploy",
+            "icon": "server",
+            "groups": [
+              {
+                "group": "Deploy",
+                "pages": [
+                  "deploy/overview",
+                  {
+                    "group": "Self-Hosted ParadeDB",
+                    "pages": [
+                      "deploy/self-hosted/kubernetes",
+                      "deploy/self-hosted/extensions",
+                      {
+                        "group": "Logical Replication",
+                        "pages": [
+                          "deploy/self-hosted/logical-replication/getting-started",
+                          "deploy/self-hosted/logical-replication/configuration"
+                        ]
+                      },
+                      {
+                        "group": "High Availability",
+                        "pages": [
+                          "deploy/self-hosted/high-availability/getting-started",
+                          "deploy/self-hosted/high-availability/configuration"
+                        ]
+                      },
+                      "deploy/self-hosted/docker"
+                    ]
+                  },
+                  "deploy/byoc",
+                  "deploy/enterprise",
+                  "deploy/upgrading",
+                  "deploy/third-party-extensions"
+                ]
+              }
+            ]
+          },
+          {
+            "anchor": "Changelog",
+            "icon": "clock",
+            "groups": [
+              {
+                "group": "Changelog",
+                "pages": [
+                  "changelog/0.15.1",
+                  "changelog/0.15.0",
+                  "changelog/0.14.1",
+                  "changelog/0.14.0",
+                  "changelog/0.13.2",
+                  "changelog/0.13.1",
+                  "changelog/0.13.0",
+                  "changelog/0.12.2",
+                  "changelog/0.12.1",
+                  "changelog/0.12.0",
+                  "changelog/0.11.1",
+                  "changelog/0.11.0",
+                  "changelog/0.10.3",
+                  "changelog/0.10.2",
+                  "changelog/0.10.1",
+                  "changelog/0.10.0",
+                  "changelog/0.9.4",
+                  "changelog/0.9.3",
+                  "changelog/0.9.2",
+                  "changelog/0.9.1",
+                  "changelog/0.9.0",
+                  "changelog/0.8.6",
+                  "changelog/0.8.5",
+                  "changelog/0.8.4",
+                  "changelog/0.8.3",
+                  "changelog/0.8.2",
+                  "changelog/0.8.1",
+                  "changelog/0.8.0",
+                  "changelog/0.7.6",
+                  "changelog/0.7.5",
+                  "changelog/0.7.4",
+                  "changelog/0.7.3",
+                  "changelog/0.7.2",
+                  "changelog/0.7.1",
+                  "changelog/0.7.0",
+                  "changelog/0.6.1",
+                  "changelog/0.6.0",
+                  "changelog/0.5.11",
+                  "changelog/0.5.10",
+                  "changelog/0.5.9",
+                  "changelog/0.5.8",
+                  "changelog/0.5.7",
+                  "changelog/0.5.6",
+                  "changelog/0.5.5",
+                  "changelog/0.5.4",
+                  "changelog/0.5.3",
+                  "changelog/0.5.2",
+                  "changelog/0.5.1",
+                  "changelog/0.4.5",
+                  "changelog/0.4.4",
+                  "changelog/0.4.3",
+                  "changelog/0.4.2",
+                  "changelog/0.4.1",
+                  "changelog/deprecated"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "https://paradedb.com"
+  },
+  "appearance": {
+    "strict": false
+  },
+  "background": {
+    "image": "/background.png"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Community",
+        "href": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ"
+      },
+      {
+        "label": "Blog",
+        "href": "https://paradedb.com/blog"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/paradedb/paradedb"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/paradedb/paradedb",
+      "slack": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ",
+      "twitter": "https://twitter.com/paradedb"
+    }
+  },
+  "integrations": {
+    "ga4": {
+      "measurementId": "G-GB3C03LVY5"
+    },
+    "gtm": {
+      "tagId": "GTM-KMGRG564"
+    },
+    "posthog": {
+      "apiKey": "phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj",
+      "apiHost": "https://app.posthog.com"
+    },
+    "koala": {
+      "publicApiKey": "pk_05f8f4ec527669d1e8f88783a4dccdf37407"
+    }
+  },
+  "redirects": [
+    {
+      "source": "/blog/introducing_analytics",
+      "destination": "https://paradedb.com/blog/introducing_lakehouse"
+    },
+    {
+      "source": "/blog/introducing_sparse",
+      "destination": "https://paradedb.com/blog/introducing_sparse"
+    },
+    {
+      "source": "/blog/introducing_bm25",
+      "destination": "https://paradedb.com/blog/introducing_search"
+    },
+    {
+      "source": "/blog/introducing_paradedb",
+      "destination": "https://paradedb.com/blog/introducing_paradedb"
+    }
+  ]
+}

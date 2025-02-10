@@ -48,13 +48,11 @@ impl From<&Qual> for SearchQueryInput {
             Qual::And(quals) => {
                 let mut must = Vec::new();
                 let mut should = Vec::new();
-                let mut must_not = Vec::new();
 
                 for qual in quals {
                     match qual {
                         Qual::And(ands) => must.extend(ands.iter().map(SearchQueryInput::from)),
                         Qual::Or(ors) => should.extend(ors.iter().map(SearchQueryInput::from)),
-                        Qual::Not(not) => must_not.push(SearchQueryInput::from(not.as_ref())),
                         other => must.push(SearchQueryInput::from(other)),
                     }
                 }
@@ -62,7 +60,7 @@ impl From<&Qual> for SearchQueryInput {
                 SearchQueryInput::Boolean {
                     must,
                     should,
-                    must_not,
+                    must_not: vec![],
                 }
             }
             Qual::Or(quals) => {

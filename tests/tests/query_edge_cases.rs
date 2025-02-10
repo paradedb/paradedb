@@ -57,4 +57,10 @@ fn unary_not_issue2141(mut conn: PgConnection) {
     "#
     .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 4);
+
+    let (count,) = r#"
+    SELECT count(*) FROM test_table WHERE NOT value @@@ 'wine' AND NOT value @@@ 'cheese';
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 2);
 }

@@ -60,8 +60,8 @@ impl From<SearchDocument> for TantivyDocument {
     }
 }
 
-impl Into<SearchDocument> for TantivyDocument {
-    fn into(self) -> SearchDocument {
-        SearchDocument { doc: self }
+impl From<TantivyDocument> for SearchDocument {
+    fn from(val: TantivyDocument) -> Self {
+        SearchDocument { doc: val }
     }
 }

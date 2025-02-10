@@ -347,7 +347,7 @@ pub fn nested_with_string_path(
     ignore_unmapped: default!(bool, "false"),
 ) -> SearchQueryInput {
     nested(
-        path.split(".").into_iter().map(|s| s.to_string()).collect(),
+        path.split(".").map(|s| s.to_string()).collect(),
         query,
         score_mode,
         ignore_unmapped,

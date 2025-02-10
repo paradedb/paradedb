@@ -1767,8 +1767,7 @@ pub fn split_field_and_path(field: &str) -> (String, Option<String>) {
     }
 }
 
-#[derive(Debug, PostgresEnum, Deserialize, Serialize, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, PostgresEnum, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub enum NestedScoreMode {
     #[default]
     Avg,
@@ -1776,7 +1775,6 @@ pub enum NestedScoreMode {
     Total,
     None,
 }
-
 
 impl From<NestedScoreMode> for ScoreMode {
     fn from(mode: NestedScoreMode) -> Self {

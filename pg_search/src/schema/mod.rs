@@ -787,6 +787,7 @@ impl SearchIndexSchema {
         }
 
         let has_nested = Self::has_nested_static(&search_fields);
+
         Ok(Self {
             key: key_index,
             schema: builder.build(),
@@ -855,7 +856,7 @@ impl SearchIndexSchema {
     }
 
     pub fn has_nested(&self) -> bool {
-        Self::has_nested_static(&self.fields)
+        self.schema.has_nested()
     }
 
     #[inline(always)]

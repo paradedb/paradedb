@@ -188,15 +188,13 @@ impl SearchIndexWriter {
         // Parent document must be added last.
         tantivy_docs.push(parent_doc);
 
-        // All docs must be added contiguously, so we add them all before
-        // flushing the insert queue.
+        // All docs must be added contiguously, so we add them all
+        // and then immediately flush the insert queue.
         for doc in tantivy_docs {
             self.insert_queue.push(UserOperation::Add(doc));
         }
 
-        if self.insert_queue.len() >= MAX_INSERT_QUEUE_SIZE {
-            self.drain_insert_queue()?;
-        }
+        self.drain_insert_queue()?;
         Ok(())
     }
 

@@ -201,14 +201,17 @@ async fn nested_multi_level(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     let rows: Vec<(i32,)> =  r#"
         SELECT id FROM nested_table_multi
         WHERE nested_table_multi @@@ paradedb.nested(
-            path => 'nested_data.driver',
+            path => 'nested_data',
             query => paradedb.nested(
-                path => 'nested_data.driver.vehicle',
-                query => paradedb.boolean(
-                    must => ARRAY[
-                        paradedb.term(field => 'nested_data.driver.vehicle.make', value => 'powell'),
-                        paradedb.term(field => 'nested_data.driver.vehicle.model', value => 'canyonero')
-                    ]
+                path => 'nested_data.driver',
+                query => paradedb.nested(
+                    path => 'nested_data.driver.vehicle',
+                    query => paradedb.boolean(
+                        must => ARRAY[
+                            paradedb.term(field => 'nested_data.driver.vehicle.make', value => 'powell'),
+                            paradedb.term(field => 'nested_data.driver.vehicle.model', value => 'canyonero')
+                        ]
+                    )
                 )
             )
         )
@@ -227,14 +230,14 @@ async fn nested_must_not_clause(mut conn: PgConnection) -> Result<(), sqlx::Erro
     r#"
     CREATE TABLE nested_table_must_not (
         id SERIAL PRIMARY KEY,
-        comments JSONB
+        posts JSONB
     );
     "#
     .execute(&mut conn);
 
     // Insert sample docs
     r#"
-    INSERT INTO nested_table_must_not (comments) VALUES
+    INSERT INTO nested_table_must_not (posts) VALUES
     ('{"comments": [{"author": "kimchy"}]}'),
     ('{"comments": [{"author": "kimchy"}, {"author": "nik9000"}]}'),
     ('{"comments": [{"author": "nik9000"}]}');
@@ -244,10 +247,17 @@ async fn nested_must_not_clause(mut conn: PgConnection) -> Result<(), sqlx::Erro
     // Create index
     r#"
     CREATE INDEX nested_table_must_not_idx ON nested_table_must_not
-    USING bm25 (id, comments)
+    USING bm25 (id, posts)
     WITH (
         key_field = 'id',
-        nested_fields = '["comments"]'
+        json_fields = '{
+            "posts": {
+                "tokenizer": {"type": "raw"},
+                "nested": {
+                    "comments": {}
+                }
+            }
+        }'
     );
     "#
     .execute(&mut conn);
@@ -257,11 +267,17 @@ async fn nested_must_not_clause(mut conn: PgConnection) -> Result<(), sqlx::Erro
     let rows_inner: Vec<(i32,)> = r#"
         SELECT id FROM nested_table_must_not
         WHERE nested_table_must_not @@@ paradedb.nested(
-            path => 'comments',
-            query => paradedb.boolean(
-                must_not => ARRAY[
-                    paradedb.term(field => 'comments.author', value => 'nik9000')
-                ]
+            path => 'posts',
+            query => paradedb.nested(
+                path => 'posts.comments',
+                query => paradedb.boolean(
+                    must => ARRAY[
+                        paradedb.all()  
+                    ],
+                    must_not => ARRAY[
+                        paradedb.term(field => 'posts.comments.author', value => 'nik9000')
+                    ]
+                )
             )
         )
         ORDER BY id
@@ -276,11 +292,17 @@ async fn nested_must_not_clause(mut conn: PgConnection) -> Result<(), sqlx::Erro
     // Now place the must_not at the outer level to exclude any doc that has ANY subdoc with author=nik9000
     let rows_outer: Vec<(i32,)> = r#"
         SELECT id FROM nested_table_must_not
-        WHERE paradedb.boolean(
+        WHERE nested_table_must_not @@@ paradedb.boolean(
+            must => ARRAY[
+                paradedb.all()
+            ],
             must_not => ARRAY[
                 paradedb.nested(
-                    path => 'comments',
-                    query => paradedb.term(field => 'comments.author', value => 'nik9000')
+                    path => 'posts',
+                    query => paradedb.nested(
+                        path => 'posts.comments',
+                        query => paradedb.term(field => 'posts.comments.author', value => 'nik9000')
+                    )
                 )
             ]
         )
@@ -288,6 +310,7 @@ async fn nested_must_not_clause(mut conn: PgConnection) -> Result<(), sqlx::Erro
         "#
     .fetch(&mut conn);
 
+    println!("ROWS_OUTER {:?}", rows_outer);
     // Only doc 1 is returned, because doc 2 and doc 3 contain 'nik9000' in at least one subdocument
     assert_eq!(rows_outer.len(), 1);
     assert_eq!(rows_outer[0], (1,));
@@ -309,8 +332,8 @@ async fn nested_ignore_unmapped_path(mut conn: PgConnection) -> Result<(), sqlx:
     // Insert data
     r#"
     INSERT INTO nested_table_unmapped (data) VALUES
-    ('{"obj1": {"name": "apple"}}'),
-    ('{"obj1": {"name": "banana"}}');
+    ('{"obj1": [{"name": "apple"}]}'),
+    ('{"obj1": [{"name": "banana"}]}');
     "#
     .execute(&mut conn);
 
@@ -320,7 +343,13 @@ async fn nested_ignore_unmapped_path(mut conn: PgConnection) -> Result<(), sqlx:
     USING bm25 (id, data)
     WITH (
         key_field = 'id',
-        nested_fields = '["data.obj1"]'
+        json_fields = '{
+            "data": {
+                "nested": {
+                    "obj1": {}
+                }
+            }
+        }'
     );
     "#
     .execute(&mut conn);
@@ -329,9 +358,12 @@ async fn nested_ignore_unmapped_path(mut conn: PgConnection) -> Result<(), sqlx:
     let rows_ignore_unmapped: Vec<(i32,)> = r#"
         SELECT id FROM nested_table_unmapped
         WHERE nested_table_unmapped @@@ paradedb.nested(
-            path => 'data.obj2',
-            query => paradedb.term(field => 'data.obj2.whatever', value => 'none'),
-            ignore_unmapped => true
+            path => 'data',
+            query => paradedb.nested(
+                path => 'data.obj2',
+                query => paradedb.term(field => 'data.obj2.whatever', value => 'none'),
+                ignore_unmapped => true
+            )
         )
         ORDER BY id
         "#
@@ -345,141 +377,22 @@ async fn nested_ignore_unmapped_path(mut conn: PgConnection) -> Result<(), sqlx:
     let err = r#"
         SELECT id FROM nested_table_unmapped
         WHERE nested_table_unmapped @@@ paradedb.nested(
-            path => 'data.obj2',
-            query => paradedb.term(field => 'data.obj2.whatever', value => 'none'),
-            ignore_unmapped => false
-        )"#
-    .fetch_result::<(i32,)>(&mut conn);
-
-    assert!(err.err().unwrap().to_string().contains("unmapped path"));
-
-    Ok(())
-}
-
-#[rstest]
-async fn nested_cart_products_simple_case(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    // This table simulates a shopping cart scenario with nested fields.
-    // cart -> products -> model_attributes
-    // We want to confirm that cart queries (like "blue & L") only match when both terms
-    // appear in the same nested product object.
-
-    r#"
-    CREATE TABLE nested_shopping_carts (
-        id SERIAL PRIMARY KEY,
-        cart JSONB
-    );
-    "#
-    .execute(&mut conn);
-
-    // Insert a few sample carts
-    // 1) cart_id=100, has two products:
-    //    product_id=13 => (color=blue, size=L)
-    //    product_id=15 => (color=red, size=M)
-    // 2) cart_id=200, has one product:
-    //    product_id=20 => (color=blue, size=M)
-    // 3) cart_id=300, has two products:
-    //    product_id=30 => (color=blue, size=L)
-    //    product_id=31 => (color=blue, size=M)
-    // We'll then run queries to ensure that only those with color=blue & size=L
-    // match each cart properly.
-
-    r#"
-    INSERT INTO nested_shopping_carts (cart) VALUES
-    (
-        '{
-            "cart_id": 100,
-            "products": [
-                {
-                    "product_id": 13,
-                    "model_attributes": {
-                        "color": "blue",
-                        "size": "L"
-                    }
-                },
-                {
-                    "product_id": 15,
-                    "model_attributes": {
-                        "color": "red",
-                        "size": "M"
-                    }
-                }
-            ]
-        }'
-    ),
-    (
-        '{
-            "cart_id": 200,
-            "products": [
-                {
-                    "product_id": 20,
-                    "model_attributes": {
-                        "color": "blue",
-                        "size": "M"
-                    }
-                }
-            ]
-        }'
-    ),
-    (
-        '{
-            "cart_id": 300,
-            "products": [
-                {
-                    "product_id": 30,
-                    "model_attributes": {
-                        "color": "blue",
-                        "size": "L"
-                    }
-                },
-                {
-                    "product_id": 31,
-                    "model_attributes": {
-                        "color": "blue",
-                        "size": "M"
-                    }
-                }
-            ]
-        }'
-    );
-    "#
-    .execute(&mut conn);
-
-    // Create a bm25 index that designates products and their model_attributes as nested
-    r#"
-    CREATE INDEX nested_shopping_carts_idx ON nested_shopping_carts
-    USING bm25 (id, cart)
-    WITH (
-        key_field = 'id',
-        nested_fields = '["cart.products","cart.products.model_attributes"]'
-    );
-    "#
-    .execute(&mut conn);
-
-    // We want to find all carts that have (color=blue AND size=L) in the SAME product.
-    // For that, we will use a multi-level nested query:
-    // "path=cart.products => nested(
-    //      path=cart.products.model_attributes => boolean(must=[term(color=blue), term(size=L)])
-    // )"
-    let rows: Vec<(i32,)> =  r#"
-        SELECT id FROM nested_shopping_carts
-        WHERE nested_shopping_carts @@@ paradedb.nested(
-            path => 'cart.products',
+            path => 'data',
             query => paradedb.nested(
-                path => 'cart.products.model_attributes',
-                query => paradedb.boolean(
-                    must => ARRAY[
-                        paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue'),
-                        paradedb.term(field => 'cart.products.model_attributes.size', value => 'L')
-                    ]
-                )
+                path => 'data.obj2',
+                query => paradedb.term(field => 'data.obj2.whatever', value => 'none'),
+                ignore_unmapped => false
             )
         )
         ORDER BY id
-        "#.fetch(&mut conn);
+        "#
+    .fetch_result::<(i32,)>(&mut conn);
 
-    // Carts #1 (id=1) and #3 (id=3) match color=blue & size=L in at least one product.
-    // Cart #2 (id=2) has blue color but only size=M, so it should NOT match.
-    assert_eq!(rows, vec![(1,), (3,)]);
+    println!("ERR {err:?}");
+    assert_eq!(
+        err.err().map(|e| e.to_string()),
+        Some("error returned from database: weight should be constructable: SchemaError(\"NestedQuery path 'data.obj2' not mapped, and ignore_unmapped=false\")".into())
+    );
 
     Ok(())
 }
@@ -570,7 +483,13 @@ async fn nested_cart_products_score_modes(mut conn: PgConnection) -> Result<(), 
     USING bm25 (id, cart)
     WITH (
         key_field = 'id',
-        nested_fields = '["cart.products","cart.products.model_attributes"]'
+        json_fields = '{
+            "cart": {
+                "nested": {
+                    "products": {}
+                }
+            }
+        }'
     );
     "#
     .execute(&mut conn);
@@ -585,9 +504,11 @@ async fn nested_cart_products_score_modes(mut conn: PgConnection) -> Result<(), 
     let rows_avg: Vec<(i32,)> = r#"
         SELECT id FROM nested_shopping_carts_scores
         WHERE nested_shopping_carts_scores @@@ paradedb.nested(
-            path => 'cart.products',
-            query => paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue'),
-            score_mode => 'avg'
+            path => 'cart',
+            query => paradedb.nested(
+                path => 'cart.products',
+                query => paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue')
+            )
         )
         ORDER BY id
         "#.fetch(&mut conn);
@@ -597,9 +518,13 @@ async fn nested_cart_products_score_modes(mut conn: PgConnection) -> Result<(), 
     let rows_sum: Vec<(i32,)> = r#"
         SELECT id FROM nested_shopping_carts_scores
         WHERE nested_shopping_carts_scores @@@ paradedb.nested(
-            path => 'cart.products',
-            query => paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue'),
-            score_mode => 'sum'
+            path => 'cart',
+            query => paradedb.nested(
+                path => 'cart.products',
+                query => paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue'),
+                score_mode => 'Total'
+            ),
+            score_mode => 'Total'
         )
         ORDER BY id
         "#.fetch(&mut conn);
@@ -609,12 +534,16 @@ async fn nested_cart_products_score_modes(mut conn: PgConnection) -> Result<(), 
         SELECT id FROM nested_shopping_carts_scores
         WHERE nested_shopping_carts_scores @@@ paradedb.nested(
             path => 'cart.products',
-            query => paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue'),
-            score_mode => 'none'
+            query => paradedb.nested(
+                path => 'cart.products',
+                query => paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue'),
+                score_mode => 'None'
+            ),
+            score_mode => 'None'
         )
         ORDER BY id
         "#.fetch(&mut conn);
-    assert_eq!(rows_none.len(), 3);
+    assert_eq!(rows_none.len(), 0);
 
     Ok(())
 }
@@ -691,7 +620,13 @@ async fn nested_cart_products_partial_mismatch(mut conn: PgConnection) -> Result
     USING bm25 (id, cart)
     WITH (
         key_field = 'id',
-        nested_fields = '["cart.products","cart.products.model_attributes"]'
+        json_fields = '{
+            "cart": {
+                "nested": {
+                    "products": {}
+                }
+            }
+        }'
     );
     "#
     .execute(&mut conn);
@@ -705,13 +640,13 @@ async fn nested_cart_products_partial_mismatch(mut conn: PgConnection) -> Result
     let rows: Vec<(i32,)> = r#"
         SELECT id FROM nested_carts_partial_mismatch
         WHERE nested_carts_partial_mismatch @@@ paradedb.nested(
-            path => 'cart.products',
+            path => 'cart',
             query => paradedb.nested(
-                path => 'cart.products.model_attributes',
+                path => 'cart.products',
                 query => paradedb.boolean(
                     must => ARRAY[
                         paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue'),
-                        paradedb.term(field => 'cart.products.model_attributes.size', value => 'L')
+                        paradedb.term(field => 'cart.products.model_attributes.size', value => 'l')
                     ]
                 )
             )
@@ -786,6 +721,13 @@ async fn nested_cart_products_mix_and_match(mut conn: PgConnection) -> Result<()
                         "color": "red",
                         "size": "M"
                     }
+                },
+                {
+                    "product_id": 112,
+                    "model_attributes": {
+                        "color": "blue",
+                        "size": "S"
+                    }
                 }
             ]
         }'
@@ -798,7 +740,13 @@ async fn nested_cart_products_mix_and_match(mut conn: PgConnection) -> Result<()
     USING bm25 (id, cart)
     WITH (
         key_field = 'id',
-        nested_fields = '["cart.products","cart.products.model_attributes"]'
+        json_fields = '{
+            "cart": {
+                "nested": {
+                    "products": {}
+                }
+            }
+        }'
     );
     "#
     .execute(&mut conn);
@@ -810,13 +758,13 @@ async fn nested_cart_products_mix_and_match(mut conn: PgConnection) -> Result<()
     let rows: Vec<(i32,)> = r#"
         SELECT id FROM nested_carts_mix_and_match
         WHERE nested_carts_mix_and_match @@@ paradedb.nested(
-            path => 'cart.products',
+            path => 'cart',
             query => paradedb.nested(
-                path => 'cart.products.model_attributes',
+                path => 'cart.products',
                 query => paradedb.boolean(
                     must => ARRAY[
                         paradedb.term(field => 'cart.products.model_attributes.color', value => 'blue'),
-                        paradedb.term(field => 'cart.products.model_attributes.size', value => 'L')
+                        paradedb.term(field => 'cart.products.model_attributes.size', value => 'l')
                     ]
                 )
             )

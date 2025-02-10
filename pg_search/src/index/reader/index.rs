@@ -34,8 +34,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tantivy::collector::{Collector, TopDocs};
 use tantivy::index::{Index, SegmentId};
-use tantivy::query::{BooleanQuery, EnableScoring, Occur, QueryParser, TermQuery};
-use tantivy::schema::{FieldType, IndexRecordOption};
+use tantivy::query::{BooleanQuery, EnableScoring, QueryParser, TermQuery};
+use tantivy::schema::FieldType;
 use tantivy::termdict::TermOrdinal;
 use tantivy::Term;
 use tantivy::{
@@ -325,7 +325,7 @@ impl SearchIndexReader {
         );
 
         // 1) Build the "base query" from the user's input
-        let base_query = search_query_input
+        let inner_query = search_query_input
             .clone() // because `into_tantivy_query` currently takes ownership
             .into_tantivy_query(
                 &(
@@ -337,24 +337,24 @@ impl SearchIndexReader {
             )
             .expect("must be able to parse query");
 
-        // 2) Construct a filter that matches only the parent docs
-        //    We assume `_is_parent: true` is set on the root (parent) doc and not on child docs.
-        //    Replace "_is_parent" with the actual field name in your schema if different.
-        let parent_field = self
-            .schema
-            .get_search_field(&SearchFieldName("_is_parent".into()))
-            .expect("missing `_is_parent` field in schema");
-        let parent_term = Term::from_field_bool(parent_field.into(), true);
-        let parent_filter_query = Box::new(TermQuery::new(parent_term, IndexRecordOption::Basic));
-
-        // 3) Combine base query AND parent-only filter in a BooleanQuery
-        let final_query = Box::new(BooleanQuery::new(vec![
-            (Occur::Must, base_query),
-            (Occur::Must, parent_filter_query),
-        ]));
-
-        // 4) Return that combined query
-        final_query
+        if self.schema.has_nested() {
+            println!("WE GOT NESTED");
+            let is_parent_field = self
+                .schema
+                .schema
+                .get_field("_is_parent")
+                .expect("schema with nested fields must have internal 'is_parent' field");
+            let is_parent_term = Term::from_field_bool(is_parent_field, true);
+            let is_parent_query =
+                TermQuery::new(is_parent_term, tantivy::schema::IndexRecordOption::Basic);
+            Box::new(BooleanQuery::intersection(vec![
+                Box::new(is_parent_query),
+                inner_query.box_clone(),
+            ]))
+        } else {
+            println!("NO GOT NESTED");
+            inner_query
+        }
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {

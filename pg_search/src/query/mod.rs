@@ -22,7 +22,7 @@ use crate::query::range::{Comparison, RangeField};
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
+use pgrx::{pg_sys, FromDatum, PgBuiltInOids, PgOid, PostgresEnum, PostgresType};
 use range::{deserialize_bound, serialize_bound};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Bound};
@@ -1767,8 +1767,7 @@ pub fn split_field_and_path(field: &str) -> (String, Option<String>) {
     }
 }
 
-#[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, PostgresEnum, Deserialize, Serialize, Clone, PartialEq)]
 pub enum NestedScoreMode {
     Avg,
     Max,

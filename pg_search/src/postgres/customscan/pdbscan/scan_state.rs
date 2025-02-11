@@ -40,6 +40,7 @@ pub struct PdbScanState {
     pub rti: pg_sys::Index,
 
     pub search_query_input: SearchQueryInput,
+    pub nexprs: usize,
     pub search_reader: Option<SearchIndexReader>,
 
     pub search_results: SearchResults,

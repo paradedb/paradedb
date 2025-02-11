@@ -1,6 +1,7 @@
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::pdbscan::PdbScan;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::ParallelScanState;
 use pgrx::pg_sys::{shm_toc, ParallelContext, Size};
 use std::os::raw::c_void;
@@ -11,12 +12,16 @@ impl ParallelQueryCapable for PdbScan {
         state: &mut CustomScanStateWrapper<Self>,
         pcxt: *mut ParallelContext,
     ) -> Size {
+        if state.custom_state().search_reader.is_none() {
+            PdbScan::rescan_custom_scan(state);
+        }
+
         ParallelScanState::size_of_with_segments(
             state
                 .custom_state()
                 .search_reader
                 .as_ref()
-                .unwrap()
+                .expect("search reader must be initialized to estimate DSM size")
                 .segment_readers()
                 .len(),
         )

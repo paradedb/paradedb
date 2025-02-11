@@ -28,6 +28,7 @@ pub struct Args {
 pub struct CustomScanStateWrapper<CS: CustomScan> {
     pub csstate: pg_sys::CustomScanState,
     custom_state: CS::State,
+    pub runtime_context: *mut pg_sys::ExprContext,
 }
 
 impl<CS: CustomScan> Debug for CustomScanStateWrapper<CS>
@@ -125,6 +126,7 @@ impl<CS: CustomScan, P: From<*mut pg_sys::List>> CustomScanStateBuilder<CS, P> {
                     slotOps: std::ptr::null_mut(),
                 },
                 custom_state: self.custom_state,
+                runtime_context: std::ptr::null_mut(),
             })
         }
     }

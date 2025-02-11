@@ -169,28 +169,35 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         rti: pg_sys::Index,
         rte: *mut pg_sys::RangeTblEntry,
     ) -> CustomPathBuilder<P> {
-        Self {
-            args: Args {
-                root,
-                rel,
-                rti,
-                rte,
-            },
-            flags: Default::default(),
+        unsafe {
+            Self {
+                args: Args {
+                    root,
+                    rel,
+                    rti,
+                    rte,
+                },
+                flags: Default::default(),
 
-            custom_path_node: pg_sys::CustomPath {
-                path: pg_sys::Path {
-                    type_: pg_sys::NodeTag::T_CustomPath,
-                    pathtype: pg_sys::NodeTag::T_CustomScan,
-                    parent: rel,
-                    pathtarget: unsafe { *rel }.reltarget,
+                custom_path_node: pg_sys::CustomPath {
+                    path: pg_sys::Path {
+                        type_: pg_sys::NodeTag::T_CustomPath,
+                        pathtype: pg_sys::NodeTag::T_CustomScan,
+                        parent: rel,
+                        pathtarget: (*rel).reltarget,
+                        param_info: pg_sys::get_baserel_parampathinfo(
+                            root,
+                            rel,
+                            pg_sys::bms_copy((*rel).lateral_relids),
+                        ),
+                        ..Default::default()
+                    },
+                    methods: CS::custom_path_methods(),
                     ..Default::default()
                 },
-                methods: CS::custom_path_methods(),
-                ..Default::default()
-            },
-            custom_paths: PgList::default(),
-            custom_private: P::default(),
+                custom_paths: PgList::default(),
+                custom_private: P::default(),
+            }
         }
     }
 
@@ -299,6 +306,7 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         limit: Option<Cardinality>,
         segment_count: usize,
         sorted: bool,
+        has_sublinks: bool,
     ) -> Self {
         unsafe {
             let mut nworkers = segment_count.min(pg_sys::max_parallel_workers as usize);
@@ -319,10 +327,12 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
                     nworkers = (segment_count / 2).min(nworkers);
                 }
             }
+
+            pgrx::warning!("has_sublinks={}", has_sublinks);
             // we will try to parallelize based on the number of index segments
             if nworkers > 0 && (*self.args.rel).consider_parallel {
-                self.custom_path_node.path.parallel_aware = true;
-                self.custom_path_node.path.parallel_safe = true;
+                self.custom_path_node.path.parallel_aware = !has_sublinks;
+                self.custom_path_node.path.parallel_safe = !has_sublinks;
                 self.custom_path_node.path.parallel_workers =
                     nworkers.try_into().expect("nworkers should be a valid i32");
             }

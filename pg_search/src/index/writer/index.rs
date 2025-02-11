@@ -35,7 +35,6 @@ use crate::{
 // NB:  should this be a GUC?  Could be useful or could just complicate things for the user
 /// How big should our insert queue get before we go ahead and add them to the tantivy index?
 const MAX_INSERT_QUEUE_SIZE: usize = 1000;
-const CHANNEL_QUEUE_LEN: usize = 1000;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
@@ -57,7 +56,7 @@ impl SearchIndexWriter {
     ) -> Result<Self> {
         let (parallelism, memory_budget, wants_merge) = resources.resources();
 
-        let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
+        let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
         let channel_dir = ChannelDirectory::new(req_sender);
         let mut handler =
             directory_type.channel_request_handler(index_relation, req_receiver, wants_merge);
@@ -97,7 +96,9 @@ impl SearchIndexWriter {
         let schema = get_index_schema(index_relation)?;
         let (parallelism, memory_budget, merge_policy) = WriterResources::CreateIndex.resources();
 
-        let (req_sender, req_receiver) = crossbeam::channel::bounded(CHANNEL_QUEUE_LEN);
+        pgrx::warning!("memory_budget={memory_budget}, parallelism={parallelism}");
+
+        let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
         let channel_dir = ChannelDirectory::new(req_sender);
         let mut handler = BlockDirectoryType::Mvcc.channel_request_handler(
             index_relation,

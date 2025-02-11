@@ -54,6 +54,8 @@ strum = { version = "0.26.3" }
 serde_path_to_error = "0.1.16"
 bincode = "1.3.3"
 
+sysinfo = "0.33.1"
+
 [dev-dependencies]
 fixture = "0.3.1"
 pgrx-tests = { git = "https://github.com/paradedb/pgrx.git", rev = "f251f1e" }

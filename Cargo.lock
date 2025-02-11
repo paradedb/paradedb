@@ -3348,6 +3348,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "strum",
+ "sysinfo 0.33.1",
  "tantivy",
  "tantivy-common",
  "tempfile",

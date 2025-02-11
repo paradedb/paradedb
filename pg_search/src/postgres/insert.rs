@@ -45,11 +45,20 @@ impl InsertState {
         let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
         let categorized_fields = categorize_fields(&tupdesc, &writer.schema);
         let key_field_name = writer.schema.key_field().name.0;
+
+        let per_row_context = pg_sys::AllocSetContextCreateExtended(
+            PgMemoryContexts::CurrentMemoryContext.value(),
+            c"pg_search aminsert context".as_ptr(),
+            pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+            pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+            pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+        );
+
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
             key_field_name,
-            per_row_context: PgMemoryContexts::new("pg_search aminsert context"),
+            per_row_context: PgMemoryContexts::For(per_row_context),
         })
     }
 }

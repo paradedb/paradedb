@@ -45,9 +45,9 @@ impl Default for TantivyValue {
     }
 }
 
-impl Into<OwnedValue> for TantivyValue {
-    fn into(self) -> OwnedValue {
-        self.0
+impl From<TantivyValue> for tantivy::schema::OwnedValue {
+    fn from(v: TantivyValue) -> Self {
+        v.0
     }
 }
 

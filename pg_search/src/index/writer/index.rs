@@ -96,8 +96,6 @@ impl SearchIndexWriter {
         let schema = get_index_schema(index_relation)?;
         let (parallelism, memory_budget, merge_policy) = WriterResources::CreateIndex.resources();
 
-        pgrx::warning!("memory_budget={memory_budget}, parallelism={parallelism}");
-
         let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
         let channel_dir = ChannelDirectory::new(req_sender);
         let mut handler = BlockDirectoryType::Mvcc.channel_request_handler(

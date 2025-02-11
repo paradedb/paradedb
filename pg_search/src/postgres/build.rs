@@ -41,7 +41,6 @@ struct BuildState {
     writer: SearchIndexWriter,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: String,
-    sysinfo: sysinfo::System,
 }
 
 impl BuildState {
@@ -57,7 +56,6 @@ impl BuildState {
             writer,
             categorized_fields,
             key_field_name,
-            sysinfo: sysinfo::System::new(),
         }
     }
 }
@@ -193,19 +191,6 @@ unsafe extern "C" fn build_callback(
                 });
 
             cxt.reset();
-
-            if build_state.count % 10000 == 0 {
-                build_state.sysinfo.refresh_all();
-                let process = build_state
-                    .sysinfo
-                    .process(sysinfo::Pid::from_u32(pg_sys::MyProcPid as u32))
-                    .unwrap();
-                pgrx::warning!(
-                    "#{}: memory usage={}",
-                    build_state.count,
-                    humansize::format_size(process.memory(), humansize::DECIMAL)
-                );
-            }
         });
 
         // important to count the number of items we've indexed for proper statistics updates,

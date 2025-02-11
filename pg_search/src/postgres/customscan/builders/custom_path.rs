@@ -155,6 +155,13 @@ pub struct CustomPathBuilder<P: Into<*mut pg_sys::List> + Default> {
     custom_private: P,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum RestrictInfoType {
+    BaseRelation,
+    Join,
+    None,
+}
+
 impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
     pub fn new<CS: CustomScan>(
         root: *mut pg_sys::PlannerInfo,
@@ -195,17 +202,20 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
     // convenience getters for type safety
     //
 
-    pub fn restrict_info(&self) -> PgList<pg_sys::RestrictInfo> {
+    pub fn restrict_info(&self) -> (PgList<pg_sys::RestrictInfo>, RestrictInfoType) {
         unsafe {
             let baseri = PgList::from_pg(self.args.rel().baserestrictinfo);
             let joinri = PgList::from_pg(self.args.rel().joininfo);
 
             if baseri.is_empty() && joinri.is_empty() {
-                PgList::new()
-            } else if baseri.is_empty() {
-                joinri
+                // both lists are empty, so return an empty list
+                (PgList::new(), RestrictInfoType::None)
+            } else if !baseri.is_empty() {
+                // the baserestrictinfo has entries, so we prefer that first
+                (baseri, RestrictInfoType::BaseRelation)
             } else {
-                baseri
+                // only the joininfo has entries, so that's what we'll use
+                (joinri, RestrictInfoType::Join)
             }
         }
     }

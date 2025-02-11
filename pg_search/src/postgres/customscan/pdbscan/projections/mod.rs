@@ -175,7 +175,7 @@ pub unsafe fn inject_placeholders(
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
-    HashMap<SnippetInfo, *mut pg_sys::Const>,
+    HashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
 ) {
     #[pg_guard]
     unsafe extern "C" fn walker(
@@ -199,20 +199,20 @@ pub unsafe fn inject_placeholders(
                 if let Some(attname) = data.attname_lookup.get(&key) {
                     for snippet_info in data.snippet_infos.keys() {
                         if &snippet_info.field == attname {
-                            let const_ = data
-                                .const_snippet_nodes
+                            let const_ = pg_sys::makeConst(
+                                pg_sys::TEXTOID,
+                                -1,
+                                pg_sys::DEFAULT_COLLATION_OID,
+                                -1,
+                                pg_sys::Datum::null(),
+                                true,
+                                false,
+                            );
+
+                            data.const_snippet_nodes
                                 .entry(snippet_info.clone())
-                                .or_insert_with(|| {
-                                    pg_sys::makeConst(
-                                        pg_sys::TEXTOID,
-                                        -1,
-                                        pg_sys::DEFAULT_COLLATION_OID,
-                                        -1,
-                                        pg_sys::Datum::null(),
-                                        true,
-                                        false,
-                                    )
-                                });
+                                .or_default()
+                                .push(const_);
 
                             return Some(const_.cast());
                         }
@@ -250,7 +250,7 @@ pub unsafe fn inject_placeholders(
         snippet_funcoid: pg_sys::Oid,
         attname_lookup: &'a HashMap<(i32, pg_sys::AttrNumber), String>,
         snippet_infos: &'a HashMap<SnippetInfo, Option<(tantivy::schema::Field, SnippetGenerator)>>,
-        const_snippet_nodes: HashMap<SnippetInfo, *mut pg_sys::Const>,
+        const_snippet_nodes: HashMap<SnippetInfo, Vec<*mut pg_sys::Const>>,
     }
 
     let mut data = Data {

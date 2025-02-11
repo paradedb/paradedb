@@ -96,6 +96,7 @@ pub extern "C" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
                 // non-partial path available for it to consider
                 let copy = PgMemoryContexts::CurrentMemoryContext
                     .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
+                (*copy).path.parallel_aware = false;
                 (*copy).path.total_cost = 1000000000.0;
                 (*copy).path.startup_cost = 1000000000.0;
 

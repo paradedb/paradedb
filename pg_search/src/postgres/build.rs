@@ -36,7 +36,7 @@ use std::time::Instant;
 // For now just pass the count on the build callback state
 struct BuildState {
     count: usize,
-    memctx: PgMemoryContexts,
+    per_row_context: PgMemoryContexts,
     start: Instant,
     writer: SearchIndexWriter,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
@@ -51,7 +51,7 @@ impl BuildState {
 
         BuildState {
             count: 0,
-            memctx: PgMemoryContexts::new("pg_search_index_build"),
+            per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
             start: Instant::now(),
             writer,
             categorized_fields,
@@ -168,24 +168,30 @@ unsafe extern "C" fn build_callback(
     // By running in our own memory context, we can force the memory to be freed with
     // the call to reset().
     unsafe {
-        build_state.memctx.reset();
-        build_state.memctx.switch_to(|_| {
+        build_state.per_row_context.switch_to(|cxt| {
             let mut search_document = writer.schema.new_document();
 
-            row_to_search_document(values, isnull, key_field_name, categorized_fields, &mut search_document).unwrap_or_else(|err| {
-                panic!(
-                    "error creating index entries for index '{}': {err}",
-                    CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr())
-                        .to_string_lossy()
-                );
-            });
+            row_to_search_document(
+                values,
+                isnull,
+                key_field_name,
+                categorized_fields,
+                &mut search_document,
+            )
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "error creating index entries for index '{}': {err}",
+                        CStr::from_ptr((*(*indexrel).rd_rel).relname.data.as_ptr()).to_string_lossy()
+                    );
+                });
             writer
                 .insert(search_document, item_pointer_to_u64(*ctid))
                 .unwrap_or_else(|err| {
                     panic!("error inserting document during build callback.  See Postgres log for more information: {err:?}")
                 });
+
+            cxt.reset();
         });
-        build_state.memctx.reset();
 
         // important to count the number of items we've indexed for proper statistics updates,
         // especially after CREATE INDEX has finished

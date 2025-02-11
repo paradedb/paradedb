@@ -45,6 +45,12 @@ impl Default for TantivyValue {
     }
 }
 
+impl From<TantivyValue> for tantivy::schema::OwnedValue {
+    fn from(v: TantivyValue) -> Self {
+        v.0
+    }
+}
+
 impl TantivyValue {
     pub fn tantivy_schema_value(&self) -> tantivy::schema::OwnedValue {
         self.0.clone()

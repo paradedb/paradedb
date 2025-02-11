@@ -164,16 +164,16 @@ pub unsafe fn row_to_search_document(
 
         if *is_array {
             for value in TantivyValue::try_from_datum_array(datum, *base_oid)? {
-                document.insert(search_field.id, value.tantivy_schema_value());
+                document.insert(search_field.id, value.into());
             }
         } else if *is_json {
             for value in TantivyValue::try_from_datum_json(datum, *base_oid)? {
-                document.insert(search_field.id, value.tantivy_schema_value());
+                document.insert(search_field.id, value.into());
             }
         } else {
             document.insert(
                 search_field.id,
-                TantivyValue::try_from_datum(datum, *base_oid)?.tantivy_schema_value(),
+                TantivyValue::try_from_datum(datum, *base_oid)?.into(),
             );
         }
     }

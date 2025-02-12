@@ -155,7 +155,7 @@ jobs:
         working-directory: pg_search/
         run: |
           psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS \$\$ BEGIN IF a <> b THEN RAISE EXCEPTION 'Assertion failed: % <> %', a, b; END IF; RETURN true; END; \$\$;"
-          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "SELECT assert(paradedb.validate_checksum('search_idx'), 0);"
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "SELECT assert(count(*), 0) FROM paradedb.validate_checksum('search_idx');"
 
       # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
       - name: Run pg_search Integration Tests

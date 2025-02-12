@@ -327,9 +327,12 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
                 }
             }
 
-            if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
-                // force a parallel worker if the `debug_parallel_query` GUC is on
-                nworkers = 1;
+            #[cfg(not(any(feature = "pg13", feature = "pg14", feature = "pg15")))]
+            {
+                if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
+                    // force a parallel worker if the `debug_parallel_query` GUC is on
+                    nworkers = 1;
+                }
             }
 
             // we will try to parallelize based on the number of index segments

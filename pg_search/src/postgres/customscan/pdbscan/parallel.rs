@@ -16,15 +16,19 @@ impl ParallelQueryCapable for PdbScan {
             PdbScan::rescan_custom_scan(state);
         }
 
-        ParallelScanState::size_of_with_segments(
-            state
-                .custom_state()
-                .search_reader
-                .as_ref()
-                .expect("search reader must be initialized to estimate DSM size")
-                .segment_readers()
-                .len(),
-        )
+        let serialized_query = serde_json::to_vec(&state.custom_state().search_query_input)
+            .expect("should be able to serialize query");
+        state.custom_state_mut().serialized_query = serialized_query;
+
+        let segment_count = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .expect("search reader must be initialized to estimate DSM size")
+            .segment_readers()
+            .len();
+
+        ParallelScanState::size_of(segment_count, &state.custom_state_mut().serialized_query)
     }
 
     fn initialize_dsm_custom_scan(
@@ -36,8 +40,14 @@ impl ParallelQueryCapable for PdbScan {
         assert!(!pscan_state.is_null(), "coordinate is null");
 
         unsafe {
-            (*pscan_state).mutex.init();
-            (*pscan_state).assign_segment_ids(state.custom_state().search_reader.as_ref().unwrap());
+            let segments = state
+                .custom_state()
+                .search_reader
+                .as_ref()
+                .expect("search_reader must be initialized to initialize DSM")
+                .segment_readers();
+            (*pscan_state).init(segments, &state.custom_state().serialized_query);
+
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }
     }
@@ -60,6 +70,15 @@ impl ParallelQueryCapable for PdbScan {
         assert!(!pscan_state.is_null(), "coordinate is null");
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
+        unsafe {
+            match (*pscan_state)
+                .query()
+                .expect("should be able to serialize the query from the ParallelScanState")
+            {
+                Some(query) => state.custom_state_mut().search_query_input = query,
+                None => panic!("no query in ParallelScanState"),
+            }
+        }
     }
 }
 
@@ -68,7 +87,7 @@ pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<Se
     if (*pscan_state).remaining_segments > 0 {
         (*pscan_state).remaining_segments -= 1;
 
-        Some((*pscan_state).get_segment_id((*pscan_state).remaining_segments as usize))
+        Some((*pscan_state).segment_id((*pscan_state).remaining_segments as usize))
     } else {
         None
     }

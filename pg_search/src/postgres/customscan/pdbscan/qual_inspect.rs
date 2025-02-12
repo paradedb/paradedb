@@ -56,14 +56,14 @@ impl Qual {
         }
     }
 
-    pub fn contains_param(&self) -> bool {
+    pub fn contains_exec_param(&self) -> bool {
         match self {
             Qual::All => false,
             Qual::OpExpr { .. } => false,
-            Qual::Expr { node, .. } => contains_param(*node),
-            Qual::And(quals) => quals.iter().any(|q| q.contains_param()),
-            Qual::Or(quals) => quals.iter().any(|q| q.contains_param()),
-            Qual::Not(qual) => qual.contains_param(),
+            Qual::Expr { node, .. } => contains_exec_param(*node),
+            Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
+            Qual::Not(qual) => qual.contains_exec_param(),
         }
     }
 
@@ -423,10 +423,14 @@ unsafe fn opexpr(
     }
 }
 
-fn contains_param(root: *mut pg_sys::Node) -> bool {
+fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
-        nodecast!(Param, T_Param, node).is_some()
-            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+        if let Some(param) = nodecast!(Param, T_Param, node) {
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+                return true;
+            }
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
 
     if root.is_null() {

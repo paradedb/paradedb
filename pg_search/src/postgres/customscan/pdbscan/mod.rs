@@ -22,6 +22,7 @@ mod privdat;
 mod projections;
 mod qual_inspect;
 mod scan_state;
+mod solve_expr;
 
 use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
@@ -53,7 +54,7 @@ use crate::postgres::customscan::pdbscan::projections::snippet::{
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::qual_inspect::{extract_quals, Qual};
+use crate::postgres::customscan::pdbscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod};
 use crate::postgres::rel_get_bm25_index;
@@ -677,10 +678,6 @@ impl CustomScan for PdbScan {
                 .init_postgres_expressions(planstate);
             state.custom_state_mut().nexprs = nexprs;
 
-            pgrx::warning!(
-                "have {nexprs} expressions: {}",
-                pg_sys::ParallelWorkerNumber
-            );
             if nexprs > 0 {
                 // we have some runtime Postgres expressions that need to be evaluated in `rescan_custom_scan`
                 //

@@ -15,11 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::parallel::Spinlock;
+use crate::query::SearchQueryInput;
 use pgrx::*;
-use std::ptr::{addr_of, addr_of_mut};
+use std::io::Write;
 use tantivy::index::SegmentId;
+use tantivy::SegmentReader;
 
 mod build;
 mod cost;
@@ -118,60 +119,111 @@ pub fn rel_get_bm25_index(relid: pg_sys::Oid) -> Option<(PgRelation, PgRelation)
     }
 }
 
-#[derive(Debug)]
-#[repr(C)]
+#[repr(C, packed)]
+struct ParallelScanPayload {
+    query: (usize, usize),
+    segments: (usize, usize),
+    data: [u8; 0], // dynamically sized, allocated after
+}
+
+impl ParallelScanPayload {
+    fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
+        unsafe {
+            self.query = (0, query.len());
+            self.segments = (self.query.1, self.query.1 + segments.len() * 16);
+
+            let query_start = self.query.0;
+            let query_end = self.query.1;
+            let _ = (&mut self.data_mut()[query_start..query_end])
+                .write(query)
+                .expect("failed to write query bytes");
+
+            let segments_start = self.segments.0;
+            let segments_end = self.segments.1;
+            let ptr = &mut self.data_mut()[segments_start..segments_end].as_mut_ptr();
+            let segments_slice: &mut [[u8; 16]] =
+                std::slice::from_raw_parts_mut(ptr.cast(), segments.len());
+
+            for (segment, target) in segments.iter().zip(segments_slice.iter_mut()) {
+                let _ = (&mut target[..])
+                    .write(segment.segment_id().uuid_bytes())
+                    .expect("failed to write segment bytes");
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn data(&self) -> &[u8] {
+        assert!(self.segments.1 > 0);
+        unsafe {
+            let data_end = self.segments.1;
+            let data_ptr = self.data.as_ptr();
+            std::slice::from_raw_parts(data_ptr, data_end)
+        }
+    }
+
+    #[inline(always)]
+    fn data_mut(&mut self) -> &mut [u8] {
+        assert!(self.segments.1 > 0);
+        unsafe {
+            let data_end = self.segments.1;
+            let data_ptr = self.data.as_mut_ptr();
+            std::slice::from_raw_parts_mut(data_ptr, data_end)
+        }
+    }
+
+    fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
+        let query_start = self.query.0;
+        let query_end = self.query.1;
+        if query_end == 0 {
+            return Ok(None);
+        }
+        let query_data = &self.data()[query_start..query_end];
+        Ok(Some(serde_json::from_slice(query_data)?))
+    }
+
+    fn segments(&self) -> &[[u8; 16]] {
+        let segments_start = self.segments.0;
+        let segments_end = self.segments.1;
+        let segments_data = &self.data()[segments_start..segments_end];
+        assert!(
+            segments_data.len() % 16 == 0,
+            "segment data length mismatch"
+        );
+
+        unsafe { std::mem::transmute(segments_data) }
+    }
+}
+
+#[repr(C, packed)]
 pub struct ParallelScanState {
     pub mutex: Spinlock,
-    pub segment_count: usize,
     pub remaining_segments: usize,
-    pub segment_uuids: [u8; 0], // dynamically sized, allocated after end
+    payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
 
 impl ParallelScanState {
     #[inline]
-    const fn size_of_with_segments(nsegments: usize) -> usize {
+    fn size_of(nsegments: usize, serialized_query: &[u8]) -> usize {
         // a SegmentId, in byte form, is 16 bytes
-        size_of::<Self>() + (nsegments * 16)
+        size_of::<Self>() + size_of::<Self>() + (nsegments * 16) + serialized_query.len()
     }
 
-    unsafe fn get_segment_id(&self, i: usize) -> SegmentId {
-        unsafe {
-            if i >= self.segment_count {
-                panic!(
-                    "index {i} out of bounds.  segment_count={}",
-                    self.segment_count
-                );
-            }
-            let ptr = addr_of!(self.segment_uuids) as *mut [u8; 16];
-            SegmentId::from_bytes(ptr.add(i).read())
-        }
+    fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
+        self.mutex.init();
+        self.init_without_mutex(segments, query);
     }
 
-    unsafe fn assign_segment_ids(&mut self, search_index_reader: &SearchIndexReader) {
-        self.segment_count = search_index_reader.segment_readers().len();
-        self.remaining_segments = self.segment_count;
-
-        for (i, segment_reader) in search_index_reader.segment_readers().iter().enumerate() {
-            self.set_segment_id(i, segment_reader.segment_id());
-        }
+    fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
+        self.payload.init(segments, query);
+        self.remaining_segments = segments.len();
     }
 
-    unsafe fn set_segment_id(&mut self, i: usize, segment_id: SegmentId) {
-        unsafe {
-            if i >= self.segment_count {
-                panic!(
-                    "segment ordinal is out of bounds.  i={i}, segment_count={}",
-                    self.segment_count
-                );
-            } else if i >= u16::MAX as usize {
-                panic!(
-                    "index has more than {} segments, which is not supported by parallel scans",
-                    u16::MAX
-                );
-            }
+    fn segment_id(&self, i: usize) -> SegmentId {
+        SegmentId::from_bytes(self.payload.segments()[i])
+    }
 
-            let ptr = addr_of_mut!(self.segment_uuids) as *mut [u8; 16];
-            ptr.add(i).write(*segment_id.uuid_bytes())
-        }
+    fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
+        self.payload.query()
     }
 }

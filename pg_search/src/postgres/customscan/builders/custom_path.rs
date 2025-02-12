@@ -306,7 +306,7 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         limit: Option<Cardinality>,
         segment_count: usize,
         sorted: bool,
-        has_sublinks: bool,
+        has_exec_param: bool,
     ) -> Self {
         unsafe {
             let mut nworkers = segment_count.min(pg_sys::max_parallel_workers as usize);
@@ -328,11 +328,10 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
                 }
             }
 
-            pgrx::warning!("has_sublinks={}", has_sublinks);
             // we will try to parallelize based on the number of index segments
             if nworkers > 0 && (*self.args.rel).consider_parallel {
-                self.custom_path_node.path.parallel_aware = !has_sublinks;
-                self.custom_path_node.path.parallel_safe = !has_sublinks;
+                self.custom_path_node.path.parallel_aware = !has_exec_param;
+                self.custom_path_node.path.parallel_safe = !has_exec_param;
                 self.custom_path_node.path.parallel_workers =
                     nworkers.try_into().expect("nworkers should be a valid i32");
             }

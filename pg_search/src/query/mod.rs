@@ -17,7 +17,6 @@
 
 pub mod iter_mut;
 mod range;
-mod solve_expr;
 
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::range::{Comparison, RangeField};
@@ -263,8 +262,6 @@ pub enum SearchQueryInput {
     },
     PostgresExpression {
         expr: PostgresExpression,
-        #[serde(skip)]
-        query: Option<Box<SearchQueryInput>>,
     },
 }
 
@@ -281,9 +278,8 @@ impl SearchQueryInput {
                 var: PostgresPointer(var.cast()),
                 opoid,
                 node: PostgresPointer(node.cast()),
-                expr_state: PostgresPointer::<true>(std::ptr::null_mut()),
+                expr_state: PostgresPointer::default(),
             },
-            query: None,
         }
     }
 
@@ -1797,10 +1793,7 @@ impl SearchQueryInput {
             Self::WithIndex { query, .. } => {
                 query.into_tantivy_query(field_lookup, parser, searcher)
             }
-            Self::PostgresExpression { query, .. } => match query {
-                None => panic!("postgres expressions have not been solved"),
-                Some(query) => query.into_tantivy_query(field_lookup, parser, searcher),
-            },
+            Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
         }
     }
 }
@@ -1962,15 +1955,15 @@ enum QueryError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct PostgresPointer<const ALWAYS_NULL: bool = false>(*mut std::os::raw::c_void);
+struct PostgresPointer(*mut std::os::raw::c_void);
 
-impl Default for PostgresPointer<true> {
+impl Default for PostgresPointer {
     fn default() -> Self {
         PostgresPointer(std::ptr::null_mut())
     }
 }
 
-impl Serialize for PostgresPointer<false> {
+impl Serialize for PostgresPointer {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -1991,13 +1984,13 @@ impl Serialize for PostgresPointer<false> {
     }
 }
 
-impl<'de> Deserialize<'de> for PostgresPointer<false> {
+impl<'de> Deserialize<'de> for PostgresPointer {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         struct NodeVisitor;
-        impl<'de> Visitor<'de> for NodeVisitor {
+        impl Visitor<'_> for NodeVisitor {
             type Value = PostgresPointer;
 
             fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
@@ -2020,34 +2013,20 @@ impl<'de> Deserialize<'de> for PostgresPointer<false> {
     }
 }
 
-impl Serialize for PostgresPointer<true> {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_none()
-    }
-}
-
-impl<'de> Deserialize<'de> for PostgresPointer<true> {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(PostgresPointer(std::ptr::null_mut()))
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PostgresExpression {
     var: PostgresPointer,
     opoid: pg_sys::Oid,
     node: PostgresPointer,
     #[serde(skip)]
-    expr_state: PostgresPointer<true>,
+    expr_state: PostgresPointer,
 }
 
 impl PostgresExpression {
+    pub fn set_expr_state(&mut self, expr_state: *mut pg_sys::ExprState) {
+        self.expr_state = PostgresPointer(expr_state.cast())
+    }
+
     #[inline]
     pub fn var(&self) -> *mut pg_sys::Var {
         unsafe {

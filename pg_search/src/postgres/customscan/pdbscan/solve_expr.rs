@@ -1,13 +1,12 @@
 use crate::api::operator::searchqueryinput_typoid;
-use crate::query::{PostgresExpression, PostgresPointer, SearchQueryInput};
+use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, FromDatum, PgMemoryContexts};
 
 impl SearchQueryInput {
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) -> usize {
         let mut cnt = 0;
         for sqi in self {
-            if let SearchQueryInput::PostgresExpression { expr, query } = sqi {
-                *query = None;
+            if let SearchQueryInput::PostgresExpression { expr } = sqi {
                 expr.init(planstate);
                 cnt += 1;
             }
@@ -26,11 +25,12 @@ impl SearchQueryInput {
             PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory).switch_to(|_| {
                 let sqi_typoid = searchqueryinput_typoid();
                 for sqi in self {
-                    if let SearchQueryInput::PostgresExpression { expr, query } = sqi {
-                        *query = Some(Box::new(
-                            expr.solve(expr_context, sqi_typoid)
-                                .expect("PostgresExpression should not evaluate to NULL"),
-                        ));
+                    if let SearchQueryInput::PostgresExpression { expr } = sqi {
+                        *sqi = expr
+                            .solve(expr_context, sqi_typoid)
+                            .expect("PostgresExpression should not evaluate to NULL");
+
+                        // pgrx::warning!("solved query to: {:?}", *query);
                     }
                 }
             })
@@ -39,14 +39,14 @@ impl SearchQueryInput {
 }
 
 impl PostgresExpression {
-    pub fn init(&mut self, planstate: *mut pg_sys::PlanState) {
+    fn init(&mut self, planstate: *mut pg_sys::PlanState) {
         unsafe {
-            let estate = pg_sys::ExecInitExpr(self.node().cast(), planstate);
-            self.expr_state = PostgresPointer(estate.cast())
+            let expr_state = pg_sys::ExecInitExpr(self.node().cast(), planstate);
+            self.set_expr_state(expr_state);
         }
     }
 
-    pub fn solve(
+    fn solve(
         &self,
         expr_context: *mut pg_sys::ExprContext,
         sqi_typoid: pg_sys::Oid,

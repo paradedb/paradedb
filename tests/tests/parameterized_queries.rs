@@ -120,3 +120,37 @@ fn parallel_function_with_agg_subselect(mut conn: PgConnection) {
         ]
     );
 }
+
+#[rstest]
+fn test_issue2061(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    )
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    let results = r#"
+    SELECT id, description, paradedb.score(id)
+    FROM mock_items
+    WHERE id @@@ paradedb.match('description', (SELECT description FROM mock_items WHERE id = 1))
+    ORDER BY paradedb.score(id) DESC;    
+    "#
+    .fetch::<(i32, String, f32)>(&mut conn);
+
+    assert_eq!(
+        results,
+        vec![
+            (1, "Ergonomic metal keyboard".into(), 9.485788),
+            (2, "Plastic Keyboard".into(), 3.2668595),
+        ]
+    )
+}

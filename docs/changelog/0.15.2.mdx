@@ -8,6 +8,10 @@ title: 0.15.2
 - Fixed an issue where snippets and scores would not be properly returned in querying with JOIN clauses
 - Fixed an issue where memory could leak in `COPY`, `INSERT` and `UPDATE` statements
 
+## Performance Improvements 🚀
+
+- Improved the performance of queries that don't fetch results, for example `select count(*) from t where ... @@@ ...`
+
 TODO
 
 ## Full Changelog

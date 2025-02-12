@@ -57,7 +57,9 @@ fn parallel_with_subselect(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    "SET debug_parallel_query TO on".execute(&mut conn);
+    if pg_major_version(&mut conn) >= 16 {
+        "SET debug_parallel_query TO on".execute(&mut conn);
+    }
 
     "PREPARE foo AS SELECT count(*) FROM test WHERE value @@@ (select $1);".execute(&mut conn);
     let (count,) = "EXECUTE foo('contains')".fetch_one::<(i64,)>(&mut conn);
@@ -96,7 +98,10 @@ fn parallel_function_with_agg_subselect(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    "SET debug_parallel_query TO on".execute(&mut conn);
+    if pg_major_version(&mut conn) >= 16 {
+        "SET debug_parallel_query TO on".execute(&mut conn);
+    }
+
     "PREPARE foo AS SELECT id FROM test WHERE id @@@ paradedb.term_set((select array_agg(paradedb.term('value', token)) from paradedb.tokenize(paradedb.tokenizer('default'), $1))) ORDER BY id;".execute(&mut conn);
 
     let results = "EXECUTE foo('no matches')".fetch::<(i64,)>(&mut conn);

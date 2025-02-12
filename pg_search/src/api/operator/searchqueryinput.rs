@@ -76,7 +76,7 @@ pub fn search_with_query_input(
         .index_oid()
         .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
 
-    // get the Cache attached to this instance of the funtion
+    // get the Cache attached to this instance of the function
     let cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
 
     // and get/initialize the SearchReader and FFHelper for this index_oid

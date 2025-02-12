@@ -2,6 +2,12 @@
 title: 0.15.2
 ---
 
+## Stability Improvements 💪
+
+- Fixed an issue where the Postgres `NOT` operator would not be pushed down to Tantivy properly
+- Fixed an issue where snippets and scores would not be properly returned in querying with JOIN clauses
+- Fixed an issue where memory could leak in `COPY`, `INSERT` and `UPDATE` statements
+
 TODO
 
 ## Full Changelog

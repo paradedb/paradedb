@@ -166,7 +166,6 @@ impl CustomScan for PdbScan {
                 ri_type,
             ) {
                 let has_expressions = quals.contains_exprs();
-                let has_exec_param = false; // quals.contains_exec_param();
                 let selectivity = if let Some(limit) = limit {
                     // use the limit
                     limit
@@ -293,14 +292,7 @@ impl CustomScan for PdbScan {
                     if pathkey_cnt == 1 || cardinality > 1_000_000.0 {
                         // if we only have 1 path key or if our estimated cardinality is over some
                         // hardcoded value, it's seemingly more efficient to do a parallel scan
-                        builder = builder.set_parallel(
-                            false,
-                            rows,
-                            limit,
-                            segment_count,
-                            true,
-                            has_exec_param,
-                        );
+                        builder = builder.set_parallel(false, rows, limit, segment_count, true);
                     } else {
                         // otherwise we'll do a regular scan and indicate that we're emitting results
                         // sorted by the first pathkey
@@ -315,7 +307,6 @@ impl CustomScan for PdbScan {
                         limit,
                         segment_count,
                         !matches!(sortdir, Some(SortDirection::None)) && sortdir.is_some(),
-                        has_exec_param,
                     );
                 }
 

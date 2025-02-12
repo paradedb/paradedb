@@ -426,7 +426,7 @@ unsafe fn opexpr(
             }
         }
     } else {
-        // it doesn't user our operator. we can't handle it
+        // it doesn't use our operator. we can't handle it
         // TODO:  this would be an integration point for predicate pushdown -- converting
         //        postgres operators into ours
         None

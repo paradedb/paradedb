@@ -61,7 +61,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
-use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
+use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
 use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
@@ -175,13 +175,18 @@ impl CustomScan for PdbScan {
                             .unwrap_or(UNKNOWN_SELECTIVITY)
                 } else if restrict_info.len() == 1 {
                     // we can use the norm_selec that already happened
-                    (*restrict_info.get_ptr(0).unwrap()).norm_selec
+                    let norm_select = (*restrict_info.get_ptr(0).unwrap()).norm_selec;
+                    if norm_select != UNKNOWN_SELECTIVITY {
+                        norm_select
+                    } else {
+                        // assume PARAMETERIZED_SELECTIVITY
+                        PARAMETERIZED_SELECTIVITY
+                    }
                 } else {
                     // ask the index
                     if has_expressions {
-                        // TODO:  address this when we support parameterized plans
-                        // we have no idea, so assume it'll be the entire index
-                        1.0
+                        // we have no idea, so assume PARAMETERIZED_SELECTIVITY
+                        PARAMETERIZED_SELECTIVITY
                     } else {
                         let query = SearchQueryInput::from(&quals);
                         estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
@@ -246,12 +251,7 @@ impl CustomScan for PdbScan {
                     DEFAULT_STARTUP_COST
                 };
 
-                let total_cost = if has_expressions {
-                    // TODO:  address this when we support parameterized plans
-                    0.0
-                } else {
-                    startup_cost + (rows * per_tuple_cost)
-                };
+                let total_cost = startup_cost + (rows * per_tuple_cost);
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
 
                 builder.custom_private().set_segment_count(

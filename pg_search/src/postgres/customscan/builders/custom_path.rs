@@ -327,6 +327,11 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
                 }
             }
 
+            if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
+                // force a parallel worker if the `debug_parallel_query` GUC is on
+                nworkers = 1;
+            }
+
             // we will try to parallelize based on the number of index segments
             if nworkers > 0 && (*self.args.rel).consider_parallel {
                 self.custom_path_node.path.parallel_aware = true;

@@ -27,12 +27,44 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
+use parking_lot::Mutex;
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_sys, AnyElement, FromDatum, Internal,
     PgList, PgOid, PgRelation,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::ptr::NonNull;
+
+/// SQL API for allowing the user to specify the index to query.
+///
+/// This is useful (required, even) in cases where a query must be planned a sequential scan.
+///
+/// An example might be a query like this, that reads "find everything from `t` where the `body` field
+/// contains a term from the `keywords` field.
+///
+/// ```sql
+/// SELECT * FROM t WHERE key_field @@@ paradedb.term('body', keywords);
+/// ```
+///
+/// In order for pg_search to execute this, we need to know the index to use, so it would need to be written
+/// as:
+///
+/// ```sql
+/// SELECT * FROM t WHERE key_field @@@ paradedb.with_index('bm25_idxt', paradedb.term('body', keywords));
+/// ```
+#[pg_extern(immutable, parallel_safe)]
+pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInput {
+    SearchQueryInput::WithIndex {
+        oid: index.oid(),
+        query: Box::new(query),
+    }
+}
+
+#[derive(Default)]
+struct Cache {
+    search_readers: Mutex<FxHashMap<pg_sys::Oid, (SearchIndexReader, FFHelper)>>,
+    matches: Mutex<FxHashMap<(pg_sys::Oid, String), FxHashSet<TantivyValue>>>,
+}
 
 #[pg_extern(immutable, parallel_safe, cost = 1000000000)]
 pub fn search_with_query_input(
@@ -42,46 +74,54 @@ pub fn search_with_query_input(
 ) -> bool {
     let index_oid = query
         .index_oid()
-        .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  query={query:#?}"));
-    let mut cache = unsafe { pg_func_extra(fcinfo, FxHashMap::default) };
-    // NB:  ideally, `SearchQueryInput` would `#[derive(Hash)]`, but it can't (easily)
-    let key = (index_oid, format!("{query:?}"));
+        .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
 
-    let (key_field_name, matches) = cache.entry(key).or_insert_with(|| {
+    // get the Cache attached to this instance of the funtion
+    let cache = unsafe { pg_func_extra(fcinfo, Cache::default) };
+
+    // and get/initialize the SearchReader and FFHelper for this index_oid
+    let mut search_readers = cache.search_readers.lock();
+    let (search_reader, ff_helper) = search_readers.entry(index_oid).or_insert_with(|| {
         let index_relation = unsafe {
             PgRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
         };
-
         let search_reader =
             SearchIndexReader::open(&index_relation, BlockDirectoryType::Mvcc, false)
                 .expect("search_with_query_input: should be able to open a SearchIndexReader");
-
         let key_field = search_reader.key_field();
         let key_field_name = key_field.name.0;
         let key_field_type = key_field.type_.into();
-        let fast_fields = FFHelper::with_fields(
-            &search_reader,
-            &[(key_field_name.clone(), key_field_type).into()],
-        );
-        let top_docs = search_reader.search(query.contains_more_like_this(), false, &query, None);
-        let mut matches = FxHashSet::default();
-        for (_, doc_address) in top_docs {
-            check_for_interrupts!();
-            matches.insert(
-                fast_fields
-                    .value(0, doc_address)
-                    .expect("key_field value should not be null"),
-            );
-        }
+        let ff_helper =
+            FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
 
-        (key_field_name, matches)
+        (search_reader, ff_helper)
     });
 
-    match unsafe {
-        TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
-    } {
-        Err(err) => panic!("no value present in key_field {key_field_name} in tuple: {err}",),
-        Ok(value) => matches.contains(&value),
+    // now, query the SearchReader and collect up the docs that match our query.
+    // the matches are cached so that the same input query will return the same results
+    // throughout the duration of the scan
+    let mut matches = cache.matches.lock();
+    let matches_key = (index_oid, format!("{query:?}")); // NB:  ideally, `SearchQueryInput` would `#[derive(Hash)]`, but it can't (easily)
+    let matches = matches.entry(matches_key).or_insert_with(|| {
+        search_reader
+            .search(query.contains_more_like_this(), false, &query, None)
+            .map(|(_, doc_address)| {
+                check_for_interrupts!();
+                ff_helper
+                    .value(0, doc_address)
+                    .expect("key_field value should not be null")
+            })
+            .collect()
+    });
+
+    // finally, see if the value on the lhs of the @@@ operator (which should always be our "key_field")
+    // is contained in the matches set
+    unsafe {
+        let user_value =
+            TantivyValue::try_from_datum(element.datum(), PgOid::from_untagged(element.oid()))
+                .expect("no value present");
+
+        matches.contains(&user_value)
     }
 }
 

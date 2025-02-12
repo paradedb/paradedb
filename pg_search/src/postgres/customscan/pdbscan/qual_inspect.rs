@@ -368,26 +368,38 @@ unsafe fn opexpr(
 
     if const_.is_none() {
         // the rhs expression is not a Const, so it's some kind of expression
-        // that we'll need to execute during query execution
+        // that we'll need to execute during query execution, if we can
 
         if is_our_operator {
-            // and it uses our operator, so we directly know how to handle it
-            return Some(Qual::Expr {
-                var,
-                opno: (*opexpr).opno,
-                node: rhs,
-                is_volatile: pg_sys::contain_volatile_functions(rhs),
-                expr_state: std::ptr::null_mut(),
-            });
-        } else if let Some(rhs_var) = nodecast!(Var, T_Var, rhs) {
-            // the rhs is a Var too, which likely means its part of a join condition
-            // we choose to just select everything in this situation
-            return Some(Qual::All);
+            if contains_var(rhs) {
+                // it contains a Var, and that means some kind of sequential scan will be required
+                // so indicate we can't handle this expression at all
+                return None;
+            } else {
+                // it uses our operator, so we directly know how to handle it
+                // this is the case of:  field @@@ paradedb.xxx(EXPR) where EXPR likely includes something
+                // that's parameterized
+                return Some(Qual::Expr {
+                    var,
+                    opno: (*opexpr).opno,
+                    node: rhs,
+                    is_volatile: pg_sys::contain_volatile_functions(rhs),
+                    expr_state: std::ptr::null_mut(),
+                });
+            }
         } else {
-            // it doesn't user our operator. we can't handle it
-            // TODO:  this would be an integration point for predicate pushdown -- converting
-            //        postgres operators into ours
-            return None;
+            // it doesn't use our operator
+            if contains_var(rhs) {
+                // the rhs is (or contains) a Var too, which likely means its part of a join condition
+                // we choose to just select everything in this situation
+                return Some(Qual::All);
+            } else {
+                // we can't handle this query at all
+
+                // TODO:  this would be an integration point for predicate pushdown -- converting
+                //        postgres operators into ours
+                return None;
+            }
         }
     }
 
@@ -431,9 +443,30 @@ fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
         pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
 
+    unsafe {
+        if root.is_null() {
+            return false;
+        } else if let Some(param) = nodecast!(Param, T_Param, root) {
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+                return true;
+            }
+        }
+        pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
+    }
+}
+
+fn contains_var(root: *mut pg_sys::Node) -> bool {
+    unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+        nodecast!(Var, T_Var, node).is_some()
+            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+    }
+
     if root.is_null() {
         return false;
     }
 
-    unsafe { pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut()) }
+    unsafe {
+        nodecast!(Var, T_Var, root).is_some()
+            || pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
+    }
 }

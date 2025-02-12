@@ -23,7 +23,10 @@ fn query_empty_table(mut conn: PgConnection) {
         "SELECT count(*) FROM test_table WHERE value @@@ 'beer';".fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 0);
 
-    "SET max_parallel_workers = 8; SET debug_parallel_query = true;".execute(&mut conn);
+    "SET max_parallel_workers = 8;".execute(&mut conn);
+    if pg_major_version(&mut conn) >= 16 {
+        "SET debug_parallel_query TO on".execute(&mut conn);
+    }
     let (count,) =
         "SELECT count(*) FROM test_table WHERE value @@@ 'beer';".fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 0);

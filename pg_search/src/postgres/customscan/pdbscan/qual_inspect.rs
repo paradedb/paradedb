@@ -359,30 +359,28 @@ unsafe fn opexpr(
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-    let (var, const_) = (
-        nodecast!(Var, T_Var, args.get_ptr(0)?)?,
-        nodecast!(Const, T_Const, args.get_ptr(1)?),
-    );
+
+    let lhs = args.get_ptr(0)?;
+    let rhs = args.get_ptr(1)?;
+    let (var, const_) = (nodecast!(Var, T_Var, lhs)?, nodecast!(Const, T_Const, rhs));
 
     let is_our_operator = (*opexpr).opno == pdbopoid;
 
     if const_.is_none() {
         // the rhs expression is not a Const, so it's some kind of expression
         // that we'll need to execute during query execution
-        let node = args.get_ptr(1)?;
 
         if is_our_operator {
             // and it uses our operator, so we directly know how to handle it
             return Some(Qual::Expr {
                 var,
                 opno: (*opexpr).opno,
-                node,
-                is_volatile: pg_sys::contain_volatile_functions(node),
+                node: rhs,
+                is_volatile: pg_sys::contain_volatile_functions(rhs),
                 expr_state: std::ptr::null_mut(),
             });
-        } else if (*var).varno as i32 != rti as i32 && matches!(ri_type, RestrictInfoType::Join) {
-            // it doesn't use our operator and comes from a different range table entry,
-            // which likely means its part of a join condition
+        } else if let Some(rhs_var) = nodecast!(Var, T_Var, rhs) {
+            // the rhs is a Var too, which likely means its part of a join condition
             // we choose to just select everything in this situation
             return Some(Qual::All);
         } else {

@@ -30,6 +30,8 @@ extern "C" {
 }
 
 pub struct InsertState {
+    #[allow(dead_code)] // field is used by pg<16 for the fakeaminsertcleanup stuff
+    pub indexrelid: pg_sys::Oid,
     pub writer: Option<SearchIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: String,
@@ -55,6 +57,7 @@ impl InsertState {
         );
 
         Ok(Self {
+            indexrelid: indexrel.oid(),
             writer: Some(writer),
             categorized_fields,
             key_field_name,
@@ -69,23 +72,18 @@ unsafe fn init_insert_state(
     index_info: &mut pg_sys::IndexInfo,
     writer_resources: WriterResources,
 ) -> &'static mut InsertState {
-    use crate::postgres::fake_aminsertcleanup::{
-        get_pending_insert_state, reset_pending_insert_state, set_pending_insert_state,
-    };
+    use crate::postgres::fake_aminsertcleanup::{get_insert_state, push_insert_state};
 
     if index_info.ii_AmCache.is_null() {
         let index_relation = PgRelation::from_pg(index_relation);
         let state = InsertState::new(&index_relation, writer_resources)
             .expect("should be able to open new SearchIndex for writing");
 
-        set_pending_insert_state(state);
+        push_insert_state(state);
         index_info.ii_AmCache = &true as *const _ as *mut _; // a pointer to `true` to indicate that we've set up the InsertState
-        pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, || {
-            reset_pending_insert_state()
-        });
     }
 
-    get_pending_insert_state().expect("should have a pending insert state")
+    get_insert_state((*index_relation).rd_id).expect("should have a pending insert state")
 }
 
 #[cfg(feature = "pg17")]

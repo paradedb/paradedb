@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod iter_mut;
 mod range;
 
 use crate::postgres::utils::convert_pg_date_string;
@@ -24,7 +25,9 @@ use anyhow::Result;
 use core::panic;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
 use range::{deserialize_bound, serialize_bound};
-use serde::{Deserialize, Serialize};
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt::{Debug, Formatter};
 use std::{collections::HashMap, ops::Bound};
 use tantivy::DateTime;
 use tantivy::{
@@ -74,6 +77,8 @@ impl AsHumanReadable for OwnedValue {
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
+    #[default]
+    Uninitialized,
     All,
     Boolean {
         #[serde(default)]
@@ -100,7 +105,6 @@ pub enum SearchQueryInput {
         disjuncts: Vec<SearchQueryInput>,
         tie_breaker: Option<f32>,
     },
-    #[default]
     Empty,
     Exists {
         field: String,
@@ -256,9 +260,29 @@ pub enum SearchQueryInput {
         oid: pg_sys::Oid,
         query: Box<SearchQueryInput>,
     },
+    PostgresExpression {
+        expr: PostgresExpression,
+    },
 }
 
 impl SearchQueryInput {
+    pub fn postgres_expression(
+        var: *mut pg_sys::Var,
+        opoid: pg_sys::Oid,
+        node: *mut pg_sys::Node,
+    ) -> Self {
+        assert!(!var.is_null());
+        assert!(!node.is_null());
+        SearchQueryInput::PostgresExpression {
+            expr: PostgresExpression {
+                var: PostgresPointer(var.cast()),
+                opoid,
+                node: PostgresPointer(node.cast()),
+                expr_state: PostgresPointer::default(),
+            },
+        }
+    }
+
     pub fn contains_more_like_this(&self) -> bool {
         match self {
             SearchQueryInput::Boolean {
@@ -666,6 +690,7 @@ impl SearchQueryInput {
         searcher: &Searcher,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
+            Self::Uninitialized => panic!("this `SearchQueryInput` instance is uninitialized"),
             Self::All => Ok(Box::new(AllQuery)),
             Self::Boolean {
                 must,
@@ -1768,6 +1793,7 @@ impl SearchQueryInput {
             Self::WithIndex { query, .. } => {
                 query.into_tantivy_query(field_lookup, parser, searcher)
             }
+            Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
         }
     }
 }
@@ -1926,4 +1952,105 @@ enum QueryError {
            make sure to use column:term pairs, and to capitalize AND/OR."#
     )]
     ParseError(#[source] tantivy::query::QueryParserError, String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct PostgresPointer(*mut std::os::raw::c_void);
+
+impl Default for PostgresPointer {
+    fn default() -> Self {
+        PostgresPointer(std::ptr::null_mut())
+    }
+}
+
+impl Serialize for PostgresPointer {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if self.0.is_null() {
+            serializer.serialize_none()
+        } else {
+            unsafe {
+                let s = pg_sys::nodeToString(self.0.cast());
+                let cstr = core::ffi::CStr::from_ptr(s)
+                    .to_str()
+                    .map_err(serde::ser::Error::custom)?;
+                let string = cstr.to_owned();
+                pg_sys::pfree(s.cast());
+                serializer.serialize_some(&string)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PostgresPointer {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct NodeVisitor;
+        impl Visitor<'_> for NodeVisitor {
+            type Value = PostgresPointer;
+
+            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                write!(formatter, "a string representing a Postgres node")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                unsafe {
+                    let cstr = std::ffi::CString::new(v).map_err(E::custom)?;
+                    let node = pg_sys::stringToNode(cstr.as_ptr());
+                    Ok(PostgresPointer(node.cast()))
+                }
+            }
+        }
+
+        deserializer.deserialize_option(NodeVisitor)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PostgresExpression {
+    var: PostgresPointer,
+    opoid: pg_sys::Oid,
+    node: PostgresPointer,
+    #[serde(skip)]
+    expr_state: PostgresPointer,
+}
+
+impl PostgresExpression {
+    pub fn set_expr_state(&mut self, expr_state: *mut pg_sys::ExprState) {
+        self.expr_state = PostgresPointer(expr_state.cast())
+    }
+
+    #[inline]
+    pub fn var(&self) -> *mut pg_sys::Var {
+        unsafe {
+            assert!(pgrx::is_a(self.var.0.cast(), pg_sys::NodeTag::T_Var));
+            self.var.0.cast()
+        }
+    }
+
+    #[inline]
+    pub fn opoid(&self) -> pg_sys::Oid {
+        self.opoid
+    }
+
+    #[inline]
+    pub fn node(&self) -> *mut pg_sys::Node {
+        self.node.0.cast()
+    }
+
+    #[inline]
+    pub fn expr_state(&self) -> *mut pg_sys::ExprState {
+        assert!(
+            !self.expr_state.0.is_null(),
+            "ExprState has not been initialized"
+        );
+        self.expr_state.0.cast()
+    }
 }

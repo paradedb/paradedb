@@ -161,12 +161,16 @@ impl NormalScanExecState {
         if self.did_query {
             return false;
         }
-        self.search_results = state.search_reader.as_ref().unwrap().search(
-            state.need_scores(),
-            false,
-            &state.search_query_input,
-            state.limit,
-        );
+        self.search_results = state
+            .search_reader
+            .as_ref()
+            .expect("must have a search_reader to do a query")
+            .search(
+                state.need_scores(),
+                false,
+                &state.search_query_input,
+                state.limit,
+            );
         self.did_query = true;
         true
     }

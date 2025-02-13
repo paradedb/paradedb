@@ -22,6 +22,7 @@ mod privdat;
 mod projections;
 mod qual_inspect;
 mod scan_state;
+mod solve_expr;
 
 use crate::api::operator::{
     anyelement_query_input_opoid, attname_from_var, estimate_selectivity, find_var_relation,
@@ -60,7 +61,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use crate::schema::SearchIndexSchema;
-use crate::{nodecast, DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
+use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use exec_methods::top_n::TopNScanExecState;
 use exec_methods::ExecState;
 use pgrx::pg_sys::{AsPgCStr, CustomExecMethods};
@@ -164,7 +165,7 @@ impl CustomScan for PdbScan {
                 anyelement_query_input_opoid(),
                 ri_type,
             ) {
-                let is_paramaterized = quals.contains_param();
+                let has_expressions = quals.contains_exprs();
                 let selectivity = if let Some(limit) = limit {
                     // use the limit
                     limit
@@ -174,13 +175,18 @@ impl CustomScan for PdbScan {
                             .unwrap_or(UNKNOWN_SELECTIVITY)
                 } else if restrict_info.len() == 1 {
                     // we can use the norm_selec that already happened
-                    (*restrict_info.get_ptr(0).unwrap()).norm_selec
+                    let norm_select = (*restrict_info.get_ptr(0).unwrap()).norm_selec;
+                    if norm_select != UNKNOWN_SELECTIVITY {
+                        norm_select
+                    } else {
+                        // assume PARAMETERIZED_SELECTIVITY
+                        PARAMETERIZED_SELECTIVITY
+                    }
                 } else {
                     // ask the index
-                    if is_paramaterized {
-                        // TODO:  address this when we support parameterized plans
-                        // we have no idea, so assume it'll be the entire index
-                        1.0
+                    if has_expressions {
+                        // we have no idea, so assume PARAMETERIZED_SELECTIVITY
+                        PARAMETERIZED_SELECTIVITY
                     } else {
                         let query = SearchQueryInput::from(&quals);
                         estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
@@ -189,7 +195,7 @@ impl CustomScan for PdbScan {
 
                 // we must use this path if we need to do const projections for scores or snippets
                 builder = builder.set_force_path(
-                    !quals.contains_param()
+                    has_expressions
                         && (maybe_needs_const_projections || is_topn || quals.contains_all()),
                 );
 
@@ -245,12 +251,7 @@ impl CustomScan for PdbScan {
                     DEFAULT_STARTUP_COST
                 };
 
-                let total_cost = if is_paramaterized {
-                    // TODO:  address this when we support parameterized plans
-                    0.0
-                } else {
-                    startup_cost + (rows * per_tuple_cost)
-                };
+                let total_cost = startup_cost + (rows * per_tuple_cost);
                 let segment_count = index.searchable_segments().unwrap_or_default().len();
 
                 builder.custom_private().set_segment_count(
@@ -586,26 +587,15 @@ impl CustomScan for PdbScan {
             }
         }
 
-        if state
-            .custom_state()
-            .quals
-            .as_ref()
-            .map(|quals| quals.contains_param())
-            .unwrap_or(false)
-        {
-            // TODO:  address this when we support parameterized plans
-            explainer.add_text(
-                "   Query",
-                "<parameterized>, currently unsupported by pg_search",
-            );
-        } else {
-            let query = &state.custom_state().search_query_input;
-            let json_query = serde_json::to_string(&query).expect("query should serialize to json");
-            explainer.add_text("Tantivy Query", &json_query);
+        let json_query = serde_json::to_string(&state.custom_state().search_query_input)
+            .expect("query should serialize to json");
+        explainer.add_text("Tantivy Query", &json_query);
 
-            if explainer.is_verbose() {
-                explainer.add_text("Human Readable Query", query.as_human_readable());
-            }
+        if explainer.is_verbose() {
+            explainer.add_text(
+                "Human Readable Query",
+                state.custom_state().search_query_input.as_human_readable(),
+            );
         }
     }
 
@@ -641,23 +631,14 @@ impl CustomScan for PdbScan {
             state.custom_state_mut().heaprel_relname =
                 PgRelation::from_pg(heaprel).name().to_string();
 
-            let is_explain_only = eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0;
-
-            // build the query
             let quals = state
-                .custom_state()
+                .custom_state_mut()
                 .quals
-                .as_ref()
-                .expect("Quals should have been assigned");
-            let search_query_input = if quals.contains_param() && is_explain_only {
-                SearchQueryInput::default()
-            } else {
-                SearchQueryInput::from(quals)
-            };
+                .take()
+                .expect("quals should have been set");
+            state.custom_state_mut().search_query_input = SearchQueryInput::from(&quals);
 
-            state.custom_state_mut().search_query_input = search_query_input;
-
-            if is_explain_only {
+            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
                 // don't do anything else if we're only explaining the query
                 return;
             }
@@ -680,15 +661,48 @@ impl CustomScan for PdbScan {
                 state.planstate(),
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
-        }
 
-        PdbScan::rescan_custom_scan(state)
+            let planstate = state.planstate();
+            let nexprs = state
+                .custom_state_mut()
+                .search_query_input
+                .init_postgres_expressions(planstate);
+            state.custom_state_mut().nexprs = nexprs;
+
+            if nexprs > 0 {
+                // we have some runtime Postgres expressions that need to be evaluated in `rescan_custom_scan`
+                //
+                // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
+                // make a new one and swap some pointers around
+
+                // hold onto the planstate's current ExprContext
+                let stdecontext = (*planstate).ps_ExprContext;
+
+                // assign a new one
+                pg_sys::ExecAssignExprContext(estate, planstate);
+
+                // take that one and assign it to our state's `runtime_context`.  This is what
+                // will be used during `rescan_custom_state` to evaluate expressions
+                state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+
+                // and restore our planstate's original ExprContext
+                (*planstate).ps_ExprContext = stdecontext;
+            }
+        }
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        if state.custom_state().nexprs > 0 {
+            let expr_context = state.runtime_context;
+            state
+                .custom_state_mut()
+                .search_query_input
+                .solve_postgres_expressions(expr_context);
+        }
+
         let need_snippets = state.custom_state().need_snippets();
 
-        // Open the index and query it
+        // Open the index
         let indexrel = state
             .custom_state()
             .indexrel
@@ -745,6 +759,10 @@ impl CustomScan for PdbScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        if state.custom_state().search_reader.is_none() {
+            PdbScan::rescan_custom_scan(state);
+        }
+
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
 

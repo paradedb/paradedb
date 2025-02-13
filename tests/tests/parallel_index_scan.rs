@@ -25,9 +25,7 @@ use sqlx::PgConnection;
 
 #[rstest]
 fn index_scan_under_parallel_path(mut conn: PgConnection) {
-    let (major_version,) = r#"select (regexp_match(version(), 'PostgreSQL (\d+)'))[1]::int;"#
-        .fetch_one::<(i32,)>(&mut conn);
-    if major_version < 16 {
+    if pg_major_version(&mut conn) < 16 {
         // the `debug_parallel_query` was added in pg16, so we simply cannot run this test on anything
         // less than pg16
         return;

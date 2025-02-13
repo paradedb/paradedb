@@ -32,12 +32,15 @@ use self::postgres::customscan;
 use pgrx::*;
 use telemetry::setup_telemetry_background_worker;
 
-// A hardcoded value when we can't figure out a good selectivity value
+/// A hardcoded value when we can't figure out a good selectivity value
 const UNKNOWN_SELECTIVITY: f64 = 0.00001;
 
-// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
-// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely
-// meaningless but we should be honest that do _something_.
+/// A hardcoded value for parameterized plan queries
+const PARAMETERIZED_SELECTIVITY: f64 = 0.10;
+
+/// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
+/// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely
+/// meaningless but we should be honest that do _something_.
 const DEFAULT_STARTUP_COST: f64 = 10.0;
 
 pgrx::pg_module_magic!();

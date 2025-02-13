@@ -34,6 +34,12 @@ pub fn database() -> Db {
     block_on(async { Db::new().await })
 }
 
+pub fn pg_major_version(conn: &mut PgConnection) -> usize {
+    r#"select (regexp_match(version(), 'PostgreSQL (\d+)'))[1]::int;"#
+        .fetch_one::<(i32,)>(conn)
+        .0 as usize
+}
+
 #[fixture]
 pub fn conn(database: Db) -> PgConnection {
     block_on(async {

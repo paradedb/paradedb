@@ -63,24 +63,16 @@ fn text_support_request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
             // the field name comes from the lhs of the @@@ operator
             let (_, query) = make_query_from_var_and_const((*srs).root, var, const_);
             (Some(query), None)
-        } else if let Some(param) = nodecast!(Param, T_Param, rhs) {
+        } else {
             (
                 None,
                 Some((
-                    param.cast(),
+                    rhs,
                     attname_from_var((*srs).root, var)
                         .1
                         .expect("should be able to determine Var name"),
                 )),
             )
-        } else {
-            // This would happen in situations where the rhs of @@@ is ::TEXT, but not text that can
-            // be evaluated during planning, either as a Const node or a Param node.
-            //
-            // An example of this would be using some kind of volatile function/expression on the rhs:
-            //
-            //    SELECT * FROM t WHERE f @@@ random()::text;
-            panic!("when the left side of the `@@@` operator is a column name the right side must be a text literal");
         };
 
         Some(make_search_query_input_opexpr_node(

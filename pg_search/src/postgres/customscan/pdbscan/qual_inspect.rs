@@ -17,9 +17,9 @@
 
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::pdbscan::privdat::deserialize::decodeString;
+use crate::postgres::customscan::pdbscan::privdat::deserialize::{decodeBoolean, decodeString};
 use crate::postgres::customscan::pdbscan::privdat::serialize::{
-    makeInteger, makeString, AsValueNode,
+    makeBoolean, makeInteger, makeString, AsValueNode,
 };
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, FromDatum, PgList};
@@ -27,15 +27,17 @@ use pgrx::{pg_sys, FromDatum, PgList};
 #[derive(Debug, Clone)]
 pub enum Qual {
     All,
-    OperatorExpression {
+    OpExpr {
         var: *mut pg_sys::Var,
         opno: pg_sys::Oid,
         val: *mut pg_sys::Const,
     },
-    Param {
+    Expr {
         var: *mut pg_sys::Var,
         opno: pg_sys::Oid,
         node: *mut pg_sys::Node,
+        is_volatile: bool,
+        expr_state: *mut pg_sys::ExprState,
     },
     And(Vec<Qual>),
     Or(Vec<Qual>),
@@ -46,22 +48,44 @@ impl Qual {
     pub fn contains_all(&self) -> bool {
         match self {
             Qual::All => true,
-            Qual::OperatorExpression { .. } => false,
-            Qual::Param { .. } => false,
+            Qual::OpExpr { .. } => false,
+            Qual::Expr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Not(qual) => qual.contains_all(),
         }
     }
 
-    pub fn contains_param(&self) -> bool {
+    pub fn contains_exec_param(&self) -> bool {
         match self {
             Qual::All => false,
-            Qual::OperatorExpression { .. } => false,
-            Qual::Param { .. } => true,
-            Qual::And(quals) => quals.iter().any(|q| q.contains_param()),
-            Qual::Or(quals) => quals.iter().any(|q| q.contains_param()),
-            Qual::Not(qual) => qual.contains_param(),
+            Qual::OpExpr { .. } => false,
+            Qual::Expr { node, .. } => contains_exec_param(*node),
+            Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
+            Qual::Not(qual) => qual.contains_exec_param(),
+        }
+    }
+
+    pub fn contains_exprs(&self) -> bool {
+        match self {
+            Qual::All => false,
+            Qual::OpExpr { .. } => false,
+            Qual::Expr { .. } => true,
+            Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
+            Qual::Not(qual) => qual.contains_exprs(),
+        }
+    }
+
+    pub fn collect_exprs<'a>(&'a mut self, exprs: &mut Vec<&'a mut Qual>) {
+        match self {
+            Qual::All => {}
+            Qual::OpExpr { .. } => {}
+            Qual::Expr { .. } => exprs.push(self),
+            Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
+            Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
+            Qual::Not(qual) => qual.collect_exprs(exprs),
         }
     }
 }
@@ -74,11 +98,17 @@ impl From<&Qual> for SearchQueryInput {
                 query: Box::new(SearchQueryInput::All),
                 score: 0.0,
             },
-            Qual::OperatorExpression { val, .. } => unsafe {
+            Qual::OpExpr { val, .. } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
             },
-            Qual::Param { .. } => todo!("parameterized plans are not currently supported.  Please `SET plan_cache_mode = force_custom_plan;` in this session, or set it in postgresql.conf and reload the configuration."),
+            Qual::Expr {
+                var,
+                opno,
+                node,
+                is_volatile,
+                expr_state,
+            } => SearchQueryInput::postgres_expression(*var, *opno, *node),
             Qual::And(quals) => {
                 let mut must = Vec::new();
                 let mut should = Vec::new();
@@ -130,17 +160,24 @@ impl From<Qual> for PgList<pg_sys::Node> {
 
             match value {
                 Qual::All => list.push(makeString(Some("ALL"))),
-                Qual::OperatorExpression { var, opno, val } => {
-                    list.push(makeString(Some("OPERATOR_EXPRESSION")));
+                Qual::OpExpr { var, opno, val } => {
+                    list.push(makeString(Some("OPEXPR")));
                     list.push(var.cast());
                     list.push(makeInteger(Some(opno)));
                     list.push(val.cast());
                 }
-                Qual::Param { var, opno, node } => {
-                    list.push(makeString(Some("PARAM")));
+                Qual::Expr {
+                    var,
+                    opno,
+                    node,
+                    is_volatile,
+                    ..
+                } => {
+                    list.push(makeString(Some("EXPR")));
                     list.push(var.cast());
                     list.push(makeInteger(Some(opno)));
                     list.push(node);
+                    list.push(makeBoolean(Some(is_volatile)));
                 }
                 Qual::And(quals) => {
                     list.push(makeString(Some("AND")));
@@ -179,21 +216,28 @@ impl From<PgList<pg_sys::Node>> for Qual {
                 if let Some(type_) = decodeString::<String>(first) {
                     match type_.as_str() {
                         "ALL" => Some(Qual::All),
-                        "OPERATOR_EXPRESSION" => {
+                        "OPEXPR" => {
                             let (var, opno, val) = (
                                 nodecast!(Var, T_Var, value.get_ptr(1)?)?,
                                 pg_sys::Oid::from_value_node(value.get_ptr(2)?)?,
                                 nodecast!(Const, T_Const, value.get_ptr(3)?)?,
                             );
-                            Some(Qual::OperatorExpression { var, opno, val })
+                            Some(Qual::OpExpr { var, opno, val })
                         }
-                        "PARAM" => {
-                            let (var, opno, node) = (
+                        "EXPR" => {
+                            let (var, opno, node, is_volatile) = (
                                 nodecast!(Var, T_Var, value.get_ptr(1)?)?,
                                 pg_sys::Oid::from_value_node(value.get_ptr(2)?)?,
                                 value.get_ptr(3)?,
+                                decodeBoolean(value.get_ptr(4)?)?,
                             );
-                            Some(Qual::Param { var, opno, node })
+                            Some(Qual::Expr {
+                                var,
+                                opno,
+                                node,
+                                is_volatile,
+                                expr_state: std::ptr::null_mut(),
+                            })
                         }
                         "AND" => {
                             let len = usize::from_value_node(value.get_ptr(1)?)?;
@@ -315,59 +359,114 @@ unsafe fn opexpr(
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-    let (lhs, rhs) = (
-        nodecast!(Var, T_Var, args.get_ptr(0)?),
-        nodecast!(Const, T_Const, args.get_ptr(1)?),
-    );
+
+    let lhs = args.get_ptr(0)?;
+    let rhs = args.get_ptr(1)?;
+    let (var, const_) = (nodecast!(Var, T_Var, lhs)?, nodecast!(Const, T_Const, rhs));
 
     let is_our_operator = (*opexpr).opno == pdbopoid;
 
-    if lhs.is_none() || rhs.is_none() {
-        if contains_param(args.get_ptr(1)?) {
-            if matches!(ri_type, RestrictInfoType::BaseRelation) {
+    if const_.is_none() {
+        // the rhs expression is not a Const, so it's some kind of expression
+        // that we'll need to execute during query execution, if we can
+
+        if is_our_operator {
+            if contains_var(rhs) {
+                // it contains a Var, and that means some kind of sequential scan will be required
+                // so indicate we can't handle this expression at all
+                return None;
+            } else {
+                // it uses our operator, so we directly know how to handle it
+                // this is the case of:  field @@@ paradedb.xxx(EXPR) where EXPR likely includes something
+                // that's parameterized
+                return Some(Qual::Expr {
+                    var,
+                    opno: (*opexpr).opno,
+                    node: rhs,
+                    is_volatile: pg_sys::contain_volatile_functions(rhs),
+                    expr_state: std::ptr::null_mut(),
+                });
+            }
+        } else {
+            // it doesn't use our operator
+            if contains_var(rhs) {
+                // the rhs is (or contains) a Var too, which likely means its part of a join condition
+                // we choose to just select everything in this situation
+                return Some(Qual::All);
+            } else {
+                // we can't handle this query at all
+
+                // TODO:  this would be an integration point for predicate pushdown -- converting
+                //        postgres operators into ours
                 return None;
             }
-
-            // TODO:  this would be for moving towards parameterized plans
-            return Some(Qual::Param {
-                var: lhs?,
-                opno: (*opexpr).opno,
-                node: args.get_ptr(1)?,
-            });
-        } else if matches!(ri_type, RestrictInfoType::Join) {
-            return Some(Qual::All);
-        } else {
-            return None;
         }
     }
-    let (lhs, rhs) = (lhs?, rhs?);
 
+    let (lhs, rhs) = (var, const_?);
     if is_our_operator {
-        if (*lhs).varno as i32 != rti as i32 {
-            if matches!(ri_type, RestrictInfoType::Join) {
-                Some(Qual::All)
-            } else {
-                None
-            }
-        } else {
-            Some(Qual::OperatorExpression {
+        // the rhs expression is a Const, so we can use it directly
+
+        if (*lhs).varno as i32 == rti as i32 {
+            // the var comes from this range table entry, so we can use the full expression directly
+            Some(Qual::OpExpr {
                 var: lhs,
                 opno: (*opexpr).opno,
                 val: rhs,
             })
+        } else {
+            // the var comes from a different range table
+            if matches!(ri_type, RestrictInfoType::Join) {
+                // and we're doing a join, so in this case we choose to just select everything
+                Some(Qual::All)
+            } else {
+                // the var comes from a different range table and we're not doing a join (how is that possible?!)
+                // so we don't do anything
+                None
+            }
         }
     } else {
+        // it doesn't use our operator. we can't handle it
+        // TODO:  this would be an integration point for predicate pushdown -- converting
+        //        postgres operators into ours
         None
     }
 }
 
-unsafe fn contains_param(root: *mut pg_sys::Node) -> bool {
+fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
-        if nodecast!(Param, T_Param, node).is_some() {
-            return true;
+        if let Some(param) = nodecast!(Param, T_Param, node) {
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+                return true;
+            }
         }
         pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
 
-    pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
+    unsafe {
+        if root.is_null() {
+            return false;
+        } else if let Some(param) = nodecast!(Param, T_Param, root) {
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+                return true;
+            }
+        }
+        pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
+    }
+}
+
+fn contains_var(root: *mut pg_sys::Node) -> bool {
+    unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+        nodecast!(Var, T_Var, node).is_some()
+            || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
+    }
+
+    if root.is_null() {
+        return false;
+    }
+
+    unsafe {
+        nodecast!(Var, T_Var, root).is_some()
+            || pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
+    }
 }

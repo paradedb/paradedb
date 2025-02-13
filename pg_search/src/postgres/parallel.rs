@@ -74,7 +74,7 @@ pub unsafe extern "C" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {}
 #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C" fn amestimateparallelscan() -> pg_sys::Size {
-    ParallelScanState::size_of_with_segments(u16::MAX as usize)
+    ParallelScanState::size_of(u16::MAX as usize, &[])
 }
 
 #[cfg(feature = "pg17")]
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn amestimateparallelscan() -> pg_sys::Size {
 pub unsafe extern "C" fn amestimateparallelscan(_nkeys: i32, _norderbys: i32) -> pg_sys::Size {
     // NB:  in this function, we have no idea how many segments we have.  We don't even know which
     // index we're querying.  So we choose a, hopefully, large enough value at 65536, or u16::MAX
-    ParallelScanState::size_of_with_segments(u16::MAX as usize)
+    ParallelScanState::size_of(u16::MAX as usize, &[])
 }
 
 unsafe fn bm25_shared_state(scan: &pg_sys::IndexScanDescData) -> Option<&mut ParallelScanState> {
@@ -111,8 +111,9 @@ pub unsafe fn maybe_init_parallel_scan(
     let _mutex = state.mutex.acquire();
     if worker_number == -1 {
         // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
-        // our shared memory information
-        state.assign_segment_ids(searcher);
+        // our shared memory information.  The mutex was already initialized, directly, in
+        // `aminitparallelscan()`
+        state.init_without_mutex(searcher.segment_readers(), &[]);
     }
     Some(worker_number)
 }
@@ -127,7 +128,7 @@ pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<Segment
     } else {
         // claim the next one
         state.remaining_segments -= 1;
-        Some(state.get_segment_id(state.remaining_segments as usize))
+        Some(state.segment_id(state.remaining_segments))
     }
 }
 

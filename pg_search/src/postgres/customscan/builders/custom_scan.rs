@@ -64,39 +64,41 @@ impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanB
         clauses: *mut pg_sys::List,
         custom_plans: *mut pg_sys::List,
     ) -> Self {
-        let scan = pg_sys::CustomScan {
-            flags: unsafe { (*best_path).flags },
-            custom_private: unsafe { *best_path }.custom_private,
-            custom_plans,
-            methods: CS::custom_scan_methods(),
-            scan: pg_sys::Scan {
-                plan: pg_sys::Plan {
-                    type_: pg_sys::NodeTag::T_CustomScan,
-                    targetlist: tlist,
-                    startup_cost: unsafe { (*best_path).path.startup_cost },
-                    total_cost: unsafe { (*best_path).path.total_cost },
-                    plan_rows: unsafe { (*best_path).path.rows },
-                    parallel_aware: unsafe { (*best_path).path.parallel_aware },
-                    parallel_safe: unsafe { (*best_path).path.parallel_safe },
-                    ..Default::default()
-                },
-                scanrelid: unsafe { *rel }.relid,
-            },
-            ..Default::default()
-        };
-
-        let custom_private = P::from(scan.custom_private);
-        CustomScanBuilder {
-            args: Args {
-                root,
-                rel,
-                best_path,
-                tlist: unsafe { PgList::from_pg(tlist) },
-                clauses,
+        unsafe {
+            let scan = pg_sys::CustomScan {
+                flags: (*best_path).flags,
+                custom_private: (*best_path).custom_private,
                 custom_plans,
-            },
-            custom_scan_node: scan,
-            custom_private,
+                methods: CS::custom_scan_methods(),
+                scan: pg_sys::Scan {
+                    plan: pg_sys::Plan {
+                        type_: pg_sys::NodeTag::T_CustomScan,
+                        targetlist: tlist,
+                        startup_cost: (*best_path).path.startup_cost,
+                        total_cost: (*best_path).path.total_cost,
+                        plan_rows: (*best_path).path.rows,
+                        parallel_aware: (*best_path).path.parallel_aware,
+                        parallel_safe: (*best_path).path.parallel_safe,
+                        ..Default::default()
+                    },
+                    scanrelid: (*rel).relid,
+                },
+                ..Default::default()
+            };
+
+            let custom_private = P::from(scan.custom_private);
+            CustomScanBuilder {
+                args: Args {
+                    root,
+                    rel,
+                    best_path,
+                    tlist: PgList::from_pg(tlist),
+                    clauses,
+                    custom_plans,
+                },
+                custom_scan_node: scan,
+                custom_private,
+            }
         }
     }
 

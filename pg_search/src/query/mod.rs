@@ -266,17 +266,9 @@ pub enum SearchQueryInput {
 }
 
 impl SearchQueryInput {
-    pub fn postgres_expression(
-        var: *mut pg_sys::Var,
-        opoid: pg_sys::Oid,
-        node: *mut pg_sys::Node,
-    ) -> Self {
-        assert!(!var.is_null());
-        assert!(!node.is_null());
+    pub fn postgres_expression(node: *mut pg_sys::Node) -> Self {
         SearchQueryInput::PostgresExpression {
             expr: PostgresExpression {
-                var: PostgresPointer(var.cast()),
-                opoid,
                 node: PostgresPointer(node.cast()),
                 expr_state: PostgresPointer::default(),
             },
@@ -1007,13 +999,39 @@ impl SearchQueryInput {
                 lenient,
                 conjunction_mode,
             } => {
-                let query_string = format!("{field}:({query_string})");
-                Self::Parse {
-                    query_string,
-                    lenient,
-                    conjunction_mode,
+                if query_string.starts_with("<>") {
+                    // rewrite not equals into a boolean must_not
+                    let query_string = query_string.trim_start_matches("<>");
+                    let query_string = format!("{field}:({query_string})");
+                    Self::Boolean {
+                        must: vec![Self::All],
+                        should: vec![],
+                        must_not: vec![Self::Parse {
+                            query_string,
+                            lenient,
+                            conjunction_mode,
+                        }],
+                    }
+                    .into_tantivy_query(field_lookup, parser, searcher)
+                } else if query_string.starts_with("=") {
+                    // a query_string that starts with `=` just needs to use `:` without the equal sign
+                    let query_string = query_string.trim_start_matches("=");
+                    let query_string = format!("{field}:({query_string})");
+                    Self::Parse {
+                        query_string,
+                        lenient,
+                        conjunction_mode,
+                    }
+                    .into_tantivy_query(field_lookup, parser, searcher)
+                } else {
+                    let query_string = format!("{field}:({query_string})");
+                    Self::Parse {
+                        query_string,
+                        lenient,
+                        conjunction_mode,
+                    }
+                    .into_tantivy_query(field_lookup, parser, searcher)
                 }
-                .into_tantivy_query(field_lookup, parser, searcher)
             }
             Self::Phrase {
                 field,
@@ -2015,8 +2033,6 @@ impl<'de> Deserialize<'de> for PostgresPointer {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PostgresExpression {
-    var: PostgresPointer,
-    opoid: pg_sys::Oid,
     node: PostgresPointer,
     #[serde(skip)]
     expr_state: PostgresPointer,
@@ -2025,19 +2041,6 @@ pub struct PostgresExpression {
 impl PostgresExpression {
     pub fn set_expr_state(&mut self, expr_state: *mut pg_sys::ExprState) {
         self.expr_state = PostgresPointer(expr_state.cast())
-    }
-
-    #[inline]
-    pub fn var(&self) -> *mut pg_sys::Var {
-        unsafe {
-            assert!(pgrx::is_a(self.var.0.cast(), pg_sys::NodeTag::T_Var));
-            self.var.0.cast()
-        }
-    }
-
-    #[inline]
-    pub fn opoid(&self) -> pg_sys::Oid {
-        self.opoid
     }
 
     #[inline]

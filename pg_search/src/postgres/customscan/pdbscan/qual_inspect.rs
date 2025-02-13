@@ -17,11 +17,13 @@
 
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::pdbscan::privdat::deserialize::{decodeBoolean, decodeString};
+use crate::postgres::customscan::pdbscan::privdat::deserialize::decodeString;
 use crate::postgres::customscan::pdbscan::privdat::serialize::{
-    makeBoolean, makeInteger, makeString, AsValueNode,
+    makeInteger, makeString, AsValueNode,
 };
+use crate::postgres::customscan::pdbscan::pushdown::try_pushdown;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, PgList};
 
 #[derive(Debug, Clone)]
@@ -33,11 +35,11 @@ pub enum Qual {
         val: *mut pg_sys::Const,
     },
     Expr {
-        var: *mut pg_sys::Var,
-        opno: pg_sys::Oid,
         node: *mut pg_sys::Node,
-        is_volatile: bool,
         expr_state: *mut pg_sys::ExprState,
+    },
+    PushdownExpr {
+        funcexpr: *mut pg_sys::FuncExpr,
     },
     And(Vec<Qual>),
     Or(Vec<Qual>),
@@ -50,6 +52,7 @@ impl Qual {
             Qual::All => true,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
+            Qual::PushdownExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Not(qual) => qual.contains_all(),
@@ -61,6 +64,7 @@ impl Qual {
             Qual::All => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
+            Qual::PushdownExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Not(qual) => qual.contains_exec_param(),
@@ -72,6 +76,7 @@ impl Qual {
             Qual::All => false,
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
+            Qual::PushdownExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Not(qual) => qual.contains_exprs(),
@@ -83,6 +88,7 @@ impl Qual {
             Qual::All => {}
             Qual::OpExpr { .. } => {}
             Qual::Expr { .. } => exprs.push(self),
+            Qual::PushdownExpr { .. } => {}
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Not(qual) => qual.collect_exprs(exprs),
@@ -102,13 +108,16 @@ impl From<&Qual> for SearchQueryInput {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
             },
-            Qual::Expr {
-                var,
-                opno,
-                node,
-                is_volatile,
-                expr_state,
-            } => SearchQueryInput::postgres_expression(*var, *opno, *node),
+            Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
+            Qual::PushdownExpr { funcexpr } => unsafe {
+                let expr_state = pg_sys::ExecInitExpr((*funcexpr).cast(), std::ptr::null_mut());
+                let expr_context = pg_sys::CreateStandaloneExprContext();
+                let mut is_null = false;
+                let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+                pg_sys::FreeExprContext(expr_context, false);
+                SearchQueryInput::from_datum(datum, is_null)
+                    .expect("pushdown expression should not evaluate to NULL")
+            },
             Qual::And(quals) => {
                 let mut must = Vec::new();
                 let mut should = Vec::new();
@@ -166,18 +175,13 @@ impl From<Qual> for PgList<pg_sys::Node> {
                     list.push(makeInteger(Some(opno)));
                     list.push(val.cast());
                 }
-                Qual::Expr {
-                    var,
-                    opno,
-                    node,
-                    is_volatile,
-                    ..
-                } => {
+                Qual::Expr { node, .. } => {
                     list.push(makeString(Some("EXPR")));
-                    list.push(var.cast());
-                    list.push(makeInteger(Some(opno)));
                     list.push(node);
-                    list.push(makeBoolean(Some(is_volatile)));
+                }
+                Qual::PushdownExpr { funcexpr } => {
+                    list.push(makeString(Some("PUSHDOWN")));
+                    list.push(funcexpr.cast());
                 }
                 Qual::And(quals) => {
                     list.push(makeString(Some("AND")));
@@ -225,19 +229,15 @@ impl From<PgList<pg_sys::Node>> for Qual {
                             Some(Qual::OpExpr { var, opno, val })
                         }
                         "EXPR" => {
-                            let (var, opno, node, is_volatile) = (
-                                nodecast!(Var, T_Var, value.get_ptr(1)?)?,
-                                pg_sys::Oid::from_value_node(value.get_ptr(2)?)?,
-                                value.get_ptr(3)?,
-                                decodeBoolean(value.get_ptr(4)?)?,
-                            );
+                            let node = value.get_ptr(1)?;
                             Some(Qual::Expr {
-                                var,
-                                opno,
                                 node,
-                                is_volatile,
                                 expr_state: std::ptr::null_mut(),
                             })
+                        }
+                        "PUSHDOWN" => {
+                            let funcexpr = nodecast!(FuncExpr, T_FuncExpr, value.get_ptr(1)?)?;
+                            Some(Qual::PushdownExpr { funcexpr })
                         }
                         "AND" => {
                             let len = usize::from_value_node(value.get_ptr(1)?)?;
@@ -286,14 +286,16 @@ impl From<PgList<pg_sys::Node>> for Qual {
 }
 
 pub unsafe fn extract_quals(
+    root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     node: *mut pg_sys::Node,
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
 ) -> Option<Qual> {
     match (*node).type_ {
         pg_sys::NodeTag::T_List => {
-            let mut quals = list(rti, node.cast(), pdbopoid, ri_type)?;
+            let mut quals = list(root, rti, node.cast(), pdbopoid, ri_type, schema)?;
             if quals.len() == 1 {
                 quals.pop()
             } else {
@@ -303,23 +305,20 @@ pub unsafe fn extract_quals(
 
         pg_sys::NodeTag::T_RestrictInfo => {
             let ri = nodecast!(RestrictInfo, T_RestrictInfo, node)?;
-            // if (*ri).num_base_rels > 1 {
-            //     return None;
-            // }
             let clause = if !(*ri).orclause.is_null() {
                 (*ri).orclause
             } else {
                 (*ri).clause
             };
-            extract_quals(rti, clause.cast(), pdbopoid, ri_type)
+            extract_quals(root, rti, clause.cast(), pdbopoid, ri_type, schema)
         }
 
-        pg_sys::NodeTag::T_OpExpr => opexpr(rti, node, pdbopoid, ri_type),
+        pg_sys::NodeTag::T_OpExpr => opexpr(root, rti, node, pdbopoid, ri_type, schema),
 
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            let mut quals = list(rti, (*boolexpr).args, pdbopoid, ri_type)?;
+            let mut quals = list(root, rti, (*boolexpr).args, pdbopoid, ri_type, schema)?;
 
             match (*boolexpr).boolop {
                 pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
@@ -338,24 +337,28 @@ pub unsafe fn extract_quals(
 }
 
 unsafe fn list(
+    root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     list: *mut pg_sys::List,
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
 ) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
     for child in args.iter_ptr() {
-        quals.push(extract_quals(rti, child, pdbopoid, ri_type)?)
+        quals.push(extract_quals(root, rti, child, pdbopoid, ri_type, schema)?)
     }
     Some(quals)
 }
 
 unsafe fn opexpr(
+    root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     node: *mut pg_sys::Node,
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
@@ -380,10 +383,7 @@ unsafe fn opexpr(
                 // this is the case of:  field @@@ paradedb.xxx(EXPR) where EXPR likely includes something
                 // that's parameterized
                 return Some(Qual::Expr {
-                    var,
-                    opno: (*opexpr).opno,
                     node: rhs,
-                    is_volatile: pg_sys::contain_volatile_functions(rhs),
                     expr_state: std::ptr::null_mut(),
                 });
             }
@@ -398,7 +398,7 @@ unsafe fn opexpr(
 
                 // TODO:  this would be an integration point for predicate pushdown -- converting
                 //        postgres operators into ours
-                return None;
+                return try_pushdown(root, opexpr, schema);
             }
         }
     }
@@ -426,10 +426,9 @@ unsafe fn opexpr(
             }
         }
     } else {
-        // it doesn't use our operator. we can't handle it
-        // TODO:  this would be an integration point for predicate pushdown -- converting
-        //        postgres operators into ours
-        None
+        // it doesn't use our operator.
+        // we'll try to convert it into a pushdown
+        try_pushdown(root, opexpr, schema)
     }
 }
 

@@ -866,6 +866,12 @@ impl From<String> for FieldName {
     }
 }
 
+impl From<&str> for FieldName {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
 impl InOutFuncs for FieldName {
     fn input(input: &CStr) -> Self
     where

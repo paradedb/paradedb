@@ -20,6 +20,7 @@ mod exec_methods;
 pub mod parallel;
 mod privdat;
 mod projections;
+mod pushdown;
 mod qual_inspect;
 mod scan_state;
 mod solve_expr;
@@ -160,10 +161,12 @@ impl CustomScan for PdbScan {
             // look for quals we can support
             //
             if let Some(quals) = extract_quals(
+                root,
                 rti,
                 restrict_info.as_ptr().cast(),
                 anyelement_query_input_opoid(),
                 ri_type,
+                &schema,
             ) {
                 let has_expressions = quals.contains_exprs();
                 let selectivity = if let Some(limit) = limit {

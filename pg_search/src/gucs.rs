@@ -124,11 +124,11 @@ pub fn init() {
     GucRegistry::define_int_guc(
         "paradedb.create_index_memory_budget",
         "The amount of memory to allocate to 1 thread during indexing",
-        "Default is `maintenance_work_mem`",
+        "Default is `1GB`, which is allocated to each thread defined by `paradedb.create_index_parallelism`",
         &CREATE_INDEX_MEMORY_BUDGET,
         0,
         i32::MAX,
-        GucContext::Suset,
+        GucContext::Userset,
         GucFlags::UNIT_MB,
     );
 
@@ -139,18 +139,18 @@ pub fn init() {
         &STATEMENT_PARALLELISM,
         0,
         std::thread::available_parallelism().expect("your computer should have at least one core").get().try_into().expect("your computer has too many cores"),
-        GucContext::Suset,
+        GucContext::Userset,
         GucFlags::default(),
     );
 
     GucRegistry::define_int_guc(
         "paradedb.statement_memory_budget",
         "The amount of memory to allocate to 1 thread during an INSERT/UPDATE/COPY statement",
-        "Default is `maintenance_work_mem`",
+        "Default is `1GB`, which is allocated to each thread defined by `paradedb.statement_parallelism`",
         &STATEMENT_MEMORY_BUDGET,
         0,
         i32::MAX,
-        GucContext::Suset,
+        GucContext::Userset,
         GucFlags::UNIT_MB,
     );
 }

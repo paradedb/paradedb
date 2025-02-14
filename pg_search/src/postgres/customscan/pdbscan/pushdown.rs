@@ -18,11 +18,11 @@
 use crate::api::index::{fieldname_typoid, FieldName};
 use crate::api::operator::{attname_from_var, searchqueryinput_typoid};
 use crate::nodecast;
+use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
 use rustc_hash::FxHashMap;
-use std::ffi::CString;
 use std::sync::OnceLock;
 
 macro_rules! pushdown {
@@ -73,10 +73,10 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
     let mut lookup = FxHashMap::default();
     for o in OPERATORS {
         for [l, r] in TYPE_PAIRS {
-            lookup.insert(opoid(&format!("{o}({l},{r})")), o);
+            lookup.insert(operator_oid(&format!("{o}({l},{r})")), o);
             if l != r {
                 // types can be reversed too
-                lookup.insert(opoid(&format!("{o}({r},{l})")), o);
+                lookup.insert(operator_oid(&format!("{o}({r},{l})")), o);
             }
         }
     }
@@ -127,14 +127,6 @@ unsafe fn term_with_operator_procid() -> pg_sys::Oid {
             .expect("the `paradedb.term_with_operator(paradedb.fieldname, text, anyelement)` function should exist")
 }
 
-unsafe fn opoid(signature: &str) -> pg_sys::Oid {
-    direct_function_call::<pg_sys::Oid>(
-        pg_sys::regoperatorin,
-        &[CString::new(signature).into_datum()],
-    )
-    .expect("should be able to lookup operator signature")
-}
-
 unsafe fn make_opexpr(
     attname: &str,
     orig_opexor: *mut pg_sys::OpExpr,
@@ -183,7 +175,7 @@ unsafe fn make_opexpr(
     paradedb_funcexpr
 }
 
-fn is_complex(root: *mut pg_sys::Node) -> bool {
+pub fn is_complex(root: *mut pg_sys::Node) -> bool {
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
         nodecast!(Var, T_Var, node).is_some()
             || nodecast!(Param, T_Param, node).is_some()

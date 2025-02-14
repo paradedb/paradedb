@@ -17,9 +17,11 @@
 
 pub mod iter_mut;
 mod range;
+mod score;
 
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::range::{Comparison, RangeField};
+use crate::query::score::ScoreFilter;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use core::panic;
@@ -100,6 +102,10 @@ pub enum SearchQueryInput {
     ConstScore {
         query: Box<SearchQueryInput>,
         score: f32,
+    },
+    ScoreFilter {
+        bounds: Vec<(std::ops::Bound<f32>, std::ops::Bound<f32>)>,
+        query: Option<Box<SearchQueryInput>>,
     },
     DisjunctionMax {
         disjuncts: Vec<SearchQueryInput>,
@@ -275,7 +281,7 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn contains_more_like_this(&self) -> bool {
+    pub fn need_scores(&self) -> bool {
         match self {
             SearchQueryInput::Boolean {
                 must,
@@ -285,14 +291,15 @@ impl SearchQueryInput {
                 .iter()
                 .chain(should.iter())
                 .chain(must_not.iter())
-                .any(Self::contains_more_like_this),
-            SearchQueryInput::Boost { query, .. } => Self::contains_more_like_this(query),
-            SearchQueryInput::ConstScore { query, .. } => Self::contains_more_like_this(query),
+                .any(Self::need_scores),
+            SearchQueryInput::Boost { query, .. } => Self::need_scores(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::need_scores(query),
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                disjuncts.iter().any(Self::contains_more_like_this)
+                disjuncts.iter().any(Self::need_scores)
             }
-            SearchQueryInput::WithIndex { query, .. } => Self::contains_more_like_this(query),
+            SearchQueryInput::WithIndex { query, .. } => Self::need_scores(query),
             SearchQueryInput::MoreLikeThis { .. } => true,
+            SearchQueryInput::ScoreFilter { .. } => true,
             _ => false,
         }
     }
@@ -351,6 +358,15 @@ impl AsHumanReadable for SearchQueryInput {
             SearchQueryInput::ConstScore { query, score } => {
                 s.push_str(&query.as_human_readable());
                 s.push_str(&format!("^{score}"));
+            }
+            SearchQueryInput::ScoreFilter { bounds, query } => {
+                s.push_str(&format!(
+                    "SCORE:{bounds:?}({})",
+                    query
+                        .as_ref()
+                        .expect("ScoreFilter's query should have been set")
+                        .as_human_readable()
+                ));
             }
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
                 s.push('(');
@@ -717,6 +733,12 @@ impl SearchQueryInput {
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
                 query.into_tantivy_query(field_lookup, parser, searcher)?,
                 score,
+            ))),
+            Self::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
+                bounds,
+                query
+                    .expect("ScoreFilter's query should have been set")
+                    .into_tantivy_query(field_lookup, parser, searcher)?,
             ))),
             Self::DisjunctionMax {
                 disjuncts,

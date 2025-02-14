@@ -104,7 +104,7 @@ pub fn search_with_query_input(
     let matches_key = (index_oid, format!("{query:?}")); // NB:  ideally, `SearchQueryInput` would `#[derive(Hash)]`, but it can't (easily)
     let matches = matches.entry(matches_key).or_insert_with(|| {
         search_reader
-            .search(query.contains_more_like_this(), false, &query, None)
+            .search(query.need_scores(), false, &query, None)
             .map(|(_, doc_address)| {
                 check_for_interrupts!();
                 ff_helper

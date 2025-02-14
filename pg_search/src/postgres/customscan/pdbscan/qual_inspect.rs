@@ -17,14 +17,17 @@
 
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::privdat::deserialize::decodeString;
 use crate::postgres::customscan::pdbscan::privdat::serialize::{
     makeInteger, makeString, AsValueNode,
 };
-use crate::postgres::customscan::pdbscan::pushdown::try_pushdown;
+use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
+use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, PgList};
+use std::ops::Bound;
 
 #[derive(Debug, Clone)]
 pub enum Qual {
@@ -41,6 +44,10 @@ pub enum Qual {
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
     },
+    ScoreExpr {
+        opoid: pg_sys::Oid,
+        value: *mut pg_sys::Node,
+    },
     And(Vec<Qual>),
     Or(Vec<Qual>),
     Not(Box<Qual>),
@@ -53,6 +60,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Not(qual) => qual.contains_all(),
@@ -65,6 +73,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
+            Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Not(qual) => qual.contains_exec_param(),
@@ -77,6 +86,20 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
+            Qual::ScoreExpr { .. } => false,
+            Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
+            Qual::Not(qual) => qual.contains_exprs(),
+        }
+    }
+
+    pub fn contains_score_exprs(&self) -> bool {
+        match self {
+            Qual::All => false,
+            Qual::OpExpr { .. } => false,
+            Qual::Expr { .. } => false,
+            Qual::PushdownExpr { .. } => false,
+            Qual::ScoreExpr { .. } => true,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Not(qual) => qual.contains_exprs(),
@@ -89,6 +112,7 @@ impl Qual {
             Qual::OpExpr { .. } => {}
             Qual::Expr { .. } => exprs.push(self),
             Qual::PushdownExpr { .. } => {}
+            Qual::ScoreExpr { .. } => {}
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Not(qual) => qual.collect_exprs(exprs),
@@ -118,6 +142,51 @@ impl From<&Qual> for SearchQueryInput {
                 SearchQueryInput::from_datum(datum, is_null)
                     .expect("pushdown expression should not evaluate to NULL")
             },
+            Qual::ScoreExpr { opoid, value } => unsafe {
+                let score_value = {
+                    let expr_state = pg_sys::ExecInitExpr((*value).cast(), std::ptr::null_mut());
+                    let expr_context = pg_sys::CreateStandaloneExprContext();
+                    let mut is_null = false;
+                    let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+                    pg_sys::FreeExprContext(expr_context, false);
+
+                    match pg_sys::exprType(*value) {
+                        pg_sys::FLOAT4OID => f32::from_datum(datum, is_null),
+                        pg_sys::FLOAT8OID => f64::from_datum(datum, is_null).map(|f| f as f32),
+                        _ => panic!("score expression should be float4 or float8"),
+                    }
+                }
+                .expect("score expression should not evaluate to NULL");
+
+                let mut bounds = None;
+                for rhs_type in &["float4", "float8"] {
+                    if opoid == &operator_oid(&format!("=(float4,{rhs_type})")) {
+                        bounds = Some((Bound::Included(score_value), Bound::Included(score_value)));
+                    } else if opoid == &operator_oid(&format!("<(float4,{rhs_type})")) {
+                        bounds = Some((Bound::Unbounded, Bound::Excluded(score_value)));
+                    } else if opoid == &operator_oid(&format!(">(float4,{rhs_type})")) {
+                        bounds = Some((Bound::Excluded(score_value), Bound::Unbounded));
+                    } else if opoid == &operator_oid(&format!("<=(float4,{rhs_type})")) {
+                        bounds = Some((Bound::Unbounded, Bound::Included(score_value)));
+                    } else if opoid == &operator_oid(&format!(">=(float4,{rhs_type})")) {
+                        bounds = Some((Bound::Included(score_value), Bound::Unbounded));
+                    } else if opoid == &operator_oid(&format!("<>(float4,{rhs_type})")) {
+                        bounds = Some((Bound::Excluded(score_value), Bound::Excluded(score_value)));
+                    }
+                    if bounds.is_some() {
+                        break;
+                    }
+                }
+                if bounds.is_none() {
+                    panic!("unsupported score operator: {opoid:?}");
+                }
+                let (lower, upper) = bounds.unwrap();
+
+                SearchQueryInput::ScoreFilter {
+                    bounds: vec![(lower, upper)],
+                    query: None,
+                }
+            },
             Qual::And(quals) => {
                 let mut must = Vec::new();
                 let mut should = Vec::new();
@@ -130,17 +199,68 @@ impl From<&Qual> for SearchQueryInput {
                     }
                 }
 
-                SearchQueryInput::Boolean {
+                let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
+                    for i in 0..vec.len() {
+                        if matches!(vec[i], SearchQueryInput::ScoreFilter { .. }) {
+                            return Some(vec.remove(i));
+                        }
+                    }
+                    None
+                };
+
+                // pull out any ScoreFilters from the `must` clauses
+                let mut must_scores = vec![];
+                while let Some(score_filter) = popscore(&mut must) {
+                    must_scores.push(score_filter);
+                }
+
+                // rollup ScoreFilters from the `should` clauses into one
+                let mut should_scores_bounds = vec![];
+                while let Some(SearchQueryInput::ScoreFilter { bounds, .. }) = popscore(&mut should)
+                {
+                    should_scores_bounds.extend(bounds);
+                }
+
+                // make the Boolean clause we intend to return (or wrap)
+                let mut boolean = SearchQueryInput::Boolean {
                     must,
                     should,
                     must_not: vec![],
+                };
+
+                // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
+                while let Some(SearchQueryInput::ScoreFilter { bounds, query }) = must_scores.pop()
+                {
+                    boolean = SearchQueryInput::ScoreFilter {
+                        bounds,
+                        query: Some(Box::new(boolean)),
+                    }
+                }
+
+                if !should_scores_bounds.is_empty() {
+                    SearchQueryInput::ScoreFilter {
+                        bounds: should_scores_bounds,
+                        query: Some(Box::new(boolean.clone())),
+                    }
+                } else {
+                    boolean
                 }
             }
+
             Qual::Or(quals) => {
-                let should = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
+                let should = quals
+                    .iter()
+                    .map(SearchQueryInput::from)
+                    // any dangling ScoreFilter clauses are non-sensical, so we'll just pretend they don't exist
+                    .filter(|query| !matches!(query, SearchQueryInput::ScoreFilter { .. }))
+                    .collect::<Vec<_>>();
 
                 match should.len() {
-                    0 => panic!("Qual::Or should have at least one item"),
+                    0 => SearchQueryInput::Boolean {
+                        must: Default::default(),
+                        should: Default::default(),
+                        must_not: Default::default(),
+                    },
                     1 => should.into_iter().next().unwrap(),
                     _ => SearchQueryInput::Boolean {
                         must: Default::default(),
@@ -182,6 +302,11 @@ impl From<Qual> for PgList<pg_sys::Node> {
                 Qual::PushdownExpr { funcexpr } => {
                     list.push(makeString(Some("PUSHDOWN")));
                     list.push(funcexpr.cast());
+                }
+                Qual::ScoreExpr { opoid, value } => {
+                    list.push(makeString(Some("SCORE")));
+                    list.push(makeInteger(Some(opoid)));
+                    list.push(value);
                 }
                 Qual::And(quals) => {
                     list.push(makeString(Some("AND")));
@@ -238,6 +363,13 @@ impl From<PgList<pg_sys::Node>> for Qual {
                         "PUSHDOWN" => {
                             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, value.get_ptr(1)?)?;
                             Some(Qual::PushdownExpr { funcexpr })
+                        }
+                        "SCORE" => {
+                            let (opoid, value) = (
+                                pg_sys::Oid::from_value_node(value.get_ptr(1)?)?,
+                                value.get_ptr(2)?,
+                            );
+                            Some(Qual::ScoreExpr { opoid, value })
                         }
                         "AND" => {
                             let len = usize::from_value_node(value.get_ptr(1)?)?;
@@ -408,6 +540,53 @@ unsafe fn opexpr(
 
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
+
+    match (*lhs).type_ {
+        pg_sys::NodeTag::T_Var => var_opexpr(
+            root,
+            rti,
+            pdbopoid,
+            ri_type,
+            schema,
+            uses_our_operator,
+            opexpr,
+            lhs,
+            rhs,
+        ),
+
+        pg_sys::NodeTag::T_FuncExpr => {
+            // direct support for paradedb.score() in the WHERE clause
+            let funcexpr = nodecast!(FuncExpr, T_FuncExpr, lhs)?;
+            if (*funcexpr).funcid != score_funcoid() {
+                return None;
+            }
+
+            if is_complex(rhs) {
+                return None;
+            }
+
+            Some(Qual::ScoreExpr {
+                opoid: (*opexpr).opno,
+                value: rhs,
+            })
+        }
+
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn var_opexpr(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    pdbopoid: pg_sys::Oid,
+    ri_type: RestrictInfoType,
+    schema: &SearchIndexSchema,
+    uses_our_operator: &mut bool,
+    opexpr: *mut pg_sys::OpExpr,
+    lhs: *mut pg_sys::Node,
+    rhs: *mut pg_sys::Node,
+) -> Option<Qual> {
     let (var, const_) = (nodecast!(Var, T_Var, lhs)?, nodecast!(Const, T_Const, rhs));
 
     let is_our_operator = (*opexpr).opno == pdbopoid;
@@ -438,10 +617,8 @@ unsafe fn opexpr(
                 // we choose to just select everything in this situation
                 return Some(Qual::All);
             } else {
-                // we can't handle this query at all
-
-                // TODO:  this would be an integration point for predicate pushdown -- converting
-                //        postgres operators into ours
+                // it doesn't use our operator.
+                // we'll try to convert it into a pushdown
                 return try_pushdown(root, opexpr, schema);
             }
         }

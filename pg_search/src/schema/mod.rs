@@ -37,6 +37,7 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 use crate::postgres::index::get_fields;
 use crate::query::AsFieldType;
 pub use anyenum::AnyEnum;
+use tokenizers::manager::SearchTokenizerFilters;
 
 /// The id of a field, stored in the index.
 #[derive(Debug, Clone, Display, From, AsRef, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -676,6 +677,27 @@ pub struct SearchField {
     pub config: SearchFieldConfig,
     /// Field type
     pub type_: SearchFieldType,
+}
+
+impl SearchField {
+    pub fn is_text(&self) -> bool {
+        matches!(self.type_, SearchFieldType::Text)
+    }
+
+    pub fn is_raw(&self) -> bool {
+        matches!(
+            self.config,
+            SearchFieldConfig::Text {
+                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters {
+                    remove_long: None,
+                    lowercase: None,
+                    stemmer: None
+                }),
+                normalizer: SearchNormalizer::Raw,
+                ..
+            }
+        )
+    }
 }
 
 impl From<&SearchField> for Field {

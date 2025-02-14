@@ -21,30 +21,62 @@ use crate::nodecast;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
+use rustc_hash::FxHashMap;
 use std::ffi::CString;
+use std::sync::OnceLock;
 
 macro_rules! pushdown {
-    ($attname:expr, $opexpr:ident, $pg_opsig:expr, $parse_operator:expr, $rhs:ident) => {
-        let opexpr: *mut pg_sys::OpExpr = $opexpr;
-        let pg_opoid: pg_sys::Oid = opoid(&$pg_opsig);
+    ($attname:expr, $opexpr:expr, $parse_operator:expr, $rhs:ident) => {
+        let funcexpr = make_opexpr($attname, $opexpr, $parse_operator, $rhs);
 
-        if (*opexpr).opno == pg_opoid {
-            let funcexpr = make_opexpr($attname, $opexpr, $parse_operator, $rhs);
-
-            if !is_complex(funcexpr.cast()) {
-                return Some(Qual::PushdownExpr { funcexpr });
-            } else {
-                return Some(Qual::Expr {
-                    node: funcexpr.cast(),
-                    expr_state: std::ptr::null_mut(),
-                });
-            }
+        if !is_complex(funcexpr.cast()) {
+            return Some(Qual::PushdownExpr { funcexpr });
+        } else {
+            return Some(Qual::Expr {
+                node: funcexpr.cast(),
+                expr_state: std::ptr::null_mut(),
+            });
         }
     };
 }
 
-/// Take a Postgres [`pg_sys::OpExpr`] pointer that is **not** one of our `@@@` operator, and try
-/// to convert it into one that is.
+type PostgresOperatorOid = pg_sys::Oid;
+type TantivyOperator = &'static str;
+
+unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid, TantivyOperator> {
+    const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
+    const TYPE_PAIRS: &[[&str; 2]] = &[
+        // integers
+        ["int2", "int2"],
+        ["int4", "int4"],
+        ["int8", "int8"],
+        ["int2", "int4"],
+        ["int2", "int8"],
+        ["int4", "int8"],
+        // floats
+        ["float4", "float4"],
+        ["float8", "float8"],
+        ["float4", "float8"],
+        // boolean
+        ["boolean", "boolean"],
+    ];
+
+    let mut lookup = FxHashMap::default();
+    for o in OPERATORS {
+        for [l, r] in TYPE_PAIRS {
+            lookup.insert(opoid(&format!("{o}({l},{r})")), o);
+            if l != r {
+                // types can be reversed too
+                lookup.insert(opoid(&format!("{o}({r},{l})")), o);
+            }
+        }
+    }
+
+    lookup
+}
+
+/// Take a Postgres [`pg_sys::OpExpr`] pointer that is **not** of our `@@@` operator and try  to
+/// convert it into one that is.
 ///
 /// Returns `Some(Qual)` if we were able to convert it, `None` if not.
 #[rustfmt::skip]
@@ -62,35 +94,14 @@ pub unsafe fn try_pushdown(
 
     let _search_field = schema.get_search_field(&SearchFieldName(attname.clone()))?;
 
-    const OPERATORS:[&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
-    const TYPE_PAIRS:&[[&str;2]] = &[
-        // integers
-        ["int2", "int2"],
-        ["int4", "int4"],
-        ["int8", "int8"],
-        ["int2", "int4"],
-        ["int2", "int8"],
-        ["int4", "int8"],
-    
-        // floats
-        ["float4", "float4"],
-        ["float8", "float8"],
-        ["float4", "float8"],
-    
-        // boolean
-        ["boolean", "boolean"],
-    ];
-    
-    for o in OPERATORS {
-        for [l, r] in TYPE_PAIRS {
-            pushdown!(&attname, opexpr, format!("{o}({l}, {r})"), o, rhs);
-
-            // they can be swapped too
-            if l != r { pushdown!(&attname, opexpr, format!("{o}({r}, {l})"), o, rhs); }
+    static EQUALITY_OPERATOR_LOOKUP: OnceLock<FxHashMap<pg_sys::Oid, &str>> = OnceLock::new();
+    match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
+        Some(pgsearch_operator) => { pushdown!(&attname, opexpr, pgsearch_operator, rhs); },
+        None => {
+            // TODO:  support other types of OpExprs
+            None
         }
     }
-
-    None
 }
 
 unsafe fn opoid(signature: &str) -> pg_sys::Oid {
@@ -112,16 +123,6 @@ unsafe fn make_opexpr(
     parse_operator: &str,
     value: *mut pg_sys::Node,
 ) -> *mut pg_sys::FuncExpr {
-    let fieldname_arg = pg_sys::makeConst(
-        fieldname_typoid(),
-        -1,
-        pg_sys::InvalidOid,
-        -1,
-        FieldName::from(attname).into_datum().unwrap(),
-        false,
-        false,
-    );
-
     let paradedb_funcexpr: *mut pg_sys::FuncExpr =
         pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
     (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
@@ -153,7 +154,18 @@ unsafe fn make_opexpr(
         );
 
         let mut args = PgList::<pg_sys::Node>::new();
-        args.push(fieldname_arg.cast());
+        args.push(
+            pg_sys::makeConst(
+                fieldname_typoid(),
+                -1,
+                pg_sys::InvalidOid,
+                -1,
+                FieldName::from(attname).into_datum().unwrap(),
+                false,
+                false,
+            )
+            .cast(),
+        );
         args.push(textconcat_func.cast());
         args.push(pg_sys::makeBoolConst(false, false)); // "lenient" argument
         args.push(pg_sys::makeBoolConst(false, false)); // "conjunction_mode" argument

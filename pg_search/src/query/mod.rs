@@ -999,39 +999,13 @@ impl SearchQueryInput {
                 lenient,
                 conjunction_mode,
             } => {
-                if query_string.starts_with("<>") {
-                    // rewrite not equals into a boolean must_not
-                    let query_string = query_string.trim_start_matches("<>");
-                    let query_string = format!("{field}:({query_string})");
-                    Self::Boolean {
-                        must: vec![Self::All],
-                        should: vec![],
-                        must_not: vec![Self::Parse {
-                            query_string,
-                            lenient,
-                            conjunction_mode,
-                        }],
-                    }
-                    .into_tantivy_query(field_lookup, parser, searcher)
-                } else if query_string.starts_with("=") {
-                    // a query_string that starts with `=` just needs to use `:` without the equal sign
-                    let query_string = query_string.trim_start_matches("=");
-                    let query_string = format!("{field}:({query_string})");
-                    Self::Parse {
-                        query_string,
-                        lenient,
-                        conjunction_mode,
-                    }
-                    .into_tantivy_query(field_lookup, parser, searcher)
-                } else {
-                    let query_string = format!("{field}:({query_string})");
-                    Self::Parse {
-                        query_string,
-                        lenient,
-                        conjunction_mode,
-                    }
-                    .into_tantivy_query(field_lookup, parser, searcher)
+                let query_string = format!("{field}:({query_string})");
+                Self::Parse {
+                    query_string,
+                    lenient,
+                    conjunction_mode,
                 }
+                .into_tantivy_query(field_lookup, parser, searcher)
             }
             Self::Phrase {
                 field,

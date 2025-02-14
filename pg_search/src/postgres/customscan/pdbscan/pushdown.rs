@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::index::{fieldname_typoid, FieldName};
-use crate::api::operator::{attname_from_var, parse_with_field_procoid, searchqueryinput_typoid};
+use crate::api::operator::{attname_from_var, searchqueryinput_typoid};
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
 use crate::schema::{SearchFieldName, SearchIndexSchema};
@@ -26,8 +26,8 @@ use std::ffi::CString;
 use std::sync::OnceLock;
 
 macro_rules! pushdown {
-    ($attname:expr, $opexpr:expr, $parse_operator:expr, $rhs:ident) => {
-        let funcexpr = make_opexpr($attname, $opexpr, $parse_operator, $rhs);
+    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {
+        let funcexpr = make_opexpr($attname, $opexpr, $operator, $rhs);
 
         if !is_complex(funcexpr.cast()) {
             return Some(Qual::PushdownExpr { funcexpr });
@@ -47,6 +47,7 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
     const TYPE_PAIRS: &[[&str; 2]] = &[
         // integers
+        ["\"char\"", "\"char\""], // mapped as an `i8`
         ["int2", "int2"],
         ["int4", "int4"],
         ["int8", "int8"],
@@ -59,6 +60,14 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
         ["float4", "float8"],
         // boolean
         ["boolean", "boolean"],
+        // dates
+        ["date", "date"],
+        ["time", "time"],
+        ["timetz", "timetz"],
+        ["timestamp", "timestamp"],
+        ["timestamptz", "timestamptz"],
+        // text
+        ["text", "text"],
     ];
 
     let mut lookup = FxHashMap::default();
@@ -92,7 +101,12 @@ pub unsafe fn try_pushdown(
     let (typeoid, attname) = attname_from_var(root, var);
     let attname = attname?;
 
-    let _search_field = schema.get_search_field(&SearchFieldName(attname.clone()))?;
+    let search_field = schema.get_search_field(&SearchFieldName(attname.clone()))?;
+    
+    if search_field.is_text() && !search_field.is_raw() {
+        return None;
+    }
+    
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<FxHashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&(*opexpr).opno) {
@@ -104,6 +118,15 @@ pub unsafe fn try_pushdown(
     }
 }
 
+unsafe fn term_with_operator_procid() -> pg_sys::Oid {
+    direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            // NB:  the SQL signature here needs to match our Rust implementation
+            &[c"paradedb.term_with_operator(paradedb.fieldname, text, anyelement)".into_datum()],
+        )
+            .expect("the `paradedb.term_with_operator(paradedb.fieldname, text, anyelement)` function should exist")
+}
+
 unsafe fn opoid(signature: &str) -> pg_sys::Oid {
     direct_function_call::<pg_sys::Oid>(
         pg_sys::regoperatorin,
@@ -112,21 +135,16 @@ unsafe fn opoid(signature: &str) -> pg_sys::Oid {
     .expect("should be able to lookup operator signature")
 }
 
-unsafe fn textanycat_procid() -> pg_sys::Oid {
-    direct_function_call::<pg_sys::Oid>(pg_sys::regprocin, &[c"pg_catalog.textanycat".into_datum()])
-        .expect("could not lookup the `pg_catalog.textanycat` function")
-}
-
 unsafe fn make_opexpr(
     attname: &str,
     orig_opexor: *mut pg_sys::OpExpr,
-    parse_operator: &str,
+    operator: &str,
     value: *mut pg_sys::Node,
 ) -> *mut pg_sys::FuncExpr {
     let paradedb_funcexpr: *mut pg_sys::FuncExpr =
         pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
     (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
-    (*paradedb_funcexpr).funcid = parse_with_field_procoid();
+    (*paradedb_funcexpr).funcid = term_with_operator_procid();
     (*paradedb_funcexpr).funcresulttype = searchqueryinput_typoid();
     (*paradedb_funcexpr).funcretset = false;
     (*paradedb_funcexpr).funcvariadic = false;
@@ -135,40 +153,30 @@ unsafe fn make_opexpr(
     (*paradedb_funcexpr).inputcollid = (*orig_opexor).inputcollid;
     (*paradedb_funcexpr).location = (*orig_opexor).location;
     (*paradedb_funcexpr).args = {
-        // the caller gives us a `parse_operator` like "=" or ">", or "<=" and we want to concatenate
-        // that (what will become) text literal with whatever the original user's `value` expression
-        // was.  That happens through injecting a call to Postgres' `textanycat()` function, which
-        // we build here
-        let textconcat_func = pg_sys::makeFuncExpr(
-            textanycat_procid(),
+        let fieldname = pg_sys::makeConst(
+            fieldname_typoid(),
+            -1,
+            pg_sys::InvalidOid,
+            -1,
+            FieldName::from(attname).into_datum().unwrap(),
+            false,
+            false,
+        );
+        let operator = pg_sys::makeConst(
             pg_sys::TEXTOID,
-            {
-                let mut args = PgList::<pg_sys::Node>::new();
-                args.push(make_string_const(parse_operator, (*orig_opexor).location).cast());
-                args.push(value);
-                args.into_pg()
-            },
+            -1,
             pg_sys::DEFAULT_COLLATION_OID,
-            pg_sys::DEFAULT_COLLATION_OID,
-            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            -1,
+            operator.into_datum().unwrap(),
+            false,
+            false,
         );
 
         let mut args = PgList::<pg_sys::Node>::new();
-        args.push(
-            pg_sys::makeConst(
-                fieldname_typoid(),
-                -1,
-                pg_sys::InvalidOid,
-                -1,
-                FieldName::from(attname).into_datum().unwrap(),
-                false,
-                false,
-            )
-            .cast(),
-        );
-        args.push(textconcat_func.cast());
-        args.push(pg_sys::makeBoolConst(false, false)); // "lenient" argument
-        args.push(pg_sys::makeBoolConst(false, false)); // "conjunction_mode" argument
+        args.push(fieldname.cast());
+        args.push(operator.cast());
+        args.push(value.cast());
+
         args.into_pg()
     };
 
@@ -193,20 +201,4 @@ fn is_complex(root: *mut pg_sys::Node) -> bool {
             || pg_sys::contain_volatile_functions(root)
             || pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
     }
-}
-
-unsafe fn make_string_const(str: &str, location: i32) -> *mut pg_sys::Const {
-    let const_: *mut pg_sys::Const = pg_sys::palloc0(size_of::<pg_sys::Const>()).cast();
-
-    (*const_).xpr.type_ = pg_sys::NodeTag::T_Const;
-    (*const_).constvalue = str.into_datum().unwrap();
-    (*const_).constisnull = false;
-    (*const_).constcollid = pg_sys::DEFAULT_COLLATION_OID;
-    (*const_).constbyval = false;
-    (*const_).consttype = pg_sys::TEXTOID;
-    (*const_).constlen = -1;
-    (*const_).consttypmod = -1;
-    (*const_).location = location;
-
-    const_
 }

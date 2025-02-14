@@ -292,10 +292,19 @@ pub unsafe fn extract_quals(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
+    uses_our_operator: &mut bool,
 ) -> Option<Qual> {
     match (*node).type_ {
         pg_sys::NodeTag::T_List => {
-            let mut quals = list(root, rti, node.cast(), pdbopoid, ri_type, schema)?;
+            let mut quals = list(
+                root,
+                rti,
+                node.cast(),
+                pdbopoid,
+                ri_type,
+                schema,
+                uses_our_operator,
+            )?;
             if quals.len() == 1 {
                 quals.pop()
             } else {
@@ -310,15 +319,39 @@ pub unsafe fn extract_quals(
             } else {
                 (*ri).clause
             };
-            extract_quals(root, rti, clause.cast(), pdbopoid, ri_type, schema)
+            extract_quals(
+                root,
+                rti,
+                clause.cast(),
+                pdbopoid,
+                ri_type,
+                schema,
+                uses_our_operator,
+            )
         }
 
-        pg_sys::NodeTag::T_OpExpr => opexpr(root, rti, node, pdbopoid, ri_type, schema),
+        pg_sys::NodeTag::T_OpExpr => opexpr(
+            root,
+            rti,
+            node,
+            pdbopoid,
+            ri_type,
+            schema,
+            uses_our_operator,
+        ),
 
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            let mut quals = list(root, rti, (*boolexpr).args, pdbopoid, ri_type, schema)?;
+            let mut quals = list(
+                root,
+                rti,
+                (*boolexpr).args,
+                pdbopoid,
+                ri_type,
+                schema,
+                uses_our_operator,
+            )?;
 
             match (*boolexpr).boolop {
                 pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
@@ -343,11 +376,20 @@ unsafe fn list(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
+    uses_our_operator: &mut bool,
 ) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
     for child in args.iter_ptr() {
-        quals.push(extract_quals(root, rti, child, pdbopoid, ri_type, schema)?)
+        quals.push(extract_quals(
+            root,
+            rti,
+            child,
+            pdbopoid,
+            ri_type,
+            schema,
+            uses_our_operator,
+        )?)
     }
     Some(quals)
 }
@@ -359,6 +401,7 @@ unsafe fn opexpr(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
+    uses_our_operator: &mut bool,
 ) -> Option<Qual> {
     let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
@@ -382,6 +425,7 @@ unsafe fn opexpr(
                 // it uses our operator, so we directly know how to handle it
                 // this is the case of:  field @@@ paradedb.xxx(EXPR) where EXPR likely includes something
                 // that's parameterized
+                *uses_our_operator = true;
                 return Some(Qual::Expr {
                     node: rhs,
                     expr_state: std::ptr::null_mut(),
@@ -409,6 +453,7 @@ unsafe fn opexpr(
 
         if (*lhs).varno as i32 == rti as i32 {
             // the var comes from this range table entry, so we can use the full expression directly
+            *uses_our_operator = true;
             Some(Qual::OpExpr {
                 var: lhs,
                 opno: (*opexpr).opno,

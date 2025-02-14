@@ -203,15 +203,9 @@ pub fn query_input_restrict(
             let (heaprelid, _, _) = find_var_relation(var, info);
             let indexrel = locate_bm25_index(heaprelid)?;
 
-            // In case a sequential scan gets triggered, we need a way to pass the index oid
-            // to the scan function. It otherwise will not know which index to use.
-            let search_query_input = SearchQueryInput::WithIndex {
-                oid: indexrel.oid(),
-                query: Box::new(SearchQueryInput::from_datum(
-                    (*const_).constvalue,
-                    (*const_).constisnull,
-                )?),
-            };
+            // create the search query from the rhs Const node
+            let search_query_input =
+                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
 
             estimate_selectivity(&indexrel, &search_query_input)
         }

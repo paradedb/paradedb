@@ -580,7 +580,7 @@ pub unsafe fn term_with_operator(
         pg_sys::FLOAT4OID => make_query!(operator, field, term_f32, f32, value, false),
         pg_sys::FLOAT8OID => make_query!(operator, field, term_f64, f64, value, false),
         pg_sys::BOOLOID => make_query!(operator, field, term_bool, bool, value, false),
-        pg_sys::NUMERICOID => make_query!(operator, field, term_numeric, AnyNumeric, value, false),
+        pg_sys::NUMERICOID => make_query!(operator, field, numeric, AnyNumeric, value, false),
         pg_sys::UUIDOID => make_query!(operator, field, uuid, pgrx::datum::Uuid, value, false),
 
         pg_sys::DATEOID => make_query!(operator, field, date, pgrx::datum::Date, value, true),
@@ -750,7 +750,6 @@ term_fn!(term_i32, i32);
 term_fn!(term_i64, i64);
 term_fn!(term_f32, f32);
 term_fn!(term_f64, f64);
-term_fn!(term_numeric, AnyNumeric);
 term_fn!(term_bool, bool);
 term_fn!(date, pgrx::datum::Date);
 term_fn!(time, pgrx::datum::Time);

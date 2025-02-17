@@ -37,6 +37,7 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 use crate::postgres::index::get_fields;
 use crate::query::AsFieldType;
 pub use anyenum::AnyEnum;
+use tokenizers::manager::SearchTokenizerFilters;
 
 /// The id of a field, stored in the index.
 #[derive(Debug, Clone, Display, From, AsRef, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -55,6 +56,7 @@ pub struct SearchIndexName(pub String);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchFieldType {
     Text,
+    Uuid,
     I64,
     F64,
     U64,
@@ -69,9 +71,8 @@ impl TryFrom<&PgOid> for SearchFieldType {
     fn try_from(pg_oid: &PgOid) -> Result<Self, Self::Error> {
         match &pg_oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID | PgBuiltInOids::UUIDOID => {
-                    Ok(SearchFieldType::Text)
-                }
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Ok(SearchFieldType::Text),
+                PgBuiltInOids::UUIDOID => Ok(SearchFieldType::Uuid),
                 PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {
                     Ok(SearchFieldType::I64)
                 }
@@ -500,6 +501,19 @@ impl SearchFieldConfig {
         Self::from_json(json!({"Text": {}}))
     }
 
+    pub fn default_uuid() -> Self {
+        SearchFieldConfig::Text {
+            indexed: true,
+            fast: true,
+            stored: false,
+            fieldnorms: false,
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
+            record: IndexRecordOption::Basic,
+            normalizer: SearchNormalizer::Raw,
+            column: None,
+        }
+    }
+
     pub fn default_numeric() -> Self {
         Self::from_json(json!({"Numeric": {}}))
     }
@@ -709,6 +723,7 @@ impl SearchIndexSchema {
         for (name, config, field_type) in fields {
             let id: SearchFieldId = match field_type {
                 SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
+                SearchFieldType::Uuid => builder.add_text_field(name.as_ref(), config.clone()),
                 SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
                 SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
                 SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),

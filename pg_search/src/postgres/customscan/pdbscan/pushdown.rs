@@ -47,7 +47,6 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
     const TYPE_PAIRS: &[[&str; 2]] = &[
         // integers
-        ["\"char\"", "\"char\""], // mapped as an `i8`
         ["int2", "int2"],
         ["int4", "int4"],
         ["int8", "int8"],
@@ -58,8 +57,6 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
         ["float4", "float4"],
         ["float8", "float8"],
         ["float4", "float8"],
-        // boolean
-        ["boolean", "boolean"],
         // dates
         ["date", "date"],
         ["time", "time"],
@@ -72,6 +69,10 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
     ];
 
     let mut lookup = FxHashMap::default();
+
+    // tantivy doesn't support range operators on bools, so we can only support the equality operator
+    lookup.insert(operator_oid("=(bool,bool)"), "=");
+
     for o in OPERATORS {
         for [l, r] in TYPE_PAIRS {
             lookup.insert(operator_oid(&format!("{o}({l},{r})")), o);

@@ -581,6 +581,9 @@ pub unsafe fn term_with_operator(
         pg_sys::FLOAT8OID => make_query!(operator, field, term_f64, f64, value, false),
         pg_sys::BOOLOID => make_query!(operator, field, term_bool, bool, value, false),
         pg_sys::NUMERICOID => make_query!(operator, field, numeric, AnyNumeric, value, false),
+
+        pg_sys::TEXTOID => make_query!(operator, field, term_str, String, value, false),
+        pg_sys::VARCHAROID => make_query!(operator, field, term_str, String, value, false),
         pg_sys::UUIDOID => make_query!(operator, field, uuid, pgrx::datum::Uuid, value, false),
 
         pg_sys::DATEOID => make_query!(operator, field, date, pgrx::datum::Date, value, true),
@@ -588,6 +591,7 @@ pub unsafe fn term_with_operator(
         pg_sys::TIMETZOID => make_query!(operator, field, time_with_time_zone, pgrx::datum::TimeWithTimeZone, value, true),
         pg_sys::TIMESTAMPOID => make_query!(operator, field, timestamp, pgrx::datum::Timestamp, value, true),
         pg_sys::TIMESTAMPTZOID => make_query!(operator, field, timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone, value, true),
+        
 
         other => panic!("unsupported type: {other:?}"),
     }

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::attname_from_var;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
@@ -28,6 +29,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, PgList};
 use std::ops::Bound;
+use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone)]
 pub enum Qual {
@@ -43,6 +45,9 @@ pub enum Qual {
     },
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
+    },
+    PushdownVarIsTrue {
+        attname: String,
     },
     ScoreExpr {
         opoid: pg_sys::Oid,
@@ -60,6 +65,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarIsTrue { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
@@ -73,6 +79,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarIsTrue { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
@@ -86,6 +93,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarIsTrue { .. } => true,
             Qual::ScoreExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
@@ -99,6 +107,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarIsTrue { .. } => false,
             Qual::ScoreExpr { .. } => true,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
@@ -112,6 +121,7 @@ impl Qual {
             Qual::OpExpr { .. } => {}
             Qual::Expr { .. } => exprs.push(self),
             Qual::PushdownExpr { .. } => {}
+            Qual::PushdownVarIsTrue { .. } => {}
             Qual::ScoreExpr { .. } => {}
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
@@ -141,6 +151,11 @@ impl From<&Qual> for SearchQueryInput {
                 pg_sys::FreeExprContext(expr_context, false);
                 SearchQueryInput::from_datum(datum, is_null)
                     .expect("pushdown expression should not evaluate to NULL")
+            },
+            Qual::PushdownVarIsTrue { attname } => SearchQueryInput::Term {
+                field: Some(attname.clone()),
+                value: OwnedValue::Bool(true),
+                is_datetime: false,
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -303,6 +318,10 @@ impl From<Qual> for PgList<pg_sys::Node> {
                     list.push(makeString(Some("PUSHDOWN")));
                     list.push(funcexpr.cast());
                 }
+                Qual::PushdownVarIsTrue { attname } => {
+                    list.push(makeString(Some("PUSHDOWN_VAR_IS_TRUE")));
+                    list.push(makeString(Some(attname)));
+                }
                 Qual::ScoreExpr { opoid, value } => {
                     list.push(makeString(Some("SCORE")));
                     list.push(makeInteger(Some(opoid)));
@@ -363,6 +382,10 @@ impl From<PgList<pg_sys::Node>> for Qual {
                         "PUSHDOWN" => {
                             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, value.get_ptr(1)?)?;
                             Some(Qual::PushdownExpr { funcexpr })
+                        }
+                        "PUSHDOWN_VAR_IS_TRUE" => {
+                            let attname = decodeString::<String>(value.get_ptr(1)?)?;
+                            Some(Qual::PushdownVarIsTrue { attname })
                         }
                         "SCORE" => {
                             let (opoid, value) = (
@@ -491,6 +514,14 @@ pub unsafe fn extract_quals(
                 pg_sys::BoolExprType::NOT_EXPR => Some(Qual::Not(Box::new(quals.pop()?))),
                 _ => panic!("unexpected `BoolExprType`: {}", (*boolexpr).boolop),
             }
+        }
+
+        pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
+            Some(Qual::PushdownVarIsTrue {
+                attname: attname_from_var(root, node.cast())
+                    .1
+                    .expect("var should have an attname"),
+            })
         }
 
         // we don't understand this clause so we can't do anything

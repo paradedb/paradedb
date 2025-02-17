@@ -42,6 +42,19 @@ pub struct SearchTokenizerFilters {
 }
 
 impl SearchTokenizerFilters {
+    /// Returns a [`SearchTokenizerFilter`] instance that effectively does not filter, or otherwise
+    /// mutate tokens.  
+    ///
+    /// This should be used for declaring the "key field" in an index.  It can be used for other
+    /// text types that don't want tokenization too.
+    pub fn raw() -> Self {
+        SearchTokenizerFilters {
+            remove_long: Some(usize::MAX),
+            lowercase: Some(false),
+            stemmer: None,
+        }
+    }
+
     fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         let mut filters = SearchTokenizerFilters::default();
 

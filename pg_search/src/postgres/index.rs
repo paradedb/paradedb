@@ -59,7 +59,10 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
 
     for (name, config) in rdopts.get_text_fields() {
         let name = SearchFieldName(config.column().unwrap_or(&name.0).into());
-        if !matches!(name_type_map.get(&name), Some(SearchFieldType::Text)) {
+        if !matches!(
+            name_type_map.get(&name),
+            Some(SearchFieldType::Text | SearchFieldType::Uuid)
+        ) {
             panic!("'{name}' cannot be indexed as a text field");
         }
     }
@@ -121,11 +124,12 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
             fast: true,
             stored: false,
             fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,
         },
+        SearchFieldType::Uuid => SearchFieldConfig::default_uuid(),
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
             fast: true,

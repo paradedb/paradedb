@@ -158,7 +158,9 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             .get_text_fields()
             .into_iter()
             .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Text) => (name, config, *field_type),
+                Some(field_type @ (SearchFieldType::Text | SearchFieldType::Uuid)) => {
+                    (name, config, *field_type)
+                }
                 _ => panic!("'{name}' cannot be indexed as a text field"),
             });
 
@@ -223,11 +225,12 @@ pub unsafe fn index_fields(index: PgRelation) -> JsonB {
             fast: true,
             stored: false,
             fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,
         },
+        SearchFieldType::Uuid => SearchFieldConfig::default_uuid(),
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
             fast: true,

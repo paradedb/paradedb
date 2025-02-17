@@ -587,3 +587,43 @@ fn custom_enum_parse(mut conn: PgConnection) {
 
     assert_eq!(rows, vec![(1, "Item 1".into())]);
 }
+
+#[rstest]
+fn long_text_key_field_issue2198(mut conn: PgConnection) {
+    "CREATE TABLE issue2198 (id TEXT, value TEXT)".execute(&mut conn);
+
+    "CREATE INDEX idxissue2198 ON issue2198 USING bm25 (id, value) WITH (key_field='id')"
+        .execute(&mut conn);
+
+    let long_string = "a".repeat(10000);
+
+    format!("INSERT INTO issue2198(id) VALUES ('{long_string}')").execute(&mut conn);
+    let (count,) = format!("SELECT count(*) FROM issue2198 WHERE id @@@ '{long_string}'")
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+
+    let (count,) =
+        format!("SELECT count(*) FROM issue2198 WHERE id @@@ paradedb.term('id', '{long_string}')")
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+}
+
+#[rstest]
+fn uuid_as_raw_issue2199(mut conn: PgConnection) {
+    "CREATE TABLE issue2199 (id SERIAL8 NOT NULL PRIMARY KEY, value uuid);".execute(&mut conn);
+
+    "CREATE INDEX idxissue2199 ON issue2199 USING bm25 (id, value) WITH (key_field='id');"
+        .execute(&mut conn);
+
+    let uuid = uuid::Uuid::new_v4();
+
+    format!("INSERT INTO issue2199(value) VALUES ('{uuid}')").execute(&mut conn);
+    let (count,) = format!("SELECT count(*) FROM issue2199 WHERE value @@@ '{uuid}'")
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+
+    let (count,) =
+        format!("SELECT count(*) FROM issue2199 WHERE id @@@ paradedb.term('value', '{uuid}')")
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+}

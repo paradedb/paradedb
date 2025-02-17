@@ -42,7 +42,7 @@ fn pushdown(mut conn: PgConnection) {
         r#"CREATE INDEX idxtest ON test USING bm25 (id, col_boolean, {}) WITH (key_field='id', text_fields = '{{"col_text": {{"tokenizer": {{"type":"raw"}} }} }}');"#,
         TYPES
             .iter()
-            .map(|t| sqlname(&t[0]))
+            .map(|t| sqlname(t[0]))
             .collect::<Vec<_>>()
             .join(", ")
     );

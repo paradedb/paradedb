@@ -121,7 +121,7 @@ pub unsafe fn get_fields(index_relation: &PgRelation) -> (Fields, KeyFieldIndex)
             fast: true,
             stored: false,
             fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,

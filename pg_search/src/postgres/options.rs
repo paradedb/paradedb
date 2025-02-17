@@ -366,7 +366,7 @@ impl SearchIndexCreateOptions {
                 fast: true,
                 stored: true,
                 fieldnorms: false,
-                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
                 record: IndexRecordOption::Basic,
                 normalizer: SearchNormalizer::Raw,
                 column: None,

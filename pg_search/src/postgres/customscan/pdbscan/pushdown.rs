@@ -176,7 +176,7 @@ unsafe fn make_opexpr(
     paradedb_funcexpr
 }
 
-pub fn is_complex(root: *mut pg_sys::Node) -> bool {
+pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
         nodecast!(Var, T_Var, node).is_some()
             || nodecast!(Param, T_Param, node).is_some()
@@ -188,10 +188,5 @@ pub fn is_complex(root: *mut pg_sys::Node) -> bool {
         return false;
     }
 
-    unsafe {
-        nodecast!(Var, T_Var, root).is_some()
-            || nodecast!(Param, T_Param, root).is_some()
-            || pg_sys::contain_volatile_functions(root)
-            || pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
-    }
+    walker(root, std::ptr::null_mut())
 }

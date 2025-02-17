@@ -67,7 +67,7 @@ impl Qual {
         }
     }
 
-    pub fn contains_exec_param(&self) -> bool {
+    pub unsafe fn contains_exec_param(&self) -> bool {
         match self {
             Qual::All => false,
             Qual::OpExpr { .. } => false,
@@ -654,7 +654,7 @@ unsafe fn var_opexpr(
     }
 }
 
-fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
+unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
         if let Some(param) = nodecast!(Param, T_Param, node) {
             if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
@@ -664,19 +664,14 @@ fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
         pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
 
-    unsafe {
-        if root.is_null() {
-            return false;
-        } else if let Some(param) = nodecast!(Param, T_Param, root) {
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
-                return true;
-            }
-        }
-        pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
+    if root.is_null() {
+        return false;
     }
+
+    walker(root, std::ptr::null_mut())
 }
 
-fn contains_var(root: *mut pg_sys::Node) -> bool {
+unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
     unsafe extern "C" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
         nodecast!(Var, T_Var, node).is_some()
             || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
@@ -686,8 +681,5 @@ fn contains_var(root: *mut pg_sys::Node) -> bool {
         return false;
     }
 
-    unsafe {
-        nodecast!(Var, T_Var, root).is_some()
-            || pg_sys::expression_tree_walker(root, Some(walker), std::ptr::null_mut())
-    }
+    walker(root, std::ptr::null_mut())
 }

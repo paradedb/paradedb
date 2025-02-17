@@ -607,3 +607,23 @@ fn long_text_key_field_issue2198(mut conn: PgConnection) {
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 1);
 }
+
+#[rstest]
+fn uuid_as_raw_issue2199(mut conn: PgConnection) {
+    "CREATE TABLE issue2199 (id SERIAL8 NOT NULL PRIMARY KEY, value uuid);".execute(&mut conn);
+
+    "CREATE INDEX idxissue2199 ON issue2199 USING bm25 (id, value) WITH (key_field='id');"
+        .execute(&mut conn);
+
+    let uuid = uuid::Uuid::new_v4();
+
+    format!("INSERT INTO issue2199(value) VALUES ('{uuid}')").execute(&mut conn);
+    let (count,) = format!("SELECT count(*) FROM issue2199 WHERE value @@@ '{uuid}'")
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+
+    let (count,) =
+        format!("SELECT count(*) FROM issue2199 WHERE id @@@ paradedb.term('value', '{uuid}')")
+            .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+}

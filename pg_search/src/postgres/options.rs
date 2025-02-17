@@ -302,6 +302,7 @@ impl SearchIndexCreateOptions {
     ) -> SearchFieldConfig {
         match field_type {
             SearchFieldType::Text => SearchFieldConfig::text_from_json(field_config),
+            SearchFieldType::Uuid => SearchFieldConfig::text_from_json(field_config),
             SearchFieldType::I64 => SearchFieldConfig::numeric_from_json(field_config),
             SearchFieldType::F64 => SearchFieldConfig::numeric_from_json(field_config),
             SearchFieldType::U64 => SearchFieldConfig::numeric_from_json(field_config),
@@ -371,6 +372,7 @@ impl SearchIndexCreateOptions {
                 normalizer: SearchNormalizer::Raw,
                 column: None,
             },
+            SearchFieldType::Uuid => SearchFieldConfig::default_uuid(),
             SearchFieldType::Json => SearchFieldConfig::Json {
                 indexed: true,
                 fast: true,
@@ -450,7 +452,7 @@ impl SearchIndexCreateOptions {
                     panic!("cannot index column '{column_name}' with type {base_oid:?}: {err}")
                 });
 
-                if column_name == key_field_name.0 && config_by_name.contains_key(column_name){
+                if column_name == key_field_name.0 && config_by_name.contains_key(column_name) {
                     panic!("cannot override BM25 configuration for key_field '{column_name}', you must use an aliased field name and 'column' configuration key");
                 }
 
@@ -458,13 +460,22 @@ impl SearchIndexCreateOptions {
                     .remove(column_name)
                     .unwrap_or_else(|| json!({}));
 
+
+                let field_config = if matches!(field_type, SearchFieldType::Uuid)
+                    && json_config.as_object().map(|jc| jc.is_empty()).unwrap_or(true) {
+                    // if there was no config for this UUID field, use the hardcoded default
+                    //
+                    // NB:  This is a bit of a hack for specifying sane defaults for UUID fields.
+                    // We don't (yet) have first-class support for configuring UUID fields as their own type class
+                    // so we interject here and shove in our system default if the user didn't specify one
+                    SearchFieldConfig::default_uuid()
+                } else {
+                    Self::json_value_to_search_field_config(&field_type, json_config)
+                };
+
                 (
                     column_name.to_string(),
-                    (
-                        column_name.into(),
-                        Self::json_value_to_search_field_config(&field_type, json_config),
-                        field_type,
-                    ),
+                    (column_name.into(), field_config, field_type)
                 )
             })
             .collect::<HashMap<_, _>>();

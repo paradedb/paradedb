@@ -68,6 +68,7 @@ unsafe fn initialize_equality_operator_lookup() -> FxHashMap<PostgresOperatorOid
         ["timestamptz", "timestamptz"],
         // text
         ["text", "text"],
+        ["uuid", "uuid"],
     ];
 
     let mut lookup = FxHashMap::default();

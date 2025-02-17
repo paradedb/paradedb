@@ -22,3 +22,15 @@ CREATE  FUNCTION "term_with_operator"(
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'term_with_operator_wrapper';
 /* </end connected objects> */
+DROP FUNCTION IF EXISTS term(field fieldname, value pg_catalog.timestamptz);
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/index.rs:762
+-- pg_search::api::index::term
+CREATE  FUNCTION "term"(
+    "field" FieldName DEFAULT NULL, /* core::option::Option<pg_search::api::index::FieldName> */
+    "value" timestamp with time zone DEFAULT NULL /* core::option::Option<pgrx::datum::time_stamp_with_timezone::TimestampWithTimeZone> */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+    IMMUTABLE PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'timestamp_with_time_zone_wrapper';

@@ -1579,7 +1579,6 @@ fn cant_name_a_field_ctid(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
 
-    // Attempt to create index with alias pointing to non-existent column
     let result = r#"CREATE INDEX missing_source_idx ON missing_source
     USING bm25 (id, text_field)
     WITH (
@@ -1608,7 +1607,6 @@ fn can_index_only_key_field(mut conn: PgConnection) {
     );"
     .execute(&mut conn);
 
-    // Attempt to create index with alias pointing to non-existent column
     let result = r#"
     
         INSERT INTO can_index_only_key_field (text_field) VALUES ('hello world');

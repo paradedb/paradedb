@@ -94,10 +94,35 @@ impl MergeLock {
         MergeLock(merge_lock)
     }
 
-    pub unsafe fn num_segments(&mut self) -> u32 {
+    pub unsafe fn init(relation_id: pg_sys::Oid, num_segments: u32) {
+        let mut bman = BufferManager::new(relation_id);
+        let mut merge_lock = bman.get_buffer_mut(MERGE_LOCK);
+        let mut page = merge_lock.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+        metadata.last_merge = pg_sys::InvalidTransactionId;
+        metadata.num_segments = num_segments;
+    }
+
+    pub unsafe fn force_num_segments(relation_id: pg_sys::Oid, num_segments: u32) -> u32 {
+        let mut bman = BufferManager::new(relation_id);
+        let mut merge_lock = bman.get_buffer_mut(MERGE_LOCK);
+        let mut page = merge_lock.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+        let current_num_segments = metadata.num_segments;
+        metadata.num_segments = num_segments;
+        current_num_segments
+    }
+
+    pub unsafe fn num_segments(&self) -> u32 {
+        let page = self.0.page();
+        let metadata = page.contents::<MergeLockData>();
+        metadata.num_segments
+    }
+
+    pub unsafe fn set_num_segments(&mut self, num_segments: u32) {
         let mut page = self.0.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
-        metadata.num_segments
+        metadata.num_segments = num_segments;
     }
 }
 
@@ -127,12 +152,4 @@ impl Drop for MergeLock {
             }
         }
     }
-}
-
-pub unsafe fn set_num_segments(relation_oid: pg_sys::Oid, num_segments: u32) {
-    let mut bman = BufferManager::new(relation_oid);
-    let mut buffer = bman.get_buffer_mut(MERGE_LOCK);
-    let mut page = buffer.page_mut();
-    let metadata = page.contents_mut::<MergeLockData>();
-    metadata.num_segments = num_segments;
 }

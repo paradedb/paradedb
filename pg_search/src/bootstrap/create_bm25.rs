@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
+use crate::index::merge_policy::MergeLock;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::BlockDirectoryType;
+use crate::index::writer::index::SearchIndexWriter;
+use crate::index::{BlockDirectoryType, WriterResources};
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -37,6 +37,8 @@ use pgrx::JsonB;
 use pgrx::PgRelation;
 use serde_json::Map;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::num::NonZero;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::SearchNormalizer;
 use tokenizers::SearchTokenizer;
@@ -538,6 +540,36 @@ fn page_info(
 
     unsafe { pg_sys::RelationClose(heap_relation) };
     Ok(TableIterator::new(data))
+}
+
+#[pg_extern]
+unsafe fn reset_num_segments(index: PgRelation, mut num_segments: i32) -> anyhow::Result<i32> {
+    let index = {
+        // re-open the index with an exclusive lock.  we can't have anyone doing anything with the index
+        // itself while we're forcefully doing a merge
+        let indexrelid = index.oid();
+        drop(index);
+        PgRelation::with_lock(indexrelid, pg_sys::ExclusiveLock as _)
+    };
+
+    let available_parallelism = std::thread::available_parallelism()
+        .unwrap_or(NonZero::new(1).unwrap())
+        .get() as i32;
+    if num_segments < available_parallelism {
+        pgrx::warning!("`num_segments` must be at least the \"available parallelism\" of this host, which is {available_parallelism}.  Changing to {available_parallelism}.");
+        num_segments = available_parallelism;
+    }
+
+    let old_segment_count =
+        MergeLock::force_num_segments(index.oid(), num_segments.try_into()?).try_into()?;
+
+    pgrx::warning!("performing an index merge... this could take a while");
+
+    // will force a merge if one is necessary
+    SearchIndexWriter::open(&index, BlockDirectoryType::Mvcc, WriterResources::Statement)?
+        .commit()?;
+
+    Ok(old_segment_count)
 }
 
 #[pg_extern]

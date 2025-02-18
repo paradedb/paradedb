@@ -47,11 +47,14 @@ impl BlockDirectoryType {
         self,
         index_relation: &PgRelation,
         merge_policy: AllowedMergePolicy,
+        parallelism: Option<Parallelism>,
     ) -> MVCCDirectory {
         match self {
-            BlockDirectoryType::Mvcc => MVCCDirectory::snapshot(index_relation.oid(), merge_policy),
+            BlockDirectoryType::Mvcc => {
+                MVCCDirectory::snapshot(index_relation.oid(), merge_policy, parallelism)
+            }
             BlockDirectoryType::BulkDelete => {
-                MVCCDirectory::any(index_relation.oid(), merge_policy)
+                MVCCDirectory::any(index_relation.oid(), merge_policy, parallelism)
             }
         }
     }
@@ -61,9 +64,10 @@ impl BlockDirectoryType {
         index_relation: &PgRelation,
         receiver: Receiver<ChannelRequest>,
         merge_policy: AllowedMergePolicy,
+        parallelism: Option<Parallelism>,
     ) -> ChannelRequestHandler {
         ChannelRequestHandler::open(
-            self.directory(index_relation, merge_policy),
+            self.directory(index_relation, merge_policy, parallelism),
             index_relation.oid(),
             receiver,
         )

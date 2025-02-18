@@ -52,8 +52,6 @@ SHOW log_directory;
 
 ### Indexing Threads
 
-<Note>This setting requires superuser privileges.</Note>
-
 `paradedb.create_index_parallelism` sets the number of threads used during `CREATE INDEX`. The default is `0`, which
 automatically detects the "available parallelism" of the host computer.
 

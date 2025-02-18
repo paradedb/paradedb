@@ -1572,6 +1572,60 @@ fn multiple_aliases_same_column(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn cant_name_a_field_ctid(mut conn: PgConnection) {
+    "CREATE TABLE missing_source (
+        id SERIAL PRIMARY KEY,
+        text_field TEXT
+    );"
+    .execute(&mut conn);
+
+    // Attempt to create index with alias pointing to non-existent column
+    let result = r#"CREATE INDEX missing_source_idx ON missing_source
+    USING bm25 (id, text_field)
+    WITH (
+        key_field='id',
+        text_fields='{
+            "ctid": {
+                "column": "text_field",
+                "tokenizer": {"type": "default"}
+            }
+        }'
+    );"#
+    .execute_result(&mut conn);
+
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "error returned from database: the name `ctid` is reserved by pg_search"
+    );
+}
+
+#[rstest]
+fn can_index_only_key_field(mut conn: PgConnection) {
+    "CREATE TABLE can_index_only_key_field (
+        id SERIAL PRIMARY KEY,
+        text_field TEXT
+    );"
+    .execute(&mut conn);
+
+    // Attempt to create index with alias pointing to non-existent column
+    let result = r#"
+    
+        INSERT INTO can_index_only_key_field (text_field) VALUES ('hello world');
+    
+        CREATE INDEX idxcan_index_only_key_field ON can_index_only_key_field
+        USING bm25 (id)
+        WITH (key_field='id');
+    "#
+    .execute_result(&mut conn);
+    assert!(result.is_ok());
+
+    let (count,) = "SELECT COUNT(*) FROM can_index_only_key_field WHERE id @@@ '1'"
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 1);
+}
+
+#[rstest]
 fn missing_source_column(mut conn: PgConnection) {
     "CREATE TABLE missing_source (
         id SERIAL PRIMARY KEY,
@@ -1596,7 +1650,7 @@ fn missing_source_column(mut conn: PgConnection) {
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err().to_string(),
-        "error returned from database: 'nonexistent_column' cannot be indexed as a text field"
+        "error returned from database: the column `nonexistent_column referenced by the field configuration for 'alias' does not exist"
     );
 }
 

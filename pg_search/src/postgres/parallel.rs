@@ -65,7 +65,7 @@ impl Drop for AcquiredSpinLock {
 #[pg_guard]
 pub unsafe extern "C" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
     let state = target.cast::<ParallelScanState>();
-    (*state).mutex.init();
+    (*state).init_mutex();
 }
 
 #[pg_guard]
@@ -108,7 +108,7 @@ pub unsafe fn maybe_init_parallel_scan(
 
     let state = get_bm25_scan_state(&scan)?;
     let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-    let _mutex = state.mutex.acquire();
+    let _mutex = state.acquire_mutex();
     if worker_number == -1 {
         // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
         // our shared memory information.  The mutex was already initialized, directly, in
@@ -121,14 +121,14 @@ pub unsafe fn maybe_init_parallel_scan(
 pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
     let state = get_bm25_scan_state(&scan)?;
 
-    let _mutex = state.mutex.acquire();
-    if state.remaining_segments == 0 {
+    let _mutex = state.acquire_mutex();
+    if state.remaining_segments() == 0 {
         // no more to claim
         None
     } else {
         // claim the next one
-        state.remaining_segments -= 1;
-        Some(state.segment_id(state.remaining_segments))
+        let remaining_segments = state.decrement_remaining_segments();
+        Some(state.segment_id(remaining_segments))
     }
 }
 

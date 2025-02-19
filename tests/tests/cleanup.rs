@@ -87,6 +87,27 @@ fn segment_count_matches_available_parallelism(mut conn: PgConnection) {
         .0 as usize;
     assert_eq!(nsegments, expected_segments);
 
+    // wait out possible concurrent test job connections
+    // we need to be the only one that can see the transaction's we're about to make
+    // to ensure the index got merged
+    {
+        const MAX_RETRIES: usize = 30;
+        let mut retries = 0;
+        while retries != MAX_RETRIES {
+            let (none_active,) = "SELECT count(*) = 1 FROM pg_stat_activity WHERE state = 'active'"
+                .fetch_one::<(bool,)>(&mut conn);
+            if none_active {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            eprintln!("Waiting for active backends to finish");
+            retries += 1;
+        }
+        if retries == MAX_RETRIES {
+            panic!("Active backends did not finish after ~{MAX_RETRIES} seconds");
+        }
+    }
+
     // nplusone merge policy should merge single documents down to 1 segment
     for _ in 0..10 {
         "INSERT INTO test_table (value) SELECT md5(random()::text)".execute(&mut conn);

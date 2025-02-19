@@ -89,9 +89,10 @@ impl MergeLock {
                 || {
                 #[cfg(feature = "pg13")]
                 {
-                    last_merge < pg_sys::TransactionIdLimitedForOldSnapshots(
+                    let oldest_xmin = pg_sys::TransactionIdLimitedForOldSnapshots(
                         pg_sys::GetOldestXmin(bman.bm25cache().heaprel(), pg_sys::PROCARRAY_FLAGS_VACUUM as i32), bman.bm25cache().heaprel(),
-                    )
+                    );
+                    pg_sys::TransactionIdPrecedes(last_merge, oldest_xmin)
                 }
                 #[cfg(any(
                     feature = "pg14",

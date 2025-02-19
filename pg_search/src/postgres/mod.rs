@@ -195,10 +195,10 @@ impl ParallelScanPayload {
     }
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 pub struct ParallelScanState {
-    pub mutex: Spinlock,
-    pub remaining_segments: usize,
+    mutex: Spinlock,
+    remaining_segments: usize,
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
 
@@ -217,6 +217,23 @@ impl ParallelScanState {
     fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
         self.payload.init(segments, query);
         self.remaining_segments = segments.len();
+    }
+
+    fn init_mutex(&mut self) {
+        self.mutex.init();
+    }
+
+    pub fn acquire_mutex(&mut self) -> impl Drop {
+        self.mutex.acquire()
+    }
+
+    pub fn remaining_segments(&self) -> usize {
+        self.remaining_segments
+    }
+
+    pub fn decrement_remaining_segments(&mut self) -> usize {
+        self.remaining_segments -= 1;
+        self.remaining_segments
     }
 
     fn segment_id(&self, i: usize) -> SegmentId {

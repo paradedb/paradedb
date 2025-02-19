@@ -83,11 +83,10 @@ impl ParallelQueryCapable for PdbScan {
 }
 
 pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<SegmentId> {
-    let mutex = (*pscan_state).mutex.acquire();
-    if (*pscan_state).remaining_segments > 0 {
-        (*pscan_state).remaining_segments -= 1;
-
-        Some((*pscan_state).segment_id((*pscan_state).remaining_segments as usize))
+    let mutex = (*pscan_state).acquire_mutex();
+    if (*pscan_state).remaining_segments() > 0 {
+        let remaining_segments = (*pscan_state).decrement_remaining_segments();
+        Some((*pscan_state).segment_id(remaining_segments))
     } else {
         None
     }

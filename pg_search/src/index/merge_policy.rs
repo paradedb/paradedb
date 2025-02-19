@@ -83,26 +83,11 @@ impl MergeLock {
                 last_merge == pg_sys::InvalidTransactionId
 
                     // or it is from this transaction
-                || pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
+                    || pg_sys::TransactionIdIsCurrentTransactionId(last_merge)
 
                     // or the last_merge transaction's effects are known to be visible by all
                     // current/future transactions
-                || {
-                    #[cfg(feature = "pg13")]
-                    {
-                        pg_sys::TransactionIdPrecedes(last_merge, pg_sys::RecentGlobalXmin)
-                    }
-
-                    #[cfg(any(
-                        feature = "pg14",
-                        feature = "pg15",
-                        feature = "pg16",
-                        feature = "pg17"
-                    ))]
-                    {
-                        pg_sys::GlobalVisCheckRemovableXid(bman.bm25cache().heaprel(), last_merge)
-                    }
-                };
+                    || last_merge < pg_sys::GetOldestNonRemovableTransactionId(bman.bm25cache().heaprel());
 
             if last_merge_visible {
                 metadata.last_merge = pg_sys::GetCurrentTransactionId();

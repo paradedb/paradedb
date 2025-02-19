@@ -100,7 +100,7 @@ impl MergeLock {
                         feature = "pg17"
                     ))]
                     {
-                        pg_sys::GlobalVisCheckRemovableXid(std::ptr::null_mut(), last_merge)
+                        pg_sys::GlobalVisCheckRemovableXid(bman.bm25cache().heaprel(), last_merge)
                     }
                 };
 

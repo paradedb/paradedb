@@ -87,7 +87,18 @@ impl MergeLock {
 
                     // or the last_merge transaction's effects are known to be visible by all
                     // current/future transactions
-                    || last_merge < pg_sys::GetOldestNonRemovableTransactionId(bman.bm25cache().heaprel());
+                    || {
+                        #[cfg(feature = "pg13")]
+                        {
+                            last_merge < pg_sys::TransactionIdLimitedForOldSnapshots(
+                                pg_sys::GetOldestXmin(bman.bm25cache().heaprel(), pg_sys::PROCARRAY_FLAGS_VACUUM as i32), bman.bm25cache().heaprel(),
+                            )
+                        }
+                        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+                        {
+                            last_merge < pg_sys::GetOldestNonRemovableTransactionId(bman.bm25cache().heaprel())
+                        }
+                };
 
             if last_merge_visible {
                 metadata.last_merge = pg_sys::GetCurrentTransactionId();

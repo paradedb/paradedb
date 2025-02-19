@@ -96,8 +96,8 @@ impl MergeLock {
                         }
                         #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
                         {
-                            let oldest_xmin =pg_sys::GetOldestNonRemovableTransactionId(bman.bm25cache().heaprel());
-                            pg_sys::TransactionIdPrecedes(last_merge, oldest_xmin)
+                            let oldest_xmin = pg_sys::GetOldestNonRemovableTransactionId(bman.bm25cache().heaprel());
+                            pg_sys::TransactionIdPrecedesOrEquals(last_merge, oldest_xmin)
                         }
                 };
 

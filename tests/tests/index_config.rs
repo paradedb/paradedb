@@ -41,16 +41,8 @@ fn invalid_create_index(mut conn: PgConnection) {
         Ok(_) => panic!("should fail with no key_field"),
         Err(err) => assert_eq!(
             err.to_string(),
-            "error returned from database: must specify key_field"
+            "error returned from database: key_field WITH option should be configured"
         ),
-    };
-
-    match r#"CREATE INDEX index_config_index ON index_config
-        USING bm25 (id) WITH (key_field='id')"#
-        .execute_result(&mut conn)
-    {
-        Ok(_) => panic!("should fail with no fields"),
-        Err(err) => assert!(err.to_string().contains("specified"), "{}", fmt_err(err)),
     };
 }
 

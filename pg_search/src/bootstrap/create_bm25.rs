@@ -26,20 +26,15 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
-use crate::schema::IndexRecordOption;
 use crate::schema::SearchFieldConfig;
 use crate::schema::SearchFieldName;
-use crate::schema::SearchFieldType;
 use anyhow::bail;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
-use serde_json::Map;
+use rustc_hash::FxHashMap;
 use serde_json::Value;
-use tokenizers::manager::SearchTokenizerFilters;
-use tokenizers::SearchNormalizer;
-use tokenizers::SearchTokenizer;
 
 #[allow(clippy::too_many_arguments)]
 #[pg_extern]
@@ -113,175 +108,15 @@ fn format_create_bm25(
 }
 
 #[pg_extern]
-pub unsafe fn index_fields(index: PgRelation) -> JsonB {
-    // # Safety
-    //
-    // Lock the index relation until the end of this function so it is not dropped or
-    // altered while we are reading it.
-    //
-    // Because we accept a PgRelation above, we have confidence that Postgres has already
-    // validated the existence of the relation. We are safe calling the function below as
-    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
-    let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
-    let rdopts: PgBox<SearchIndexCreateOptions> = if !index.rd_options.is_null() {
-        unsafe { PgBox::from_pg(index.rd_options as *mut SearchIndexCreateOptions) }
-    } else {
-        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
-        ops.into_pg_boxed()
-    };
-
-    // Create a map from column name to column type. We'll use this to verify that index
-    // configurations passed by the user reference the correct types for each column.
-    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = index
-        .tuple_desc()
+pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
+    let options = SearchIndexCreateOptions::from_relation(&index);
+    let fields = options.get_all_fields(&index).collect::<Vec<_>>();
+    let name_and_config: FxHashMap<SearchFieldName, SearchFieldConfig> = fields
         .into_iter()
-        .filter_map(|attribute| {
-            let attname = attribute.name();
-            let attribute_type_oid = attribute.type_oid();
-            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-            let base_oid = if array_type != pg_sys::InvalidOid {
-                PgOid::from(array_type)
-            } else {
-                attribute_type_oid
-            };
-            if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
-                Some((attname.into(), search_field_type))
-            } else {
-                None
-            }
-        })
+        .map(|(field_name, field_config, _)| (field_name, field_config))
         .collect();
 
-    // Parse and validate the index configurations for each column.
-    let text_fields =
-        rdopts
-            .get_text_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ (SearchFieldType::Text | SearchFieldType::Uuid)) => {
-                    (name, config, *field_type)
-                }
-                _ => panic!("'{name}' cannot be indexed as a text field"),
-            });
-
-    let numeric_fields = rdopts
-        .get_numeric_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::U64)
-            | Some(field_type @ SearchFieldType::I64)
-            | Some(field_type @ SearchFieldType::F64) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a numeric field"),
-        });
-
-    let boolean_fields = rdopts
-        .get_boolean_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Bool) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a boolean field"),
-        });
-
-    let json_fields =
-        rdopts
-            .get_json_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Json) => (name, config, *field_type),
-                _ => panic!("'{name}' cannot be indexed as a JSON field"),
-            });
-
-    let range_fields = rdopts.get_range_fields().into_iter().map(|(name, config)| {
-        match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Range) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a range field"),
-        }
-    });
-
-    let datetime_fields = rdopts
-        .get_datetime_fields()
-        .into_iter()
-        .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Date) => (name, config, *field_type),
-            _ => panic!("'{name}' cannot be indexed as a datetime field"),
-        });
-
-    let key_field = rdopts.get_key_field().expect("must specify key_field");
-    let key_field_type = match name_type_map.get(&key_field) {
-        Some(field_type) => field_type,
-        None => panic!("key field does not exist"),
-    };
-    let key_config = match key_field_type {
-        SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
-            SearchFieldConfig::Numeric {
-                indexed: true,
-                fast: true,
-                stored: false,
-                column: None,
-            }
-        }
-        SearchFieldType::Text => SearchFieldConfig::Text {
-            indexed: true,
-            fast: true,
-            stored: false,
-            fieldnorms: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::raw()),
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-            column: None,
-        },
-        SearchFieldType::Uuid => SearchFieldConfig::default_uuid(),
-        SearchFieldType::Json => SearchFieldConfig::Json {
-            indexed: true,
-            fast: true,
-            stored: false,
-            expand_dots: false,
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-            fieldnorms: true,
-            column: None,
-        },
-        SearchFieldType::Range => SearchFieldConfig::Range {
-            stored: false,
-            column: None,
-        },
-        SearchFieldType::Bool => SearchFieldConfig::Boolean {
-            indexed: true,
-            fast: true,
-            stored: false,
-            column: None,
-        },
-        SearchFieldType::Date => SearchFieldConfig::Date {
-            indexed: true,
-            fast: true,
-            stored: false,
-            column: None,
-        },
-    };
-
-    // Concatenate the separate lists of fields.
-    let fields = text_fields
-        .chain(numeric_fields)
-        .chain(boolean_fields)
-        .chain(json_fields)
-        .chain(range_fields)
-        .chain(datetime_fields)
-        .chain(std::iter::once((
-            key_field.clone(),
-            key_config,
-            *key_field_type,
-        )))
-        .map(|(name, config, _)| {
-            (
-                name.0,
-                serde_json::to_value(config)
-                    .expect("must be able to convert search field config to JSON"),
-            )
-        })
-        .collect::<Map<_, _>>();
-
-    JsonB(serde_json::Value::from(fields))
+    Ok(JsonB(serde_json::to_value(name_and_config)?))
 }
 
 #[allow(clippy::type_complexity)]

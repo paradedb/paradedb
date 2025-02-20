@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::BlockDirectoryType;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -35,7 +37,6 @@ use pgrx::JsonB;
 use pgrx::PgRelation;
 use serde_json::Map;
 use serde_json::Value;
-use std::collections::HashMap;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::SearchNormalizer;
 use tokenizers::SearchTokenizer;

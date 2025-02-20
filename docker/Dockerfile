@@ -9,7 +9,7 @@ ARG PG_VERSION_MAJOR=17
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR
-ARG RUST_VERSION=1.84
+ARG RUST_VERSION=1.85
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     pkg-config \
     libopenblas-dev \
+    libicu-dev \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
 

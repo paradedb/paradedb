@@ -4,6 +4,15 @@ use pgrx::pg_sys;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::SegmentMeta;
 
+macro_rules! my_eprintln {
+    () => {
+        // $crate::eprint!("\n")
+    };
+    ($($arg:tt)*) => {{
+        // $crate::io::_eprint($crate::format_args_nl!($($arg)*));
+    }};
+}
+
 #[derive(Debug, Clone)]
 pub enum AllowedMergePolicy {
     None,
@@ -43,8 +52,8 @@ impl MergePolicy for NPlusOneMergePolicy {
             return vec![];
         }
 
-        eprintln!("---- compute_merge_candidates ---- ");
-        eprintln!("#segments={}", segments.len());
+        my_eprintln!("---- compute_merge_candidates ---- ");
+        my_eprintln!("#segments={}", segments.len());
         // filter out any segments that are likely larger, on-disk, than the memory_budget configuration
         // these segments will live on disk, as-is, until they become smaller through deletes
         let mut segments = segments
@@ -57,7 +66,7 @@ impl MergePolicy for NPlusOneMergePolicy {
                 // `segment_freeze_size`
                 let keep = byte_size < self.segment_freeze_size as f64;
                 if !keep {
-                    eprintln!(
+                    my_eprintln!(
                         "rejecting segment: {:?}, size={}, docs={}",
                         s.id(),
                         byte_size,
@@ -76,7 +85,7 @@ impl MergePolicy for NPlusOneMergePolicy {
         // find all the segments, by live doc count, that are 1 (or more) standard deviation below the mean
         // these are the segments we'll merge together
         let (mean, stddev) = mean_stddev(segments.iter().map(|s| s.num_docs())).unwrap();
-        eprintln!("mean={mean}, stddev={stddev}, nsegments={}", segments.len());
+        my_eprintln!("mean={mean}, stddev={stddev}, nsegments={}", segments.len());
         let mut small_segments = segments
             .iter()
             .filter(|s| (s.num_docs() as f64) <= mean - stddev)
@@ -84,7 +93,7 @@ impl MergePolicy for NPlusOneMergePolicy {
 
         // sort smallest-to-larget
         small_segments.sort_unstable_by_key(|segment| segment.num_docs());
-        eprintln!(
+        my_eprintln!(
             "small_segments={:?}",
             small_segments
                 .iter()
@@ -94,7 +103,7 @@ impl MergePolicy for NPlusOneMergePolicy {
 
         if small_segments.len() == 1 && segments.len() <= self.n + 1 {
             // there's only 1 segment that falls below our cutoff threshold, so we'll just leave it
-            eprintln!(
+            my_eprintln!(
                 "leaving small segment alone, id={}, size={}",
                 small_segments[0].id(),
                 small_segments[0].max_doc()
@@ -108,7 +117,7 @@ impl MergePolicy for NPlusOneMergePolicy {
             // we didn't come up with enough small segments to merge as they're all roughly the same
             // size, but we still have more than N segments.
             //
-            // These segments are smaller than our "memory_budget" size, so we'll merge the smallest
+            // These segments are smaller than our "segment_freeze_size", so we'll merge the smallest
             // ones that would bring us back down to our "N"
 
             // sort smallest-to-larget
@@ -118,7 +127,7 @@ impl MergePolicy for NPlusOneMergePolicy {
 
             merge_by = MergeBy::DocCount;
 
-            eprintln!(
+            my_eprintln!(
                 "more than N segments ({}), taking the first {} smallest which are {:?}",
                 segments.len(),
                 small_segments.len(),
@@ -131,7 +140,7 @@ impl MergePolicy for NPlusOneMergePolicy {
 
         if small_segments.len() < self.min_merge_count {
             // not enough small segments to merge
-            eprintln!("not enough small segments to merge");
+            my_eprintln!("not enough small segments to merge");
             return vec![];
         }
 
@@ -139,7 +148,7 @@ impl MergePolicy for NPlusOneMergePolicy {
         //
         // When the estimated byte size of a MergeCandidate crosses our `segment_freeze_size` we
         // start collecting another MergeCandidate
-        eprintln!("---- merging, by {merge_by:?} ---- ");
+        my_eprintln!("---- merging, by {merge_by:?} ---- ");
         let mut candidates = vec![MergeCandidate(vec![])];
         let mut current_candidate_byte_size = 0;
         let mut current_candidate_docs = 0;
@@ -147,7 +156,7 @@ impl MergePolicy for NPlusOneMergePolicy {
         for segment in small_segments {
             let byte_size = segment.max_doc() as usize * self.avg_byte_size_per_doc.ceil() as usize;
 
-            eprintln!(
+            my_eprintln!(
                 "segment: {:?}, size={}, docs={}",
                 segment.id(),
                 byte_size,
@@ -162,7 +171,7 @@ impl MergePolicy for NPlusOneMergePolicy {
                 || (matches!(merge_by, MergeBy::ByteSize)
                     && current_candidate_byte_size >= self.segment_freeze_size)
             {
-                eprintln!(
+                my_eprintln!(
                     "{} segments in candidate, size={current_candidate_byte_size}",
                     candidates.last().unwrap().0.len()
                 );
@@ -173,11 +182,11 @@ impl MergePolicy for NPlusOneMergePolicy {
                 current_candidate_docs = 0;
             }
         }
-        eprintln!(
+        my_eprintln!(
             "{} segments in candidate, size={current_candidate_byte_size}",
             candidates.last().unwrap().0.len()
         );
-        eprintln!("---- merging done, {} candidates ---- ", candidates.len());
+        my_eprintln!("---- merging done, {} candidates ---- ", candidates.len());
 
         // remove short candidate lists
         'outer: while !candidates.is_empty() {
@@ -189,7 +198,7 @@ impl MergePolicy for NPlusOneMergePolicy {
             }
             break;
         }
-        eprintln!("---- /compute_merge_candidates ---- ");
+        my_eprintln!("---- /compute_merge_candidates ---- ");
         candidates
     }
 }

@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
-use crate::gucs::raw_statement_memory_budget;
+use crate::gucs::max_mergeable_segment_size;
 use crate::index::merge_policy::{AllowedMergePolicy, MergeLock, NPlusOneMergePolicy};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
@@ -306,7 +306,7 @@ impl Directory for MVCCDirectory {
             min_merge_count: MIN_MERGE_COUNT,
 
             avg_byte_size_per_doc,
-            segment_freeze_size: raw_statement_memory_budget(),
+            segment_freeze_size: max_mergeable_segment_size(),
         };
 
         // hold onto the MergeLock for the lifetime of this MVCCDirectory instance, ensuring no

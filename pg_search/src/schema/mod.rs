@@ -53,7 +53,7 @@ pub struct SearchFieldId(pub Field);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchIndexName(pub String);
 /// The type of the search field.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchFieldType {
     Text,
     Uuid,
@@ -64,6 +64,38 @@ pub enum SearchFieldType {
     Json,
     Date,
     Range,
+}
+
+impl SearchFieldType {
+    #[allow(clippy::match_like_matches_macro)] // this is easier to read as a match statement, clippy is drunk on this one
+    pub fn is_compatible_with(&self, config: &SearchFieldConfig) -> bool {
+        match (self, config) {
+            (SearchFieldType::Text, SearchFieldConfig::Text { .. }) => true,
+            (SearchFieldType::Uuid, SearchFieldConfig::Text { .. }) => true,
+            (SearchFieldType::I64, SearchFieldConfig::Numeric { .. }) => true,
+            (SearchFieldType::F64, SearchFieldConfig::Numeric { .. }) => true,
+            (SearchFieldType::U64, SearchFieldConfig::Numeric { .. }) => true,
+            (SearchFieldType::Bool, SearchFieldConfig::Boolean { .. }) => true,
+            (SearchFieldType::Json, SearchFieldConfig::Json { .. }) => true,
+            (SearchFieldType::Date, SearchFieldConfig::Date { .. }) => true,
+            (SearchFieldType::Range, SearchFieldConfig::Range { .. }) => true,
+            _ => false,
+        }
+    }
+
+    pub fn default_config(&self) -> SearchFieldConfig {
+        match self {
+            SearchFieldType::Text => SearchFieldConfig::default_text(),
+            SearchFieldType::Uuid => SearchFieldConfig::default_uuid(),
+            SearchFieldType::I64 => SearchFieldConfig::default_numeric(),
+            SearchFieldType::F64 => SearchFieldConfig::default_numeric(),
+            SearchFieldType::U64 => SearchFieldConfig::default_numeric(),
+            SearchFieldType::Bool => SearchFieldConfig::default_boolean(),
+            SearchFieldType::Json => SearchFieldConfig::default_json(),
+            SearchFieldType::Date => SearchFieldConfig::default_date(),
+            SearchFieldType::Range => SearchFieldConfig::default_range(),
+        }
+    }
 }
 
 impl TryFrom<&PgOid> for SearchFieldType {
@@ -528,6 +560,10 @@ impl SearchFieldConfig {
 
     pub fn default_date() -> Self {
         Self::from_json(json!({"Date": {}}))
+    }
+
+    pub fn default_range() -> Self {
+        Self::from_json(json!({"Range": {}}))
     }
 }
 

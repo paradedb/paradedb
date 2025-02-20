@@ -93,9 +93,6 @@ impl WriterResources {
 }
 
 pub fn get_index_schema(index_relation: &PgRelation) -> Result<SearchIndexSchema> {
-    if index_relation.rd_options.is_null() {
-        panic!("must specify key_field")
-    }
     let (fields, key_field_index) = unsafe { get_fields(index_relation) };
     let schema = SearchIndexSchema::new(fields, key_field_index)?;
     Ok(schema)

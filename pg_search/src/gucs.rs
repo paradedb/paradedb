@@ -189,6 +189,10 @@ pub fn statement_memory_budget() -> usize {
     adjust_budget(STATEMENT_MEMORY_BUDGET.get(), statement_parallelism())
 }
 
+pub fn raw_statement_memory_budget() -> usize {
+    STATEMENT_MEMORY_BUDGET.get() as usize * 1024 * 1024
+}
+
 fn adjust_nthreads(nthreads: i32) -> NonZeroUsize {
     let nthreads = if nthreads <= 0 {
         std::thread::available_parallelism()

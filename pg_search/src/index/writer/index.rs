@@ -58,12 +58,8 @@ impl SearchIndexWriter {
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = directory_type.channel_request_handler(
-            index_relation,
-            req_receiver,
-            wants_merge,
-            Some(parallelism),
-        );
+        let mut handler =
+            directory_type.channel_request_handler(index_relation, req_receiver, wants_merge);
 
         let mut index = {
             handler
@@ -106,7 +102,6 @@ impl SearchIndexWriter {
             index_relation,
             req_receiver,
             merge_policy,
-            Some(parallelism),
         );
 
         let mut index = {

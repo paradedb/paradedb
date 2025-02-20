@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
+use crate::gucs::raw_statement_memory_budget;
 use crate::index::merge_policy::{AllowedMergePolicy, MergeLock, NPlusOneMergePolicy};
 use crate::index::reader::segment_component::SegmentComponentReader;
-use crate::index::Parallelism;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
 };
@@ -26,13 +26,12 @@ use crate::postgres::storage::LinkedItemList;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Debug, Display};
-use std::num::NonZeroUsize;
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
@@ -45,8 +44,8 @@ use tantivy::directory::{
 use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
 
-// Minimum number of segments for the NPlusOneMergePolicy to maintain
-const MIN_NUM_SEGMENTS: usize = 2;
+/// Minimum number of segments for the NPlusOneMergePolicy to maintain
+const MIN_MERGE_COUNT: usize = 2;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
@@ -64,8 +63,6 @@ pub struct MVCCDirectory {
     merge_policy: AllowedMergePolicy,
     lock_holder: Arc<Mutex<Option<MergeLock>>>,
 
-    parallelism: NonZeroUsize,
-
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
     // it's cloned a lot!
@@ -78,32 +75,18 @@ pub struct MVCCDirectory {
 }
 
 impl MVCCDirectory {
-    pub fn snapshot(
-        relation_oid: pg_sys::Oid,
-        merge_policy: AllowedMergePolicy,
-        parallelism: Option<Parallelism>,
-    ) -> Self {
-        Self::with_mvcc_style(
-            relation_oid,
-            merge_policy,
-            MvccSatisfies::Snapshot,
-            parallelism,
-        )
+    pub fn snapshot(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
+        Self::with_mvcc_style(relation_oid, merge_policy, MvccSatisfies::Snapshot)
     }
 
-    pub fn any(
-        relation_oid: pg_sys::Oid,
-        merge_policy: AllowedMergePolicy,
-        parallelism: Option<Parallelism>,
-    ) -> Self {
-        Self::with_mvcc_style(relation_oid, merge_policy, MvccSatisfies::Any, parallelism)
+    pub fn any(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
+        Self::with_mvcc_style(relation_oid, merge_policy, MvccSatisfies::Any)
     }
 
     fn with_mvcc_style(
         relation_oid: pg_sys::Oid,
         merge_policy: AllowedMergePolicy,
         mvcc_style: MvccSatisfies,
-        parallelism: Option<Parallelism>,
     ) -> Self {
         Self {
             relation_oid,
@@ -111,7 +94,6 @@ impl MVCCDirectory {
             mvcc_style,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
             lock_holder: Default::default(),
-            parallelism: parallelism.unwrap_or_else(|| Parallelism::new(1).unwrap()),
             loaded_metas: Default::default(),
         }
     }
@@ -284,8 +266,8 @@ impl Directory for MVCCDirectory {
 
     fn reconsider_merge_policy(
         &self,
-        meta: &IndexMeta,
-        previous_meta: &IndexMeta,
+        _meta: &IndexMeta,
+        _previous_meta: &IndexMeta,
     ) -> Option<Box<dyn MergePolicy>> {
         // we'll only reconsider merging if the merge_policy is our `NPlusOne` policy
         // all other policies will be converted into [`NoMergePolicy`].
@@ -293,24 +275,9 @@ impl Directory for MVCCDirectory {
             return Some(Box::new(NoMergePolicy));
         }
 
-        let new_ids = meta
-            .segments
-            .iter()
-            .map(|s| s.id())
-            .collect::<FxHashSet<_>>();
-        let previous_ids = previous_meta
-            .segments
-            .iter()
-            .map(|s| s.id())
-            .collect::<FxHashSet<_>>();
-        let segments_created = new_ids
-            .difference(&previous_ids)
-            .collect::<FxHashSet<_>>()
-            .len();
-
         // try to acquire our [`MergeLock`].  If we can't, then we can't merge, so just return with
         // [`NoMergePolicy`].
-        let mut merge_lock = unsafe {
+        let merge_lock = unsafe {
             match MergeLock::acquire_for_merge(self.relation_oid) {
                 // we couldn't get the [`MergeLock`] so we can't merge
                 None => return Some(Box::new(NoMergePolicy)),
@@ -319,29 +286,27 @@ impl Directory for MVCCDirectory {
             }
         };
 
-        //
-        // if our parallelism is 1 and more than 1 segment was created, that means a bulk insert occurred,
-        // creating at least 1 completely full segment.
-        //
-        // we should not merge these new segments because that would be a very expensive operation
-        // instead, we should just increase the target segment count for the next merge
-        if self.parallelism.get() == 1 && segments_created > 1 {
-            unsafe { merge_lock.set_num_segments(new_ids.len() as u32 - 1) };
-            return Some(Box::new(NoMergePolicy));
-        }
-
-        // on the other hand, if we have some bit of parallelism and more than one segment was
-        // created, they're likely not full, and we should attempt to merge them down following
-        // the [`NPlusOneMergePolicy`] rules
-
-        let num_segments = unsafe { merge_lock.num_segments() };
-        let parallelism = std::thread::available_parallelism()
+        let target_segments = std::thread::available_parallelism()
             .expect("failed to get available_parallelism")
             .get();
-        let target_segments = std::cmp::max(parallelism, num_segments as usize);
+        let avg_byte_size_per_doc = {
+            let items =
+                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
+            let entries = unsafe { items.list() };
+            let total_byte_size = entries.iter().map(|e| e.byte_size()).sum::<u64>();
+            let total_docs = entries
+                .iter()
+                .map(|e| e.num_docs() + e.num_deleted_docs())
+                .sum::<usize>();
+            total_byte_size as f64 / total_docs as f64
+        };
+
         let merge_policy = NPlusOneMergePolicy {
             n: target_segments,
-            min_num_segments: MIN_NUM_SEGMENTS,
+            min_merge_count: MIN_MERGE_COUNT,
+
+            avg_byte_size_per_doc,
+            segment_freeze_size: raw_statement_memory_budget(),
         };
 
         // hold onto the MergeLock for the lifetime of this MVCCDirectory instance, ensuring no

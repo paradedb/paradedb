@@ -121,8 +121,7 @@ impl CustomScan for PdbScan {
 
             let root = builder.args().root;
 
-            let directory =
-                MVCCDirectory::snapshot(bm25_index.oid(), AllowedMergePolicy::None, None);
+            let directory = MVCCDirectory::snapshot(bm25_index.oid(), AllowedMergePolicy::None);
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
             let schema = SearchIndexSchema::open(index.schema(), &bm25_index);
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
@@ -395,8 +394,7 @@ impl CustomScan for PdbScan {
                 let heaprel = indexrel
                     .heap_relation()
                     .expect("index should belong to a table");
-                let directory =
-                    MVCCDirectory::snapshot(indexrel.oid(), AllowedMergePolicy::None, None);
+                let directory = MVCCDirectory::snapshot(indexrel.oid(), AllowedMergePolicy::None);
                 let index = Index::open(directory)
                     .expect("create_custom_scan_state: should be able to open index");
                 let schema = SearchIndexSchema::open(index.schema(), &indexrel);

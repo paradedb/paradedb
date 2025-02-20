@@ -21,34 +21,176 @@ pub struct NPlusOneMergePolicy {
 
     // the minimum number of segments to merge together
     // if we don't have this many, no merge is performed
-    pub min_num_segments: usize,
+    pub min_merge_count: usize,
+
+    pub avg_byte_size_per_doc: f64,
+
+    // the size, in bytes, of a segment whereby we will not
+    // to merge it at all
+    pub segment_freeze_size: usize,
 }
 
 impl MergePolicy for NPlusOneMergePolicy {
     fn compute_merge_candidates(&self, segments: &[SegmentMeta]) -> Vec<MergeCandidate> {
-        let n = self.n;
-        let min_num_segments = self.min_num_segments;
+        if segments.len() <= self.n + 1 {
+            // too few segments of interest to merge
+            return vec![];
+        }
+        // filter out any segments that are likely larger, on-disk, than the memory_budget configuration
+        // these segments will live on disk, as-is, until they become smaller through deletes
+        let mut segments = segments
+            .iter()
+            .filter(|s| {
+                // calculate the segment byte size based on a heuristic of the average byte size
+                // (as given to use when constructing NPlusOnceMergePolicy) times the number
+                // of live docs it contains
+                let byte_size = s.num_docs() as f64 * self.avg_byte_size_per_doc;
 
-        if segments.len() < n + min_num_segments {
+                // then the ratio of visible to total docs is calculated
+                let alive_ratio = s.num_docs() as f64 / s.max_doc() as f64;
+
+                // and we only accept, for merging, those who's adjust byte size is below our
+                // `segment_freeze_size`
+                let keep = byte_size * alive_ratio < self.segment_freeze_size as f64;
+                if !keep {
+                    eprintln!(
+                        "rejecting segment: {:?}, size={}, docs={}",
+                        s.id(),
+                        byte_size,
+                        s.max_doc()
+                    );
+                }
+                keep
+            })
+            .collect::<Vec<_>>();
+
+        if segments.len() < self.min_merge_count {
+            // not enough segments to even consider merging
             return vec![];
         }
 
-        // collect a list of the segments and sort them largest-to-smallest, by # of alive docs
-        let mut segments = segments.iter().collect::<Vec<_>>();
-        segments.sort_unstable_by(|a, b| a.num_docs().cmp(&b.num_docs()).reverse());
+        // find all the segments, by live doc count, that are 1 (or more) standard deviation below the mean
+        // these are the segments we'll merge together
+        let (mean, stddev) = mean_stddev(segments.iter().map(|s| s.num_docs())).unwrap();
+        eprintln!("mean={}, stddev={}", mean, stddev);
+        let mut small_segments = segments
+            .iter()
+            .filter(|s| (s.num_docs() as f64) <= mean - stddev)
+            .collect::<Vec<_>>();
 
-        let mut candidate = MergeCandidate(vec![]);
-        while segments.len() > n {
-            let meta = segments.pop().unwrap();
-            candidate.0.push(meta.id());
-        }
+        // sort smallest-to-larget
+        small_segments.sort_unstable_by_key(|segment| segment.num_docs());
+        eprintln!(
+            "small_segments={:?}",
+            small_segments
+                .iter()
+                .map(|s| (s.id(), s.num_docs()))
+                .collect::<Vec<_>>()
+        );
 
-        if candidate.0.len() < 2 {
-            // nothing worth merging
+        if small_segments.len() == 1 {
+            // there's only 1 segment that falls below our cutoff threshold, so we'll just leave it
             return vec![];
         }
 
-        vec![candidate]
+        if small_segments.len() < self.min_merge_count && segments.len() > self.n + 1 {
+            // we didn't come up with enough small segments to merge as they're all roughly the same
+            // size, but we still have more than N+1 segments.
+            //
+            // These segments are smaller than our "memory_budget" size, so we'll merge the smallest
+            // ones that would bring us back down to our "N"
+
+            // sort smallest-to-larget
+            segments.sort_unstable_by_key(|segment| segment.num_docs());
+
+            small_segments = segments.iter().take(segments.len() - self.n).collect();
+            eprintln!(
+                "more than N+1 segments ({}), taking the first {} smallest",
+                segments.len(),
+                small_segments.len()
+            );
+        }
+
+        if small_segments.len() < self.min_merge_count {
+            // not enough small segments to merge
+            return vec![];
+        }
+
+        // group the small_segments together into sets of MergeCandidates, smallest to largest
+        //
+        // When the estimated byte size of a MergeCandidate crosses our `segment_freeze_size` we
+        // start collecting another MergeCandidate
+        eprintln!("---- merging ---- ");
+        let mut candidates = vec![MergeCandidate(vec![])];
+        let mut current_candidate_byte_size = 0;
+        for segment in small_segments {
+            let byte_size = segment.max_doc() as usize * self.avg_byte_size_per_doc.ceil() as usize;
+
+            eprintln!(
+                "segment: {:?}, size={}, docs={}",
+                segment.id(),
+                byte_size,
+                segment.max_doc()
+            );
+            candidates.last_mut().unwrap().0.push(segment.id());
+            current_candidate_byte_size += byte_size;
+
+            if current_candidate_byte_size >= self.segment_freeze_size {
+                eprintln!(
+                    "{} segments, size={current_candidate_byte_size}",
+                    candidates.last().unwrap().0.len()
+                );
+                // current `MergeCandidate` group is now as large as a segment is allowed to be,
+                // so start another MergeCandidate to collect up the remaining segments
+                candidates.push(MergeCandidate(vec![]));
+                current_candidate_byte_size = 0;
+            }
+        }
+        eprintln!(
+            "{} segments, size={current_candidate_byte_size}",
+            candidates.last().unwrap().0.len()
+        );
+        eprintln!("---- merging done ---- ");
+
+        // remove short candidate lists
+        'outer: while !candidates.is_empty() {
+            for i in 0..candidates.len() {
+                if candidates[i].0.len() < self.min_merge_count {
+                    candidates.remove(i);
+                    continue 'outer;
+                }
+            }
+            break;
+        }
+
+        eprintln!("merging:{candidates:#?}");
+
+        candidates
+    }
+}
+
+type Mean = f64;
+type StdDev = f64;
+
+fn mean_stddev<I: Iterator<Item = u32>>(iter: I) -> Option<(Mean, StdDev)> {
+    let mut count = 0;
+    let mut mean = 0.0;
+    let mut m2 = 0.0;
+
+    for x in iter {
+        count += 1;
+        let x = x as f64;
+        let delta = x - mean;
+        mean += delta / (count as f64);
+        let delta2 = x - mean;
+        m2 += delta * delta2;
+    }
+
+    if count == 0 {
+        None
+    } else {
+        let variance = m2 / (count as f64);
+        Some((mean, variance.sqrt()))
     }
 }
 
@@ -94,35 +236,12 @@ impl MergeLock {
         MergeLock(merge_lock)
     }
 
-    pub unsafe fn init(relation_id: pg_sys::Oid, num_segments: u32) {
+    pub unsafe fn init(relation_id: pg_sys::Oid) {
         let mut bman = BufferManager::new(relation_id);
         let mut merge_lock = bman.get_buffer_mut(MERGE_LOCK);
         let mut page = merge_lock.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
         metadata.last_merge = pg_sys::InvalidTransactionId;
-        metadata.num_segments = num_segments;
-    }
-
-    pub unsafe fn force_num_segments(relation_id: pg_sys::Oid, num_segments: u32) -> u32 {
-        let mut bman = BufferManager::new(relation_id);
-        let mut merge_lock = bman.get_buffer_mut(MERGE_LOCK);
-        let mut page = merge_lock.page_mut();
-        let metadata = page.contents_mut::<MergeLockData>();
-        let current_num_segments = metadata.num_segments;
-        metadata.num_segments = num_segments;
-        current_num_segments
-    }
-
-    pub unsafe fn num_segments(&self) -> u32 {
-        let page = self.0.page();
-        let metadata = page.contents::<MergeLockData>();
-        metadata.num_segments
-    }
-
-    pub unsafe fn set_num_segments(&mut self, num_segments: u32) {
-        let mut page = self.0.page_mut();
-        let metadata = page.contents_mut::<MergeLockData>();
-        metadata.num_segments = num_segments;
     }
 }
 

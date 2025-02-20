@@ -56,7 +56,7 @@ impl MergePolicy for NPlusOneMergePolicy {
                 // then the ratio of visible to total docs is calculated
                 let alive_ratio = s.num_docs() as f64 / s.max_doc() as f64;
 
-                // and we only accept, for merging, those who's adjust byte size is below our
+                // and we only accept, for merging, those whose estimated byte size is below our
                 // `segment_freeze_size`
                 let keep = byte_size * alive_ratio < self.segment_freeze_size as f64;
                 if !keep {

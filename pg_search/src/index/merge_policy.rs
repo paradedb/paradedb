@@ -6,10 +6,10 @@ use tantivy::SegmentMeta;
 
 macro_rules! my_eprintln {
     () => {
-        // $crate::eprint!("\n")
+        // eprintln!()
     };
     ($($arg:tt)*) => {{
-        // $crate::io::_eprint($crate::format_args_nl!($($arg)*));
+        // eprintln!($($arg)*);
     }};
 }
 
@@ -82,6 +82,12 @@ impl MergePolicy for NPlusOneMergePolicy {
             return vec![];
         }
 
+        if segments.len() <= self.n + 1 {
+            // we already have the right amount of segments
+            my_eprintln!("already have the right amount of segments");
+            return vec![];
+        }
+
         // find all the segments, by live doc count, that are 1 (or more) standard deviation below the mean
         // these are the segments we'll merge together
         let (mean, stddev) = mean_stddev(segments.iter().map(|s| s.num_docs())).unwrap();
@@ -101,7 +107,7 @@ impl MergePolicy for NPlusOneMergePolicy {
                 .collect::<Vec<_>>()
         );
 
-        if small_segments.len() == 1 && segments.len() <= self.n + 1 {
+        if small_segments.len() <= self.min_merge_count && segments.len() <= self.n + 1 {
             // there's only 1 segment that falls below our cutoff threshold, so we'll just leave it
             my_eprintln!(
                 "leaving small segment alone, id={}, size={}",

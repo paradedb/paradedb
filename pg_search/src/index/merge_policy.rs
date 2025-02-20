@@ -48,17 +48,12 @@ impl MergePolicy for NPlusOneMergePolicy {
         let mut segments = segments
             .iter()
             .filter(|s| {
-                // calculate the segment byte size based on a heuristic of the average byte size
-                // (as given to use when constructing NPlusOnceMergePolicy) times the number
-                // of live docs it contains
+                // estimate the byte size of this segment, accounting for only the *live* docs
                 let byte_size = s.num_docs() as f64 * self.avg_byte_size_per_doc;
-
-                // then the ratio of visible to total docs is calculated
-                let alive_ratio = s.num_docs() as f64 / s.max_doc() as f64;
 
                 // and we only accept, for merging, those whose estimated byte size is below our
                 // `segment_freeze_size`
-                let keep = byte_size * alive_ratio < self.segment_freeze_size as f64;
+                let keep = byte_size < self.segment_freeze_size as f64;
                 if !keep {
                     eprintln!(
                         "rejecting segment: {:?}, size={}, docs={}",

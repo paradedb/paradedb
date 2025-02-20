@@ -157,7 +157,8 @@ impl MergePolicy for NPlusOneMergePolicy {
             current_candidate_byte_size += byte_size;
             current_candidate_docs += segment.num_docs();
 
-            if (matches!(merge_by, MergeBy::DocCount) && current_candidate_docs >= mean.ceil() as u32)
+            if (matches!(merge_by, MergeBy::DocCount)
+                && current_candidate_docs >= mean.ceil() as u32)
                 || (matches!(merge_by, MergeBy::ByteSize)
                     && current_candidate_byte_size >= self.segment_freeze_size)
             {

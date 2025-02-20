@@ -82,7 +82,6 @@ impl MergePolicy for NPlusOneMergePolicy {
 
         // sort smallest-to-larget
         small_segments.sort_unstable_by_key(|segment| segment.num_docs());
-        small_segments.pop(); // pop off the largest
         eprintln!(
             "small_segments={:?}",
             small_segments
@@ -118,12 +117,38 @@ impl MergePolicy for NPlusOneMergePolicy {
             segments.sort_unstable_by_key(|segment| segment.num_docs());
 
             small_segments = segments.iter().take(segments.len() - self.n).collect();
+
+            // calculate the avg # of docs in the small_segments list and then only keep those that are <= to that
+            let avg_docs_per_segment = (small_segments
+                .iter()
+                .map(|s| s.num_docs() as f64)
+                .sum::<f64>()
+                / small_segments.len() as f64)
+                .ceil() as u32;
+            small_segments.retain(|s| s.num_docs() <= avg_docs_per_segment);
+
             merge_by = MergeBy::DocCount;
-            eprintln!(
-                "more than N+1 segments ({}), taking the first {} smallest",
-                segments.len(),
-                small_segments.len()
-            );
+
+            if small_segments.len() < self.min_merge_count {
+                eprintln!(
+                    "more than N+1 segments ({}), taking the first {} smallest which are {:?}",
+                    segments.len(),
+                    small_segments.len(),
+                    small_segments
+                        .iter()
+                        .map(|s| (s.id(), s.num_docs()))
+                        .collect::<Vec<_>>()
+                );
+                small_segments = segments.iter().take(segments.len() - self.n).collect();
+            } else {
+                eprintln!(
+                    "more than N+1 segments ({}), taking the first {} smallest with num_docs <={}, which are {:?}",
+                    segments.len(),
+                    small_segments.len(),
+                    avg_docs_per_segment,
+                    small_segments.iter().map(|s| (s.id(), s.num_docs())).collect::<Vec<_>>()
+                );
+            }
         }
 
         if small_segments.len() < self.min_merge_count {

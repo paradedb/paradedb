@@ -82,6 +82,7 @@ impl MergePolicy for NPlusOneMergePolicy {
 
         // sort smallest-to-larget
         small_segments.sort_unstable_by_key(|segment| segment.num_docs());
+        small_segments.pop(); // pop off the largest
         eprintln!(
             "small_segments={:?}",
             small_segments
@@ -90,18 +91,18 @@ impl MergePolicy for NPlusOneMergePolicy {
                 .collect::<Vec<_>>()
         );
 
-        if small_segments.len() < self.min_merge_count
-            && segments.len() < self.n + (self.n as f64 * 0.10).ceil() as usize
-        {
-            // a small fudge factor of allowing 10% more segments than N
-            return vec![];
-        }
+        if small_segments.len() <= self.min_merge_count {
+            if segments.len() < self.n + (self.n as f64 * 0.10).ceil() as usize {
+                // a small fudge factor of allowing 10% more segments than N
+                return vec![];
+            }
 
-        if small_segments.len() == 1
-            && (small_segments[0].num_docs() == 1 || segments.len() < self.n + 1)
-        {
-            // there's only 1 segment that falls below our cutoff threshold, so we'll just leave it
-            return vec![];
+            if small_segments.len() == 1
+                && (small_segments[0].num_docs() == 1 || segments.len() < self.n + 1)
+            {
+                // there's only 1 segment that falls below our cutoff threshold, so we'll just leave it
+                return vec![];
+            }
         }
 
         let mut merge_by = MergeBy::ByteSize;

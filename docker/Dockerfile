@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     clang \
     pkg-config \
-    libicu76 \
+    libicu70 \
     libopenblas-dev \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*

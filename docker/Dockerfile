@@ -6,7 +6,7 @@ ARG PG_VERSION_MAJOR=17
 ###############################################
 
 # Note: Debian Bookworm = Debian 12
-FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
+FROM postgres:${PG_VERSION_MAJOR}.2-bookworm AS builder
 
 ARG PG_VERSION_MAJOR
 ARG RUST_VERSION=1.84
@@ -37,21 +37,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
-
-# Install libicu. It is requireed by pg_search to enable the ICU tokenizer. Unfortunately, the version
-# that ships with Debian Bookworm is 72, which is no longer supported by the rust_icu crate. This forces us
-# to compile version 70 ourselves. See: https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
-RUN curl -L -o icu4c-70_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-70-1/icu4c-70_1-src.tgz && \
-    tar -xzf icu4c-70_1-src.tgz
-
-WORKDIR /icu/source/
-RUN ./runConfigureICU Linux --prefix=/opt/icu70 && \
-    make "-j$(nproc)" && \
-    make install
-
-# Verify that icu-config is the version we just compiled
-ENV PATH="/opt/icu70/bin:$PATH"
-RUN icu-config --version
 
 # Copy project because we need to extract the pgrx version
 COPY . /tmp/
@@ -84,12 +69,6 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
 COPY . /tmp/
-
-# Set icu-config to the version we just compiled so the rust_icu crate can find it
-ENV PKG_CONFIG_PATH=/opt/icu70/lib/pkgconfig:$PKG_CONFIG_PATH \
-    PKG_CONFIG_LIBDIR=/opt/icu70/lib/pkgconfig \
-    PATH="/opt/icu70/bin:$PATH" \
-    ICU_CONFIG=/opt/icu70/bin/icu-config
 
 # Build the extension
 WORKDIR /tmp/pg_search
@@ -176,7 +155,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Second Stage: PostgreSQL and Barman Cloud
 ###############################################
 
-FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
+FROM postgres:${PG_VERSION_MAJOR}.2-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \

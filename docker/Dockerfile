@@ -31,11 +31,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libopenblas-dev \
     postgresql-server-dev-all \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain "${RUST_VERSION}" -y
 
-ENV PATH="/root/.cargo/bin:$PATH" \
+ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
 # Copy project because we need to extract the pgrx version
@@ -69,6 +71,12 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
 COPY . /tmp/
+
+# Install the ICU library binaries
+RUN cd /tmp && wget https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Ubuntu22.04-x64.tgz && \
+    cd / && tar xzvf /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz --strip-components=1 && \
+    rm -f /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz && \
+    ldconfig && ldconfig # yes, running it twice
 
 # Build the extension
 WORKDIR /tmp/pg_search
@@ -199,6 +207,9 @@ RUN apt-get update && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
 
+# Run "ldconfig" so that the final image sees the ICU libraries we copied above
+RUN ldconfig && ldconfig
+
 # Install Postgis and ca-certificates
 # ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
 ENV POSTGIS_VERSION_MAJOR=3
@@ -225,11 +236,19 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
 # To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
 # downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
 # extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget
+
+# Install the ICU library binaries
+RUN cd /tmp && wget https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Ubuntu22.04-x64.tgz && \
+    cd / && tar xzvf /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz --strip-components=1 && \
+    rm -f /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz && \
+    ldconfig && ldconfig # yes, running it twice
+RUN find /usr/local/
+
 #
 # We also uninstall `wget` after adding the PostgreSQL APT repository to the list of sources to minimize the surface area for potential security risks.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget && \
-    echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
+RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
     wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
     apt-get purge -y wget && \
     apt-get autoremove -y && \

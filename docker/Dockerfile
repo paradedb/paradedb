@@ -75,6 +75,7 @@ RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/do
     tar -xzf icu4c-76_1-src.tgz
 
 WORKDIR /icu/source/
+
 RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
     make "-j$(nproc)" && \
     make install

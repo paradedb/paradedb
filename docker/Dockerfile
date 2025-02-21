@@ -87,6 +87,7 @@ COPY . /tmp/
 
 # Set icu-config to the version we just compiled so the rust_icu crate can find it
 ENV PKG_CONFIG_PATH=/opt/icu70/lib/pkgconfig:$PKG_CONFIG_PATH \
+    PKG_CONFIG_LIBDIR=/opt/icu70/lib/pkgconfig \
     PATH="/opt/icu70/bin:$PATH" \
     ICU_CONFIG=/opt/icu70/bin/icu-config
 

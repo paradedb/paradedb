@@ -7,42 +7,41 @@
  * By using this file, you agree to comply with the AGPL v3.0 terms.
  *
  */
-
-use lindera_core::mode::Mode;
-use lindera_dictionary::{load_dictionary_from_config, DictionaryConfig, DictionaryKind};
-use lindera_tokenizer::token::Token as LinderaToken;
-use lindera_tokenizer::tokenizer::Tokenizer as LinderaTokenizer;
+use lindera::dictionary::DictionaryKind;
+use lindera::mode::Mode;
+use lindera::token::Token as LinderaToken;
+use lindera::tokenizer::Tokenizer as LinderaTokenizer;
 use once_cell::sync::Lazy;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 static CMN_TOKENIZER: Lazy<LinderaTokenizer> = Lazy::new(|| {
-    let dictionary_config = DictionaryConfig {
-        kind: Some(DictionaryKind::CcCedict),
-        path: None,
-    };
-    let dictionary = load_dictionary_from_config(dictionary_config)
+    let dictionary = lindera::dictionary::load_dictionary_from_kind(DictionaryKind::CcCedict)
         .expect("Lindera `CcCedict` dictionary must be present");
-    LinderaTokenizer::new(dictionary, None, Mode::Normal)
+    LinderaTokenizer::new(lindera::segmenter::Segmenter::new(
+        Mode::Normal,
+        dictionary,
+        None,
+    ))
 });
 
 static JPN_TOKENIZER: Lazy<LinderaTokenizer> = Lazy::new(|| {
-    let dictionary_config = DictionaryConfig {
-        kind: Some(DictionaryKind::IPADIC),
-        path: None,
-    };
-    let dictionary = load_dictionary_from_config(dictionary_config)
+    let dictionary = lindera::dictionary::load_dictionary_from_kind(DictionaryKind::IPADIC)
         .expect("Lindera `IPADIC` dictionary must be present");
-    LinderaTokenizer::new(dictionary, None, Mode::Normal)
+    LinderaTokenizer::new(lindera::segmenter::Segmenter::new(
+        Mode::Normal,
+        dictionary,
+        None,
+    ))
 });
 
 static KOR_TOKENIZER: Lazy<LinderaTokenizer> = Lazy::new(|| {
-    let dictionary_config = DictionaryConfig {
-        kind: Some(DictionaryKind::KoDic),
-        path: None,
-    };
-    let dictionary = load_dictionary_from_config(dictionary_config)
+    let dictionary = lindera::dictionary::load_dictionary_from_kind(DictionaryKind::KoDic)
         .expect("Lindera `KoDic` dictionary must be present");
-    LinderaTokenizer::new(dictionary, None, Mode::Normal)
+    LinderaTokenizer::new(lindera::segmenter::Segmenter::new(
+        Mode::Normal,
+        dictionary,
+        None,
+    ))
 });
 
 #[derive(Clone, Default)]

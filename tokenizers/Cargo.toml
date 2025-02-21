@@ -7,24 +7,20 @@ edition = { workspace = true }
 icu = ["rust_icu_ubrk", "rust_icu_sys", "rust_icu_uloc", "rust_icu_ustring"]
 
 [dependencies]
-anyhow = "1.0.87"
-lindera-core = "0.27.2"
-lindera-dictionary = "0.27.2"
-lindera-tokenizer = { version = "0.27.2", features = [
-  "cc-cedict-compress",
+anyhow = "1.0.96"
+lindera = { version = "0.39.0", features = [
   "cc-cedict",
-  "ipadic-compress",
   "ipadic",
-  "ko-dic-compress",
   "ko-dic",
+  "compress",
 ] }
-once_cell = "1.19.0"
-serde = "1.0.210"
-serde_json = "1.0.128"
+once_cell = "1.20.3"
+serde = "1.0.218"
+serde_json = "1.0.139"
 tantivy.workspace = true
-tracing = "0.1.40"
-strum_macros = "0.26.4"
-strum = { version = "0.26.3", features = ["derive"] }
+tracing = "0.1.41"
+strum_macros = "0.27.1"
+strum = { version = "0.27.1", features = ["derive"] }
 
 [dependencies.rust_icu_ubrk]
 version = "5.0.0"
@@ -47,7 +43,7 @@ version = "5.0.0"
 optional = true
 
 [dev-dependencies]
-rstest = "0.18.2"
+rstest = "0.24.0"
 
 [package.metadata.cargo-machete]
 ignored = ["rust_icu_common", "strum"]

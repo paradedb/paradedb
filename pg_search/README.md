@@ -196,7 +196,7 @@ sudo pacman -S core/icu
 
 # Debian 12 (Bookworm)
 # Note: Debian Bookworm ships libicu72, which is no longer supported in the rust_icu crate
-# These intructions compile and libicu76 from source
+# These instructions compile and libicu76 from source
 curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && tar -xzf icu4c-76_1-src.tgz
 
 cd /icu/source/

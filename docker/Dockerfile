@@ -47,8 +47,11 @@ RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/do
 WORKDIR /icu/source/
 RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
     make "-j$(nproc)" && \
-    make install && \
-    icu-config --version
+    make install
+
+# Verify that icu-config is the version we just compiled
+ENV PATH="/opt/icu76/bin:$PATH"
+RUN icu-config --version
 
 # Copy project because we need to extract the pgrx version
 COPY . /tmp/
@@ -81,7 +84,8 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
 # Set icu-config to the version we just compiled so the rust_icu crate can find it
-ENV ICU_CONFIG=/opt/icu76/bin/icu-config
+ENV PATH="/opt/icu76/bin:$PATH" \
+    ICU_CONFIG=/opt/icu76/bin/icu-config
 
 COPY . /tmp/
 

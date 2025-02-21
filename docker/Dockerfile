@@ -85,6 +85,10 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
 
 COPY . /tmp/
 
+# Set icu-config to the version we just compiled so the rust_icu crate can find it
+ENV PATH="/opt/icu70/bin:$PATH" \
+    ICU_CONFIG=/opt/icu70/bin/icu-config
+
 # Build the extension
 WORKDIR /tmp/pg_search
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"

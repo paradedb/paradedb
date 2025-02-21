@@ -26,34 +26,21 @@ tracing = "0.1.40"
 strum_macros = "0.26.4"
 strum = { version = "0.26.3", features = ["derive"] }
 
-[dependencies.rust_icu_sys]
-version = "5.0.0"
-default-features = false
-features = ["renaming", "icu_version_in_env"]
-optional = true
-
 [dependencies.rust_icu_ubrk]
 version = "5.0.0"
-default-features = false
-features = ["renaming", "icu_version_in_env"]
 optional = true
+features = ["]
 
-[dependencies.rust_icu_uloc]
+[dependencies.rust_icu_sys]
 version = "5.0.0"
-default-features = false
-features = ["renaming", "icu_version_in_env"]
 optional = true
 
 [dependencies.rust_icu_ustring]
 version = "5.0.0"
-default-features = false
-features = ["renaming", "icu_version_in_env"]
 optional = true
 
-[dependencies.rust_icu_common]
+[dependencies.rust_icu_uloc]
 version = "5.0.0"
-default-features = false
-features = ["renaming", "icu_version_in_env"]
 optional = true
 
 [dev-dependencies]

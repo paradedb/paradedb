@@ -57,7 +57,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     .execute(&mut conn1);
 
     // Dynamically generate at least 100 rows for each connection
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let categories = [
         "Category 1",
         "Category 2",
@@ -67,7 +67,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     ];
 
     for i in 0..5 {
-        let random_category = categories[rng.gen_range(0..categories.len())];
+        let random_category = categories[rng.random_range(0..categories.len())];
 
         // Create new connections for this iteration and store them in a vector
         let mut connections = vec![];

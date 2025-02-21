@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gnupg \
     curl \
+    wget \
     git \
     make \
     gcc \

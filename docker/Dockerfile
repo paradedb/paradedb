@@ -38,6 +38,16 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
+# Install libicu. It is requireed by pg_search to enable the ICU tokenizer. Unfortunately, the version
+# that ships with Debian Bookworm is 72, which is not supported by the rust_icu crate. This forces us
+# to compile version 76 ourselves. See: https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
+RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
+    tar -xzf icu4c-76_1-src.tgz
+WORKDIR /icu/source/
+RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
+    make "-j$(nproc)" && \
+    make install
+
 # Copy project because we need to extract the pgrx version
 COPY . /tmp/
 
@@ -67,18 +77,6 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
-
-# Install libicu. It is requireed by pg_search to enable the ICU tokenizer. Unfortunately, the version
-# that ships with Debian Bookworm is 72, which is not supported by the rust_icu crate. This forces us
-# to compile version 76 ourselves. See: https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
-RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar -xzf icu4c-76_1-src.tgz
-
-WORKDIR /icu/source/
-
-RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
-    make "-j$(nproc)" && \
-    make install
 
 # Set icu-config to the version we just compiled so the rust_icu crate can find it
 ENV ICU_CONFIG=/opt/icu76/bin/icu-config

@@ -18,6 +18,9 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
+# The libicu version must both exist on Debian and be in the list
+# of supported versions on https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
+# As of writing, 63 is the current compatible stable and 76 is the current compatible experimental
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     ca-certificates \
@@ -29,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     clang \
     pkg-config \
+    libicu63 \
     libopenblas-dev \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
@@ -72,7 +76,6 @@ COPY . /tmp/
 
 # Build the extension
 WORKDIR /tmp/pg_search
-ENV ICU_SYS_ICU_VERSION=70
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################

@@ -30,26 +30,31 @@ strum = { version = "0.26.3", features = ["derive"] }
 version = "5.0.0"
 default-features = false
 features = ["renaming", "icu_version_in_env"]
+optional = true
 
 [dependencies.rust_icu_ubrk]
 version = "5.0.0"
 default-features = false
 features = ["renaming", "icu_version_in_env"]
+optional = true
 
 [dependencies.rust_icu_uloc]
 version = "5.0.0"
 default-features = false
 features = ["renaming", "icu_version_in_env"]
+optional = true
 
 [dependencies.rust_icu_ustring]
 version = "5.0.0"
 default-features = false
 features = ["renaming", "icu_version_in_env"]
+optional = true
 
 [dependencies.rust_icu_common]
 version = "5.0.0"
 default-features = false
 features = ["renaming", "icu_version_in_env"]
+optional = true
 
 [dev-dependencies]
 rstest = "0.18.2"

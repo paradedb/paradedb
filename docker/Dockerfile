@@ -42,8 +42,8 @@ ENV PATH="/root/.cargo/bin:$PATH" \
 # Install libicu. It is requireed by pg_search to enable the ICU tokenizer. Unfortunately, the version
 # that ships with Debian Bookworm is 72, which is not supported by the rust_icu crate. This forces us
 # to compile version 76 ourselves. See: https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
-RUN wget https://github.com/unicode-org/icu/releases/download/release-76-2/icu4c-76_2-src.tgz && \
-    tar -xzf icu4c-76_2-src.tgz && \
+RUN wget https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
+    tar -xzf icu4c-76_1-src.tgz && \
     cd icu/source && \
     ./runConfigureICU Linux --prefix=/opt/icu76 && \
     make -j$(nproc) && \

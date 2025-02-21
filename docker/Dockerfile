@@ -9,7 +9,7 @@ ARG PG_VERSION_MAJOR=17
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR
-ARG RUST_VERSION=1.84
+ARG RUST_VERSION=1.85
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
@@ -30,7 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     pkg-config \
     libopenblas-dev \
-    libicu-dev \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
 
@@ -73,9 +72,8 @@ COPY . /tmp/
 
 # Build the extension
 WORKDIR /tmp/pg_search
-RUN export ICU_SYS_ICU_VERSION=$(pkg-config --modversion icu-uc | cut -d. -f1) && \
-    echo "ICU version: $ICU_SYS_ICU_VERSION" && \
-    cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+ENV ICU_SYS_ICU_VERSION=70
+RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_analytics

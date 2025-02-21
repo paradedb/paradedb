@@ -29,7 +29,6 @@ strum = { version = "0.26.3", features = ["derive"] }
 [dependencies.rust_icu_ubrk]
 version = "5.0.0"
 optional = true
-features = ["]
 
 [dependencies.rust_icu_sys]
 version = "5.0.0"
@@ -40,6 +39,10 @@ version = "5.0.0"
 optional = true
 
 [dependencies.rust_icu_uloc]
+version = "5.0.0"
+optional = true
+
+[dependencies.rust_icu_common]
 version = "5.0.0"
 optional = true
 

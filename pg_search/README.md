@@ -195,6 +195,8 @@ sudo apt-get install -y libicu74
 sudo pacman -S core/icu
 ```
 
+On Debian, you'll need to compile it from source
+
 Additionally, on macOS you'll need to add the `icu-config` binary to your path before continuing:
 
 ```bash

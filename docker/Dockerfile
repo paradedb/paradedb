@@ -9,7 +9,7 @@ ARG PG_VERSION_MAJOR=17
 FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR
-ARG RUST_VERSION=1.85
+ARG RUST_VERSION=1.84
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
@@ -40,17 +40,17 @@ ENV PATH="/root/.cargo/bin:$PATH" \
 
 # Install libicu. It is requireed by pg_search to enable the ICU tokenizer. Unfortunately, the version
 # that ships with Debian Bookworm is 72, which is no longer supported by the rust_icu crate. This forces us
-# to compile version 76 ourselves. See: https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
-RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar -xzf icu4c-76_1-src.tgz
+# to compile version 70 ourselves. See: https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
+RUN curl -L -o icu4c-70_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-70-1/icu4c-70_1-src.tgz && \
+    tar -xzf icu4c-70_1-src.tgz
 
 WORKDIR /icu/source/
-RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
+RUN ./runConfigureICU Linux --prefix=/opt/icu70 && \
     make "-j$(nproc)" && \
     make install
 
 # Verify that icu-config is the version we just compiled
-ENV PATH="/opt/icu76/bin:$PATH"
+ENV PATH="/opt/icu70/bin:$PATH"
 RUN icu-config --version
 
 # Copy project because we need to extract the pgrx version
@@ -82,10 +82,6 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
-
-# Set icu-config to the version we just compiled so the rust_icu crate can find it
-ENV PATH="/opt/icu76/bin:$PATH" \
-    ICU_CONFIG=/opt/icu76/bin/icu-config
 
 COPY . /tmp/
 

@@ -29,3 +29,6 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "lz4-compression",
 ], default-features = false }
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "81c6d2bf74307682830a598bb5d99d237c946deb" }
+
+[patch.crates-io]
+rust_icu_sys = { git = "https://github.com/google/rust_icu.git", rev = "53e98c8" }

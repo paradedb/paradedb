@@ -6,7 +6,7 @@ ARG PG_VERSION_MAJOR=17
 ###############################################
 
 # Note: Debian Bookworm = Debian 12
-FROM postgres:${PG_VERSION_MAJOR}.2-bookworm AS builder
+FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
 
 ARG PG_VERSION_MAJOR
 ARG RUST_VERSION=1.84
@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     clang \
     pkg-config \
+    libicu72 \
     libopenblas-dev \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
@@ -155,7 +156,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Second Stage: PostgreSQL and Barman Cloud
 ###############################################
 
-FROM postgres:${PG_VERSION_MAJOR}.2-bookworm AS paradedb
+FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - Postgres for Search and Analytics" \

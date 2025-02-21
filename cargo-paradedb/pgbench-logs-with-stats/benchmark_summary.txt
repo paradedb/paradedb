@@ -1,0 +1,21 @@
+======================================================================
+  PG Benchmarks Summary (with extra stats) on Thu Feb 20 14:56:03 EST 2025
+  DB URL: postgres://localhost:28817/pg_search
+  Clients: 4, Transactions/Client: 1000
+======================================================================
+
+===== Database size BEFORE the tests =====
+ db_size_before 
+----------------
+ 50 GB
+(1 row)
+
+
+----- Benchmarking Index Creation -----
+Dropping existing index idx_benchmark_eslogs_bm25 (if any)...
+Creating index idx_benchmark_eslogs_bm25 and collecting resource metrics...
+/usr/bin/time: illegal option -- v
+usage: time [-al] [-h | -p] [-o file] utility [argument ...]
+Stopping dstat (PID=86295)...
+----- Index Creation Benchmark Complete -----
+********** BEGIN Benchmarking: sql-pgnative **********

@@ -30,7 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     pkg-config \
     libopenblas-dev \
-    libicu-dev \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
 
@@ -73,7 +72,9 @@ COPY . /tmp/
 
 # Build the extension
 WORKDIR /tmp/pg_search
-RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN export ICU_SYS_ICU_VERSION=$(pkg-config --modversion icu-uc | cut -d. -f1) && \
+    echo "ICU version: $ICU_SYS_ICU_VERSION" && \
+    cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_analytics

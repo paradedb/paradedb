@@ -39,14 +39,16 @@ ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
 # Install libicu. It is requireed by pg_search to enable the ICU tokenizer. Unfortunately, the version
-# that ships with Debian Bookworm is 72, which is not supported by the rust_icu crate. This forces us
+# that ships with Debian Bookworm is 72, which is no longer supported by the rust_icu crate. This forces us
 # to compile version 76 ourselves. See: https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
 RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
     tar -xzf icu4c-76_1-src.tgz
+
 WORKDIR /icu/source/
 RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
     make "-j$(nproc)" && \
-    make install
+    make install && \
+    icu-config --version
 
 # Copy project because we need to extract the pgrx version
 COPY . /tmp/
@@ -106,7 +108,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     PARADEDB_VERSION=${PARADEDB_VERSION} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-RUN git clone --branch v0.3.3 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
+RUN git clone --branch v0.3.4 https://github.com/paradedb/pg_analytics.git /tmp/pg_analytics/
 
 # Build the extension
 WORKDIR /tmp/pg_analytics

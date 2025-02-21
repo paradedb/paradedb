@@ -177,7 +177,7 @@ sudo PG_CONFIG=/usr/bin/pg_config make install # may need sudo
 
 #### ICU Tokenizer
 
-`pg_search` comes with multiple tokenizers for different languages. The ICU tokenizer, which enables tokenization for Arabic, Amharic, Czech and Greek, is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:
+`pg_search` comes with multiple tokenizers for different languages. The ICU tokenizer is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:
 
 Ensure that the `libicu` library is installed. It should come preinstalled on most distros, but you can install it with your system package manager if it isn't:
 
@@ -193,18 +193,30 @@ sudo apt-get install -y libicu74
 
 # Arch Linux
 sudo pacman -S core/icu
+
+# Debian 12 (Bookworm)
+# Note: Debian Bookworm ships libicu72, which is no longer supported in the rust_icu crate
+# These intructions compile and libicu76 from source
+curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && tar -xzf icu4c-76_1-src.tgz
+
+cd /icu/source/
+./runConfigureICU Linux --prefix=/opt/icu76
+make "-j$(nproc)" && make install
 ```
 
 On Debian, you'll need to compile it from source
 
-Additionally, on macOS you'll need to add the `icu-config` binary to your path before continuing:
+Additionally, on macOS and Debian you'll need to add the `icu-config` binary to your path before continuing:
 
 ```bash
-# ARM macOS
+# macOS arm64
 export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
 
-# Intel macOS
+# macOS amd64
 export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig"
+
+# Debian 12 (Bookworm)
+export ICU_CONFIG=/opt/icu76/bin/icu-config
 ```
 
 Finally, to enable the ICU tokenizer in development, pass `--features icu` to the `cargo pgrx run` and `cargo pgrx test` commands.

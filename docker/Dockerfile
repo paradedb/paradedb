@@ -18,8 +18,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
-# The libicu version must both exist on Debian and be in the list
-# of supported versions on https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     ca-certificates \
@@ -31,7 +29,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     clang \
     pkg-config \
-    libicu70 \
     libopenblas-dev \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
@@ -40,6 +37,16 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
+
+# Install libicu. It is requireed by pg_search to enable the ICU tokenizer. Unfortunately, the version
+# that ships with Debian Bookworm is 72, which is not supported by the rust_icu crate. This forces us
+# to compile version 76 ourselves. See: https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
+RUN wget https://github.com/unicode-org/icu/releases/download/release-76-2/icu4c-76_2-src.tgz && \
+    tar -xzf icu4c-76_2-src.tgz && \
+    cd icu/source && \
+    ./runConfigureICU Linux --prefix=/opt/icu76 && \
+    make -j$(nproc) && \
+    sudo make install
 
 # Copy project because we need to extract the pgrx version
 COPY . /tmp/
@@ -70,6 +77,10 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
+
+ENV PKG_CONFIG_PATH="/opt/icu76/lib/pkgconfig:$PKG_CONFIG_PATH" \
+    LD_LIBRARY_PATH="/opt/icu76/lib:$LD_LIBRARY_PATH" \
+    RUST_ICU_MAJOR_VERSION_NUMBER=76
 
 COPY . /tmp/
 

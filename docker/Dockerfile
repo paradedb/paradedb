@@ -31,7 +31,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libopenblas-dev \
     postgresql-server-dev-all \
-    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
@@ -72,11 +71,18 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
 
 COPY . /tmp/
 
-# Install the ICU library binaries
-RUN cd /tmp && wget https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Ubuntu22.04-x64.tgz && \
-    cd / && tar xzvf /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz --strip-components=1 && \
-    rm -f /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz && \
-    ldconfig && ldconfig # yes, running it twice
+# Download the ICU library source
+WORKDIR /tmp
+RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
+    tar xzvf icu4c-76_1-src.tgz --strip-components=1 && \
+    rm -rf icu4c-76_1-src.tgz
+
+# Compile and install the ICU library
+WORKDIR /tmp/icu/source/
+RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
+    make "-j$(nproc)" && \
+    make install && \
+    ldconfig && ldconfig # Yes, running it twice
 
 # Build the extension
 WORKDIR /tmp/pg_search
@@ -207,9 +213,6 @@ RUN apt-get update && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
 
-# Run "ldconfig" so that the final image sees the ICU libraries we copied above
-RUN ldconfig && ldconfig
-
 # Install Postgis and ca-certificates
 # ca-certificates required for TLS connection to PostHog (which is used for telemetry) and PostGIS
 ENV POSTGIS_VERSION_MAJOR=3
@@ -231,26 +234,33 @@ RUN apt-get update \
 RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_analytics,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
 
+# The pg_search extension requires the ICU library binaries to be installed on the system
+WORKDIR /tmp
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget make && \
+    wget -q https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
+    tar xzvf icu4c-76_1-src.tgz --strip-components=1 && \
+    rm -rf icu4c-76_1-src.tgz
+
+WORKDIR /tmp/icu/source/
+RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
+    make "-j$(nproc)" && \
+    make install && \
+    ldconfig && ldconfig # Yes, running it twice
+RUN find /usr/local/ && \
+    rm -rf /tmp/icu
+
+
 # In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
 # ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
 # To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
 # downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
 # extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget
-
-# Install the ICU library binaries
-RUN cd /tmp && wget https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Ubuntu22.04-x64.tgz && \
-    cd / && tar xzvf /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz --strip-components=1 && \
-    rm -f /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz && \
-    ldconfig && ldconfig # yes, running it twice
-RUN find /usr/local/
-
 #
 # We also uninstall `wget` after adding the PostgreSQL APT repository to the list of sources to minimize the surface area for potential security risks.
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
     wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
-    apt-get purge -y wget && \
+    apt-get purge -y wget make && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 

@@ -74,13 +74,12 @@ COPY . /tmp/
 # Download the ICU library source
 WORKDIR /tmp
 RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar xzvf icu4c-76_1-src.tgz --strip-components=1 && \
+    tar xzvf icu4c-76_1-src.tgz && \
     rm -rf icu4c-76_1-src.tgz
 
 # Compile and install the ICU library
 WORKDIR /tmp/icu/source/
-RUN chmod +x runConfigureICU && \
-    ./runConfigureICU Linux --prefix=/opt/icu76 && \
+RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
     make "-j$(nproc)" && \
     make install && \
     ldconfig && ldconfig # Yes, running it twice
@@ -240,7 +239,7 @@ WORKDIR /tmp
 RUN apt-get update && \
     apt-get install -y --no-install-recommends wget make && \
     wget -q https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar xzvf icu4c-76_1-src.tgz --strip-components=1 && \
+    tar xzvf icu4c-76_1-src.tgz && \
     rm -rf icu4c-76_1-src.tgz
 
 WORKDIR /tmp/icu/source/

@@ -80,7 +80,7 @@ RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/do
 
 # Compile and install the ICU library
 WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
+RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make "-j$(nproc)" && \
     make install && \
     ldconfig && ldconfig # Yes, running it twice
@@ -253,11 +253,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Compile and install the ICU library and remove the source code to minimize the image size.
 WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/opt/icu76 && \
+RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make "-j$(nproc)" && \
     make install && \
     rm -rf /tmp/icu && \
-    find /usr/local/ && \
     ldconfig && ldconfig # Yes, running it twice
 
 # In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not

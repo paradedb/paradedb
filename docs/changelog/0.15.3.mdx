@@ -1,0 +1,29 @@
+---
+title: 0.15.3
+---
+
+<Note>
+  In order for the TEXT `key_field` fix to apply, existing BM25 indexes must be
+  recreated with `REINDEX`.
+</Note>
+
+## New Features 🎉
+
+- Updated the index tuning settings for memory and parallelism to no longer be restricted to superuser privileges.
+
+## Stability Improvements 💪
+
+- Fixed an issue where `paradedb.score()` returned empty values when using parametrized queries/plans.
+- Fixed an issue where UPDATE-heavy workloads on Postgres 16 and below could lock BM25 indexes.
+- Fixed an issue where TEXT `key_field` values would get truncated to 255 characters.
+- Fixed an issue with `paradedb.term()` could not find docs matching a full UUID value.
+- Fixed an issue where the ICU tokenizer could lock the BM25 index.
+
+## Performance Improvements 🚀
+
+- Improved the performance of search queries when running large INSERTs.
+- Improved the performance of BM25 indexes when running ParadeDB as a logical replica.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.15.3).

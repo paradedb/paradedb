@@ -73,8 +73,9 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
 COPY . /tmp/
 
 # Install the ICU library binaries
-RUN cd /tmp && wget https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Ubuntu22.04-x64.tgz && \
-    cd / && tar xzvf /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz --strip-components=1 && \
+WORKDIR /tmp
+RUN wget --progress=dot:giga https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Ubuntu22.04-x64.tgz && \
+    WORKDIR / && tar xzvf /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz --strip-components=1 && \
     rm -f /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz && \
     ldconfig && ldconfig # yes, running it twice
 
@@ -237,16 +238,16 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
 # downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
 # extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget
+    apt-get install -y --no-install-recommends wget && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install the ICU library binaries
-RUN cd /tmp && wget https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Ubuntu22.04-x64.tgz && \
-    cd / && tar xzvf /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz --strip-components=1 && \
+WORKDIR /tmp
+RUN wget --progress=dot:giga https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-Ubuntu22.04-x64.tgz && \
+    WORKDIR / && tar xzvf /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz --strip-components=1 && \
     rm -f /tmp/icu4c-76_1-Ubuntu22.04-x64.tgz && \
     ldconfig && ldconfig # yes, running it twice
-RUN find /usr/local/
 
-#
 # We also uninstall `wget` after adding the PostgreSQL APT repository to the list of sources to minimize the surface area for potential security risks.
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
     wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \

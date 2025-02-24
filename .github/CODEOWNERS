@@ -3,9 +3,9 @@
 /.cargo/                                                       @philippemnoel @rebasedming
 /.github/                                                      @philippemnoel @rebasedming
 /benchmarks/                                                   @philippemnoel @rebasedming
-/cargo-paradedb/                                               @rebasedming @neilyio
+/cargo-paradedb/                                               @philippemnoel @rebasedming
 /docker/                                                       @philippemnoel @rebasedming
-/docs/                                                         @rebasedming @neilyio
-/pg_search/                                                    @rebasedming @neilyio
-/tests/                                                        @rebasedming @neilyio
-/tokenizers/                                                   @rebasedming @neilyio
+/docs/                                                         @rebasedming @eeeebbbbrrrr
+/pg_search/                                                    @rebasedming @eeeebbbbrrrr
+/tests/                                                        @rebasedming @eeeebbbbrrrr
+/tokenizers/                                                   @rebasedming @eeeebbbbrrrr

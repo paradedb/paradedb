@@ -22,7 +22,7 @@ function commandExists() {
 }
 
 function isRHEL() {
-  cat /etc/redhat-release >/dev/null 2>&1 
+  cat /etc/redhat-release >/dev/null 2>&1
 }
 
 selectInstallationMethod() {
@@ -60,8 +60,8 @@ installDocker() {
   dbname="paradedb"
 
   if ! commandExists docker; then
-      echo -e "\n\nDocker not found!\nPlease install docker to continue with the setup."
-      exit 0
+    echo -e "\n\nDocker not found!\nPlease install docker to continue with the setup."
+    exit 0
   fi
 
 
@@ -174,8 +174,7 @@ installMacBinary(){
 
   # Unpack PKG at the desired locations
   echo "Installing $filename..."
-  sudo installer -pkg "$filename" -target /
-  if [[ $? -ne 0 ]]; then
+  if ! sudo installer -pkg "$filename" -target /; then
     echo "Installation failed. Please check the package and try again."
     exit 1
   fi
@@ -301,7 +300,7 @@ echo -e " |  __ \                  | |    |  __ \|  _ \    "
 echo -e " | |__) |_ _ _ __ __ _  __| | ___| |  | | |_) |   "
 echo -e " |  ___/ _\` | '__/ _\` |/ _\` |/ _ \ |  | |  _ < "
 echo -e " | |  | (_| | | | (_| | (_| |  __/ |__| | |_) |   "
-echo -e " |_|   \__,_|_|  \__,_|\__,_|\___|_____/|____/    "                                     
+echo -e " |_|   \__,_|_|  \__,_|\__,_|\___|_____/|____/    "
 echo -e ""
 echo -e ""
 echo -e "🚀 Welcome to ParadeDB Installation Script 🚀"
@@ -321,11 +320,11 @@ if [[ "$OSTYPE" = "msys" ]] || [[ "$OSTYPE" = "cygwin" ]]; then
     [yY][eE][sS]|[yY])
       installDocker
   esac
-# On macOS, both Docker and prebuilt binaries are supported
+  # On macOS, both Docker and prebuilt binaries are supported
 elif [[ "$OSTYPE" = "darwin"* ]]; then
   echo "Operating system detected: macOS"
   selectInstallationMethod "macOS" ".dylib"
-# On Linux, both Docker and prebuilt binaries are supported
+  # On Linux, both Docker and prebuilt binaries are supported
 else
   # Detect the sub-Linux version -> Added isRHEL to determine if base system is RHEL based
   echo "Operating system detected: Linux"

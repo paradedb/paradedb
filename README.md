@@ -43,6 +43,10 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 
 ## Deploying ParadeDB
 
+```bash
+sh <(curl https://www.paradedb.com)
+```
+
 ParadeDB and its extensions can be deployed in one of two ways:
 
 - Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))

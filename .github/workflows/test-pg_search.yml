@@ -281,8 +281,7 @@ jobs:
 
       - name: Run pg_search Integration Tests Against pgrx-managed Postgres
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: tests/
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=icu -- --skip replication --skip ephemeral
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --no-default-features --features=icu --package tests --package tokenizers -- --skip replication --skip ephemeral
 
       - name: Print the Postgres Logs
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && always()

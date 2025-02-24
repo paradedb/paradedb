@@ -258,6 +258,7 @@
                   {
                     "group": "Continuous Integration",
                     "pages": [
+                      "deploy/ci/overview",
                       "deploy/ci/github-actions",
                       "deploy/ci/gitlab-ci"
                     ]

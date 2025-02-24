@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.15.3'" to load this file. \quit
+
 /* </end connected objects> */
 /* <begin connected objects> */
 -- pg_search/src/api/operator/searchqueryinput.rs:55
@@ -10,6 +12,9 @@ CREATE  FUNCTION "with_index"(
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'with_index_wrapper';
 
+--
+-- b/c of predicate pushdown work (#2197)
+--
 /* <begin connected objects> */
 -- pg_search/src/api/index.rs:549
 -- pg_search::api::index::term_with_operator

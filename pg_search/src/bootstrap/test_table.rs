@@ -18,7 +18,6 @@
 use std::str::FromStr;
 
 use anyhow::Result;
-use pgrx::pg_sys::BuiltinOid;
 use pgrx::spi::Spi;
 use pgrx::{datum::RangeBound, prelude::*, JsonB};
 use serde::Serialize;
@@ -70,14 +69,14 @@ fn create_bm25_test_table(
     let table_type = table_type.unwrap_or(TestTable::Items);
     let full_table_name = format!("{}.{}", schema_name, table_name);
 
-    Spi::connect(|mut client| {
+    Spi::connect_mut(|client| {
         let original_client_min_messages: String = client
-            .select("SELECT current_setting('client_min_messages')", None, None)?
+            .select("SELECT current_setting('client_min_messages')", None, &[])?
             .first()
             .get(1)? // 1-based indexing
             .unwrap_or("NOTICE".into()); // Postgres default
 
-        client.update("SET client_min_messages TO WARNING", None, None)?;
+        client.update("SET client_min_messages TO WARNING", None, &[])?;
 
         let table_not_found = client
             .select(
@@ -86,7 +85,7 @@ fn create_bm25_test_table(
                     schema_name, table_name
                 ),
                 None,
-                None,
+                &[],
             )?
             .is_empty();
 
@@ -110,7 +109,7 @@ fn create_bm25_test_table(
                             full_table_name
                         ),
                         None,
-                        None,
+                        &[],
                     )?;
 
                     for record in mock_items_data() {
@@ -120,17 +119,17 @@ fn create_bm25_test_table(
                                 full_table_name
                             ),
                             Some(1),
-                            Some(vec![
-                                (PgOid::BuiltIn(BuiltinOid::TEXTOID), record.0.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::INT4OID), record.1.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::VARCHAROID), record.2.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::BOOLOID), record.3.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::JSONBOID), JsonB(record.4).into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID), record.5.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::DATEOID), record.6.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::TIMEOID), record.7.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::INT4RANGEOID), record.8.into_datum()),
-                            ]),
+                            &[
+                                record.0.into(),
+                                record.1.into(),
+                                record.2.into(),
+                                record.3.into(),
+                                JsonB(record.4).into(),
+                                record.5.into(),
+                                record.6.into(),
+                                record.7.into(),
+                                record.8.into(),
+                            ],
                         )?;
                     }
                 }
@@ -147,7 +146,7 @@ fn create_bm25_test_table(
                             full_table_name
                         ),
                         None,
-                        None,
+                        &[],
                     )?;
 
                     for record in mock_orders_data() {
@@ -157,12 +156,12 @@ fn create_bm25_test_table(
                                 full_table_name
                             ),
                             Some(1),
-                            Some(vec![
-                                (PgOid::BuiltIn(BuiltinOid::INT4OID), record.0.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::INT4OID), record.1.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::FLOAT4OID), record.2.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::VARCHAROID), record.3.into_datum()),
-                            ]),
+                            &[
+                                record.0.into(),
+                                record.1.into(),
+                                record.2.into(),
+                                record.3.into(),
+                            ],
                         )?;
                     }
                 }
@@ -177,7 +176,7 @@ fn create_bm25_test_table(
                             full_table_name
                         ),
                         None,
-                        None,
+                        &[],
                     )?;
 
                     for record in mock_parts_data() {
@@ -187,11 +186,11 @@ fn create_bm25_test_table(
                                 full_table_name
                             ),
                             Some(1),
-                            Some(vec![
-                                (PgOid::BuiltIn(BuiltinOid::INT4OID), record.0.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::INT4OID), record.1.into_datum()),
-                                (PgOid::BuiltIn(BuiltinOid::VARCHAROID), record.2.into_datum()),
-                            ]),
+                            &[
+                                record.0.into(),
+                                record.1.into(),
+                                record.2.into(),
+                            ],
                         )?;
                     }
                 }
@@ -210,7 +209,7 @@ fn create_bm25_test_table(
                             full_table_name
                         ),
                         None,
-                        None,
+                        &[],
                     )?;
 
                     for record in mock_deliveries_data() {
@@ -221,32 +220,14 @@ fn create_bm25_test_table(
                                 full_table_name
                             ),
                             Some(1),
-                            Some(vec![
-                                (
-                                    PgOid::BuiltIn(BuiltinOid::INT4RANGEOID),
-                                    record.1.into_datum(),
-                                ),
-                                (
-                                    PgOid::BuiltIn(BuiltinOid::INT8RANGEOID),
-                                    record.2.into_datum(),
-                                ),
-                                (
-                                    PgOid::BuiltIn(BuiltinOid::NUMRANGEOID),
-                                    record.3.into_datum(),
-                                ),
-                                (
-                                    PgOid::BuiltIn(BuiltinOid::DATERANGEOID),
-                                    record.4.into_datum(),
-                                ),
-                                (
-                                    PgOid::BuiltIn(BuiltinOid::TSRANGEOID),
-                                    record.5.into_datum(),
-                                ),
-                                (
-                                    PgOid::BuiltIn(BuiltinOid::TSTZRANGEOID),
-                                    record.6.into_datum(),
-                                ),
-                            ]),
+                            &[
+                                record.1.into(),
+                                record.2.into(),
+                                record.3.into(),
+                                record.4.into(),
+                                record.5.into(),
+                                record.6.into(),
+                            ],
                         )?;
                     }
                 }
@@ -262,7 +243,7 @@ fn create_bm25_test_table(
                             full_table_name
                         ),
                         None,
-                        None,
+                        &[],
                     )?;
 
                     for record in mock_customers_data() {
@@ -272,13 +253,7 @@ fn create_bm25_test_table(
                                 full_table_name
                             ),
                             Some(1),
-                            Some(vec![
-                                (PgOid::BuiltIn(BuiltinOid::TEXTOID), record.0.into_datum()),
-                                (
-                                    PgOid::BuiltIn(BuiltinOid::JSONBOID),
-                                    JsonB(record.1).into_datum(),
-                                ),
-                            ]),
+                            &[record.0.into(), JsonB(record.1).into()],
                         )?;
                     }
                 }
@@ -293,7 +268,7 @@ fn create_bm25_test_table(
                 original_client_min_messages
             ),
             None,
-            None,
+            &[],
         )?;
 
         Ok(())

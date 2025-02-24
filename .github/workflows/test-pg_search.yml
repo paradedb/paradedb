@@ -161,12 +161,11 @@ jobs:
 
       - name: Run pg_search Integration Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: tests/
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           export PARADEDB_TELEMETRY=false
-          RUST_BACKTRACE=1 cargo test --features icu
+          RUST_BACKTRACE=1 cargo test --features icu --package tests --package tokenizers
 
       - name: Run pg_search Unit Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

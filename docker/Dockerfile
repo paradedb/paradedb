@@ -273,5 +273,8 @@ RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
+# Ensure that the ICU library binaries are available at runtime
+RUN echo '/usr/local/lib' > /etc/ld.so.conf.d/local.conf && ldconfig
+
 # Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh

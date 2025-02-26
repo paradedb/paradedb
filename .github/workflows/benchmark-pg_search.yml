@@ -26,7 +26,7 @@ jobs:
       matrix:
         runner: [ubicloud-standard-8]
         pg_version: [17]
-        num_rows: [1000000]
+        num_rows: [100000000]
     runs-on: ${{ matrix.runner }}
 
     steps:

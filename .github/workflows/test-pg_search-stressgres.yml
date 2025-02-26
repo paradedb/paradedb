@@ -142,7 +142,7 @@ jobs:
           payload: |
             channel_id: ${{ secrets.SLACK_GITHUB_CHANNEL_ID }}
             initial_comment: |
-              *Stressgres Results*
+              *Community Stressgres Results*
               <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
             file: "stressgres/stressgres.png"
             filename: "stressgres.png"

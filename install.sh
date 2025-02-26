@@ -19,7 +19,7 @@ PG_MAJOR_VERSION=""
 ########################################
 
 function isRHEL() {
-  cat /etc/redhat-release >/dev/null 2>&1 
+  cat /etc/redhat-release >/dev/null 2>&1
 }
 
 # TODO: Add an if statement for other versions up to 13 for K8s and Docker
@@ -247,7 +247,7 @@ echo -e " |  __ \                  | |    |  __ \|  _ \    "
 echo -e " | |__) |_ _ _ __ __ _  __| | ___| |  | | |_) |   "
 echo -e " |  ___/ _\` | '__/ _\` |/ _\` |/ _ \ |  | |  _ < "
 echo -e " | |  | (_| | | | (_| | (_| |  __/ |__| | |_) |   "
-echo -e " |_|   \__,_|_|  \__,_|\__,_|\___|_____/|____/    "                                     
+echo -e " |_|   \__,_|_|  \__,_|\__,_|\___|_____/|____/    "
 echo -e ""
 echo -e ""
 echo -e "🚀 Welcome to the ParadeDB Installation Script 🚀"

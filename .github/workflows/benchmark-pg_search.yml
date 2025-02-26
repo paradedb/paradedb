@@ -72,7 +72,7 @@ jobs:
         run: |
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
           sed -i "s/^#maintenance_work_mem = .*/maintenance_work_mem = '12GB'/" postgresql.conf
-          sed -i "s/^#shared_buffers = .*/shared_buffers = '12GB'/" postgresql.conf
+          sed -i "s/^shared_buffers = .*/shared_buffers = '12GB'/" postgresql.conf
           sed -i "s/^#max_parallel_workers = .*/max_parallel_workers = 8/" postgresql.conf
           sed -i "s/^#max_worker_processes = .*/max_worker_processes = 8/" postgresql.conf
           sed -i "s/^#max_parallel_workers_per_gather = .*/max_parallel_workers_per_gather = 8/" postgresql.conf

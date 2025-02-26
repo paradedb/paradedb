@@ -6,9 +6,7 @@
 name: Test pg_search Stressgres
 
 on:
-  schedule:
-    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
-  push:
+  pull_request:
     branches: # Also run on `dev` and `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
       - dev
       - main
@@ -132,7 +130,9 @@ jobs:
           short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
+      # Only upload results to Slack on PRs to `main` to avoid spamming the channel
       - name: Upload Stressgres Graph to Slack
+        if: github.ref == 'refs/heads/main'
         uses: slackapi/slack-github-action@v2.0.0
         id: upload_stressgres_image
         with:

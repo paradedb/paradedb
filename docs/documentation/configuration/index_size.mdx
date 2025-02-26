@@ -1,0 +1,28 @@
+---
+title: Index Size
+---
+
+## Index Creation
+
+If possible, we recommend deferring BM25 index creation until **after** a table has been populated. For instance:
+
+```sql
+-- This is preferred
+CREATE TABLE test (id SERIAL, data text);
+INSERT INTO test (data) VALUES ('hello world'), ('many more values');
+CREATE INDEX ON test USING bm25 (id, data) WITH (key_field = 'id');
+
+-- ...to this
+CREATE TABLE test (id SERIAL, data text);
+CREATE INDEX ON test USING bm25 (id, data) WITH (key_field = 'id');
+INSERT INTO test (data) VALUES ('hello world'), ('many more values');
+```
+
+Creating the BM25 index on a pre-populated table leads to a more tightly packed, efficient representation on disk.
+
+## Inserts and Updates
+
+Every `INSERT` or `UPDATE` statement creates at least one new [segment](/documentation/concepts/index#segment). When deciding where to write the new segment,
+ParadeDB first attempts to re-use space occupied by dead segments. If there's not enough free space, ParadeDB will extend the index, which increases its size on disk.
+
+Free space is created by a `VACUUM`, which can either be run manually or automatically by Postgres [autovacuum](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html).

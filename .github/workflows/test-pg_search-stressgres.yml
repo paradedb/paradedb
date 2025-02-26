@@ -6,13 +6,23 @@
 name: Test pg_search Stressgres
 
 on:
-  schedule:
-    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
+  #  schedule:
+  #    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - dev
+      - main
+    paths:
+      - ".github/workflows/test-pg_search-stressgres.yml"
+      - "**/*.rs"
+      - "**/*.toml"
   push:
     branches: # Also run on `dev` and `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
       - dev
       - main
     paths:
+      - ".github/workflows/test-pg_search-stressgres.yml"
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
@@ -63,11 +73,19 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
       - name: Install cargo-pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize cargo-pgrx environment
-        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download"
+        run: cargo pgrx init --pg${{ matrix.pg_version }}=`which pg_config`
 
       - name: Checkout Stressgres Repo
         uses: actions/checkout@v4
@@ -76,38 +94,24 @@ jobs:
           path: stressgres
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
-      - name: Add pg_search to shared_preload_libraries
-        if: matrix.pg_version < 17
-        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
-
       - name: Compile & install pg_search extension
         working-directory: paradedb/pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features=pg${{ matrix.pg_version }},icu
+        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features
 
-      - name: Start Postgres and create database
-        working-directory: paradedb/tests/
-        run: |
-          RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
-
-      - name: Run Stressgres Test Suite
+      - name: Run Stressgres Test Suite for 10 minutes
         working-directory: stressgres/
         run: |
-          RUST_BACKTRACE=1 cargo build && timeout 10m \
-          cargo run -- \
-            headless suites/ci.toml "host=localhost port=28817 dbname=postgres" \
-            --log-interval-ms 300 \
-            --log-file stressgres.log \
-            || EXIT_CODE=$?
-
-          if [ "$EXIT_CODE" -eq 124 ]; then
-            echo "Process timed out as expected."
-          fi
+          sudo chmod a+rwx /var/run/postgresql/ && \
+          cargo run --release -- auto \
+          --log-path stressgres.log \
+          --runtime 5000 \
+          `which pg_config` \
+          /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/single-server.toml \
+          /tmp/stressgres
 
       - name: Create Stressgres Graph
         working-directory: stressgres/
-        run: cargo run -- graph --output stressgres.png stressgres.log
+        run: cargo run --release -- graph --output stressgres.png stressgres.log
 
       - name: Upload Stressgres Graph
         id: artifact-graph
@@ -122,9 +126,6 @@ jobs:
         with:
           name: stressgres-logs
           path: stressgres/stressgres.log
-
-      - name: Print Postgres Logs
-        run: cat ~/.pgrx/${{ matrix.pg_version }}.log
 
       - name: Derive Short Commit
         id: commit_info
@@ -157,7 +158,12 @@ jobs:
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-          MESSAGE="Stressgres pg_search Workflow failed in \`paradedb/paradedb\` -- investigate immediately! • GitHub Action Logs: ${GITHUB_RUN_URL} • Stressgres Log: ${ARTIFACT_URL}" echo "Sending failure notification to Slack..."
+          MESSAGE="Stressgres pg_search Workflow failed in \`paradedb/paradedb-enterprise\` -- investigate immediately! • GitHub Action Logs: ${GITHUB_RUN_URL} • Stressgres Log: ${ARTIFACT_URL}" echo "Sending failure notification to Slack..."
           curl -X POST -H 'Content-type: application/json' \
           --data "{\"text\": \"${MESSAGE}\"}" \
           ${SLACK_WEBHOOK_URL}
+
+      - name: Print Postgres Logs
+        run: |
+          cat /tmp/stressgres/stressgres/primary.log && \
+          cat /tmp/stressgres/stressgres/secondary.log

@@ -13,6 +13,9 @@ on:
   push:
     branches:
       - dev
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
   workflow_dispatch:
 
 concurrency:

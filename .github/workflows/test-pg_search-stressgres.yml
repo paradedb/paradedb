@@ -164,6 +164,4 @@ jobs:
           ${SLACK_WEBHOOK_URL}
 
       - name: Print Postgres Logs
-        run: |
-          cat /tmp/stressgres/stressgres/primary.log && \
-          cat /tmp/stressgres/stressgres/secondary.log
+        run: cat /tmp/stressgres/stressgres/primary.log

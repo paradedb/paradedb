@@ -11,8 +11,8 @@ on:
     branches:
       - main
   push:
-    paths:
-      - ".github/workflows/benchmark-pg_search.yml"
+    branches:
+      - dev
   workflow_dispatch:
 
 concurrency:
@@ -145,3 +145,15 @@ jobs:
           $BENCHMARK_RESULTS"
 
           gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"
+
+      - name: Send Slack Notification
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          SLACK_MESSAGE="New pg_search benchmark results available on dev branch. View the PR: $PR_URL"
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"$SLACK_MESSAGE\"}" \
+            $SLACK_WEBHOOK_URL

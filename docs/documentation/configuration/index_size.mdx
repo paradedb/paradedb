@@ -20,9 +20,16 @@ INSERT INTO test (data) VALUES ('hello world'), ('many more values');
 
 Creating the BM25 index on a pre-populated table leads to a more tightly packed, efficient representation on disk.
 
-## Inserts and Updates
+## Write Statements
 
-Every `INSERT` or `UPDATE` statement creates at least one new [segment](/documentation/concepts/index#segment). When deciding where to write the new segment,
-ParadeDB first attempts to re-use space occupied by dead segments. If there's not enough free space, ParadeDB will extend the index, which increases its size on disk.
+Every `INSERT`/`UPDATE`/`COPY` creates at least one new [segment](/documentation/concepts/index#segment). When deciding where to write the new segment,
+ParadeDB first attempts to re-use free space occupied by dead segments. If there's not enough free space, ParadeDB will extend the index, which increases its size on disk.
 
-Free space is created by a `VACUUM`, which can either be run manually or automatically by Postgres [autovacuum](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html).
+The space occupied by dead segments is marked as "free for re-use" by a `VACUUM`, which can either be run manually or automatically by Postgres [autovacuum](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html).
+Normal `UPDATE` or `DELETE` statements do **not** create free space on their own. To control the index size in write-heavy scenarios, it is important to either:
+
+1. Tune autovacuum in `postgresql.conf` such that vacuums occur at a frequency that is acceptable for your write patterns. Please refer to the [Postgres documentation](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html) for guidance.
+2. Manually run `VACUUM` between large `INSERT`/`UPDATE`/`DELETE`/`COPY` statements.
+
+If the index has already grown too large as a result of failure to vacuum, the only way to shrink the index size is to drop the index or `REINDEX`. Vacuums on their own do **not** decrease the
+index size — they only mark space for re-use.

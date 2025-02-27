@@ -13,5 +13,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .add_instructions(&git_instructions)?
         .emit()?;
 
+    if cfg!(target_family = "unix") && cfg!(feature = "icu") {
+        println!("cargo:rustc-link-search=native=/usr/local/lib");
+    }
+
     Ok(())
 }

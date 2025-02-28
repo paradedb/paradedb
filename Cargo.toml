@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cargo-paradedb", "pg_search", "tests", "tokenizers"]
+members = ["pg_search", "tests", "tokenizers"]
 
 [workspace.package]
 version = "0.15.5"

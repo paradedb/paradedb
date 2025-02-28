@@ -26,7 +26,7 @@ This allows the BM25 index to create a more tightly packed, efficient representa
 
 When rows are updated/deleted or [segments](/documentation/concepts/index#segment) are merged together, parts of the index can be rendered "dead."
 `VACUUM`s, which can either be run manually or automatically by Postgres [autovacuum](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html),
-are responsible for marking the space occupied by dead segments as "free for re-use" by future `INSERT`/`UPDATE`/`COPY` statements.
+are responsible for marking the space occupied by dead segments as "free for reuse" by future `INSERT`/`UPDATE`/`COPY` statements.
 
 Normal `UPDATE` or `DELETE` statements do **not** create free space on their own. This means that, if a table were never vacuumed, the BM25 index size would
 grow unbounded as rows are updated or additional rows are inserted. To control the index size, it is important to either:
@@ -35,4 +35,4 @@ grow unbounded as rows are updated or additional rows are inserted. To control t
 2. Manually run `VACUUM` between large `INSERT`/`UPDATE`/`DELETE`/`COPY` statements.
 
 If the index has already grown too large as a result of failure to vacuum, the only way to shrink the index size is to drop the index or `REINDEX`. Vacuums on their own do **not** decrease the
-index size — they only mark space for re-use.
+index size — they only mark space for reuse.

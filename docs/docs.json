@@ -43,6 +43,7 @@
                             "pages": [
                               "documentation/configuration/overview",
                               "documentation/configuration/index",
+                              "documentation/configuration/index_size",
                               "documentation/configuration/write",
                               "documentation/configuration/parallel"
                             ]

@@ -185,7 +185,10 @@ Ensure that the `libicu` library is installed. It should come preinstalled on mo
 # macOS
 brew install icu4c
 
-# Ubuntu 20.04 or 22.04
+# Ubuntu 20.04
+sudo apt-get install -y libicu66
+
+# Ubuntu 22.04
 sudo apt-get install -y libicu70
 
 # Ubuntu 24.04

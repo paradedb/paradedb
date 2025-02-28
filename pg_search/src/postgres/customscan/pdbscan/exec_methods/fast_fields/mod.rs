@@ -179,6 +179,11 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
         if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+            if (*var).varno as i32 != rti as i32 {
+                // this TargetEntry's Var isn't from the same RangeTable as we were asked to inspect,
+                // so just skip it
+                continue;
+            }
             match (*var).varattno as i32 {
                 // any of these mean we can't use fast fields
                 pg_sys::MinTransactionIdAttributeNumber
@@ -200,9 +205,13 @@ pub unsafe fn pullup_fast_fields(
                 }
 
                 attno => {
-                    let att = tupdesc
-                        .get((attno - 1) as usize)
-                        .expect("attnum should exist in tupdesc");
+                    let att = tupdesc.get((attno - 1) as usize).unwrap_or_else(|| {
+                        panic!(
+                            "attno {attno} should exist in tupdesc from relation {} (`{}`)",
+                            heaprel.oid().as_u32(),
+                            heaprel.name()
+                        )
+                    });
                     if schema.is_fast_field(att.name()) {
                         let ff_type = if (*var).vartype == pg_sys::TEXTOID
                             || (*var).vartype == pg_sys::VARCHAROID

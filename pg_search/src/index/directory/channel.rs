@@ -42,6 +42,7 @@ pub enum ChannelRequest {
         oneshot::Sender<Option<Box<dyn MergePolicy>>>,
     ),
     Panic(Box<dyn Any + Send>),
+    WantsCancel(oneshot::Sender<bool>),
 }
 
 #[derive(Clone, Debug)]
@@ -187,6 +188,14 @@ impl Directory for ChannelDirectory {
             sender.send(ChannelRequest::Panic(any)).unwrap();
         };
         Some(Arc::new(panic_handler))
+    }
+
+    fn wants_cancel(&self) -> bool {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
+        self.sender
+            .send(ChannelRequest::WantsCancel(oneshot_sender))
+            .unwrap();
+        oneshot_receiver.recv().unwrap()
     }
 }
 
@@ -360,6 +369,9 @@ impl ChannelRequestHandler {
                 } else {
                     panic_any(any)
                 }
+            }
+            ChannelRequest::WantsCancel(sender) => {
+                sender.send(self.directory.wants_cancel())?;
             }
         }
         Ok(false)

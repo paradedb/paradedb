@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use crate::index::merge_policy::MergeLock;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::BlockDirectoryType;
 use crate::postgres::options::SearchIndexCreateOptions;
@@ -229,6 +230,11 @@ fn index_info(
     assert!(search_readers.is_empty());
 
     Ok(TableIterator::new(results))
+}
+
+#[pg_extern]
+fn is_merging(index: PgRelation) -> bool {
+    unsafe { MergeLock::acquire_for_merge(index.oid()).is_none() }
 }
 
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple

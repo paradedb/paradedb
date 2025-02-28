@@ -2,9 +2,11 @@
 title: Index Size
 ---
 
+There are a few things you can do to optimize the index size when building and writing to the index.
+
 ## Index Creation
 
-If possible, we recommend deferring BM25 index creation until **after** a table has been populated. For instance:
+If possible, creating the BM25 index should be deferred until **after** a table has been populated. To illustrate:
 
 ```sql
 -- This is preferred
@@ -18,15 +20,16 @@ CREATE INDEX ON test USING bm25 (id, data) WITH (key_field = 'id');
 INSERT INTO test (data) VALUES ('hello world'), ('many more values');
 ```
 
-Creating the BM25 index on a pre-populated table leads to a more tightly packed, efficient representation on disk.
+This allows the BM25 index to create a more tightly packed, efficient representation on disk.
 
-## Write Statements
+## Vacuuming
 
-Every `INSERT`/`UPDATE`/`COPY` creates at least one new [segment](/documentation/concepts/index#segment). When deciding where to write the new segment,
-ParadeDB first attempts to re-use free space occupied by dead segments. If there's not enough free space, ParadeDB will extend the index, which increases its size on disk.
+When rows are updated/deleted or [segments](/documentation/concepts/index#segment) are merged together, parts of the index can be rendered "dead."
+`VACUUM`s, which can either be run manually or automatically by Postgres [autovacuum](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html),
+are responsible for marking the space occupied by dead segments as "free for re-use" by future `INSERT`/`UPDATE`/`COPY` statements.
 
-The space occupied by dead segments is marked as "free for re-use" by a `VACUUM`, which can either be run manually or automatically by Postgres [autovacuum](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html).
-Normal `UPDATE` or `DELETE` statements do **not** create free space on their own. To control the index size in write-heavy scenarios, it is important to either:
+Normal `UPDATE` or `DELETE` statements do **not** create free space on their own. This means that, if a table were never vacuumed, the BM25 index size would
+grow unbounded as rows are updated or additional rows are inserted. To control the index size, it is important to either:
 
 1. Tune autovacuum in `postgresql.conf` such that vacuums occur at a frequency that is acceptable for your write patterns. Please refer to the [Postgres documentation](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html) for guidance.
 2. Manually run `VACUUM` between large `INSERT`/`UPDATE`/`DELETE`/`COPY` statements.

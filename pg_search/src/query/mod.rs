@@ -690,6 +690,27 @@ fn check_range_bounds(
     Ok((lower_bound, upper_bound))
 }
 
+fn coerce_bound_to_field_type(
+    bound: Bound<OwnedValue>,
+    field_type: &FieldType,
+) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(OwnedValue::U64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Included(OwnedValue::F64(n as f64))
+        }
+        Bound::Included(OwnedValue::I64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Included(OwnedValue::F64(n as f64))
+        }
+        Bound::Excluded(OwnedValue::U64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Excluded(OwnedValue::F64(n as f64))
+        }
+        Bound::Excluded(OwnedValue::I64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Excluded(OwnedValue::F64(n as f64))
+        }
+        bound => bound,
+    }
+}
+
 impl SearchQueryInput {
     pub fn into_tantivy_query(
         self,
@@ -1067,6 +1088,9 @@ impl SearchQueryInput {
                     .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
                 let is_datetime = is_datetime_typeoid(typeoid) || is_datetime;
+
+                let lower_bound = coerce_bound_to_field_type(lower_bound, &field_type);
+                let upper_bound = coerce_bound_to_field_type(upper_bound, &field_type);
                 let (lower_bound, upper_bound) =
                     check_range_bounds(typeoid, lower_bound, upper_bound)?;
 

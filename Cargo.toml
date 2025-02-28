@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cargo-paradedb", "pg_search", "tests", "tokenizers"]
+members = ["pg_search", "tests", "tokenizers"]
 
 [workspace.package]
 version = "0.15.5"
@@ -23,12 +23,11 @@ lto = "thin"
 codegen-units = 32
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "cbaff7f180dfa0e5c5c962bc734ef0e47e99290f", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "d837c284bdb37d5806604d6b02374354a821749c", features = [
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",
 ], default-features = false }
-tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "cbaff7f180dfa0e5c5c962bc734ef0e47e99290f" }
 pgrx = "0.13.0"
 pgrx-tests = "0.13.0"
 

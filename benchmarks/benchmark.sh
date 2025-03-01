@@ -2,20 +2,46 @@
 
 set -Eeuo pipefail
 
-if [ $# -ne 1 ]; then
-  echo "Usage: $0 <postgres_url>"
+# Parse named arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --url)
+      POSTGRES_URL="$2"
+      shift 2
+      ;;
+    --type)
+      TYPE="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      echo "Usage: $0 --url <postgres_url> --type <type>"
+      echo "Type must be either 'pg_search' or 'tuned_postgres'"
+      exit 1
+      ;;
+  esac
+done
+
+# Check required arguments
+if [[ -z "${POSTGRES_URL:-}" || -z "${TYPE:-}" ]]; then
+  echo "Usage: $0 --url <postgres_url> --type <type>"
+  echo "Type must be either 'pg_search' or 'tuned_postgres'"
   exit 1
 fi
 
-POSTGRES_URL=$1
-OUTPUT_FILE="benchmark.md"
+if [[ "$TYPE" != "pg_search" && "$TYPE" != "tuned_postgres" ]]; then
+  echo "Type must be either 'pg_search' or 'tuned_postgres'"
+  exit 1
+fi
+
+OUTPUT_FILE="benchmark_${TYPE}.md"
 
 # Create markdown table header
 echo "| Query Type | Query | Run 1 (ms) | Run 2 (ms) | Run 3 (ms) | Rows Returned |" > "$OUTPUT_FILE"
 echo "|------------|--------|------------|------------|------------|---------------|" >> "$OUTPUT_FILE"
 
 # Iterate through each .sql file in queries directory
-for sql_file in queries/*.sql; do
+for sql_file in queries/"$TYPE"/*.sql; do
   # Extract query type from filename (remove path and .sql extension)
   query_type=$(basename "$sql_file" .sql)
 

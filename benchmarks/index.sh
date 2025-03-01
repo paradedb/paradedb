@@ -2,44 +2,65 @@
 
 set -Eeuo pipefail
 
-if [ $# -ne 1 ]; then
-  echo "Usage: $0 <postgres_url>"
+# Parse named arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --type)
+      TYPE="$2"
+      shift 2
+      ;;
+    --url)
+      POSTGRES_URL="$2"
+      shift 2
+      ;;
+    --prewarm)
+      PREWARM="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      exit 1
+      ;;
+  esac
+done
+
+PREWARM=${PREWARM:-true}
+
+# Validate arguments
+if [ -z "${POSTGRES_URL:-}" ]; then
+  echo "Usage: $0 --type <pg_search|tuned_postgres> --postgres-url <postgres_url> [--prewarm <true|false>]"
   exit 1
 fi
 
-POSTGRES_URL=$1
-OUTPUT_FILE="index.md"
+if [ "$TYPE" != "pg_search" ] && [ "$TYPE" != "tuned_postgres" ]; then
+  echo "Type must be either pg_search or tuned_postgres"
+  exit 1
+fi
 
-echo "| Duration (min) | Index Size (MB) | Table Size (MB) | Estimated Rows |" > "$OUTPUT_FILE"
-echo "|----------------|-----------------|-----------------|----------------|" >> "$OUTPUT_FILE"
+OUTPUT_FILE="index_${TYPE}.md"
 
-output_file=$(mktemp)
+echo "| Duration (min) | Index Size (MB) |" > "$OUTPUT_FILE"
+echo "|----------------|-----------------|" >> "$OUTPUT_FILE"
 
-psql "$POSTGRES_URL" -t -c "CREATE EXTENSION IF NOT EXISTS pg_search;" || { echo "Failed to create pg_search extension"; exit 1; }
-psql "$POSTGRES_URL" -t -c "DROP INDEX IF EXISTS benchmark_logs_idx;" || { echo "Failed to drop index"; exit 1; }
-psql "$POSTGRES_URL" -t -c '\timing' -c "CREATE INDEX benchmark_logs_idx ON benchmark_logs USING bm25 (id, message, country, severity, timestamp, metadata) WITH (key_field = 'id', text_fields = '{\"country\": {\"fast\": true }}', json_fields = '{\"metadata\": { \"fast\": true }}');" > "$output_file" 2>&1 || { echo "Failed to create index"; cat "$output_file"; exit 1; }
+psql "$POSTGRES_URL" -f "prepare_table/${TYPE}.sql" || { echo "Failed to prepare indexes"; exit 1; }
 
-duration_min=$(grep 'Time' "$output_file" | awk '{sum+=$2} END {printf "%.3f", sum/60000}')
-rm "$output_file"
+while IFS='' read -r statement; do
+  if [[ -z "${statement// }" ]]; then
+    continue
+  fi
 
-# Get table size in MB
-echo "Calculating table size..."
-table_size_mb=$(psql "$POSTGRES_URL" -t -c "
-    SELECT pg_relation_size('benchmark_logs') / 1024 / 1024
-    FROM pg_class
-WHERE relname = 'benchmark_logs';" | tr -d ' ') || { echo "Failed to get table size"; exit 1; }
+  echo "$statement"
 
-# Get index size in MB
-echo "Calculating index size..."
-index_size_mb=$(psql "$POSTGRES_URL" -t -c "
-    SELECT pg_relation_size('benchmark_logs_idx') / 1024 / 1024
-    FROM pg_class
-WHERE relname = 'benchmark_logs_idx';" | tr -d ' ') || { echo "Failed to get index size"; exit 1; }
+  duration_ms=$(psql "$POSTGRES_URL" -t -c '\timing' -c "$statement" | grep 'Time' | awk '{print $2}')
+  duration_min=$(echo "scale=2; $duration_ms / (1000 * 60)" | bc)
+  index_name=$(echo "$statement" | sed -n 's/CREATE INDEX \([^ ]*\).*/\1/p')
+  index_size=$(psql "$POSTGRES_URL" -t -c "SELECT pg_relation_size('$index_name') / (1024 * 1024);" | tr -d ' ')
 
-estimated_rows=$(psql "$POSTGRES_URL" -t -c "
-    SELECT reltuples::bigint
-    FROM pg_class
-WHERE relname = 'benchmark_logs';" | tr -d ' ') || { echo "Failed to get estimated row count"; exit 1; }
+  echo "| $duration_min | $index_size |" >> "$OUTPUT_FILE"
+done < "create_index/${TYPE}.sql"
 
-echo "| $duration_min | $index_size_mb | $table_size_mb | $estimated_rows |" >> "$OUTPUT_FILE"
+if [ "$PREWARM" = "true" ]; then
+  psql "$POSTGRES_URL" -f "prewarm/${TYPE}.sql" || { echo "Failed to prewarm indexes"; exit 1; }
+fi
+
 echo "Index creation results written to $OUTPUT_FILE"

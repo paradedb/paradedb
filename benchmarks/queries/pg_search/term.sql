@@ -1,2 +1,2 @@
-SELECT * FROM benchmark_logs WHERE message @@@ 'fox' OR country @@@ 'canada' LIMIT 10;
-SELECT * FROM benchmark_logs WHERE message @@@ 'fox' OR country @@@ 'canada' LIMIT 250;
+SELECT * FROM benchmark_logs WHERE message @@@ 'research' OR country @@@ 'Canada' LIMIT 10;
+SELECT * FROM benchmark_logs WHERE message @@@ 'research' OR country @@@ 'Canada' LIMIT 250;

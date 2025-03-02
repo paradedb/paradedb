@@ -1,1 +1,1 @@
-SELECT * FROM benchmark_logs WHERE message @@@ '"quick brown fox"' OR country @@@ '"United States"' LIMIT 10;
+SELECT * FROM benchmark_logs WHERE message @@@ '"ancient artifacts"' OR country @@@ '"United States"' LIMIT 10;

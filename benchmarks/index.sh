@@ -13,10 +13,6 @@ while [[ $# -gt 0 ]]; do
       POSTGRES_URL="$2"
       shift 2
       ;;
-    --prewarm)
-      PREWARM="$2"
-      shift 2
-      ;;
     *)
       echo "Unknown argument: $1"
       exit 1
@@ -24,11 +20,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PREWARM=${PREWARM:-true}
-
 # Validate arguments
 if [ -z "${POSTGRES_URL:-}" ]; then
-  echo "Usage: $0 --type <pg_search|tuned_postgres> --postgres-url <postgres_url> [--prewarm <true|false>]"
+  echo "Usage: $0 --type <pg_search|tuned_postgres> --postgres-url <postgres_url>"
   exit 1
 fi
 
@@ -58,9 +52,5 @@ while IFS='' read -r statement; do
 
   echo "| $duration_min | $index_size |" >> "$OUTPUT_FILE"
 done < "create_index/${TYPE}.sql"
-
-if [ "$PREWARM" = "true" ]; then
-  psql "$POSTGRES_URL" -f "prewarm/${TYPE}.sql" || { echo "Failed to prewarm indexes"; exit 1; }
-fi
 
 echo "Index creation results written to $OUTPUT_FILE"

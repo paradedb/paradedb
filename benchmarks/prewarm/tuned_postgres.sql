@@ -3,4 +3,5 @@ SELECT pg_prewarm('message_gin');
 SELECT pg_prewarm('country_btree');
 SELECT pg_prewarm('severity_btree');
 SELECT pg_prewarm('timestamp_btree');
-SELECT pg_prewarm('metadata_label_gin');
+SELECT pg_prewarm('metadata_label_btree');
+ANALYZE benchmark_logs;

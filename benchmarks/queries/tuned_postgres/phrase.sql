@@ -1,1 +1,1 @@
-SELECT * FROM benchmark_logs WHERE to_tsvector('english', message) @@ phraseto_tsquery('english', 'quick brown fox') OR to_tsvector('english', country) @@ phraseto_tsquery('english', 'United States') LIMIT 10;
+SELECT * FROM benchmark_logs WHERE to_tsvector('english', message) @@ phraseto_tsquery('english', 'ancient artifacts') OR country = 'United States' LIMIT 10;

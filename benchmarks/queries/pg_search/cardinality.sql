@@ -1,1 +1,1 @@
-SELECT COUNT(DISTINCT severity) FROM benchmark_logs WHERE message @@@ 'the';
+SELECT COUNT(DISTINCT severity) FROM benchmark_logs WHERE message @@@ 'research';

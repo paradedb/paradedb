@@ -19,11 +19,13 @@ psql POSTGRES_URL -f create-table.sql -v num_rows=1000000
 2. Run `index.sh` to create a BM25 index over the table. Once completed, an `index.md` file will be created with stats on indexing time, index size, etc.
 
 ```bash
-./index.sh POSTGRES_URL
+./index.sh --url POSTGRES_URL --type pg_search
 ```
+
+`type` can be either `pg_search` or `tuned_postgres`. `pg_search` uses the BM25 index, while `tuned_postgres` uses built-in Postgres GIN and btree indexes.
 
 3. Run `benchmark.sh` to benchmark against the test queries. Once completed, a `benchmark.md` file will be created with benchmark results.
 
 ```bash
-./benchmark.sh POSTGRES_URL
+./benchmark.sh --url POSTGRES_URL --type pg_search
 ```

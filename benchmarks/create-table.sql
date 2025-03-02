@@ -15,16 +15,16 @@ CREATE TABLE benchmark_logs (
 INSERT INTO benchmark_logs (message, country, severity, timestamp, metadata)
 SELECT
   (ARRAY[
-    'The quick brown fox jumped over the lazy dog while the sun was setting behind the mountains, casting long shadows across the peaceful valley below.',
-    'Scientists discovered a new species of deep-sea creature living near hydrothermal vents, marking a breakthrough in our understanding of extreme environment adaptations.',
-    'The ancient library contained countless scrolls and manuscripts, each one holding secrets and knowledge from civilizations long forgotten by time.',
-    'Through the telescope, astronomers observed a distant galaxy collision, its cosmic dance of stars and gas creating spectacular patterns across the night sky.',
-    'The artificial intelligence system processed billions of calculations per second, working tirelessly to solve complex problems that had puzzled humans for centuries.',
-    'Deep in the rainforest, rare flowers bloomed in brilliant colors, their sweet fragrance attracting exotic butterflies and hummingbirds from miles around.',
-    'The quantum computer completed in microseconds what would have taken traditional computers millennia, ushering in a new era of computational capability.',
-    'Archaeologists unearthed artifacts from an ancient civilization, each piece telling stories of daily life, customs, and beliefs from thousands of years ago.',
-    'The space station crew conducted groundbreaking experiments in zero gravity, their research promising to revolutionize manufacturing and medicine on Earth.',
-    'Through advanced genetic engineering, scientists developed crops that could thrive in harsh conditions, offering hope for food security in challenging climates.'
+    'The research team discovered a new species of deep-sea creature while conducting experiments near hydrothermal vents in the dark ocean depths.',
+    'The research facility analyzed samples from ancient artifacts, revealing breakthrough findings about civilizations lost to the depths of time.',
+    'The research station monitored weather patterns across mountain peaks, collecting data about atmospheric changes in the remote depths below.',
+    'The research observatory captured images of stellar phenomena, peering into the cosmic depths to understand the mysteries of distant galaxies.',
+    'The research laboratory processed vast amounts of genetic data, exploring the molecular depths of DNA to unlock biological secrets.',
+    'The research center studied rare organisms found in ocean depths, documenting new species thriving in extreme underwater environments.',
+    'The research institute developed quantum systems to probe subatomic depths, advancing our understanding of fundamental particle physics.',
+    'The research expedition explored underwater depths near volcanic vents, discovering unique ecosystems adapted to extreme conditions.',
+    'The research facility conducted experiments in the depths of space, testing how different materials behave in zero gravity environments.',
+    'The research team engineered crops that could grow in the depths of drought conditions, helping communities facing climate challenges.'
   ])[1 + MOD(s.id - 1, 10)],
   (ARRAY[
     'United States',

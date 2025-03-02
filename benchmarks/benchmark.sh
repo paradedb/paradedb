@@ -13,6 +13,10 @@ while [[ $# -gt 0 ]]; do
       TYPE="$2"
       shift 2
       ;;
+    --prewarm)
+      PREWARM="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
       echo "Usage: $0 --url <postgres_url> --type <type>"
@@ -22,9 +26,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+PREWARM=${PREWARM:-true}
+
 # Check required arguments
 if [[ -z "${POSTGRES_URL:-}" || -z "${TYPE:-}" ]]; then
-  echo "Usage: $0 --url <postgres_url> --type <type>"
+  echo "Usage: $0 --url <postgres_url> --type <type> [--prewarm <true|false>]"
   echo "Type must be either 'pg_search' or 'tuned_postgres'"
   exit 1
 fi
@@ -37,8 +43,12 @@ fi
 OUTPUT_FILE="benchmark_${TYPE}.md"
 
 # Create markdown table header
-echo "| Query Type | Query | Run 1 (ms) | Run 2 (ms) | Run 3 (ms) | Rows Returned |" > "$OUTPUT_FILE"
-echo "|------------|--------|------------|------------|------------|---------------|" >> "$OUTPUT_FILE"
+echo "| Query Type | Run 1 (ms) | Run 2 (ms) | Run 3 (ms) | Rows Returned | Query |" > "$OUTPUT_FILE"
+echo "|------------|------------|------------|------------|---------------|--------|" >> "$OUTPUT_FILE"
+
+if [ "$PREWARM" = "true" ]; then
+  psql "$POSTGRES_URL" -f "prewarm/${TYPE}.sql" || { echo "Failed to prewarm indexes"; exit 1; }
+fi
 
 # Iterate through each .sql file in queries directory
 for sql_file in queries/"$TYPE"/*.sql; do
@@ -70,6 +80,10 @@ for sql_file in queries/"$TYPE"/*.sql; do
       psql "$POSTGRES_URL" -t -c '\timing' -c "$clean_query" > "$output_file" 2>&1
       duration_ms=$(grep 'Time' "$output_file" | awk '{print $2}')
 
+      # Print query results
+      grep -v 'Time' "$output_file" | grep -v '^$'
+      echo
+
       # Count number of rows returned (only on first run)
       if [ "$i" -eq 1 ]; then
         num_results=$(grep -v 'Time' "$output_file" | grep -c -v '^$')
@@ -83,7 +97,7 @@ for sql_file in queries/"$TYPE"/*.sql; do
     printf "Run 1: %4.0fms | Run 2: %4.0fms | Run 3: %4.0fms | Results: %d\n\n" "${results[0]}" "${results[1]}" "${results[2]}" "$num_results"
 
     # Write results to markdown table
-    echo "| $query_type | \`$md_query\` | ${results[0]} | ${results[1]} | ${results[2]} | $num_results |" >> "$OUTPUT_FILE"
+    echo "| $query_type | ${results[0]} | ${results[1]} | ${results[2]} | $num_results | \`$md_query\` |" >> "$OUTPUT_FILE"
   done < "$sql_file"
 done
 

@@ -16,6 +16,7 @@ on:
       - ".github/workflows/test-pg_search-stressgres.yml"
       - "**/*.rs"
       - "**/*.toml"
+      - "**/stressgres/*.toml"
   workflow_dispatch:
 
 jobs:

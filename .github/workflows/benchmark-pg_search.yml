@@ -7,12 +7,12 @@
 name: Benchmark pg_search
 
 on:
-  schedule:
-    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
-  push:
-    branches: # Also run on `dev` and `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
-      - dev
+  pull_request:
+    branches:
       - main
+  push:
+    branches:
+      - dev
     paths:
       - "**/*.rs"
       - "**/*.toml"
@@ -25,10 +25,12 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
-    runs-on: ubicloud-standard-8
     strategy:
       matrix:
+        runner: [ubicloud-standard-8]
         pg_version: [17]
+        num_rows: [100000000]
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout Git Repository
@@ -68,32 +70,93 @@ jobs:
           cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
-      - name: Add pg_search to shared_preload_libraries
-        if: matrix.pg_version < 17
+      - name: Configure PostgreSQL settings
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+          sed -i "s/^#maintenance_work_mem = .*/maintenance_work_mem = '12GB'/" postgresql.conf
+          sed -i "s/^shared_buffers = .*/shared_buffers = '12GB'/" postgresql.conf
+          sed -i "s/^#max_parallel_workers = .*/max_parallel_workers = 8/" postgresql.conf
+          sed -i "s/^#max_worker_processes = .*/max_worker_processes = 8/" postgresql.conf
+          sed -i "s/^#max_parallel_workers_per_gather = .*/max_parallel_workers_per_gather = 8/" postgresql.conf
 
-      - name: Install the ParadeDB Benchmarking Tool
-        working-directory: cargo-paradedb/
-        run: cargo run install
-
-      - name: Start Postgres
+      - name: Restart Postgres
         working-directory: pg_search/
-        run: cargo pgrx start pg${{ matrix.pg_version }}
+        run: |
+          cargo pgrx stop pg${{ matrix.pg_version }}
+          cargo pgrx start pg${{ matrix.pg_version }}
 
       - name: Generate Benchmark Data
-        working-directory: pg_search/
-        run: cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+        working-directory: benchmarks/
+        run: psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -f create-table.sql -v num_rows=${{ matrix.num_rows }}
 
       - name: Index Benchmark Data
-        working-directory: pg_search/
-        run: cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+        working-directory: benchmarks/
+        run: ./index.sh postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Run Search Benchmark
-        working-directory: pg_search/
-        run: cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+      - name: Run Benchmark
+        working-directory: benchmarks/
+        run: ./benchmark.sh postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
-      - name: Notify Slack on Failure
-        if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
+      - name: Get PostgreSQL Settings
+        id: get_settings
         run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_search Workflow failed in `paradedb/paradedb` -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+          maintenance_work_mem=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW maintenance_work_mem;" | tr -d ' ')
+          shared_buffers=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW shared_buffers;" | tr -d ' ')
+          max_parallel_workers=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW max_parallel_workers;" | tr -d ' ')
+          max_worker_processes=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW max_worker_processes;" | tr -d ' ')
+          max_parallel_workers_per_gather=$(psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -t -c "SHOW max_parallel_workers_per_gather;" | tr -d ' ')
+
+          echo "maintenance_work_mem=$maintenance_work_mem" >> $GITHUB_OUTPUT
+          echo "shared_buffers=$shared_buffers" >> $GITHUB_OUTPUT
+          echo "max_parallel_workers=$max_parallel_workers" >> $GITHUB_OUTPUT
+          echo "max_worker_processes=$max_worker_processes" >> $GITHUB_OUTPUT
+          echo "max_parallel_workers_per_gather=$max_parallel_workers_per_gather" >> $GITHUB_OUTPUT
+
+      - name: Create PR Comment
+        working-directory: benchmarks/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMENT="## pg_search Benchmark Results
+
+          ### Test Info
+          | Property | Value |
+          |----------|-------|
+          | Instance Type | ${{ matrix.runner }} |
+          | Estimated Row Count | ${{ matrix.num_rows }} |
+
+          ### PostgreSQL Settings
+          | Setting | Value |
+          |---------|-------|
+          | maintenance_work_mem | ${{ steps.get_settings.outputs.maintenance_work_mem }} |
+          | shared_buffers | ${{ steps.get_settings.outputs.shared_buffers }} |
+          | max_parallel_workers | ${{ steps.get_settings.outputs.max_parallel_workers }} |
+          | max_worker_processes | ${{ steps.get_settings.outputs.max_worker_processes }} |
+          | max_parallel_workers_per_gather | ${{ steps.get_settings.outputs.max_parallel_workers_per_gather }} |
+          "
+
+          BENCHMARK_RESULTS=$(cat benchmark.md)
+          INDEX_RESULTS=$(cat index.md)
+
+          COMMENT="$COMMENT
+
+          ### Index Results
+          $INDEX_RESULTS
+
+          ### Query Performance
+          $BENCHMARK_RESULTS"
+
+          gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"
+
+      - name: Send Slack Notification
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          SLACK_MESSAGE="New pg_search benchmark results available on dev branch. View the PR: $PR_URL"
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"$SLACK_MESSAGE\"}" \
+            $SLACK_WEBHOOK_URL

@@ -31,10 +31,10 @@ fn integer_range(mut conn: PgConnection) {
         value_int8 BIGINT
     );
 
-    INSERT INTO test_table (value_int4, value_int8) VALUES 
+    INSERT INTO test_table (value_int4, value_int8) VALUES
         (-1111, -11111111),
-        (2222, 22222222), 
-        (3333, 33333333), 
+        (2222, 22222222),
+        (3333, 33333333),
         (4444, 44444444);
     "#
     .execute(&mut conn);
@@ -70,10 +70,10 @@ fn unbounded_integer_range(mut conn: PgConnection) {
         value_int4 INTEGER,
         value_int8 BIGINT
     );
-    INSERT INTO test_table (value_int4, value_int8) VALUES 
+    INSERT INTO test_table (value_int4, value_int8) VALUES
         (-1111, -11111111),
-        (2222, 22222222), 
-        (3333, 33333333), 
+        (2222, 22222222),
+        (3333, 33333333),
         (4444, 44444444);
     "#
     .execute(&mut conn);
@@ -185,7 +185,7 @@ fn datetime_range(mut conn: PgConnection) {
         value_timestamptz TIMESTAMP WITH TIME ZONE
     );
 
-    INSERT INTO test_table (value_date, value_timestamp, value_timestamptz) VALUES 
+    INSERT INTO test_table (value_date, value_timestamp, value_timestamptz) VALUES
         (DATE '2023-05-03', TIMESTAMP '2023-04-15 13:27:09', TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST'),
         (DATE '2022-07-14', TIMESTAMP '2022-05-16 07:38:43', TIMESTAMP WITH TIME ZONE '2022-05-16 07:38:43 EST'),
         (DATE '2021-04-30', TIMESTAMP '2021-06-08 08:49:21', TIMESTAMP WITH TIME ZONE '2021-06-08 08:49:21 CST'),
@@ -202,7 +202,7 @@ fn datetime_range(mut conn: PgConnection) {
 
     // DATE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
+    SELECT * FROM test_table WHERE test_table @@@
         paradedb.range(field => 'value_date', range => '[2020-05-20,2022-06-13]'::daterange)
     ORDER BY id"#
         .fetch_collect(&mut conn);
@@ -210,7 +210,7 @@ fn datetime_range(mut conn: PgConnection) {
 
     // TIMESTAMP
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
+    SELECT * FROM test_table WHERE test_table @@@
         paradedb.range(field => 'value_timestamp', range => '[2019-08-02 07:52:43, 2021-06-10 10:32:41]'::tsrange)
     ORDER BY id"#
     .fetch_collect(&mut conn);
@@ -218,9 +218,74 @@ fn datetime_range(mut conn: PgConnection) {
 
     // TIMESTAMP WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
-    SELECT * FROM test_table WHERE test_table @@@ 
+    SELECT * FROM test_table WHERE test_table @@@
         paradedb.range(field => 'value_timestamptz', range => '[2020-07-09 17:52:13 EST, 2022-05-16 04:38:43 PST]'::tstzrange)
     ORDER BY id"#
     .fetch_collect(&mut conn);
     assert_eq!(rows.len(), 3);
+}
+
+#[rstest]
+fn integer_bounds_coercion(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        value_float4 FLOAT4,
+        value_float8 FLOAT8
+    );
+
+    INSERT INTO test_table (value_float4, value_float8) VALUES
+        (-1.1, -1111.1111),
+        (2.2, 2222.2222),
+        (3.3, 3333.3333),
+        (4.4, 4444.4444);
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX test_index ON test_table
+    USING bm25 (id, value_float4, value_float8)
+    WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    // Test integer bounds for FLOAT4
+    let rows: Vec<(i32, f32)> = r#"
+    SELECT id, value_float4 FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_float4', range => '[2,4]'::numrange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1, 2.2);
+    assert_eq!(rows[1].1, 3.3);
+
+    // Test integer bounds for FLOAT8
+    let rows: Vec<(i32, f64)> = r#"
+    SELECT id, value_float8 FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_float8', range => '[2222,4444]'::numrange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1, 2222.2222);
+    assert_eq!(rows[1].1, 3333.3333);
+
+    // Test mixed integer and float bounds for FLOAT4
+    let rows: Vec<(i32, f32)> = r#"
+    SELECT id, value_float4 FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_float4', range => '[2,3.5]'::numrange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1, 2.2);
+    assert_eq!(rows[1].1, 3.3);
+
+    // Test mixed integer and float bounds for FLOAT8
+    let rows: Vec<(i32, f64)> = r#"
+    SELECT id, value_float8 FROM test_table
+    WHERE test_table @@@ paradedb.range(field => 'value_float8', range => '[2222,3333.5]'::numrange)
+    ORDER BY id"#
+        .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1, 2222.2222);
+    assert_eq!(rows[1].1, 3333.3333);
 }

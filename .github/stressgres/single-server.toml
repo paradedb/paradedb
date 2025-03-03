@@ -68,8 +68,10 @@ refresh_ms = 100
 title = "Index Scan"
 log_tps = true
 log_count = true
-sql = """
+on_connect = """
 SET enable_indexonlyscan to OFF;
+"""
+sql = """
 SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:cheese';
 """
 
@@ -78,9 +80,11 @@ refresh_ms = 5
 title = "Custom Scan"
 log_tps = true
 log_count = true
-sql = """
+on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
+"""
+sql = """
 SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:beer';
 """
 

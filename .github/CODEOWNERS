@@ -3,7 +3,6 @@
 /.cargo/                                                       @philippemnoel @rebasedming
 /.github/                                                      @philippemnoel @rebasedming
 /benchmarks/                                                   @philippemnoel @rebasedming
-/cargo-paradedb/                                               @philippemnoel @rebasedming
 /docker/                                                       @philippemnoel @rebasedming
 /docs/                                                         @rebasedming @eeeebbbbrrrr
 /pg_search/                                                    @rebasedming @eeeebbbbrrrr

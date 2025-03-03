@@ -359,6 +359,10 @@ impl Directory for MVCCDirectory {
         };
         Some(Arc::new(panic_handler))
     }
+
+    fn wants_cancel(&self) -> bool {
+        unsafe { pg_sys::InterruptPending != 0 }
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

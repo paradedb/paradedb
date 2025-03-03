@@ -43,19 +43,6 @@ pub struct BM25PageSpecialData {
 }
 
 // ---------------------------------------------------------
-// Merge lock
-// ---------------------------------------------------------
-
-#[derive(Debug, Copy, Clone)]
-#[repr(C, packed)]
-pub struct MergeLockData {
-    pub last_merge: pg_sys::TransactionId,
-
-    #[allow(dead_code)]
-    pub _dead_space: u32,
-}
-
-// ---------------------------------------------------------
 // Linked lists
 // ---------------------------------------------------------
 

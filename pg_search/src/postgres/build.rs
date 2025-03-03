@@ -15,15 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::merge_policy::MergeLock;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::BlockDirectoryType;
 use crate::postgres::storage::block::{
-    MergeLockData, SegmentMetaEntry, CLEANUP_LOCK, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START,
-    SETTINGS_START,
+    SegmentMetaEntry, CLEANUP_LOCK, MERGE_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::merge::MergeLockData;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,

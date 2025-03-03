@@ -192,10 +192,18 @@ impl Directory for ChannelDirectory {
 
     fn wants_cancel(&self) -> bool {
         let (oneshot_sender, oneshot_receiver) = oneshot::channel();
-        self.sender
+        if self
+            .sender
             .send(ChannelRequest::WantsCancel(oneshot_sender))
-            .unwrap();
-        oneshot_receiver.recv().unwrap()
+            .is_err()
+        {
+            // we definitely need to cancel if we had a problem
+            // sending the message over our internal channel
+            return true;
+        }
+
+        // similarly, if we had a failure receiving the error we need to go ahead and cancel too
+        oneshot_receiver.recv().unwrap_or(true)
     }
 }
 

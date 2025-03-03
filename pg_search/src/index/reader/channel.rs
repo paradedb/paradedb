@@ -23,7 +23,7 @@ impl ChannelReader {
                 path.to_path_buf(),
                 oneshot_sender,
             ))
-            .unwrap();
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, format!("{e:?}")))?;
 
         let entry = oneshot_receiver.recv()?;
         Ok(Self { entry, sender })

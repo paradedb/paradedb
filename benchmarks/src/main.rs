@@ -43,6 +43,7 @@ fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "|-------------|-------------|").unwrap();
     writeln!(file, "| Number of Rows | {} |", args.rows).unwrap();
     writeln!(file, "| Test Type   | {} |", args.r#type).unwrap();
+    writeln!(file, "| Prewarm     | {} |", args.prewarm).unwrap();
 }
 
 fn write_postgres_settings(file: &mut File, url: &str) {

@@ -10,22 +10,14 @@ The benchmarking scripts require a Postgres database with [`pg_search`](pg_searc
 
 ## Usage
 
-1. Run `create-table.sql` to generate the test table. The following command populates it with `1000000` rows.
+The following command generates a test table, builds a BM25 index, runs benchmarking queries, and outputs the results to a Markdown file.
 
 ```bash
-psql POSTGRES_URL -f create-table.sql -v num_rows=1000000
+cargo run -- --url POSTGRES_URL
 ```
 
-2. Run `index.sh` to create a BM25 index over the table. Once completed, an `index.md` file will be created with stats on indexing time, index size, etc.
+For more options:
 
 ```bash
-./index.sh --url POSTGRES_URL --type pg_search
-```
-
-`type` can be either `pg_search` or `tuned_postgres`. `pg_search` uses the BM25 index, while `tuned_postgres` uses built-in Postgres GIN and btree indexes.
-
-3. Run `benchmark.sh` to benchmark against the test queries. Once completed, a `benchmark.md` file will be created with benchmark results.
-
-```bash
-./benchmark.sh --url POSTGRES_URL --type pg_search
+cargo run -- --help
 ```

@@ -9,8 +9,8 @@ CREATE TABLE benchmark_logs (
     metadata JSONB
 );
 
-\set num_rows :num_rows
-\echo 'Generating' :num_rows 'rows'
+\set rows :rows
+\echo 'Generating' :rows 'rows'
 
 INSERT INTO benchmark_logs (message, country, severity, timestamp, metadata)
 SELECT
@@ -56,4 +56,4 @@ SELECT
       'authentication event'
     ])[1 + MOD(s.id - 1, 10)]
   )
-FROM generate_series(1, :num_rows) s(id);
+FROM generate_series(1, :rows) s(id);

@@ -17,6 +17,9 @@ struct Args {
 
     #[arg(long, default_value = "10000000")]
     rows: u32,
+
+    #[arg(long, default_value = "3")]
+    runs: usize,
 }
 
 fn main() {
@@ -116,16 +119,9 @@ fn process_index_creation(file: &mut File, url: &str, r#type: &str) {
 
 fn run_benchmarks(file: &mut File, args: &Args) {
     writeln!(file, "\n## Benchmark Results").unwrap();
-    writeln!(
-        file,
-        "| Query Type | Run 1 (ms) | Run 2 (ms) | Run 3 (ms) | Rows Returned | Query |"
-    )
-    .unwrap();
-    writeln!(
-        file,
-        "|------------|------------|------------|------------|---------------|--------|"
-    )
-    .unwrap();
+
+    // Dynamically create the header based on the number of runs
+    write_benchmark_table_header(file, args.runs);
 
     if args.prewarm {
         prewarm_indexes(&args.url, &args.r#type);
@@ -151,22 +147,47 @@ fn run_benchmarks(file: &mut File, args: &Args) {
 
             println!("Query Type: {}\nQuery: {}", query_type, query);
 
-            let (results, num_results) = execute_query_multiple_times(&args.url, query, 3);
+            let (results, num_results) = execute_query_multiple_times(&args.url, query, args.runs);
 
             let md_query = query.replace("|", "\\|");
-            writeln!(
-                file,
-                "| {} | {:.0} | {:.0} | {:.0} | {} | `{}` |",
-                query_type, results[0], results[1], results[2], num_results, md_query
-            )
-            .unwrap();
+            write_benchmark_results(file, &query_type, &results, num_results, &md_query);
 
-            println!(
-                "Run 1: {:.0}ms | Run 2: {:.0}ms | Run 3: {:.0}ms | Results: {}\n",
-                results[0], results[1], results[2], num_results
-            );
+            println!("Results: {:?} | Rows Returned: {}\n", results, num_results);
         }
     }
+}
+
+fn write_benchmark_table_header(file: &mut File, runs: usize) {
+    let mut header = String::from("| Query Type ");
+    let mut separator = String::from("|------------");
+
+    for i in 1..=runs {
+        header.push_str(&format!("| Run {} (ms) ", i));
+        separator.push_str("|------------");
+    }
+
+    header.push_str("| Rows Returned | Query |");
+    separator.push_str("|---------------|--------|");
+
+    writeln!(file, "{}", header).unwrap();
+    writeln!(file, "{}", separator).unwrap();
+}
+
+fn write_benchmark_results(
+    file: &mut File,
+    query_type: &str,
+    results: &[f64],
+    num_results: usize,
+    md_query: &str,
+) {
+    let mut result_line = format!("| {} ", query_type);
+
+    for &result in results {
+        result_line.push_str(&format!("| {:.0} ", result));
+    }
+
+    result_line.push_str(&format!("| {} | `{}` |", num_results, md_query));
+    writeln!(file, "{}", result_line).unwrap();
 }
 
 fn execute_psql_command(url: &str, command: &str) -> Result<String, std::io::Error> {

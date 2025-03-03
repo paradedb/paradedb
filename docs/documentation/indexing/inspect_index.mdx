@@ -46,3 +46,15 @@ Generally speaking, the segment count should match the server's CPU count. In pr
 that a single segment is split into multiple segments.
 
 In order for the index to maintain an optimal segment count, the index must have enough memory and threads for [creating](/documentation/configuration/index) and [writing](/documentation/configuration/write) to the index.
+
+## Segment Merging
+
+`paradedb.is_merging` returns true if the specified index is currently merging segments, false if not.
+
+```sql
+SELECT paradedb.is_merging('search_id');
+```
+
+An index only merges segments at the end of a INSERT/UPDATE/COPY statements, and depending on how the index is organized
+at the time of the statement, segment merging _could_ take a bit of time. This function provides insight into if merging
+is happening, which might present itself as the INSERT/UPDATE/COPY being "hung".

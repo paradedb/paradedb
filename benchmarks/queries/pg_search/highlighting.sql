@@ -1,1 +1,1 @@
-SELECT id, paradedb.snippet(message) FROM benchmark_logs WHERE message @@@ 'research' LIMIT 10;
+SELECT id, paradedb.snippet(message), paradedb.snippet(country) FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' LIMIT 10;

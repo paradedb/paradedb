@@ -355,7 +355,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "benchmarks"
-version = "0.15.5"
+version = "0.15.6"
 dependencies = [
  "clap",
 ]

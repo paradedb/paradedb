@@ -212,6 +212,10 @@ fn execute_sql_with_timing(url: &str, statement: &str) -> f64 {
         .output()
         .expect("Failed to execute SQL");
 
+    if !output.status.success() {
+        panic!("psql command failed");
+    }
+
     let timing = String::from_utf8_lossy(&output.stdout);
     let duration_ms = timing
         .lines()

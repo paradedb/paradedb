@@ -244,7 +244,7 @@ fn get_index_size(url: &str, index_name: &str) -> i64 {
     String::from_utf8_lossy(&output.stdout)
         .trim()
         .parse::<i64>()
-        .unwrap()
+        .unwrap_or_default()
 }
 
 fn prewarm_indexes(url: &str, r#type: &str) {

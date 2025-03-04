@@ -421,6 +421,10 @@ impl BufferManager {
         }
     }
 
+    pub fn relation_oid(&self) -> pg_sys::Oid {
+        unsafe { (*self.bcache.indexrel()).rd_id }
+    }
+
     pub fn bm25cache(&self) -> &BM25BufferCache {
         &self.bcache
     }
@@ -490,6 +494,23 @@ impl BufferManager {
             BufferMut {
                 dirty: false,
                 inner: Buffer::new(buffer),
+            }
+        }
+    }
+
+    pub fn get_buffer_for_cleanup_conditional(
+        &mut self,
+        blockno: pg_sys::BlockNumber,
+    ) -> Option<BufferMut> {
+        unsafe {
+            let buffer = self.bcache.get_buffer(blockno, None);
+            if pg_sys::ConditionalLockBufferForCleanup(buffer) {
+                Some(BufferMut {
+                    dirty: false,
+                    inner: Buffer::new(buffer),
+                })
+            } else {
+                None
             }
         }
     }

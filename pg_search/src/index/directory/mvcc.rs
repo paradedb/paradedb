@@ -278,7 +278,7 @@ impl Directory for MVCCDirectory {
 
         // try to acquire our [`MergeLock`].  If we can't, then we can't merge, so just return with
         // [`NoMergePolicy`].
-        let merge_lock = unsafe {
+        let mut merge_lock = unsafe {
             match MergeLock::acquire_for_merge(self.relation_oid) {
                 // we couldn't get the [`MergeLock`] so we can't merge
                 None => return Some(Box::new(NoMergePolicy)),
@@ -308,6 +308,7 @@ impl Directory for MVCCDirectory {
 
             avg_byte_size_per_doc,
             segment_freeze_size: max_mergeable_segment_size(),
+            vacuum_list: merge_lock.list_vacuuming_segments(),
         };
 
         // hold onto the MergeLock for the lifetime of this MVCCDirectory instance, ensuring no

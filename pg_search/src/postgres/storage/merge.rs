@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::block::MERGE_LOCK;
-use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, MERGE_LOCK};
+use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use pgrx::pg_sys;
+use std::collections::HashSet;
+use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`MergeLock`] page
 #[derive(Debug, Copy, Clone)]
@@ -25,13 +27,23 @@ use pgrx::pg_sys;
 pub struct MergeLockData {
     pub last_merge: pg_sys::TransactionId,
 
+    /// This space was once used but no longer is.  As such, it needs to remain dead forever
     #[allow(dead_code)]
     pub _dead_space: u32,
+
+    /// Contains the [`pg_sys::BlockNumber`] of the active merge list
+    active_vacuum_list: pg_sys::BlockNumber,
+
+    /// A block for which is pin is held during `ambulkdelete()`
+    ambulkdelete_sentinel: pg_sys::BlockNumber,
 }
 
 /// Only one merge can happen at a time, so we need to lock the merge process
 #[derive(Debug)]
-pub struct MergeLock(BufferMut);
+pub struct MergeLock {
+    bman: BufferManager,
+    buffer: BufferMut,
+}
 
 impl MergeLock {
     // This lock is acquired by inserts that attempt to merge segments
@@ -85,7 +97,10 @@ impl MergeLock {
 
         if last_merge_visible {
             metadata.last_merge = pg_sys::GetCurrentTransactionId();
-            Some(MergeLock(merge_lock))
+            Some(MergeLock {
+                bman,
+                buffer: merge_lock,
+            })
         } else {
             None
         }
@@ -96,7 +111,10 @@ impl MergeLock {
     pub unsafe fn acquire_for_delete(relation_oid: pg_sys::Oid) -> Self {
         let mut bman = BufferManager::new(relation_oid);
         let merge_lock = bman.get_buffer_mut(MERGE_LOCK);
-        MergeLock(merge_lock)
+        MergeLock {
+            bman,
+            buffer: merge_lock,
+        }
     }
 
     pub unsafe fn init(relation_id: pg_sys::Oid) {
@@ -104,7 +122,80 @@ impl MergeLock {
         let mut merge_lock = bman.get_buffer_mut(MERGE_LOCK);
         let mut page = merge_lock.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
+
         metadata.last_merge = pg_sys::InvalidTransactionId;
+        metadata.active_vacuum_list = pg_sys::InvalidBlockNumber;
+        metadata.ambulkdelete_sentinel = pg_sys::InvalidBlockNumber;
+    }
+
+    pub fn active_vacuum_list(&mut self) -> VacuumList {
+        let mut page = self.buffer.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+
+        // if the `active_vacuum_list` block number appears to be uninitialized, which in our
+        // case will be zero if this is from an index that existed prior to adding the `active_vacuum_list`
+        // field.
+        //
+        // Otherwise, it'll be pg_sys::InvalidBlockNumber b/c the index was created after adding the
+        // `active_vacuum_list` field.
+        let relation_oid = self.bman.relation_oid();
+        if metadata.active_vacuum_list == 0
+            || metadata.active_vacuum_list == pg_sys::InvalidBlockNumber
+        {
+            // create a new VacuumList for this index and assign its starting block number
+            metadata.active_vacuum_list = VacuumList::create(relation_oid);
+        }
+
+        // open the VacuumList
+        let start_page = metadata.active_vacuum_list;
+        VacuumList::open(self, relation_oid, start_page)
+    }
+
+    pub fn list_vacuuming_segments(&mut self) -> HashSet<SegmentId> {
+        let page = self.buffer.page();
+        let metadata = page.contents::<MergeLockData>();
+        if metadata.active_vacuum_list == 0
+            || metadata.active_vacuum_list == pg_sys::InvalidBlockNumber
+        {
+            // the VacuumList has never been initialized
+            return Default::default();
+        }
+
+        if !self.is_ambulkdelete_running() {
+            // there's no ambulkdelete running, so the contents of the VacuumList are immaterial to us
+            return Default::default();
+        }
+
+        VacuumList::open(self, self.bman.relation_oid(), metadata.active_vacuum_list).list()
+    }
+
+    fn pin_ambulkdelete_sentinel(&mut self) -> PinnedBuffer {
+        let mut page = self.buffer.page_mut();
+        let metadata = page.contents_mut::<MergeLockData>();
+        if metadata.ambulkdelete_sentinel == 0
+            || metadata.ambulkdelete_sentinel == pg_sys::InvalidBlockNumber
+        {
+            // initialize the sentinel page, if necessary
+            let mut sentinal_buffer = self.bman.new_buffer();
+            sentinal_buffer.init_page();
+            metadata.ambulkdelete_sentinel = sentinal_buffer.number();
+        }
+
+        self.bman.pinned_buffer(metadata.ambulkdelete_sentinel)
+    }
+
+    pub fn is_ambulkdelete_running(&mut self) -> bool {
+        let page = self.buffer.page();
+        let metadata = page.contents::<MergeLockData>();
+        if metadata.ambulkdelete_sentinel == 0
+            || metadata.ambulkdelete_sentinel == pg_sys::InvalidBlockNumber
+        {
+            // sentinel page was never initialized
+            return false;
+        }
+        self.bman
+            .get_buffer_for_cleanup_conditional(metadata.ambulkdelete_sentinel)
+            .is_none()
     }
 }
 
@@ -128,10 +219,137 @@ impl Drop for MergeLock {
                     }
                 }
 
-                let mut page = self.0.page_mut();
+                let mut page = self.buffer.page_mut();
                 let metadata = page.contents_mut::<MergeLockData>();
                 metadata.last_merge = current_xid;
             }
+        }
+    }
+}
+
+type SegmentIdBytes = [u8; 16];
+#[derive(Debug, Copy, Clone)]
+#[repr(C, packed)]
+struct VacuumListData {
+    segment_ids:
+        [SegmentIdBytes; (bm25_max_free_space() - size_of::<u16>()) / size_of::<SegmentIdBytes>()],
+    nentries: u16,
+}
+
+#[derive(Debug)]
+pub struct VacuumList<'a> {
+    bman: BufferManager,
+    start_block_number: pg_sys::BlockNumber,
+    merge_lock: &'a mut MergeLock,
+}
+
+impl<'a> VacuumList<'a> {
+    fn create(relation_oid: pg_sys::Oid) -> pg_sys::BlockNumber {
+        let mut bman = BufferManager::new(relation_oid);
+        let mut start_buffer = bman.new_buffer();
+        let mut start_page = start_buffer.init_page();
+
+        let special = start_page.special_mut::<BM25PageSpecialData>();
+        special.next_blockno = pg_sys::InvalidBlockNumber;
+
+        start_buffer.number()
+    }
+
+    fn open(
+        merge_lock: &'a mut MergeLock,
+        relation_oid: pg_sys::Oid,
+        start_block_number: pg_sys::BlockNumber,
+    ) -> VacuumList<'a> {
+        Self {
+            bman: BufferManager::new(relation_oid),
+            start_block_number,
+            merge_lock,
+        }
+    }
+
+    pub fn mark_active<'s>(
+        mut self,
+        segment_ids: impl Iterator<Item = &'s SegmentId>,
+    ) -> PinnedBuffer {
+        let mut segment_ids = segment_ids.collect::<Vec<_>>();
+        segment_ids.sort();
+
+        self.clear();
+
+        let mut buffer = self.bman.get_buffer_mut(self.start_block_number);
+        let mut page = buffer.page_mut();
+        let mut contents = page.contents_mut::<VacuumListData>();
+        for segment_id in segment_ids {
+            let segment_id = segment_id.uuid_bytes();
+            if contents.nentries as usize >= contents.segment_ids.len() {
+                // switch to the next page, either using the one that's already linked
+                // or by creating a new page
+                let special = page.special_mut::<BM25PageSpecialData>();
+                if special.next_blockno != pg_sys::InvalidBlockNumber {
+                    // we want to reuse the next block if we have one
+                    buffer = self.bman.get_buffer_mut(special.next_blockno);
+                    page = buffer.page_mut();
+                } else {
+                    // make a new next block
+                    let next_buffer = self.bman.new_buffer();
+
+                    // link it in
+                    special.next_blockno = next_buffer.number();
+
+                    // switch to it
+                    buffer = next_buffer;
+                    page = buffer.init_page();
+                }
+
+                contents = page.contents_mut::<VacuumListData>();
+            }
+
+            contents.segment_ids[contents.nentries as usize].copy_from_slice(segment_id);
+            contents.nentries += 1;
+        }
+
+        drop(buffer);
+
+        self.merge_lock.pin_ambulkdelete_sentinel()
+    }
+
+    pub fn list(&self) -> HashSet<SegmentId> {
+        let mut segment_ids = HashSet::new();
+        let mut buffer = self.bman.get_buffer(self.start_block_number);
+        loop {
+            let page = buffer.page();
+            let contents = page.contents::<VacuumListData>();
+            if contents.nentries == 0 {
+                // no entries on this page
+                break;
+            }
+
+            for segment_id in &contents.segment_ids[..contents.nentries as usize] {
+                segment_ids.insert(SegmentId::from_bytes(*segment_id));
+            }
+
+            if page.next_blockno() == pg_sys::InvalidBlockNumber {
+                // we don't have another block
+                break;
+            }
+
+            buffer = self.bman.get_buffer(page.next_blockno());
+        }
+
+        segment_ids
+    }
+
+    fn clear(&mut self) {
+        let mut buffer = self.bman.get_buffer_mut(self.start_block_number);
+        loop {
+            let mut page = buffer.page_mut();
+
+            page.contents_mut::<VacuumListData>().nentries = 0;
+
+            if page.next_blockno() == pg_sys::InvalidBlockNumber {
+                break;
+            }
+            buffer = self.bman.get_buffer_mut(page.next_blockno());
         }
     }
 }

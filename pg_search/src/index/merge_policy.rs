@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use tantivy::index::SegmentId;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::SegmentMeta;
 macro_rules! my_eprintln {
@@ -33,6 +35,8 @@ pub struct NPlusOneMergePolicy {
     // the size, in bytes, of a segment whereby we will not
     // to merge it at all
     pub segment_freeze_size: usize,
+
+    pub vacuum_list: HashSet<SegmentId>,
 }
 
 impl MergePolicy for NPlusOneMergePolicy {
@@ -54,6 +58,7 @@ impl MergePolicy for NPlusOneMergePolicy {
         // these segments will live on disk, as-is, until they become smaller through deletes
         let mut segments = segments
             .iter()
+            .filter(|s| !self.vacuum_list.contains(&s.id()))
             .filter(|s| {
                 // estimate the byte size of this segment, accounting for only the *live* docs
                 let byte_size = s.num_docs() as f64 * self.avg_byte_size_per_doc;

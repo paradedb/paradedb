@@ -43,17 +43,21 @@ pub unsafe extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let merge_lock = MergeLock::acquire_for_delete(index_relation.oid());
-    let mut writer = SearchIndexWriter::open(
+    let mut merge_lock = MergeLock::acquire_for_delete(index_relation.oid());
+    let mut index_writer = SearchIndexWriter::open(
         &index_relation,
         BlockDirectoryType::BulkDelete,
         WriterResources::Vacuum,
     )
     .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    let pinned_vacuum_list = merge_lock
+        .active_vacuum_list()
+        .mark_active(index_writer.segment_ids().iter());
+
     let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete, false)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
-    let writer_ids = writer.segment_ids();
+    let writer_ids = index_writer.segment_ids();
 
     let mut did_delete = false;
 
@@ -77,7 +81,7 @@ pub unsafe extern "C" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
-                writer
+                index_writer
                     .delete_document(segment_reader.segment_id(), doc_id)
                     .expect("ambulkdelete: deleting document by segment and id should succeed");
             }
@@ -85,15 +89,12 @@ pub unsafe extern "C" fn ambulkdelete(
     }
 
     // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`
-    writer
+    index_writer
         .commit()
         .expect("ambulkdelete: commit should succeed");
 
-    // we're done evaluating docs and no longer need to hold the merge_lock.
-    //
-    // In fact, holding it while we potentially acquire the CLEANUP_LOCK below can cause deadlocks
-    // across backends due to lock inversion issues
-    drop(merge_lock);
+    // we're done with the vacuum process and no longer need to hold open a pin on the index's VacuumList
+    drop(pinned_vacuum_list);
 
     if stats.is_null() {
         stats = unsafe {

@@ -9,7 +9,7 @@ name: Benchmark pg_search
 on:
   pull_request:
     paths:
-      - "./github/workflows/benchmark-pg_search.yml"
+      - ".github/workflows/benchmark-pg_search.yml"
   push:
     branches:
       - dev

@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [13, 14, 15, 16, 17]
+        pg_version: [14, 15, 16, 17]
     env:
       default_pg_version: 17
 

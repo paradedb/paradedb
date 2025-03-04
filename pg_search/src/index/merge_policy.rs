@@ -41,6 +41,14 @@ pub struct NPlusOneMergePolicy {
     pub vacuum_list: HashSet<SegmentId>,
 }
 
+impl Drop for NPlusOneMergePolicy {
+    fn drop(&mut self) {
+        eprintln!("[{}]: NPlusOneMergePolicy dropped", unsafe {
+            pg_sys::MyProcPid
+        });
+    }
+}
+
 impl MergePolicy for NPlusOneMergePolicy {
     fn compute_merge_candidates(&self, segments: &[SegmentMeta]) -> Vec<MergeCandidate> {
         #[derive(Debug)]
@@ -61,13 +69,7 @@ impl MergePolicy for NPlusOneMergePolicy {
         let mut segments = segments
             .iter()
             // filter out segments that are currently being vacuumed
-            .filter(|s| {
-                let is_vacuuming = self.vacuum_list.contains(&s.id());
-                if is_vacuuming {
-                    eprintln!("[{}] vacuuming: {}", unsafe { pg_sys::MyProcPid }, s.id());
-                }
-                !is_vacuuming
-            })
+            .filter(|s| !self.vacuum_list.contains(&s.id()))
             // filter out segments that are too big
             .filter(|s| {
                 // estimate the byte size of this segment, accounting for only the *live* docs
@@ -221,6 +223,7 @@ impl MergePolicy for NPlusOneMergePolicy {
             break;
         }
         my_eprintln!("---- /compute_merge_candidates ---- ");
+
         candidates
     }
 }

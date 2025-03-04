@@ -1,3 +1,4 @@
+use pgrx::pg_sys;
 use std::collections::HashSet;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
@@ -36,6 +37,7 @@ pub struct NPlusOneMergePolicy {
     // to merge it at all
     pub segment_freeze_size: usize,
 
+    // segments which are currently being vacuumed -- we cannot merge these
     pub vacuum_list: HashSet<SegmentId>,
 }
 
@@ -58,7 +60,15 @@ impl MergePolicy for NPlusOneMergePolicy {
         // these segments will live on disk, as-is, until they become smaller through deletes
         let mut segments = segments
             .iter()
-            .filter(|s| !self.vacuum_list.contains(&s.id()))
+            // filter out segments that are currently being vacuumed
+            .filter(|s| {
+                let is_vacuuming = self.vacuum_list.contains(&s.id());
+                if is_vacuuming {
+                    eprintln!("[{}] vacuuming: {}", unsafe { pg_sys::MyProcPid }, s.id());
+                }
+                !is_vacuuming
+            })
+            // filter out segments that are too big
             .filter(|s| {
                 // estimate the byte size of this segment, accounting for only the *live* docs
                 let byte_size = s.num_docs() as f64 * self.avg_byte_size_per_doc;
@@ -78,6 +88,11 @@ impl MergePolicy for NPlusOneMergePolicy {
             })
             .collect::<Vec<_>>();
 
+        eprintln!(
+            "[{}] segments.len()={}",
+            unsafe { pg_sys::MyProcPid },
+            segments.len()
+        );
         if segments.len() < self.min_merge_count {
             // not enough segments to even consider merging
             return vec![];

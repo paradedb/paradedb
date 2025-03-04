@@ -510,6 +510,7 @@ impl BufferManager {
                     inner: Buffer::new(buffer),
                 })
             } else {
+                pg_sys::ReleaseBuffer(buffer);
                 None
             }
         }

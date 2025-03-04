@@ -276,14 +276,21 @@ impl Directory for MVCCDirectory {
             return Some(Box::new(NoMergePolicy));
         }
 
-        // try to acquire our [`MergeLock`].  If we can't, then we can't merge, so just return with
-        // [`NoMergePolicy`].
-        let mut merge_lock = unsafe {
-            match MergeLock::acquire_for_merge(self.relation_oid) {
-                // we couldn't get the [`MergeLock`] so we can't merge
-                None => return Some(Box::new(NoMergePolicy)),
+        // try to acquire our `MergeLock`.
+        //
+        // If we can't, that means that either there's a concurrent merge already happening
+        // or ambulkdelete is analyzing which segments it's going to vacuum
+        let mut merge_lock = match unsafe { MergeLock::acquire_for_merge(self.relation_oid) } {
+            // we couldn't get the `MergeLock` so we can't merge
+            None => {
+                pgrx::warning!("merge_policy: couldn't acquire MergeLock");
+                return Some(Box::new(NoMergePolicy));
+            }
 
-                Some(merge_lock) => merge_lock,
+            // we now own the `MergeLock` and will hold onto it until this MVCCDirectory is dropped
+            Some(merge_lock) => {
+                pgrx::warning!("merge_policy: acquired MergeLock");
+                merge_lock
             }
         };
 
@@ -315,6 +322,7 @@ impl Directory for MVCCDirectory {
         // other concurrent backends can merge while we're still alive doing things
         *self.lock_holder.lock() = Some(merge_lock);
 
+        pgrx::warning!("returning merge_policy");
         Some(Box::new(merge_policy))
     }
 

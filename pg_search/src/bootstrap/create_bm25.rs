@@ -234,7 +234,7 @@ fn index_info(
 
 #[pg_extern]
 fn is_merging(index: PgRelation) -> bool {
-    unsafe { MergeLock::acquire_for_merge(index.oid()).is_none() }
+    unsafe { MergeLock::is_merging(index.oid()) }
 }
 
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple

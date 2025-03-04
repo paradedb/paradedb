@@ -55,6 +55,17 @@ pub struct MergeLock {
 }
 
 impl MergeLock {
+    pub unsafe fn is_merging(relation_oid: pg_sys::Oid) -> bool {
+        if !crate::postgres::utils::IsTransactionState() {
+            return false;
+        }
+
+        // a merge is happening if we're unable to obtain the MERGE_LOCK
+        // means some other backend has it
+        let mut bman = BufferManager::new(relation_oid);
+        bman.get_buffer_conditional(MERGE_LOCK).is_none()
+    }
+
     /// This lock is acquired by inserts that attempt to merge segments
     /// Merges should only happen if there is no other merge in progress
     /// AND the effects of the previous merge are visible
@@ -158,8 +169,9 @@ impl MergeLock {
 
         // open the VacuumList
         let start_page = metadata.active_vacuum_list;
+        let merge_lock = self;
         VacuumList::open(
-            move || self.pin_ambulkdelete_sentinel(),
+            move || merge_lock.pin_ambulkdelete_sentinel(),
             relation_oid,
             start_page,
         )
@@ -167,7 +179,7 @@ impl MergeLock {
 
     pub fn list_vacuuming_segments(&mut self) -> HashSet<SegmentId> {
         if !self.is_ambulkdelete_running() {
-            pgrx::warning!("no ambulkdelete is running");
+            pgrx::warning!("no ambulkdelete running");
             // there's no ambulkdelete running, so the contents of the VacuumList are immaterial to us
             return Default::default();
         }
@@ -191,7 +203,7 @@ impl MergeLock {
         .list()
     }
 
-    fn pin_ambulkdelete_sentinel(&mut self) -> VacuumSentinel {
+    fn pin_ambulkdelete_sentinel(mut self) -> VacuumSentinel {
         let mut page = self.buffer.page_mut();
         let metadata = page.contents_mut::<MergeLockData>();
         if metadata.ambulkdelete_sentinel == 0
@@ -230,31 +242,32 @@ impl MergeLock {
 
 impl Drop for MergeLock {
     fn drop(&mut self) {
-        unsafe {
-            if crate::postgres::utils::IsTransactionState() {
-                let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
-
-                // if we don't have a transaction id (typically from a parallel vacuum)...
-                if current_xid == pg_sys::InvalidTransactionId {
-                    // ... then use the next transaction id as ours
-                    #[cfg(feature = "pg13")]
-                    {
-                        current_xid = pg_sys::ReadNewTransactionId()
-                    }
-
-                    #[cfg(not(feature = "pg13"))]
-                    {
-                        current_xid = pg_sys::ReadNextTransactionId()
-                    }
-                }
-
-                let mut page = self.buffer.page_mut();
-                let metadata = page.contents_mut::<MergeLockData>();
-                metadata.last_merge = current_xid;
-
-                pgrx::warning!("MergeLock dropped");
-            }
-        }
+        pgrx::warning!("MergeLock dropped");
+        // unsafe {
+        //     if crate::postgres::utils::IsTransactionState() {
+        //         let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
+        //
+        //         // if we don't have a transaction id (typically from a parallel vacuum)...
+        //         if current_xid == pg_sys::InvalidTransactionId {
+        //             // ... then use the next transaction id as ours
+        //             #[cfg(feature = "pg13")]
+        //             {
+        //                 current_xid = pg_sys::ReadNewTransactionId()
+        //             }
+        //
+        //             #[cfg(not(feature = "pg13"))]
+        //             {
+        //                 current_xid = pg_sys::ReadNextTransactionId()
+        //             }
+        //         }
+        //
+        //         let mut page = self.buffer.page_mut();
+        //         let metadata = page.contents_mut::<MergeLockData>();
+        //         metadata.last_merge = current_xid;
+        //
+        //         pgrx::warning!("MergeLock dropped");
+        //     }
+        // }
     }
 }
 
@@ -270,7 +283,7 @@ struct VacuumListData {
 pub struct VacuumList {
     bman: BufferManager,
     start_block_number: pg_sys::BlockNumber,
-    sentinel: Box<dyn FnMut() -> VacuumSentinel>,
+    sentinel: Box<dyn FnOnce() -> VacuumSentinel>,
 }
 
 impl VacuumList {
@@ -286,7 +299,7 @@ impl VacuumList {
     }
 
     fn open(
-        sentinel: impl FnMut() -> VacuumSentinel + 'static,
+        sentinel: impl FnOnce() -> VacuumSentinel + 'static,
         relation_oid: pg_sys::Oid,
         start_block_number: pg_sys::BlockNumber,
     ) -> VacuumList {

@@ -49,6 +49,9 @@ pub unsafe extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
+    // take the MergeLock via the returned VacuumList.
+    let vacuum_list = MergeLock::acquire_for_ambulkdelete(index_relation.oid()).vacuum_list();
+
     let mut index_writer = SearchIndexWriter::open(
         &index_relation,
         BlockDirectoryType::BulkDelete,
@@ -60,11 +63,10 @@ pub unsafe extern "C" fn ambulkdelete(
 
     let writer_segment_ids = index_writer.segment_ids();
 
-    // write out the list of segment ids we're about to operate on -- these will be excluded from
-    // possible future concurrent merges, until `vacuum_sentinel` is dropped
-    let vacuum_sentinel = MergeLock::acquire_for_ambulkdelete(index_relation.oid())
-        .vacuum_list()
-        .write_active_list(writer_segment_ids.iter());
+    // write out the list of segment ids we're about to operate on.  Doing so drops the MergeLock
+    // being held by `vacuum_list` and returns the `vacuum_sentinel`.  The segment ids written here
+    // will be excluded from possible future concurrent merges, until `vacuum_sentinel` is dropped
+    let vacuum_sentinel = vacuum_list.write_active_list(writer_segment_ids.iter());
 
     pgrx::warning!("ambulkdelete: starting segment scan");
     let mut did_delete = false;

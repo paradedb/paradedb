@@ -27,6 +27,8 @@ use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
 use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
+use crate::postgres::storage::block::CLEANUP_LOCK;
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::{
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -46,6 +48,7 @@ pub struct SearchIndexWriter {
     writer: Arc<IndexWriter>,
     handler: ChannelRequestHandler,
     insert_queue: Vec<UserOperation>,
+    cleanup_lock: Option<PinnedBuffer>,
 }
 
 impl SearchIndexWriter {
@@ -89,6 +92,9 @@ impl SearchIndexWriter {
             handler,
             ctid_field,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            cleanup_lock: Some(
+                BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK),
+            ),
         })
     }
 
@@ -134,6 +140,9 @@ impl SearchIndexWriter {
             ctid_field,
             handler,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            cleanup_lock: Some(
+                BufferManager::new(index_relation.oid()).pinned_buffer(CLEANUP_LOCK),
+            ),
         })
     }
 

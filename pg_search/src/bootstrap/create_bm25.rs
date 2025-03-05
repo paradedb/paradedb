@@ -17,13 +17,13 @@
 
 use std::collections::HashMap;
 
-use crate::index::merge_policy::MergeLock;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::BlockDirectoryType;
 use crate::postgres::options::SearchIndexCreateOptions;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
 };
+use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
@@ -234,7 +234,7 @@ fn index_info(
 
 #[pg_extern]
 fn is_merging(index: PgRelation) -> bool {
-    unsafe { MergeLock::acquire_for_merge(index.oid()).is_none() }
+    unsafe { MergeLock::is_merging(index.oid()) }
 }
 
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple

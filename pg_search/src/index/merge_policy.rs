@@ -1,4 +1,3 @@
-use pgrx::pg_sys;
 use std::collections::HashSet;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{MergeCandidate, MergePolicy};

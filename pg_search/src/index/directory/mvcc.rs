@@ -116,7 +116,7 @@ impl MVCCDirectory {
             .expect("path should have a component_type");
         let file_entry = entry.get_file_entry(component_type).ok_or_else(|| {
             anyhow!(format!(
-                "directory lookup failed for path=`{}`.  entry={entry:?}",
+                "directory lookup failed of component type {component_type:?} for path=`{}`.  entry={entry:?}",
                 path.display()
             ))
         })?;

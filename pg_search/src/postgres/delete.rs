@@ -49,6 +49,11 @@ pub unsafe extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
+    drop(
+        BufferManager::new(index_relation.oid())
+            .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
+    );
+
     // take the MergeLock via the returned VacuumList.
     let vacuum_list = MergeLock::acquire_for_ambulkdelete(index_relation.oid()).vacuum_list();
 

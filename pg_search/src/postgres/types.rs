@@ -160,16 +160,12 @@ impl TantivyValue {
                 PgBuiltInOids::JSONBOID => {
                     let pgrx_value = pgrx::JsonB::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?;
-                    let json_value: Value =
-                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
-                    Ok(Self::json_value_to_tantivy_value(json_value))
+                    Ok(Self::json_value_to_tantivy_value(pgrx_value.0))
                 }
                 PgBuiltInOids::JSONOID => {
                     let pgrx_value = pgrx::Json::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?;
-                    let json_value: Value =
-                        serde_json::from_slice(&serde_json::to_vec(&pgrx_value.0)?)?;
-                    Ok(Self::json_value_to_tantivy_value(json_value))
+                    Ok(Self::json_value_to_tantivy_value(pgrx_value.0))
                 }
                 _ => Err(TantivyValueError::UnsupportedJsonOid(oid.value())),
             },

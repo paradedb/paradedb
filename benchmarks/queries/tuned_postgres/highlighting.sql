@@ -1,0 +1,1 @@
+SELECT id, ts_headline('english', message, to_tsquery('english', 'research')), ts_headline('english', country, to_tsquery('english', 'canada')) FROM benchmark_logs WHERE to_tsvector('english', message) @@ to_tsquery('english', 'research') AND to_tsvector('english', country) @@ to_tsquery('english', 'canada') LIMIT 10;

@@ -19,11 +19,11 @@ use pgrx::{pg_sys::ItemPointerData, *};
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
-use crate::index::merge_policy::MergeLock;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::merge::MergeLock;
 
 #[pg_guard]
 pub unsafe extern "C" fn ambulkdelete(

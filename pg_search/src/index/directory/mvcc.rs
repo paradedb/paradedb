@@ -17,11 +17,12 @@
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::gucs::max_mergeable_segment_size;
-use crate::index::merge_policy::{AllowedMergePolicy, MergeLock, NPlusOneMergePolicy};
+use crate::index::merge_policy::{AllowedMergePolicy, NPlusOneMergePolicy};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
 };
+use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::LinkedItemList;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;

@@ -22,8 +22,9 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
-use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::merge::MergeLock;
+use crate::segment_tracker::track_ctid;
 
 #[repr(C)]
 pub struct BM25IndexBuildDeleteResult {
@@ -37,7 +38,6 @@ pub unsafe extern "C" fn ambulkdelete(
     callback: pg_sys::IndexBulkDeleteCallback,
     callback_state: *mut ::std::os::raw::c_void,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
-    pgrx::warning!("ambulkdelete: enter");
     let info = PgBox::from_pg(info);
     let mut stats = PgBox::<BM25IndexBuildDeleteResult>::from_pg(stats.cast());
     let index_relation = PgRelation::from_pg(info.index);
@@ -68,9 +68,7 @@ pub unsafe extern "C" fn ambulkdelete(
     // will be excluded from possible future concurrent merges, until `vacuum_sentinel` is dropped
     let vacuum_sentinel = vacuum_list.write_active_list(writer_segment_ids.iter());
 
-    pgrx::warning!("ambulkdelete: starting segment scan");
     let mut did_delete = false;
-    let mut cnt = 0;
     for segment_reader in reader.searcher().segment_readers() {
         if !writer_segment_ids.contains(&segment_reader.segment_id()) {
             // the writer doesn't have this segment reader, and that's fine
@@ -83,7 +81,6 @@ pub unsafe extern "C" fn ambulkdelete(
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
 
         for doc_id in 0..segment_reader.max_doc() {
-            cnt += 1;
             if doc_id % 100 == 0 {
                 // we think there's a pending interrupt, so this should raise a cancel query ERROR
                 pg_sys::vacuum_delay_point();
@@ -92,6 +89,7 @@ pub unsafe extern "C" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
+                track_ctid("vacuum", Some(&segment_reader.segment_id()), ctid);
                 index_writer
                     .delete_document(segment_reader.segment_id(), doc_id)
                     .expect("ambulkdelete: deleting document by segment and id should succeed");
@@ -99,12 +97,17 @@ pub unsafe extern "C" fn ambulkdelete(
         }
     }
 
-    pgrx::warning!("ambulkdelete: examined {} tuples", cnt);
     // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`
     index_writer
         .commit()
         .expect("ambulkdelete: commit should succeed");
     pgrx::warning!("ambulkdelete: finished segment scan");
+
+    // TODO: comment this
+    drop(
+        BufferManager::new(index_relation.oid())
+            .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
+    );
 
     // we're done, no need to hold onto the sentinel any longer
     drop(vacuum_sentinel);
@@ -118,24 +121,5 @@ pub unsafe extern "C" fn ambulkdelete(
         stats.inner.pages_deleted = 0;
     }
 
-    // As soon as ambulkdelete returns, Postgres will update the visibility map
-    // This can cause concurrent scans that have just read ctids, which are dead but
-    // are about to be marked visible, to return wrong results. To guard against this,
-    // we acquire a cleanup lock that guarantees that there are no pins on the index,
-    // which means that all concurrent scans have completed.
-    //
-    // This lock is then immediately released, allowing any queued scans to continue, seeing
-    // the new deleted state of the docs we just marked as deleted.
-    //
-    // Essentially, obtaining the cleanup lock here blocks this vacuum until concurrent scans
-    // are complete
-    if did_delete {
-        drop(
-            BufferManager::new(index_relation.oid())
-                .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
-        );
-    }
-
-    pgrx::warning!("ambulkdelete: exit");
     stats.into_pg().cast()
 }

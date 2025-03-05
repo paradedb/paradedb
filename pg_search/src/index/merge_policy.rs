@@ -2,7 +2,7 @@ use pgrx::pg_sys;
 use std::collections::HashSet;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
-use tantivy::SegmentMeta;
+use tantivy::{Directory, SegmentMeta};
 macro_rules! my_eprintln {
     () => {
         // eprintln!()
@@ -41,16 +41,13 @@ pub struct NPlusOneMergePolicy {
     pub vacuum_list: HashSet<SegmentId>,
 }
 
-impl Drop for NPlusOneMergePolicy {
-    fn drop(&mut self) {
-        eprintln!("[{}]: NPlusOneMergePolicy dropped", unsafe {
-            pg_sys::MyProcPid
-        });
-    }
-}
-
 impl MergePolicy for NPlusOneMergePolicy {
-    fn compute_merge_candidates(&self, segments: &[SegmentMeta]) -> Vec<MergeCandidate> {
+    fn compute_merge_candidates(
+        &self,
+        directory: Option<&dyn Directory>,
+        segments: &[SegmentMeta],
+    ) -> Vec<MergeCandidate> {
+        let original_segments = segments;
         #[derive(Debug)]
         enum MergeBy {
             ByteSize,
@@ -90,11 +87,6 @@ impl MergePolicy for NPlusOneMergePolicy {
             })
             .collect::<Vec<_>>();
 
-        eprintln!(
-            "[{}] segments.len()={}",
-            unsafe { pg_sys::MyProcPid },
-            segments.len()
-        );
         if segments.len() < self.min_merge_count {
             // not enough segments to even consider merging
             return vec![];
@@ -223,6 +215,22 @@ impl MergePolicy for NPlusOneMergePolicy {
             break;
         }
         my_eprintln!("---- /compute_merge_candidates ---- ");
+
+        {
+            let mut detailed_candidates = vec![];
+            for c in &candidates {
+                let mut group = Vec::new();
+                for segment_id in &c.0 {
+                    let segment_meta = original_segments.iter().find(|s| s.id() == *segment_id);
+                    group.push(segment_meta.unwrap());
+                }
+                detailed_candidates.push(group);
+            }
+            directory.as_ref().unwrap().log(
+                &serde_json::to_string(&detailed_candidates)
+                    .expect("candidates should convert to json for logging"),
+            );
+        }
 
         candidates
     }

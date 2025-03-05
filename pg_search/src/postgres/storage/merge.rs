@@ -19,6 +19,7 @@ use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, 
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use pgrx::pg_sys;
 use std::collections::HashSet;
+use std::mem::ManuallyDrop;
 use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`MergeLock`] page
@@ -39,11 +40,11 @@ pub struct MergeLockData {
 }
 
 #[repr(transparent)]
-struct VacuumSentinel(PinnedBuffer);
+struct VacuumSentinel(ManuallyDrop<PinnedBuffer>);
 
 impl Drop for VacuumSentinel {
     fn drop(&mut self) {
-        pgrx::warning!("vacuum sentinel dropped");
+        unsafe { drop(ManuallyDrop::take(&mut self.0)) }
     }
 }
 
@@ -75,9 +76,9 @@ impl MergeLock {
         }
 
         let mut bman = BufferManager::new(relation_oid);
-        let mut merge_lock = bman.get_buffer_conditional(MERGE_LOCK)?;
-        let mut page = merge_lock.page_mut();
-        let metadata = page.contents_mut::<MergeLockData>();
+        let merge_lock = bman.get_buffer_conditional(MERGE_LOCK)?;
+        let page = merge_lock.page();
+        let metadata = page.contents::<MergeLockData>();
         let last_merge = metadata.last_merge;
 
         // in order to return the MergeLock we need to make sure we can see the effects of the
@@ -116,7 +117,7 @@ impl MergeLock {
             };
 
         if last_merge_visible {
-            metadata.last_merge = pg_sys::GetCurrentTransactionId();
+            // metadata.last_merge = pg_sys::GetCurrentTransactionId();
             Some(MergeLock {
                 bman,
                 buffer: merge_lock,
@@ -162,7 +163,6 @@ impl MergeLock {
         if metadata.active_vacuum_list == 0
             || metadata.active_vacuum_list == pg_sys::InvalidBlockNumber
         {
-            pgrx::warning!("creating initial VacuumList");
             // create a new VacuumList for this index and assign its starting block number
             metadata.active_vacuum_list = VacuumList::create(relation_oid);
         }
@@ -179,18 +179,15 @@ impl MergeLock {
 
     pub fn list_vacuuming_segments(&mut self) -> HashSet<SegmentId> {
         if !self.is_ambulkdelete_running() {
-            pgrx::warning!("no ambulkdelete running");
             // there's no ambulkdelete running, so the contents of the VacuumList are immaterial to us
             return Default::default();
         }
 
-        pgrx::warning!("ambulkdelete is running");
         let page = self.buffer.page();
         let metadata = page.contents::<MergeLockData>();
         if metadata.active_vacuum_list == 0
             || metadata.active_vacuum_list == pg_sys::InvalidBlockNumber
         {
-            pgrx::warning!("VacuumList not yet initialized");
             // the VacuumList has never been initialized
             return Default::default();
         }
@@ -216,8 +213,7 @@ impl MergeLock {
         }
 
         let sentinel = self.bman.pinned_buffer(metadata.ambulkdelete_sentinel);
-        pgrx::warning!("sentinel is pinned");
-        VacuumSentinel(sentinel)
+        VacuumSentinel(ManuallyDrop::new(sentinel))
     }
 
     fn is_ambulkdelete_running(&mut self) -> bool {
@@ -230,8 +226,6 @@ impl MergeLock {
             return false;
         }
 
-        pgrx::warning!("sentinel page={}", { metadata.ambulkdelete_sentinel });
-
         // an `ambulkdelete()` is running if we can't acquire the sentinel block for cleanup
         // it means ambulkdelete() is holding a pin on that buffer
         self.bman
@@ -242,32 +236,29 @@ impl MergeLock {
 
 impl Drop for MergeLock {
     fn drop(&mut self) {
-        pgrx::warning!("MergeLock dropped");
-        // unsafe {
-        //     if crate::postgres::utils::IsTransactionState() {
-        //         let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
-        //
-        //         // if we don't have a transaction id (typically from a parallel vacuum)...
-        //         if current_xid == pg_sys::InvalidTransactionId {
-        //             // ... then use the next transaction id as ours
-        //             #[cfg(feature = "pg13")]
-        //             {
-        //                 current_xid = pg_sys::ReadNewTransactionId()
-        //             }
-        //
-        //             #[cfg(not(feature = "pg13"))]
-        //             {
-        //                 current_xid = pg_sys::ReadNextTransactionId()
-        //             }
-        //         }
-        //
-        //         let mut page = self.buffer.page_mut();
-        //         let metadata = page.contents_mut::<MergeLockData>();
-        //         metadata.last_merge = current_xid;
-        //
-        //         pgrx::warning!("MergeLock dropped");
-        //     }
-        // }
+        unsafe {
+            if crate::postgres::utils::IsTransactionState() {
+                let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
+
+                // if we don't have a transaction id (typically from a parallel vacuum)...
+                if current_xid == pg_sys::InvalidTransactionId {
+                    // ... then use the next transaction id as ours
+                    #[cfg(feature = "pg13")]
+                    {
+                        current_xid = pg_sys::ReadNewTransactionId()
+                    }
+
+                    #[cfg(not(feature = "pg13"))]
+                    {
+                        current_xid = pg_sys::ReadNextTransactionId()
+                    }
+                }
+
+                let mut page = self.buffer.page_mut();
+                let metadata = page.contents_mut::<MergeLockData>();
+                metadata.last_merge = current_xid;
+            }
+        }
     }
 }
 
@@ -322,19 +313,16 @@ impl VacuumList {
         let mut contents = page.contents_mut::<VacuumListData>();
         contents.nentries = 0;
 
-        let mut cnt = 0;
         for segment_id in segment_ids {
             let segment_id = segment_id.uuid_bytes();
             if contents.nentries as usize >= contents.segment_ids.len() {
                 // switch to the next page, either using the one that's already linked
                 // or by creating a new page
                 if page.next_blockno() != pg_sys::InvalidBlockNumber {
-                    pgrx::warning!("overflowing to next page");
                     // we want to reuse the next block if we have one
                     buffer = self.bman.get_buffer_mut(page.next_blockno());
                     page = buffer.page_mut();
                 } else {
-                    pgrx::warning!("making new page");
                     // make a new next block and link it in
                     let next_buffer = self.bman.new_buffer();
                     let special = page.special_mut::<BM25PageSpecialData>();
@@ -351,10 +339,7 @@ impl VacuumList {
 
             contents.segment_ids[contents.nentries as usize].copy_from_slice(segment_id);
             contents.nentries += 1;
-            cnt += 1;
         }
-
-        pgrx::warning!("wrote {cnt} segments");
 
         (self.sentinel)()
     }
@@ -385,7 +370,6 @@ impl VacuumList {
             buffer = self.bman.get_buffer(page.next_blockno());
         }
 
-        pgrx::warning!("read {} segments", segment_ids.len());
         segment_ids
     }
 }

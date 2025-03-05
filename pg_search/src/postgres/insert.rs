@@ -17,12 +17,12 @@
 
 use crate::index::writer::index::SearchIndexWriter;
 use crate::index::{BlockDirectoryType, WriterResources};
-use crate::postgres::storage::block::CLEANUP_LOCK;
-use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{
-    categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
+    categorize_fields, item_pointer_to_u64, row_to_search_document, u64_to_item_pointer,
+    CategorizedFieldData,
 };
 use crate::schema::SearchField;
+use crate::segment_tracker::track_ctid;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts, PgRelation, PgTupleDesc};
 use std::ffi::CStr;
 use std::panic::{catch_unwind, resume_unwind};
@@ -171,6 +171,8 @@ unsafe fn aminsert_internal(
             let writer = state.writer.as_mut().expect("writer should not be null");
 
             let mut search_document = writer.schema.new_document();
+
+            track_ctid("insert", None, item_pointer_to_u64(*ctid));
 
             row_to_search_document(
                 values,

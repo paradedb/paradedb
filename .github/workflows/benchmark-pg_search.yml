@@ -8,8 +8,8 @@ name: Benchmark pg_search
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/benchmark-pg_search.yml"
+    branches:
+      - main
   push:
     branches:
       - dev
@@ -29,7 +29,7 @@ jobs:
       matrix:
         runner: [ubicloud-standard-8]
         pg_version: [17]
-        num_rows: [1000000]
+        num_rows: [100000000]
     runs-on: ${{ matrix.runner }}
 
     steps:

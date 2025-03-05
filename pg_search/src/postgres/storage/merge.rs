@@ -127,7 +127,7 @@ impl MergeLock {
         }
     }
 
-    /// This is a blocking operation to acquire the MERGE_LOCK.  
+    /// This is a blocking operation to acquire the MERGE_LOCK.
     ///
     /// It should only be called from [`ambulkdelete`] and will block
     /// until concurrent merges in other backends complete.
@@ -216,7 +216,7 @@ impl MergeLock {
         VacuumSentinel(ManuallyDrop::new(sentinel))
     }
 
-    fn is_ambulkdelete_running(&mut self) -> bool {
+    pub fn is_ambulkdelete_running(&mut self) -> bool {
         let page = self.buffer.page();
         let metadata = page.contents::<MergeLockData>();
         if metadata.ambulkdelete_sentinel == 0

@@ -43,7 +43,6 @@ pub enum ChannelRequest {
     ),
     Panic(Box<dyn Any + Send>),
     WantsCancel(oneshot::Sender<bool>),
-    Log(String),
 }
 
 #[derive(Clone, Debug)]
@@ -205,12 +204,6 @@ impl Directory for ChannelDirectory {
 
         // similarly, if we had a failure receiving the error we need to go ahead and cancel too
         oneshot_receiver.recv().unwrap_or(true)
-    }
-
-    fn log(&self, message: &str) {
-        self.sender
-            .send(ChannelRequest::Log(message.to_string()))
-            .ok(); // silently ignore errors trying to log
     }
 }
 
@@ -389,7 +382,6 @@ impl ChannelRequestHandler {
             ChannelRequest::WantsCancel(sender) => {
                 sender.send(self.directory.wants_cancel())?;
             }
-            ChannelRequest::Log(message) => self.directory.log(&message),
         }
         Ok(false)
     }

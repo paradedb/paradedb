@@ -43,7 +43,6 @@ pub struct NPlusOneMergePolicy {
 impl MergePolicy for NPlusOneMergePolicy {
     fn compute_merge_candidates(
         &self,
-        directory: Option<&dyn Directory>,
         segments: &[SegmentMeta],
     ) -> Vec<MergeCandidate> {
         let original_segments = segments;
@@ -216,19 +215,19 @@ impl MergePolicy for NPlusOneMergePolicy {
         my_eprintln!("---- /compute_merge_candidates ---- ");
 
         {
-            let mut detailed_candidates = vec![];
-            for c in &candidates {
-                let mut group = Vec::new();
+            let mut details = String::new();
+            for (i, c) in candidates.iter().enumerate() {
+                details.push_str(&format!("\ncandidate {}: ", i));
                 for segment_id in &c.0 {
-                    let segment_meta = original_segments.iter().find(|s| s.id() == *segment_id);
-                    group.push(segment_meta.unwrap());
+                    let segment_meta = original_segments.iter().find(|s| s.id() == *segment_id).unwrap();
+                    details.push_str(&format!("[id={:?} docs={} deleted={}] ",
+                        segment_id,
+                        segment_meta.num_docs(),
+                        segment_meta.max_doc() - segment_meta.num_docs()
+                    ));
                 }
-                detailed_candidates.push(group);
             }
-            directory.as_ref().unwrap().log(
-                &serde_json::to_string(&detailed_candidates)
-                    .expect("candidates should convert to json for logging"),
-            );
+            eprintln!("merge candidates:{}", details);
         }
 
         candidates

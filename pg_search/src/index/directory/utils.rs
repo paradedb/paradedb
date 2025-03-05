@@ -18,6 +18,7 @@ use tantivy::{
     schema::Schema,
     IndexMeta,
 };
+use crate::postgres::storage::merge::MergeLock;
 
 pub fn save_schema(relation_oid: pg_sys::Oid, tantivy_schema: &Schema) -> Result<()> {
     let mut schema = LinkedBytesList::open(relation_oid, SCHEMA_START);
@@ -87,6 +88,26 @@ pub unsafe fn save_new_metas(
     let created_ids = new_ids.difference(&previous_ids).collect::<Vec<_>>();
     let mut modified_ids = previous_ids.intersection(&new_ids).collect::<Vec<_>>();
     let deleted_ids = previous_ids.difference(&new_ids).collect::<Vec<_>>();
+
+    pgrx::warning!("Created segments: {:?}", created_ids.iter().map(|id| {
+        let segment = incoming_segments.get(id).unwrap();
+        (id, segment.num_docs(), segment.num_deleted_docs())
+    }).collect::<Vec<_>>());
+    let modified_with_deletes: Vec<_> = modified_ids.iter().filter_map(|id| {
+        let segment = incoming_segments.get(id).unwrap();
+        if segment.num_deleted_docs() > 0 {
+            Some((id, segment.num_docs(), segment.num_deleted_docs()))
+        } else {
+            None
+        }
+    }).collect();
+    if !modified_with_deletes.is_empty() {
+        pgrx::warning!("Modified segments with deletes: {:?}", modified_with_deletes);
+    }
+    pgrx::warning!("Deleted segments: {:?}", deleted_ids.iter().map(|id| {
+        let segment = prev_meta.segments.iter().find(|s| s.id() == **id).unwrap();
+        (id, segment.num_docs(), segment.num_deleted_docs())
+    }).collect::<Vec<_>>());
 
     modified_ids.retain(|id| new_files.contains_key(id));
 
@@ -292,9 +313,13 @@ pub unsafe fn save_new_metas(
     linked_list.add_items(created_entries, None)?;
 
     if !deleted_entries.is_empty() {
-        linked_list.garbage_collect(pg_sys::GetAccessStrategy(
-            pg_sys::BufferAccessStrategyType::BAS_VACUUM,
-        ))?;
+        if let Some(mut merge_lock) = MergeLock::acquire_for_merge(relation_oid) {
+            if !merge_lock.is_ambulkdelete_running() {
+                linked_list.garbage_collect(pg_sys::GetAccessStrategy(
+                    pg_sys::BufferAccessStrategyType::BAS_VACUUM,
+                ))?;
+            }
+        }
     }
 
     Ok(())
@@ -305,7 +330,6 @@ pub unsafe fn load_metas(
     inventory: &SegmentMetaInventory,
     snapshot: pg_sys::Snapshot,
     solve_mvcc: MvccSatisfies,
-    filter: Option<HashSet<SegmentId>>,
 ) -> tantivy::Result<IndexMeta> {
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
@@ -324,12 +348,12 @@ pub unsafe fn load_metas(
 
         while offsetno <= max_offset {
             if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if let Some(filter) = filter.as_ref() {
-                    if !filter.contains(&entry.segment_id) {
-                        offsetno += 1;
-                        continue;
-                    }
-                }
+                // if let Some(filter) = filter.as_ref() {
+                //     if !filter.contains(&entry.segment_id) {
+                //         offsetno += 1;
+                //         continue;
+                //     }
+                // }
 
                 if (solve_mvcc == MvccSatisfies::Any && !entry.recyclable(snapshot, heap_relation))
                     || (solve_mvcc == MvccSatisfies::Snapshot && entry.visible(snapshot))

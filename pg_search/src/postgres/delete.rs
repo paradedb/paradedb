@@ -74,6 +74,7 @@ pub unsafe extern "C" fn ambulkdelete(
     let vacuum_sentinel = vacuum_list.write_active_list(writer_segment_ids.iter());
 
     let mut did_delete = false;
+    let mut segments_with_deletes = Vec::new();
     for segment_reader in reader.searcher().segment_readers() {
         if !writer_segment_ids.contains(&segment_reader.segment_id()) {
             // the writer doesn't have this segment reader, and that's fine
@@ -84,6 +85,7 @@ pub unsafe extern "C" fn ambulkdelete(
             continue;
         }
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
+        let mut segment_had_deletes = false;
 
         for doc_id in 0..segment_reader.max_doc() {
             if doc_id % 100 == 0 {
@@ -94,12 +96,25 @@ pub unsafe extern "C" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
+                segment_had_deletes = true;
                 track_ctid("vacuum", Some(&segment_reader.segment_id()), ctid);
                 index_writer
                     .delete_document(segment_reader.segment_id(), doc_id)
                     .expect("ambulkdelete: deleting document by segment and id should succeed");
             }
         }
+
+        if segment_had_deletes {
+            segments_with_deletes.push((
+                segment_reader.segment_id(),
+                segment_reader.num_docs(),
+                segment_reader.max_doc() - segment_reader.num_docs()
+            ));
+        }
+    }
+
+    if !segments_with_deletes.is_empty() {
+        pgrx::warning!("Segments with deletes: {:?}", segments_with_deletes);
     }
 
     // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`

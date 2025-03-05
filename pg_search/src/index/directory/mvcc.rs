@@ -37,7 +37,7 @@ use std::fmt::{Debug, Display};
 use std::panic::panic_any;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::{io, result};
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
@@ -74,7 +74,7 @@ pub struct MVCCDirectory {
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
     // answer
-    loaded_metas: Arc<Mutex<Option<IndexMeta>>>,
+    loaded_metas: OnceLock<tantivy::Result<IndexMeta>>,
 }
 
 impl MVCCDirectory {
@@ -255,65 +255,16 @@ impl Directory for MVCCDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        let mut loaded_metas = self.loaded_metas.lock();
-        match loaded_metas.as_mut() {
-            None => {
-                let new_metas = unsafe {
-                    load_metas(
-                        self.relation_oid,
-                        inventory,
-                        pg_sys::GetActiveSnapshot(),
-                        self.mvcc_style,
-                        None,
-                    )?
-                };
-
-                new_metas
-                    .segments
-                    .iter()
-                    .for_each(|segment| track_segment_meta("load:initial", segment));
-                *loaded_metas = Some(new_metas);
-            }
-            Some(existing_metas) => {
-                existing_metas
-                    .segments
-                    .iter()
-                    .for_each(|segment| track_segment_meta("load:existing", segment));
-
-                let mut new_metas = unsafe {
-                    load_metas(
-                        self.relation_oid,
-                        inventory,
-                        pg_sys::GetActiveSnapshot(),
-                        self.mvcc_style,
-                        Some(
-                            existing_metas
-                                .segments
-                                .iter()
-                                .map(|segment| segment.id().clone())
-                                .collect(),
-                        ),
-                    )?
-                };
-                // pgrx::warning!("existing={:?}", existing_metas.segments);
-                let mut new_segment_metas = Vec::with_capacity(existing_metas.segments.len());
-                for new_meta in new_metas.segments {
-                    if existing_metas
-                        .segments
-                        .iter()
-                        .find(|segment| segment.id() == new_meta.id())
-                        .is_some()
-                    {
-                        track_segment_meta("load:refresh", &new_meta);
-                        new_segment_metas.push(new_meta);
-                    }
-                }
-                new_metas.segments = new_segment_metas;
-                *loaded_metas = Some(new_metas);
-            }
-        }
-
-        Ok(loaded_metas.clone().unwrap())
+        self.loaded_metas
+            .get_or_init(|| unsafe {
+                load_metas(
+                    self.relation_oid,
+                    inventory,
+                    pg_sys::GetActiveSnapshot(),
+                    self.mvcc_style,
+                )
+            })
+            .clone()
     }
 
     fn reconsider_merge_policy(
@@ -418,15 +369,6 @@ impl Directory for MVCCDirectory {
 
     fn wants_cancel(&self) -> bool {
         unsafe { pg_sys::InterruptPending != 0 }
-    }
-
-    fn log(&self, message: &str) {
-        match serde_json::from_str::<Vec<Vec<InnerSegmentMeta>>>(message) {
-            Ok(candidates) => {
-                track_merge_candidates("merge", &candidates);
-            }
-            Err(_) => pgrx::warning!("{message}"),
-        }
     }
 }
 

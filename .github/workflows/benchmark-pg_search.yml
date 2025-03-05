@@ -85,6 +85,12 @@ jobs:
         run: |
           cargo pgrx stop pg${{ matrix.pg_version }}
           cargo pgrx start pg${{ matrix.pg_version }}
+
+      - name: Install pg_search
+        working-directory: pg_search/
+        run: |
+          psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
+
       - name: Run Benchmark
         working-directory: benchmarks/
         run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search

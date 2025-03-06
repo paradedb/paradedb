@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["pg_search", "tests", "tokenizers"]
+members = ["pg_search", "tests", "tokenizers", "benchmarks"]
 
 [workspace.package]
 version = "0.15.6"

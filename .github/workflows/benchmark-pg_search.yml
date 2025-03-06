@@ -86,17 +86,14 @@ jobs:
           cargo pgrx stop pg${{ matrix.pg_version }}
           cargo pgrx start pg${{ matrix.pg_version }}
 
-      - name: Generate Benchmark Data
-        working-directory: benchmarks/
-        run: psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -f create-table.sql -v num_rows=${{ matrix.num_rows }}
-
-      - name: Index Benchmark Data
-        working-directory: benchmarks/
-        run: ./index.sh postgresql://localhost:288${{ matrix.pg_version }}/postgres
+      - name: Install pg_search
+        working-directory: pg_search/
+        run: |
+          psql postgresql://localhost:288${{ matrix.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
 
       - name: Run Benchmark
         working-directory: benchmarks/
-        run: ./benchmark.sh postgresql://localhost:288${{ matrix.pg_version }}/postgres
+        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search
 
       - name: Get PostgreSQL Settings
         id: get_settings
@@ -114,39 +111,12 @@ jobs:
           echo "max_parallel_workers_per_gather=$max_parallel_workers_per_gather" >> $GITHUB_OUTPUT
 
       - name: Create PR Comment
+        if: github.event_name == 'pull_request'
         working-directory: benchmarks/
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          COMMENT="## pg_search Benchmark Results
-
-          ### Test Info
-          | Property | Value |
-          |----------|-------|
-          | Instance Type | ${{ matrix.runner }} |
-          | Estimated Row Count | ${{ matrix.num_rows }} |
-
-          ### PostgreSQL Settings
-          | Setting | Value |
-          |---------|-------|
-          | maintenance_work_mem | ${{ steps.get_settings.outputs.maintenance_work_mem }} |
-          | shared_buffers | ${{ steps.get_settings.outputs.shared_buffers }} |
-          | max_parallel_workers | ${{ steps.get_settings.outputs.max_parallel_workers }} |
-          | max_worker_processes | ${{ steps.get_settings.outputs.max_worker_processes }} |
-          | max_parallel_workers_per_gather | ${{ steps.get_settings.outputs.max_parallel_workers_per_gather }} |
-          "
-
-          BENCHMARK_RESULTS=$(cat benchmark.md)
-          INDEX_RESULTS=$(cat index.md)
-
-          COMMENT="$COMMENT
-
-          ### Index Results
-          $INDEX_RESULTS
-
-          ### Query Performance
-          $BENCHMARK_RESULTS"
-
+          COMMENT=$(cat results_pg_search.md)
           gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"
 
       - name: Send Slack Notification

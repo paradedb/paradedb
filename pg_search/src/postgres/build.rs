@@ -70,6 +70,15 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_oid = index_relation.oid();
 
+    // Get estimated row count from the heap relation
+    let estimated_rows = unsafe { (*heap_relation.rd_rel).rd_tuples };
+
+    if estimated_rows > 100_000 {
+        warning!("Building a BM25 index with more than 100K rows. Consider increasing maintenance_work_mem \
+        to improve build performance. You can do this by running: \
+        SET maintenance_work_mem = '8GB';");
+    }
+
     // Create the metadata blocks for the index
     unsafe { create_metadata(&index_relation) };
 

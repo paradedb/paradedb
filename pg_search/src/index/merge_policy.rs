@@ -11,12 +11,6 @@ macro_rules! my_eprintln {
     }};
 }
 
-#[derive(Debug, Clone)]
-pub enum AllowedMergePolicy {
-    None,
-    NPlusOne,
-}
-
 /// A tantivy [`MergePolicy`] that endeavours to keep a maximum number of segments "N", plus
 /// one extra for leftovers.
 ///

@@ -39,20 +39,14 @@ pub struct MergeLockData {
     ambulkdelete_sentinel: pg_sys::BlockNumber,
 }
 
-#[repr(transparent)]
-struct VacuumSentinel(ManuallyDrop<PinnedBuffer>);
-
-impl Drop for VacuumSentinel {
-    fn drop(&mut self) {
-        unsafe { drop(ManuallyDrop::take(&mut self.0)) }
-    }
-}
+struct VacuumSentinel(PinnedBuffer);
 
 /// Only one merge can happen at a time, so we need to lock the merge process
 #[derive(Debug)]
 pub struct MergeLock {
     bman: BufferManager,
     buffer: BufferMut,
+    save_xid: bool,
 }
 
 impl MergeLock {
@@ -117,10 +111,10 @@ impl MergeLock {
             };
 
         if last_merge_visible {
-            // metadata.last_merge = pg_sys::GetCurrentTransactionId();
             Some(MergeLock {
                 bman,
                 buffer: merge_lock,
+                save_xid: true,
             })
         } else {
             None
@@ -137,6 +131,7 @@ impl MergeLock {
         MergeLock {
             bman,
             buffer: merge_lock,
+            save_xid: false,
         }
     }
 
@@ -213,10 +208,10 @@ impl MergeLock {
         }
 
         let sentinel = self.bman.pinned_buffer(metadata.ambulkdelete_sentinel);
-        VacuumSentinel(ManuallyDrop::new(sentinel))
+        VacuumSentinel(sentinel)
     }
 
-    fn is_ambulkdelete_running(&mut self) -> bool {
+    pub fn is_ambulkdelete_running(&mut self) -> bool {
         let page = self.buffer.page();
         let metadata = page.contents::<MergeLockData>();
         if metadata.ambulkdelete_sentinel == 0
@@ -237,26 +232,28 @@ impl MergeLock {
 impl Drop for MergeLock {
     fn drop(&mut self) {
         unsafe {
-            if crate::postgres::utils::IsTransactionState() {
-                let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
+            if self.save_xid {
+                if crate::postgres::utils::IsTransactionState() {
+                    let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
 
-                // if we don't have a transaction id (typically from a parallel vacuum)...
-                if current_xid == pg_sys::InvalidTransactionId {
-                    // ... then use the next transaction id as ours
-                    #[cfg(feature = "pg13")]
-                    {
-                        current_xid = pg_sys::ReadNewTransactionId()
+                    // if we don't have a transaction id (typically from a parallel vacuum)...
+                    if current_xid == pg_sys::InvalidTransactionId {
+                        // ... then use the next transaction id as ours
+                        #[cfg(feature = "pg13")]
+                        {
+                            current_xid = pg_sys::ReadNewTransactionId()
+                        }
+
+                        #[cfg(not(feature = "pg13"))]
+                        {
+                            current_xid = pg_sys::ReadNextTransactionId()
+                        }
                     }
 
-                    #[cfg(not(feature = "pg13"))]
-                    {
-                        current_xid = pg_sys::ReadNextTransactionId()
-                    }
+                    let mut page = self.buffer.page_mut();
+                    let metadata = page.contents_mut::<MergeLockData>();
+                    metadata.last_merge = current_xid;
                 }
-
-                let mut page = self.buffer.page_mut();
-                let metadata = page.contents_mut::<MergeLockData>();
-                metadata.last_merge = current_xid;
             }
         }
     }
@@ -341,7 +338,7 @@ impl VacuumList {
             contents.nentries += 1;
         }
 
-        (self.sentinel)()
+        (self.sentinel)().0
     }
 
     pub fn list(&self) -> HashSet<SegmentId> {

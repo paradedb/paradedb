@@ -49,13 +49,8 @@ pub unsafe extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    drop(
-        BufferManager::new(index_relation.oid())
-            .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
-    );
-
-    // take the MergeLock via the returned VacuumList.
-    let vacuum_list = MergeLock::acquire_for_ambulkdelete(index_relation.oid()).vacuum_list();
+    // take the MergeLock
+    let merge_lock = MergeLock::acquire_for_ambulkdelete(index_relation.oid());
 
     let mut index_writer = SearchIndexWriter::open(
         &index_relation,
@@ -69,12 +64,14 @@ pub unsafe extern "C" fn ambulkdelete(
     let writer_segment_ids = index_writer.segment_ids();
 
     // write out the list of segment ids we're about to operate on.  Doing so drops the MergeLock
-    // being held by `vacuum_list` and returns the `vacuum_sentinel`.  The segment ids written here
-    // will be excluded from possible future concurrent merges, until `vacuum_sentinel` is dropped
-    let vacuum_sentinel = vacuum_list.write_active_list(writer_segment_ids.iter());
+    // and returns the `vacuum_sentinel`.  The segment ids written here will be excluded from possible
+    // future concurrent merges, until `vacuum_sentinel` is dropped
+    let vacuum_sentinel = merge_lock
+        .vacuum_list()
+        .write_active_list(writer_segment_ids.iter());
 
     let mut did_delete = false;
-    for segment_reader in reader.searcher().segment_readers() {
+    for segment_reader in reader.segment_readers() {
         if !writer_segment_ids.contains(&segment_reader.segment_id()) {
             // the writer doesn't have this segment reader, and that's fine
             // we open the writer and reader in separate calls so it's possible
@@ -106,13 +103,6 @@ pub unsafe extern "C" fn ambulkdelete(
     index_writer
         .commit()
         .expect("ambulkdelete: commit should succeed");
-    pgrx::warning!("ambulkdelete: finished segment scan");
-
-    // TODO: comment this
-    drop(
-        BufferManager::new(index_relation.oid())
-            .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
-    );
 
     // we're done, no need to hold onto the sentinel any longer
     drop(vacuum_sentinel);
@@ -124,6 +114,21 @@ pub unsafe extern "C" fn ambulkdelete(
             )
         };
         stats.inner.pages_deleted = 0;
+    }
+
+    // As soon as ambulkdelete returns, Postgres will update the visibility map
+    // This can cause concurrent scans that have just read ctids, which are dead but
+    // are about to be marked visible, to return wrong results. To guard against this,
+    // we acquire a cleanup lock that guarantees that there are no pins on the index,
+    // which means that all concurrent scans have completed.
+    //
+    // This lock is then immediately released, allowing any queued scans to continue, seeing
+    // the new deleted state of the docs we just marked as deleted
+    if did_delete {
+        drop(
+            BufferManager::new(index_relation.oid())
+                .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
+        );
     }
 
     stats.into_pg().cast()

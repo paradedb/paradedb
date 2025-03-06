@@ -1,14 +1,13 @@
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
+    CLEANUP_LOCK, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::segment_tracker::track_segment_meta_entry;
 use anyhow::Result;
 use pgrx::pg_sys;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -49,6 +48,7 @@ pub unsafe fn save_new_metas(
 ) -> Result<()> {
     let mut linked_list =
         LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
+    let _lock = linked_list.bman_mut().get_buffer_mut(CLEANUP_LOCK);
 
     let incoming_segments = new_meta
         .segments
@@ -291,12 +291,6 @@ pub unsafe fn save_new_metas(
     // add the new entries
     linked_list.add_items(created_entries, None)?;
 
-    if !deleted_entries.is_empty() {
-        linked_list.garbage_collect(pg_sys::GetAccessStrategy(
-            pg_sys::BufferAccessStrategyType::BAS_VACUUM,
-        ))?;
-    }
-
     Ok(())
 }
 
@@ -305,7 +299,6 @@ pub unsafe fn load_metas(
     inventory: &SegmentMetaInventory,
     snapshot: pg_sys::Snapshot,
     solve_mvcc: MvccSatisfies,
-    filter: Option<HashSet<SegmentId>>,
 ) -> tantivy::Result<IndexMeta> {
     let segment_metas = LinkedItemList::<SegmentMetaEntry>::open(relation_oid, SEGMENT_METAS_START);
     let heap_oid = unsafe { pg_sys::IndexGetRelation(relation_oid, false) };
@@ -324,13 +317,6 @@ pub unsafe fn load_metas(
 
         while offsetno <= max_offset {
             if let Some((entry, _)) = page.read_item::<SegmentMetaEntry>(offsetno) {
-                if let Some(filter) = filter.as_ref() {
-                    if !filter.contains(&entry.segment_id) {
-                        offsetno += 1;
-                        continue;
-                    }
-                }
-
                 if (solve_mvcc == MvccSatisfies::Any && !entry.recyclable(snapshot, heap_relation))
                     || (solve_mvcc == MvccSatisfies::Snapshot && entry.visible(snapshot))
                 {

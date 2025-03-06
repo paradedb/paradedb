@@ -22,8 +22,8 @@ use tantivy::directory::{
     WatchCallback, WatchHandle, WritePtr,
 };
 use tantivy::index::SegmentMetaInventory;
-use tantivy::merge_policy::MergePolicy;
-use tantivy::{Directory, IndexMeta, TantivyError};
+use tantivy::TantivyError;
+use tantivy::{Directory, IndexMeta};
 
 pub type Overwrite = bool;
 
@@ -46,11 +46,6 @@ pub enum ChannelRequest {
     LoadMetas(
         SegmentMetaInventory,
         oneshot::Sender<tantivy::Result<IndexMeta>>,
-    ),
-    ReconsiderMergePolicy(
-        IndexMeta,
-        IndexMeta,
-        oneshot::Sender<Option<Box<dyn MergePolicy>>>,
     ),
     Panic(Box<dyn Any + Send>),
     WantsCancel(oneshot::Sender<bool>),
@@ -183,23 +178,6 @@ impl Directory for ChannelDirectory {
         oneshot_receiver
             .recv()
             .map_err(|e| io::Error::new(io::ErrorKind::NotConnected, e))?
-    }
-
-    fn reconsider_merge_policy(
-        &self,
-        meta: &IndexMeta,
-        previous_meta: &IndexMeta,
-    ) -> Option<Box<dyn MergePolicy>> {
-        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
-        self.sender
-            .send(ChannelRequest::ReconsiderMergePolicy(
-                meta.clone(),
-                previous_meta.clone(),
-                oneshot_sender,
-            ))
-            .unwrap();
-
-        oneshot_receiver.recv().unwrap()
     }
 
     fn supports_garbage_collection(&self) -> bool {
@@ -398,12 +376,6 @@ impl ChannelRequestHandler {
             }
             ChannelRequest::LoadMetas(inventory, sender) => {
                 sender.send(self.directory.load_metas(&inventory))?;
-            }
-            ChannelRequest::ReconsiderMergePolicy(meta, previous_meta, sender) => {
-                let policy = self
-                    .directory
-                    .reconsider_merge_policy(&meta, &previous_meta);
-                sender.send(policy)?;
             }
             ChannelRequest::Panic(any) => {
                 if let Some(panic_handler) = self.directory.panic_handler() {

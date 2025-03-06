@@ -16,15 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
-use crate::gucs::max_mergeable_segment_size;
-use crate::index::merge_policy::{AllowedMergePolicy, NPlusOneMergePolicy};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::postgres::storage::block::{
     FileEntry, SegmentFileDetails, SegmentMetaEntry, SEGMENT_METAS_START,
 };
-use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::LinkedItemList;
-use crate::segment_tracker::{track_merge_candidates, track_segment_meta};
+use crate::segment_tracker::{track_inner_segment_meta, track_merge_candidates};
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use pgrx::pg_sys;
@@ -44,11 +41,8 @@ use tantivy::directory::{
     DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, WatchCallback, WatchHandle, WritePtr,
 };
 use tantivy::index::InnerSegmentMeta;
-use tantivy::merge_policy::{MergePolicy, NoMergePolicy};
+use tantivy::merge_policy::MergePolicy;
 use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta};
-
-/// Minimum number of segments for the NPlusOneMergePolicy to maintain
-const MIN_MERGE_COUNT: usize = 2;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
@@ -63,8 +57,6 @@ pub enum MvccSatisfies {
 pub struct MVCCDirectory {
     relation_oid: pg_sys::Oid,
     mvcc_style: MvccSatisfies,
-    merge_policy: AllowedMergePolicy,
-    lock_holder: Arc<Mutex<Option<MergeLock>>>,
 
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
@@ -75,29 +67,30 @@ pub struct MVCCDirectory {
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
     // answer
     loaded_metas: Arc<Mutex<Option<IndexMeta>>>,
+
+    wants_meta_reloads: bool,
 }
 
 impl MVCCDirectory {
-    pub fn snapshot(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
-        Self::with_mvcc_style(relation_oid, merge_policy, MvccSatisfies::Snapshot)
+    pub fn snapshot(relation_oid: pg_sys::Oid, wants_meta_reloads: bool) -> Self {
+        Self::with_mvcc_style(relation_oid, wants_meta_reloads, MvccSatisfies::Snapshot)
     }
 
-    pub fn any(relation_oid: pg_sys::Oid, merge_policy: AllowedMergePolicy) -> Self {
-        Self::with_mvcc_style(relation_oid, merge_policy, MvccSatisfies::Any)
+    pub fn any(relation_oid: pg_sys::Oid, wants_meta_reloads: bool) -> Self {
+        Self::with_mvcc_style(relation_oid, wants_meta_reloads, MvccSatisfies::Any)
     }
 
     fn with_mvcc_style(
         relation_oid: pg_sys::Oid,
-        merge_policy: AllowedMergePolicy,
+        wants_meta_reloads: bool,
         mvcc_style: MvccSatisfies,
     ) -> Self {
         Self {
             relation_oid,
-            merge_policy,
             mvcc_style,
             readers: Arc::new(Mutex::new(FxHashMap::default())),
-            lock_holder: Default::default(),
             loaded_metas: Default::default(),
+            wants_meta_reloads,
         }
     }
 
@@ -255,121 +248,20 @@ impl Directory for MVCCDirectory {
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
-        let mut loaded_metas = self.loaded_metas.lock();
-        match loaded_metas.as_mut() {
-            None => {
-                let new_metas = unsafe {
-                    load_metas(
-                        self.relation_oid,
-                        inventory,
-                        pg_sys::GetActiveSnapshot(),
-                        self.mvcc_style,
-                        None,
-                    )?
-                };
+        let mut locked = self.loaded_metas.lock();
 
-                new_metas
-                    .segments
-                    .iter()
-                    .for_each(|segment| track_segment_meta("load:initial", segment));
-                *loaded_metas = Some(new_metas);
-            }
-            Some(existing_metas) => {
-                existing_metas
-                    .segments
-                    .iter()
-                    .for_each(|segment| track_segment_meta("load:existing", segment));
-
-                let mut new_metas = unsafe {
-                    load_metas(
-                        self.relation_oid,
-                        inventory,
-                        pg_sys::GetActiveSnapshot(),
-                        self.mvcc_style,
-                        Some(
-                            existing_metas
-                                .segments
-                                .iter()
-                                .map(|segment| segment.id().clone())
-                                .collect(),
-                        ),
-                    )?
-                };
-                // pgrx::warning!("existing={:?}", existing_metas.segments);
-                let mut new_segment_metas = Vec::with_capacity(existing_metas.segments.len());
-                for new_meta in new_metas.segments {
-                    if existing_metas
-                        .segments
-                        .iter()
-                        .find(|segment| segment.id() == new_meta.id())
-                        .is_some()
-                    {
-                        track_segment_meta("load:refresh", &new_meta);
-                        new_segment_metas.push(new_meta);
-                    }
-                }
-                new_metas.segments = new_segment_metas;
-                *loaded_metas = Some(new_metas);
-            }
+        if locked.is_none() {
+            *locked = Some(unsafe {
+                load_metas(
+                    self.relation_oid,
+                    inventory,
+                    pg_sys::GetActiveSnapshot(),
+                    self.mvcc_style,
+                )?
+            });
         }
 
-        Ok(loaded_metas.clone().unwrap())
-    }
-
-    fn reconsider_merge_policy(
-        &self,
-        _meta: &IndexMeta,
-        _previous_meta: &IndexMeta,
-    ) -> Option<Box<dyn MergePolicy>> {
-        // we'll only reconsider merging if the merge_policy is our `NPlusOne` policy
-        // all other policies will be converted into [`NoMergePolicy`].
-        if !matches!(self.merge_policy, AllowedMergePolicy::NPlusOne) {
-            return Some(Box::new(NoMergePolicy));
-        }
-
-        // try to acquire our `MergeLock`.
-        //
-        // If we can't, that means that either there's a concurrent merge already happening
-        // or ambulkdelete is analyzing which segments it's going to vacuum
-        let mut merge_lock = match unsafe { MergeLock::acquire_for_merge(self.relation_oid) } {
-            // we couldn't get the `MergeLock` so we can't merge
-            None => {
-                return Some(Box::new(NoMergePolicy));
-            }
-
-            // we now own the `MergeLock` and will hold onto it until this MVCCDirectory is dropped
-            Some(merge_lock) => merge_lock,
-        };
-
-        let target_segments = std::thread::available_parallelism()
-            .expect("failed to get available_parallelism")
-            .get();
-        let avg_byte_size_per_doc = {
-            let items =
-                LinkedItemList::<SegmentMetaEntry>::open(self.relation_oid, SEGMENT_METAS_START);
-            let entries = unsafe { items.list() };
-            let total_byte_size = entries.iter().map(|e| e.byte_size()).sum::<u64>();
-            let total_docs = entries
-                .iter()
-                .map(|e| e.num_docs() + e.num_deleted_docs())
-                .sum::<usize>();
-            total_byte_size as f64 / total_docs as f64
-        };
-
-        let merge_policy = NPlusOneMergePolicy {
-            n: target_segments,
-            min_merge_count: MIN_MERGE_COUNT,
-
-            avg_byte_size_per_doc,
-            segment_freeze_size: max_mergeable_segment_size(),
-            vacuum_list: merge_lock.list_vacuuming_segments(),
-        };
-
-        // hold onto the MergeLock for the lifetime of this MVCCDirectory instance, ensuring no
-        // other concurrent backends can merge while we're still alive doing things
-        *self.lock_holder.lock() = Some(merge_lock);
-
-        Some(Box::new(merge_policy))
+        Ok((*locked).clone().unwrap())
     }
 
     fn supports_garbage_collection(&self) -> bool {
@@ -425,7 +317,10 @@ impl Directory for MVCCDirectory {
             Ok(candidates) => {
                 track_merge_candidates("merge", &candidates);
             }
-            Err(_) => pgrx::warning!("{message}"),
+            Err(_) => match serde_json::from_str::<(String, InnerSegmentMeta)>(message) {
+                Ok((event, entry)) => track_inner_segment_meta(&event, &entry),
+                Err(_) => pgrx::warning!("{message}"),
+            },
         }
     }
 }

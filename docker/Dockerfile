@@ -300,5 +300,8 @@ RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
+# Reset the working directory to the root directory
+WORKDIR /
+
 # Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh

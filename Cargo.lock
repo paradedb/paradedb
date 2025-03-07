@@ -355,7 +355,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "benchmarks"
-version = "0.15.6"
+version = "0.15.7"
 dependencies = [
  "clap",
 ]
@@ -2236,8 +2236,7 @@ dependencies = [
 [[package]]
 name = "lindera"
 version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d8eeee3410e04f0375235b4420b105337db127e3759e6ceac52212f5b4e5ee"
+source = "git+https://github.com/paradedb/lindera.git?rev=5db30093bacf7bf9e05f38861b8787d6aae3e7f4#5db30093bacf7bf9e05f38861b8787d6aae3e7f4"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2256,7 +2255,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "strum 0.26.3",
- "strum_macros 0.26.4",
+ "strum_macros 0.27.1",
  "unicode-blocks",
  "unicode-normalization",
  "unicode-segmentation",
@@ -2266,8 +2265,7 @@ dependencies = [
 [[package]]
 name = "lindera-cc-cedict"
 version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0cc396123063b1f2d7f546d36192caae78ec06be304dcac4091db33d02db00a"
+source = "git+https://github.com/paradedb/lindera.git?rev=5db30093bacf7bf9e05f38861b8787d6aae3e7f4#5db30093bacf7bf9e05f38861b8787d6aae3e7f4"
 dependencies = [
  "bincode",
  "byteorder",
@@ -2279,8 +2277,7 @@ dependencies = [
 [[package]]
 name = "lindera-dictionary"
 version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbb14e04b9937c7382a20e5b135f9a6c7077e0d9a57a3f69e560471e57300476"
+source = "git+https://github.com/paradedb/lindera.git?rev=5db30093bacf7bf9e05f38861b8787d6aae3e7f4#5db30093bacf7bf9e05f38861b8787d6aae3e7f4"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2304,8 +2301,7 @@ dependencies = [
 [[package]]
 name = "lindera-ipadic"
 version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bdaf31dda57b0e1f0f5f2fa11dc4a3cc3ce2721c65e5d0e6f4aed30bb36da02"
+source = "git+https://github.com/paradedb/lindera.git?rev=5db30093bacf7bf9e05f38861b8787d6aae3e7f4#5db30093bacf7bf9e05f38861b8787d6aae3e7f4"
 dependencies = [
  "bincode",
  "byteorder",
@@ -2317,8 +2313,7 @@ dependencies = [
 [[package]]
 name = "lindera-ipadic-neologd"
 version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b0bdebbc648c4e866c2e3da31bd64f4b56741fa7f51d3a156c3f4b0145e128e"
+source = "git+https://github.com/paradedb/lindera.git?rev=5db30093bacf7bf9e05f38861b8787d6aae3e7f4#5db30093bacf7bf9e05f38861b8787d6aae3e7f4"
 dependencies = [
  "bincode",
  "byteorder",
@@ -2330,8 +2325,7 @@ dependencies = [
 [[package]]
 name = "lindera-ko-dic"
 version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e722c201cd20b2b135effdc6b271f8701998227130de2102081abd3081b3366d"
+source = "git+https://github.com/paradedb/lindera.git?rev=5db30093bacf7bf9e05f38861b8787d6aae3e7f4#5db30093bacf7bf9e05f38861b8787d6aae3e7f4"
 dependencies = [
  "bincode",
  "byteorder",
@@ -2343,8 +2337,7 @@ dependencies = [
 [[package]]
 name = "lindera-unidic"
 version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd580d23e6ab93843428c4f6bf22e97f44a7b1e39d0fe9fc2e3fbf8960835ffe"
+source = "git+https://github.com/paradedb/lindera.git?rev=5db30093bacf7bf9e05f38861b8787d6aae3e7f4#5db30093bacf7bf9e05f38861b8787d6aae3e7f4"
 dependencies = [
  "bincode",
  "byteorder",
@@ -2682,7 +2675,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -2820,7 +2813,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.15.6"
+version = "0.15.7"
 dependencies = [
  "anyhow",
  "bincode",
@@ -4377,7 +4370,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -4428,7 +4421,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "bitpacking",
 ]
@@ -4436,7 +4429,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -4451,7 +4444,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -4473,7 +4466,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "nom",
 ]
@@ -4481,7 +4474,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -4494,7 +4487,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "murmurhash32",
  "rand_distr",
@@ -4504,7 +4497,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=d837c284bdb37d5806604d6b02374354a821749c#d837c284bdb37d5806604d6b02374354a821749c"
+source = "git+https://github.com/paradedb/tantivy.git?rev=95774868b706123265a1a2cdc6465f78644a8a31#95774868b706123265a1a2cdc6465f78644a8a31"
 dependencies = [
  "serde",
 ]
@@ -4551,7 +4544,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.15.6"
+version = "0.15.7"
 dependencies = [
  "anyhow",
  "approx",
@@ -4682,7 +4675,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.15.6"
+version = "0.15.7"
 dependencies = [
  "anyhow",
  "lindera",

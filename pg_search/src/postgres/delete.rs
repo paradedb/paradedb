@@ -19,11 +19,12 @@ use pgrx::{pg_sys::ItemPointerData, *};
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
-use crate::index::merge_policy::MergeLock;
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::writer::index::SearchIndexWriter;
-use crate::index::{BlockDirectoryType, WriterResources};
+use crate::index::WriterResources;
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::merge::MergeLock;
 
 #[pg_guard]
 pub unsafe extern "C" fn ambulkdelete(
@@ -33,7 +34,7 @@ pub unsafe extern "C" fn ambulkdelete(
     callback_state: *mut ::std::os::raw::c_void,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = PgBox::from_pg(info);
-    let mut stats = PgBox::from_pg(stats);
+    let mut stats = PgBox::<pg_sys::IndexBulkDeleteResult>::from_pg(stats.cast());
     let index_relation = PgRelation::from_pg(info.index);
     let callback =
         callback.expect("the ambulkdelete() callback should be a valid function pointer");
@@ -43,22 +44,27 @@ pub unsafe extern "C" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    let merge_lock = MergeLock::acquire_for_delete(index_relation.oid());
-    let mut writer = SearchIndexWriter::open(
-        &index_relation,
-        BlockDirectoryType::BulkDelete,
-        WriterResources::Vacuum,
-    )
-    .expect("ambulkdelete: should be able to open a SearchIndexWriter");
-    let reader = SearchIndexReader::open(&index_relation, BlockDirectoryType::BulkDelete, false)
+    // take the MergeLock
+    let merge_lock = MergeLock::acquire_for_ambulkdelete(index_relation.oid());
+
+    let mut index_writer =
+        SearchIndexWriter::open(&index_relation, MvccSatisfies::Any, WriterResources::Vacuum)
+            .expect("ambulkdelete: should be able to open a SearchIndexWriter");
+    let writer_segment_ids = index_writer.segment_ids();
+
+    // write out the list of segment ids we're about to operate on.  Doing so drops the MergeLock
+    // and returns the `vacuum_sentinel`.  The segment ids written here will be excluded from possible
+    // future concurrent merges, until `vacuum_sentinel` is dropped
+    let vacuum_sentinel = merge_lock
+        .vacuum_list()
+        .write_list(writer_segment_ids.iter());
+
+    let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Any)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
 
-    let writer_ids = writer.segment_ids();
-
     let mut did_delete = false;
-
-    for segment_reader in reader.searcher().segment_readers() {
-        if !writer_ids.contains(&segment_reader.segment_id()) {
+    for segment_reader in reader.segment_readers() {
+        if !writer_segment_ids.contains(&segment_reader.segment_id()) {
             // the writer doesn't have this segment reader, and that's fine
             // we open the writer and reader in separate calls so it's possible
             // for the reader, which is opened second, to see a different view of
@@ -77,23 +83,23 @@ pub unsafe extern "C" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 did_delete = true;
-                writer
+                index_writer
                     .delete_document(segment_reader.segment_id(), doc_id)
                     .expect("ambulkdelete: deleting document by segment and id should succeed");
             }
         }
     }
+    // no need to keep the reader around.  Also, it holds a pin on the CLEANUP_LOCK, which
+    // will get in the way of our CLEANUP_LOCK barrier below
+    drop(reader);
 
     // this won't merge as the `WriterResources::Vacuum` uses `AllowedMergePolicy::None`
-    writer
+    index_writer
         .commit()
         .expect("ambulkdelete: commit should succeed");
 
-    // we're done evaluating docs and no longer need to hold the merge_lock.
-    //
-    // In fact, holding it while we potentially acquire the CLEANUP_LOCK below can cause deadlocks
-    // across backends due to lock inversion issues
-    drop(merge_lock);
+    // we're done, no need to hold onto the sentinel any longer
+    drop(vacuum_sentinel);
 
     if stats.is_null() {
         stats = unsafe {
@@ -110,13 +116,13 @@ pub unsafe extern "C" fn ambulkdelete(
     // we acquire a cleanup lock that guarantees that there are no pins on the index,
     // which means that all concurrent scans have completed.
     //
-    // This lock is then immediately released, allowing any queued scans to continue, seeing
-    // the new deleted state of the docs we just marked as deleted
+    // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
+    // scans have finished too
     if did_delete {
-        let mut bman = BufferManager::new(index_relation.oid());
-        let cleanup_lock =
-            bman.get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _);
-        drop(cleanup_lock);
+        drop(
+            BufferManager::new(index_relation.oid())
+                .get_buffer_for_cleanup(CLEANUP_LOCK, pg_sys::ReadBufferMode::RBM_NORMAL as _),
+        );
     }
 
     stats.into_pg()

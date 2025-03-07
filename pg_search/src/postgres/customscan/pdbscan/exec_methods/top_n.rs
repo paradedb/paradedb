@@ -99,7 +99,7 @@ impl TopNScanExecState {
             SearchResults::None
         } else {
             // not parallel, first time query
-            let search_reader = state.search_reader.as_ref().unwrap();
+            let search_reader = &self.search_reader.as_ref().unwrap();
             search_reader.search_top_n(
                 self.search_query_input.as_ref().unwrap(),
                 self.sort_field.clone(),

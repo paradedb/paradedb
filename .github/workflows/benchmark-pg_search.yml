@@ -41,10 +41,15 @@ jobs:
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
+          # Stop any existing PostgreSQL clusters
+          if [[ ! "${{ matrix.pg_version }}" == "14" ]]; then
+            sudo pg_dropcluster 14 main --stop
+          fi
+
+          # Install PostgreSQL
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Extract pgrx Version
@@ -68,7 +73,7 @@ jobs:
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
           cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+          cargo pgrx install --sudo --release --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Configure PostgreSQL settings
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/

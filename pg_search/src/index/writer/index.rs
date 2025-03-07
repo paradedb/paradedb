@@ -16,17 +16,19 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::Result;
-use pgrx::PgRelation;
+use pgrx::{pg_sys, PgRelation};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tantivy::index::SegmentId;
-use tantivy::indexer::UserOperation;
+use tantivy::indexer::{NoMergePolicy, UserOperation};
 use tantivy::schema::Field;
 use tantivy::{DocId, Index, IndexSettings, IndexWriter, Opstamp, TantivyDocument, TantivyError};
 use thiserror::Error;
 
 use crate::index::channel::{ChannelDirectory, ChannelRequestHandler};
-use crate::index::{get_index_schema, setup_tokenizers, BlockDirectoryType, WriterResources};
+use crate::index::merge_policy::NPlusOneMergePolicy;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::{get_index_schema, setup_tokenizers, WriterResources};
 use crate::{
     postgres::types::TantivyValueError,
     schema::{SearchDocument, SearchIndexSchema},
@@ -38,6 +40,7 @@ const MAX_INSERT_QUEUE_SIZE: usize = 1000;
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct SearchIndexWriter {
+    pub indexrelid: pg_sys::Oid,
     pub schema: SearchIndexSchema,
     ctid_field: Field,
 
@@ -46,20 +49,21 @@ pub struct SearchIndexWriter {
     writer: Arc<IndexWriter>,
     handler: ChannelRequestHandler,
     insert_queue: Vec<UserOperation>,
+
+    cnt: usize,
 }
 
 impl SearchIndexWriter {
     pub fn open(
         index_relation: &PgRelation,
-        directory_type: BlockDirectoryType,
+        directory_type: MvccSatisfies,
         resources: WriterResources,
     ) -> Result<Self> {
-        let (parallelism, memory_budget, wants_merge) = resources.resources();
+        let (parallelism, memory_budget) = resources.resources();
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler =
-            directory_type.channel_request_handler(index_relation, req_receiver, wants_merge);
+        let mut handler = directory_type.channel_request_handler(index_relation, req_receiver);
 
         let mut index = {
             handler
@@ -76,6 +80,7 @@ impl SearchIndexWriter {
             .wait_for(move || {
                 let writer =
                     index_clone.writer_with_num_threads(parallelism.get(), memory_budget)?;
+                writer.set_merge_policy(Box::new(NoMergePolicy));
                 tantivy::Result::Ok(writer)
             })
             .expect("scoped thread should not fail")?;
@@ -84,25 +89,24 @@ impl SearchIndexWriter {
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
+            indexrelid: index_relation.oid(),
             writer: Arc::new(writer),
             schema,
             handler,
             ctid_field,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            cnt: 0,
         })
     }
 
     pub fn create_index(index_relation: &PgRelation) -> Result<Self> {
         let schema = get_index_schema(index_relation)?;
-        let (parallelism, memory_budget, merge_policy) = WriterResources::CreateIndex.resources();
+        let (parallelism, memory_budget) = WriterResources::CreateIndex.resources();
 
         let (req_sender, req_receiver) = crossbeam::channel::bounded(1);
         let channel_dir = ChannelDirectory::new(req_sender);
-        let mut handler = BlockDirectoryType::Mvcc.channel_request_handler(
-            index_relation,
-            req_receiver,
-            merge_policy,
-        );
+        let mut handler =
+            MvccSatisfies::Snapshot.channel_request_handler(index_relation, req_receiver);
 
         let mut index = {
             let schema = schema.clone();
@@ -123,18 +127,28 @@ impl SearchIndexWriter {
         let writer = handler
             .wait_for(move || {
                 let writer = index.writer_with_num_threads(parallelism.get(), memory_budget)?;
+                writer.set_merge_policy(Box::new(NoMergePolicy));
                 tantivy::Result::Ok(writer)
             })
             .expect("scoped thread should not fail")?;
+
         let ctid_field = schema.schema.get_field("ctid")?;
 
         Ok(Self {
+            indexrelid: index_relation.oid(),
             writer: Arc::new(writer),
             schema,
             ctid_field,
             handler,
             insert_queue: Vec::with_capacity(MAX_INSERT_QUEUE_SIZE),
+            cnt: 0,
         })
+    }
+
+    /// Our default merge policy is tantivy's [`NoMergePolicy`], and if it's to be changed, we only
+    /// support our own [`NPlusOneMergePolicy`]
+    pub fn set_merge_policy(&mut self, merge_policy: NPlusOneMergePolicy) {
+        self.writer.set_merge_policy(Box::new(merge_policy));
     }
 
     pub fn segment_ids(&mut self) -> HashSet<SegmentId> {
@@ -156,6 +170,7 @@ impl SearchIndexWriter {
     }
 
     pub fn insert(&mut self, document: SearchDocument, ctid: u64) -> Result<()> {
+        self.cnt += 1;
         let mut tantivy_document: TantivyDocument = document.into();
 
         tantivy_document.add_u64(self.ctid_field, ctid);
@@ -173,15 +188,32 @@ impl SearchIndexWriter {
         let mut writer =
             Arc::into_inner(self.writer).expect("should not have an outstanding Arc<IndexWriter>");
 
-        self.handler
+        let writer = self
+            .handler
             .wait_for(move || {
-                let opstamp = writer.commit()?;
-                writer.wait_merging_threads()?;
-                tantivy::Result::Ok(opstamp)
+                writer.commit()?;
+                tantivy::Result::Ok(writer)
             })
             .expect("spawned thread should not fail")?;
 
-        Ok(())
+        let result = self
+            .handler
+            .wait_for(move || writer.wait_merging_threads())?;
+
+        Ok(result?)
+    }
+
+    /// Causes the index to perform a merge.
+    ///
+    /// It is your responsibility to ensure any necessary locking is handled externally
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the insert_queue is not empty.  Can also panic if our internal communications
+    /// channels with tantivy fail for some reason.
+    pub fn merge(self) -> Result<()> {
+        assert!(self.insert_queue.is_empty());
+        self.commit()
     }
 
     fn drain_insert_queue(&mut self) -> Result<Opstamp, TantivyError> {

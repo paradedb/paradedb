@@ -18,8 +18,8 @@
 use pgrx::datum::RangeBound;
 use pgrx::{iter::TableIterator, *};
 
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::index::BlockDirectoryType;
 use crate::postgres::types::TantivyValue;
 use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::AnyEnum;
@@ -60,7 +60,7 @@ pub fn schema(
     // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
     let index = unsafe { PgRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _) };
 
-    let search_reader = SearchIndexReader::open(&index, BlockDirectoryType::Mvcc, false)
+    let search_reader = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)
         .expect("could not open search index reader");
     let schema = search_reader.schema().schema.clone();
     let mut field_entries: Vec<_> = schema.fields().collect();

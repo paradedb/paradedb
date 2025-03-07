@@ -94,8 +94,8 @@ impl BM25BufferCache {
         }
     }
 
-    pub unsafe fn heaprel(&self) -> *mut pg_sys::RelationData {
-        self.heaprel.as_ptr()
+    pub unsafe fn indexrel(&self) -> *mut pg_sys::RelationData {
+        self.indexrel.as_ptr()
     }
 
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {

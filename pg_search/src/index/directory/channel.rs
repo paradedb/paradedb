@@ -22,29 +22,35 @@ use tantivy::directory::{
     WatchCallback, WatchHandle, WritePtr,
 };
 use tantivy::index::SegmentMetaInventory;
-use tantivy::merge_policy::MergePolicy;
-use tantivy::{Directory, IndexMeta};
+use tantivy::{Directory, IndexMeta, TantivyError};
 
 pub type Overwrite = bool;
 
+#[derive(Debug)]
 pub enum ChannelRequest {
-    RegisterFilesAsManaged(Vec<PathBuf>, Overwrite),
-    SegmentRead(Range<usize>, FileEntry, oneshot::Sender<OwnedBytes>),
-    SegmentWrite(PathBuf, Vec<u8>),
-    SegmentFlush(PathBuf),
-    SegmentWriteTerminate(PathBuf),
-    GetSegmentComponent(PathBuf, oneshot::Sender<FileEntry>),
-    SaveMetas(IndexMeta, IndexMeta),
-    LoadMetas(SegmentMetaInventory, oneshot::Sender<IndexMeta>),
-    ReconsiderMergePolicy(
-        IndexMeta,
-        IndexMeta,
-        oneshot::Sender<Option<Box<dyn MergePolicy>>>,
+    RegisterFilesAsManaged(
+        Vec<PathBuf>,
+        Overwrite,
+        oneshot::Sender<tantivy::Result<()>>,
+    ),
+    SegmentRead(
+        Range<usize>,
+        FileEntry,
+        oneshot::Sender<std::io::Result<OwnedBytes>>,
+    ),
+    SegmentWrite(PathBuf, Vec<u8>, oneshot::Sender<std::io::Result<()>>),
+    SegmentFlush(PathBuf, oneshot::Sender<std::io::Result<()>>),
+    SegmentWriteTerminate(PathBuf, oneshot::Sender<std::io::Result<()>>),
+    GetSegmentComponent(PathBuf, oneshot::Sender<tantivy::Result<FileEntry>>),
+    SaveMetas(IndexMeta, IndexMeta, oneshot::Sender<tantivy::Result<()>>),
+    LoadMetas(
+        SegmentMetaInventory,
+        oneshot::Sender<tantivy::Result<IndexMeta>>,
     ),
     Panic(Box<dyn Any + Send>),
     WantsCancel(oneshot::Sender<bool>),
+    Log(String),
 }
-
 #[derive(Clone, Debug)]
 pub struct ChannelDirectory {
     sender: Sender<ChannelRequest>,
@@ -63,7 +69,7 @@ impl Directory for ChannelDirectory {
         Ok(Arc::new(unsafe {
             ChannelReader::new(path, self.sender.clone()).map_err(|e| {
                 OpenReadError::wrap_io_error(
-                    io::Error::new(io::ErrorKind::Other, format!("{:?}", e)),
+                    io::Error::new(io::ErrorKind::NotConnected, e),
                     path.to_path_buf(),
                 )
             })?
@@ -129,11 +135,18 @@ impl Directory for ChannelDirectory {
         files: Vec<PathBuf>,
         overwrite: bool,
     ) -> tantivy::Result<()> {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
-            .send(ChannelRequest::RegisterFilesAsManaged(files, overwrite))
-            .unwrap();
+            .send(ChannelRequest::RegisterFilesAsManaged(
+                files,
+                overwrite,
+                oneshot_sender,
+            ))
+            .map_err(|e| io::Error::new(io::ErrorKind::NotConnected, e.to_string()))?;
 
-        Ok(())
+        oneshot_receiver
+            .recv()
+            .map_err(|e| io::Error::new(io::ErrorKind::NotConnected, e))?
     }
 
     fn save_metas(
@@ -142,40 +155,29 @@ impl Directory for ChannelDirectory {
         previous_meta: &IndexMeta,
         _payload: &mut (dyn Any + '_),
     ) -> tantivy::Result<()> {
+        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
             .send(ChannelRequest::SaveMetas(
                 meta.clone(),
                 previous_meta.clone(),
+                oneshot_sender,
             ))
-            .unwrap();
+            .map_err(|e| io::Error::new(io::ErrorKind::NotConnected, e.to_string()))?;
 
-        Ok(())
+        oneshot_receiver
+            .recv()
+            .map_err(|e| io::Error::new(io::ErrorKind::NotConnected, e))?
     }
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
         let (oneshot_sender, oneshot_receiver) = oneshot::channel();
         self.sender
             .send(ChannelRequest::LoadMetas(inventory.clone(), oneshot_sender))
-            .unwrap();
+            .map_err(|e| io::Error::new(io::ErrorKind::NotConnected, e.to_string()))?;
 
-        Ok(oneshot_receiver.recv().unwrap())
-    }
-
-    fn reconsider_merge_policy(
-        &self,
-        meta: &IndexMeta,
-        previous_meta: &IndexMeta,
-    ) -> Option<Box<dyn MergePolicy>> {
-        let (oneshot_sender, oneshot_receiver) = oneshot::channel();
-        self.sender
-            .send(ChannelRequest::ReconsiderMergePolicy(
-                meta.clone(),
-                previous_meta.clone(),
-                oneshot_sender,
-            ))
-            .unwrap();
-
-        oneshot_receiver.recv().unwrap()
+        oneshot_receiver
+            .recv()
+            .map_err(|e| io::Error::new(io::ErrorKind::NotConnected, e))?
     }
 
     fn supports_garbage_collection(&self) -> bool {
@@ -185,6 +187,7 @@ impl Directory for ChannelDirectory {
     fn panic_handler(&self) -> Option<DirectoryPanicHandler> {
         let sender = self.sender.clone();
         let panic_handler = move |any| {
+            eprintln!("panic handler got one: {any:?}");
             sender.send(ChannelRequest::Panic(any)).unwrap();
         };
         Some(Arc::new(panic_handler))
@@ -204,6 +207,12 @@ impl Directory for ChannelDirectory {
 
         // similarly, if we had a failure receiving the error we need to go ahead and cancel too
         oneshot_receiver.recv().unwrap_or(true)
+    }
+
+    fn log(&self, message: &str) {
+        self.sender
+            .send(ChannelRequest::Log(message.to_string()))
+            .ok(); // silently ignore errors trying to log
     }
 }
 
@@ -272,9 +281,11 @@ impl ChannelRequestHandler {
 
             // caught a panic so let it continue
             Err(e) => {
+                #[allow(clippy::implicit_saturating_sub)]
                 unsafe {
-                    assert!(pg_sys::InterruptHoldoffCount > 0);
-                    pg_sys::InterruptHoldoffCount -= 1;
+                    if pg_sys::InterruptHoldoffCount > 0 {
+                        pg_sys::InterruptHoldoffCount -= 1;
+                    }
                 }
                 resume_unwind(e)
             }
@@ -322,54 +333,51 @@ impl ChannelRequestHandler {
 
     fn process_message(&mut self, message: ChannelRequest) -> Result<ShouldTerminate> {
         match message {
-            ChannelRequest::RegisterFilesAsManaged(files, overwrite) => {
-                self.directory.register_files_as_managed(files, overwrite)?;
+            ChannelRequest::RegisterFilesAsManaged(files, overwrite, sender) => {
+                sender.send(self.directory.register_files_as_managed(files, overwrite))?;
             }
             ChannelRequest::GetSegmentComponent(path, sender) => {
                 if self.file_entries.contains_key(&path) {
-                    sender.send(*self.file_entries.get(&path).unwrap())?;
-                    return Ok(false);
+                    sender.send(Ok(*self.file_entries.get(&path).unwrap()))?;
+                } else {
+                    let file_entry = unsafe {
+                        self.directory
+                            .directory_lookup(&path)
+                            .map_err(|e| TantivyError::SystemError(e.to_string()))
+                    };
+                    sender.send(file_entry)?;
                 }
-
-                let file_entry = unsafe { self.directory.directory_lookup(&path)? };
-                sender.send(file_entry)?;
             }
             ChannelRequest::SegmentRead(range, handle, sender) => {
                 let reader = self.readers.entry(handle).or_insert_with(|| unsafe {
                     SegmentComponentReader::new(self.relation_oid, handle)
                 });
-                let data = reader.read_bytes(range)?;
-                sender.send(data)?;
+                sender.send(reader.read_bytes(range))?;
             }
-            ChannelRequest::SegmentWrite(path, data) => {
+            ChannelRequest::SegmentWrite(path, data, sender) => {
                 let writer = self.writers.entry(path.clone()).or_insert_with(|| unsafe {
                     SegmentComponentWriter::new(self.relation_oid, &path)
                 });
-                writer.write_all(&data)?;
+                sender.send(writer.write_all(&data))?
             }
-            ChannelRequest::SegmentFlush(path) => {
+            ChannelRequest::SegmentFlush(path, sender) => {
                 if let Some(writer) = self.writers.get_mut(&path) {
-                    writer.flush()?;
+                    sender.send(writer.flush())?
                 }
             }
-            ChannelRequest::SegmentWriteTerminate(path) => {
+            ChannelRequest::SegmentWriteTerminate(path, sender) => {
                 let writer = self.writers.remove(&path).expect("writer should exist");
                 self.file_entries.insert(writer.path(), writer.file_entry());
-                writer.terminate()?;
+                sender.send(writer.terminate())?;
             }
-            ChannelRequest::SaveMetas(metas, previous_metas) => {
-                self.directory
-                    .save_metas(&metas, &previous_metas, &mut self.file_entries)?;
+            ChannelRequest::SaveMetas(metas, previous_metas, sender) => {
+                let result =
+                    self.directory
+                        .save_metas(&metas, &previous_metas, &mut self.file_entries);
+                sender.send(result)?;
             }
             ChannelRequest::LoadMetas(inventory, sender) => {
-                let metas = self.directory.load_metas(&inventory)?;
-                sender.send(metas)?;
-            }
-            ChannelRequest::ReconsiderMergePolicy(meta, previous_meta, sender) => {
-                let policy = self
-                    .directory
-                    .reconsider_merge_policy(&meta, &previous_meta);
-                sender.send(policy)?;
+                sender.send(self.directory.load_metas(&inventory))?;
             }
             ChannelRequest::Panic(any) => {
                 if let Some(panic_handler) = self.directory.panic_handler() {
@@ -381,6 +389,7 @@ impl ChannelRequestHandler {
             ChannelRequest::WantsCancel(sender) => {
                 sender.send(self.directory.wants_cancel())?;
             }
+            ChannelRequest::Log(message) => self.directory.log(&message),
         }
         Ok(false)
     }

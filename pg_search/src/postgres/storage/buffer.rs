@@ -213,8 +213,22 @@ pub struct PageMut<'a> {
 impl PageMut<'_> {
     pub fn mark_deleted(mut self) {
         unsafe {
-            self.special_mut::<BM25PageSpecialData>().xmax =
-                pg_sys::ReadNextFullTransactionId().value as pg_sys::TransactionId;
+            // this transaction, if we have one, is the one that is deleting this page
+            let mut current_xid = pg_sys::GetCurrentTransactionIdIfAny();
+
+            // however, we could be in some backend that doesn't have a transaction, such as VACUUM
+            if current_xid == pg_sys::InvalidLocalTransactionId {
+                #[cfg(feature = "pg13")]
+                {
+                    current_xid = pg_sys::ReadNewTransactionId();
+                }
+
+                #[cfg(not(feature = "pg13"))]
+                {
+                    current_xid = pg_sys::ReadNextTransactionId();
+                }
+            }
+            self.special_mut::<BM25PageSpecialData>().xmax = current_xid;
         }
         self.buffer.dirty = true;
     }
@@ -421,6 +435,10 @@ impl BufferManager {
         }
     }
 
+    pub fn relation_oid(&self) -> pg_sys::Oid {
+        unsafe { (*self.bcache.indexrel()).rd_id }
+    }
+
     pub fn bm25cache(&self) -> &BM25BufferCache {
         &self.bcache
     }
@@ -490,6 +508,24 @@ impl BufferManager {
             BufferMut {
                 dirty: false,
                 inner: Buffer::new(buffer),
+            }
+        }
+    }
+
+    pub fn get_buffer_for_cleanup_conditional(
+        &mut self,
+        blockno: pg_sys::BlockNumber,
+    ) -> Option<BufferMut> {
+        unsafe {
+            let buffer = self.bcache.get_buffer(blockno, None);
+            if pg_sys::ConditionalLockBufferForCleanup(buffer) {
+                Some(BufferMut {
+                    dirty: false,
+                    inner: Buffer::new(buffer),
+                })
+            } else {
+                pg_sys::ReleaseBuffer(buffer);
+                None
             }
         }
     }

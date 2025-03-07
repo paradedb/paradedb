@@ -300,9 +300,6 @@ RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Set non-root user explicitly for Docker Scout
-USER nonroot
-
 # Reset the working directory to the root directory
 WORKDIR /
 
